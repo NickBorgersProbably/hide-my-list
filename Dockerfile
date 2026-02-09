@@ -6,11 +6,11 @@ WORKDIR /app
 # Cache dependencies by copying manifests first
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs
-RUN cargo build --release && rm -rf src
+RUN cargo build --release
 
 # Build the real application
 COPY src/ src/
-RUN touch src/main.rs && cargo build --release
+RUN find src/ -name '*.rs' -exec touch {} + && cargo build --release
 
 # ---- Runtime Stage ----
 FROM debian:bookworm-slim

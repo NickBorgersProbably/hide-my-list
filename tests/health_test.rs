@@ -29,4 +29,5 @@ async fn health_endpoint_returns_200() {
     assert_eq!(body["status"], "healthy");
     assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
     assert!(body["uptime_seconds"].is_number());
+    assert_eq!(body["service"], "hide-my-list");
 }
