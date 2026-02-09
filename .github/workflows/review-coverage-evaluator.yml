@@ -1,0 +1,211 @@
+name: Review Coverage Evaluator
+
+# Post-merge analysis: Evaluates whether the review pipeline had adequate coverage
+# for the PR that was just merged. If a gap is found, creates a GitHub issue proposing
+# a new reviewer or changes to an existing one.
+#
+# DESIGN NOTES:
+# - Runs post-merge on main as a background task; never slows PR reviews
+# - Strong bias toward NO ACTION - adding review steps is expensive
+# - Analyzes both code changes AND agent review comments to find gaps
+# - Uses Opus for strong reasoning to avoid false positives
+# - Creates issues with "review-pipeline" label for trackability
+
+on:
+  push:
+    branches: [main]
+
+# Prevent duplicate evaluations for rapid merges
+concurrency:
+  group: review-coverage-evaluator-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/hide-my-list-devcontainer
+
+jobs:
+  # Find the PR that was just merged from the push commit
+  get-pr-context:
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.find-pr.outputs.pr_number }}
+    steps:
+      - name: Find merged PR from commit
+        id: find-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Find the PR associated with this merge commit
+          PR_NUMBER=$(gh api repos/${{ github.repository }}/commits/${{ github.sha }}/pulls \
+            --jq '.[0].number // empty' 2>/dev/null || echo "")
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR found for commit ${{ github.sha }} - this may be a direct push"
+            echo "pr_number=" >> $GITHUB_OUTPUT
+          else
+            echo "Found merged PR #$PR_NUMBER"
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          fi
+
+  # Build and cache devcontainer image (same pattern as other workflows)
+  build-devcontainer:
+    runs-on: ubuntu-latest
+    needs: get-pr-context
+    if: needs.get-pr-context.outputs.pr_number != ''
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
+
+  # Run Claude to evaluate review coverage
+  evaluate-coverage:
+    needs: [get-pr-context, build-devcontainer]
+    if: needs.get-pr-context.outputs.pr_number != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Evaluate review coverage with Claude
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            PR_NUMBER=${{ needs.get-pr-context.outputs.pr_number }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 150 \
+              "You are a REVIEW PIPELINE COVERAGE EVALUATOR for ${REPO}.
+
+            PR #${PR_NUMBER} has been merged to main. Your job is to analyze whether the
+            existing review pipeline adequately covered this PR, or whether there is a
+            meaningful gap that warrants proposing a new review step or changes to an
+            existing one.
+
+            **THE EXISTING REVIEW PIPELINE (5 reviewers):**
+            1. Design Review - validates PR implements issue intent, reviews design quality
+            2. Code Review - Rust code quality, error handling, memory/thread safety
+            3. Test Review - test coverage, missing tests, test quality
+            4. Concurrency & Safety Review - race conditions, deadlocks, unsafe code
+            5. Documentation Review - docs updates needed for code changes
+
+            **YOUR TASK:**
+            1. Read the full PR diff: \`gh pr diff ${PR_NUMBER}\`
+            2. Read ALL comments on the PR (including agent review comments):
+               \`gh pr view ${PR_NUMBER} --comments\`
+               Also fetch review comments on specific lines:
+               \`gh api repos/${REPO}/pulls/${PR_NUMBER}/comments --jq '.[] | \"**\(.user.login)** on \(.path):\(.line):\n\(.body)\n---\"'\`
+            3. Read the PR description: \`gh pr view ${PR_NUMBER}\`
+            4. Analyze whether the 5 existing reviewers adequately covered the changes
+
+            **WHAT TO LOOK FOR:**
+            - Categories of issues that none of the 5 reviewers are equipped to catch
+            - Patterns in agent comments suggesting a reviewer was out of its depth
+              (e.g., a code reviewer trying to comment on security concerns it can't deeply analyze)
+            - Recurring blind spots across multiple PRs (check recent closed PRs if helpful:
+              \`gh pr list --state merged --limit 5 --json number,title\`)
+            - Types of code changes that fall between reviewer specializations
+
+            **CRITICAL: STRONG BIAS TOWARD NO ACTION.**
+            Adding a new review step is EXPENSIVE:
+            - It costs real money (LLM API calls) on every single PR
+            - It adds latency to the review pipeline
+            - It increases complexity and maintenance burden
+            - It risks creating noise that causes developers to ignore reviews
+
+            You should only propose a new reviewer or change if:
+            - There is a CLEAR, REPEATED gap (not a one-off edge case)
+            - The gap represents a category of bugs that could reach production
+            - None of the existing 5 reviewers can reasonably be extended to cover it
+            - The cost/benefit ratio clearly favors adding the step
+
+            **MOST OF THE TIME, the correct answer is: no gap found, no action needed.**
+
+            **IF NO GAP IS FOUND (expected most of the time):**
+            Simply output: 'Review coverage evaluation complete for PR #${PR_NUMBER}. No gaps identified. The existing 5-reviewer pipeline adequately covered this PR.'
+            Then exit. Do NOT create an issue.
+
+            **IF A GENUINE GAP IS FOUND:**
+            1. First, ensure the 'review-pipeline' label exists:
+               gh label create \"review-pipeline\" --color \"d93f0b\" --description \"Review pipeline improvement proposals\" 2>/dev/null || true
+            2. Create a GitHub issue:
+               gh issue create \\
+                 --title \"Review Pipeline Gap: <brief description of the gap>\" \\
+                 --label \"review-pipeline\" \\
+                 --body \"\$(cat <<'ISSUE_BODY'
+            ## Review Pipeline Coverage Gap
+
+            **Identified from:** PR #${PR_NUMBER}
+
+            ### Gap Description
+            [What category of issues is not being caught by the current 5-reviewer pipeline?]
+
+            ### Evidence
+            [Specific examples from the PR diff and/or agent review comments that demonstrate the gap]
+
+            ### Proposal
+            [Either: a new reviewer specification, OR changes to an existing reviewer's prompt]
+
+            ### Cost/Benefit Analysis
+            - **Cost:** [Estimated additional time/money per PR]
+            - **Benefit:** [What category of bugs this would catch]
+            - **Alternative considered:** [Why extending an existing reviewer won't work]
+
+            ---
+            Generated by Review Coverage Evaluator
+            ISSUE_BODY
+            )\"
+
+            Remember: When in doubt, do NOT create an issue. False positives erode trust
+            in the pipeline evaluation system." < /dev/null 2>&1 | tee /workspaces/hide-my-list/coverage-evaluator-output.jsonl
+
+      - name: Upload evaluator output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-evaluator-output
+          path: coverage-evaluator-output.jsonl
+          retention-days: 7
