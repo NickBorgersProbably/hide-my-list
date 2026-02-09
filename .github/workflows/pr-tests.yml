@@ -1,5 +1,6 @@
 name: PR Tests
 
+# Pipeline validation: this comment triggers CI to verify all workflows are functional.
 # SECURITY NOTE: This workflow runs on all PRs including from forks.
 # This is intentional - we want to test external contributions.
 #
