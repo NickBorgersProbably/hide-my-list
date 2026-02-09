@@ -1310,9 +1310,213 @@ jobs:
           path: docs-review-output.jsonl
           retention-days: 7
 
+  # Psychological research evidence reviewer - validates features against ADHD research literature
+  psych-review:
+    needs: [get-context, build-devcontainer, docs-review]
+    if: |
+      always() &&
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
+      needs.get-context.outputs.tests_passed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the current HEAD SHA of the PR
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          # Retry loop - check run may not be visible immediately after workflow triggers
+          MAX_ATTEMPTS=40
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+            if [ "$STATUS" = "success" ]; then
+              echo "All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "Skipping review - tests must pass first"
+          echo "verified=false" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+
+      - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
+
+      - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Psych research review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            PR_TITLE=${{ needs.get-context.outputs.pr_title }}
+            PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
+            ISSUE_NUMBER=${{ needs.get-context.outputs.issue_number }}
+            ISSUE_TITLE=${{ needs.get-context.outputs.issue_title }}
+            ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            # Decode base64-encoded bodies (handles special characters safely)
+            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 450 \
+              "You are a PSYCHOLOGICAL RESEARCH EVIDENCE reviewer for PR #${PR_NUMBER} in ${REPO}.
+
+            Your role is to evaluate whether this PR's changes are grounded in evidence-based
+            understanding of ADHD, executive function, motivation, and cognitive load. This project
+            is an AI-powered task manager designed to help people with ADHD live successful lives.
+
+            Do NOT modify any code or push any changes. This is a read-only review.
+
+            **CRITICAL: Only report issues that require action from the PR author.**
+            Do NOT provide general ADHD education. Do NOT praise features that are fine.
+            If there are no actionable issues, post a short approval and move on.
+
+            **QUICK CHECK:** If this PR is purely infrastructure, CI/CD, devcontainer, or workflow
+            configuration with no user-facing behavioral changes, post:
+            'Approved - No user-facing behavioral changes to evaluate against ADHD research.'
+            and stop.
+
+            **CONTEXT:**
+            PR Title: ${PR_TITLE}
+            PR Description:
+            ${PR_BODY}
+
+            Linked Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+            Issue Description:
+            ${ISSUE_BODY}
+
+            **YOUR TASK:**
+
+            1. Read the code changes: \`git diff origin/main...HEAD\`
+            2. Read project documentation for context:
+               - docs/architecture.md (system design)
+               - docs/user-interactions.md (how users interact with the system)
+               - docs/task-lifecycle.md (task states and transitions)
+               - docs/user-preferences.md (user configuration options)
+               - docs/ai-prompts.md (AI prompt design)
+               - docs/reward-system.md (motivation and reward mechanics)
+            3. Evaluate the changes against ADHD research domains below
+
+            **EVALUATION CRITERIA (only assess domains relevant to this PR):**
+
+            1. **Executive Function Support** (Barkley model of EF deficits)
+               - Does this help with working memory limitations?
+               - Does it reduce demands on self-regulation?
+               - Does it support task initiation and follow-through?
+               - Does it externalize information that ADHD users struggle to hold internally?
+
+            2. **Emotional Regulation** (Hallowell-Ratey framework)
+               - Does this account for rejection sensitive dysphoria?
+               - Are failure states handled compassionately (no shame-inducing language)?
+               - Does it support emotional momentum rather than punishing inconsistency?
+
+            3. **Time Perception** (time blindness research)
+               - Does this help users who struggle with time estimation?
+               - Are deadlines and durations presented in ADHD-friendly ways?
+               - Does it avoid relying on users' internal sense of time passing?
+
+            4. **Motivation & Reward Systems** (variable ratio reinforcement, dopamine regulation)
+               - Does the reward/feedback mechanism align with ADHD motivation patterns?
+               - Does it leverage novelty, urgency, interest, or challenge (ADHD motivation drivers)?
+               - Does it avoid requiring sustained motivation for low-interest tasks?
+
+            5. **Cognitive Load Management** (working memory and attention research)
+               - Does this minimize the number of decisions required at any moment?
+               - Are information displays designed to reduce overwhelm?
+               - Does it chunk information appropriately?
+
+            6. **Sensory & Environmental Considerations**
+               - Are notifications/alerts designed for ADHD attention patterns?
+               - Does it avoid designs that enable hyperfocus traps?
+
+            **SEVERITY GUIDELINES:**
+            - **Blocking**: Only for changes that could actively harm ADHD users (e.g., shame-based
+              language, punishment for missed tasks, designs that increase cognitive overwhelm)
+            - **Non-blocking suggestion**: Improvements that would better align with research but
+              aren't harmful as-is
+            - **Note**: Interesting research connections worth considering in future iterations
+
+            When citing concerns, reference the specific research framework (e.g., 'Per Barkley\\'s
+            model of EF deficits, this design places too much demand on working memory because...')
+
+            Post exactly ONE comment using:
+            gh pr comment ${PR_NUMBER} --body '## Psychological Research Evidence Review
+
+            [If no user-facing changes: \"Approved - No user-facing behavioral changes to evaluate against ADHD research.\" and stop]
+
+            [If no issues: \"Approved - Changes align with ADHD research best practices.\" and stop]
+
+            ### Research Evaluation
+            [Only list actionable concerns, organized by research domain. Cite specific frameworks. Skip domains with no issues.]
+
+            ### Conclusion
+            [Approved | Approved with suggestions | Blocking concerns found]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/psych-review-output.jsonl
+
+      - name: Upload psych review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: psych-review-output
+          path: psych-review-output.jsonl
+          retention-days: 7
+
   # Final decision maker - synthesizes all reviews and makes go/no-go call
   merge-decision:
-    needs: [get-context, build-devcontainer, claude-review, design-review, test-review, concurrency-review, docs-review]
+    needs: [get-context, build-devcontainer, claude-review, design-review, test-review, concurrency-review, docs-review, psych-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -1402,6 +1606,7 @@ jobs:
             TEST_REVIEW_RESULT=${{ needs.test-review.result }}
             CONCURRENCY_REVIEW_RESULT=${{ needs.concurrency-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
+            PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
           runCmd: |
             # Using Sonnet: Summarization task - synthesizes existing review results
             claude --print \
@@ -1420,6 +1625,7 @@ jobs:
             - Test Review: ${TEST_REVIEW_RESULT}
             - Concurrency Review: ${CONCURRENCY_REVIEW_RESULT}
             - Docs Review: ${DOCS_REVIEW_RESULT}
+            - Psych Research Review: ${PSYCH_REVIEW_RESULT}
 
             **YOUR TASK:**
             1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
@@ -1492,7 +1698,7 @@ jobs:
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, design-review, test-review, concurrency-review, docs-review, merge-decision]
+    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, design-review, test-review, concurrency-review, docs-review, psych-review, merge-decision]
     if: always()
     permissions:
       statuses: write  # Required to create commit status on PR
@@ -1581,6 +1787,10 @@ jobs:
               echo "Docs Review: ${{ needs.docs-review.result }}"
               failed=true
             fi
+            if ! check_result "${{ needs.psych-review.result }}"; then
+              echo "Psych Research Review: ${{ needs.psych-review.result }}"
+              failed=true
+            fi
             if ! check_result "${{ needs.merge-decision.result }}"; then
               echo "Merge Decision: ${{ needs.merge-decision.result }}"
               failed=true
@@ -1626,6 +1836,7 @@ jobs:
           echo "  Test Review: ${{ needs.test-review.result }}"
           echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
           echo "  Docs Review: ${{ needs.docs-review.result }}"
+          echo "  Psych Research Review: ${{ needs.psych-review.result }}"
           echo "  Merge Decision Job: ${{ needs.merge-decision.result }}"
           echo "  Merge Decision Verdict: ${{ needs.merge-decision.outputs.decision }}"
 
@@ -1703,6 +1914,7 @@ jobs:
           TEST_RESULT: ${{ needs.test-review.result }}
           CONCURRENCY_RESULT: ${{ needs.concurrency-review.result }}
           DOCS_RESULT: ${{ needs.docs-review.result }}
+          PSYCH_RESULT: ${{ needs.psych-review.result }}
           MERGE_RESULT: ${{ needs.merge-decision.result }}
           MERGE_DECISION: ${{ needs.merge-decision.outputs.decision }}
           RUN_ID: ${{ github.run_id }}
@@ -1761,6 +1973,7 @@ jobs:
             COMMENT+="| Test Review | $(format_result "$TEST_RESULT") |\n"
             COMMENT+="| Concurrency Review | $(format_result "$CONCURRENCY_RESULT") |\n"
             COMMENT+="| Docs Review | $(format_result "$DOCS_RESULT") |\n"
+            COMMENT+="| Psych Research Review | $(format_result "$PSYCH_RESULT") |\n"
             # Show actual merge decision verdict instead of just job status
             COMMENT+="| Merge Decision | $(format_merge_decision "$MERGE_DECISION") |\n"
           fi
