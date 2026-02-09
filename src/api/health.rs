@@ -11,6 +11,7 @@ pub async fn health_check(State(state): State<AppState>) -> Json<Value> {
         "status": "healthy",
         "version": env!("CARGO_PKG_VERSION"),
         "uptime_seconds": uptime,
-        "checks": {}
+        "checks": {},
+        "service": "hide-my-list"
     }))
 }
