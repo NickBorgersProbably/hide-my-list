@@ -55,7 +55,6 @@ jobs:
               - 'Cargo.lock'
               - 'web/**'
               - 'static/**'
-              - '.github/workflows/**'
             docker:
               - 'Dockerfile'
               - 'Cargo.toml'
