@@ -1,0 +1,18 @@
+#!/bin/sh
+# Pre-push hook: thorough checks before code leaves the machine.
+# Runs clippy (lint) and the full test suite.
+
+set -e
+
+# Skip if no Cargo.toml exists (no Rust code yet)
+if [ ! -f "Cargo.toml" ]; then
+    exit 0
+fi
+
+echo "pre-push: running clippy..."
+cargo clippy --all-targets -- -D warnings
+
+echo "pre-push: running tests..."
+cargo test
+
+echo "pre-push: all checks passed."
