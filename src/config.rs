@@ -14,10 +14,8 @@ impl Config {
                 .unwrap_or_else(|_| "8080".to_string())
                 .parse()
                 .map_err(|_| AppError::Internal("PORT must be a valid u16".into()))?,
-            log_level: std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "info".to_string()),
-            environment: std::env::var("ENVIRONMENT")
-                .unwrap_or_else(|_| "development".to_string()),
+            log_level: std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+            environment: std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
         })
     }
 

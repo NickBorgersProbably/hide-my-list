@@ -17,3 +17,5 @@ tower-http = { version = "0.6", features = ["trace", "request-id", "cors"] }
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full", "test-util"] }
+
+# Pipeline validation: trigger pull_request synchronize event

@@ -21,9 +21,7 @@ async fn health_endpoint_returns_200() {
         axum::serve(listener, app).await.unwrap();
     });
 
-    let response = reqwest::get(format!("http://{addr}/health"))
-        .await
-        .unwrap();
+    let response = reqwest::get(format!("http://{addr}/health")).await.unwrap();
 
     assert_eq!(response.status(), 200);
 
