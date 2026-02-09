@@ -4,6 +4,9 @@
 
 FROM mcr.microsoft.com/devcontainers/rust:1
 
+# Install rust-analyzer LSP (used by Claude Code for diagnostics)
+RUN rustup component add rust-analyzer
+
 # Install system packages: Playwright browser dependencies, zsh, and utilities
 # Consolidates what was previously in common-utils feature
 RUN apt-get update && apt-get install -y --no-install-recommends \
