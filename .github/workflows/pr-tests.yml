@@ -149,17 +149,29 @@ jobs:
   docker-build:
     name: Docker Build Validation
     needs: changes
-    if: needs.changes.outputs.docker == 'true' && hashFiles('Dockerfile') != ''
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check Dockerfile exists
+        id: dockerfile
+        run: |
+          if [ -f Dockerfile ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No Dockerfile found, skipping Docker build validation"
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.dockerfile.outputs.exists == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Validate Docker build
+        if: steps.dockerfile.outputs.exists == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -170,6 +182,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Container startup smoke test
+        if: steps.dockerfile.outputs.exists == 'true'
         run: |
           echo "Running container startup smoke test..."
 
@@ -215,7 +228,7 @@ jobs:
           echo "Container smoke test passed"
 
       - name: Docker Build Summary
-        if: always()
+        if: always() && steps.dockerfile.outputs.exists == 'true'
         run: |
           echo "==============================================="
           echo "        DOCKER BUILD VALIDATION SUMMARY"
