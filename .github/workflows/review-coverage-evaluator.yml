@@ -125,12 +125,13 @@ jobs:
             meaningful gap that warrants proposing a new review step or changes to an
             existing one.
 
-            **THE EXISTING REVIEW PIPELINE (5 reviewers):**
+            **THE EXISTING REVIEW PIPELINE (6 reviewers):**
             1. Design Review - validates PR implements issue intent, reviews design quality
             2. Code Review - Rust code quality, error handling, memory/thread safety
             3. Test Review - test coverage, missing tests, test quality
             4. Concurrency & Safety Review - race conditions, deadlocks, unsafe code
             5. Documentation Review - docs updates needed for code changes
+            6. Psych Research Review - evaluates user-facing changes against ADHD research literature
 
             **YOUR TASK:**
             1. Read the full PR diff: \`gh pr diff ${PR_NUMBER}\`
@@ -139,10 +140,10 @@ jobs:
                Also fetch review comments on specific lines:
                \`gh api repos/${REPO}/pulls/${PR_NUMBER}/comments --jq '.[] | \"**\(.user.login)** on \(.path):\(.line):\n\(.body)\n---\"'\`
             3. Read the PR description: \`gh pr view ${PR_NUMBER}\`
-            4. Analyze whether the 5 existing reviewers adequately covered the changes
+            4. Analyze whether the 6 existing reviewers adequately covered the changes
 
             **WHAT TO LOOK FOR:**
-            - Categories of issues that none of the 5 reviewers are equipped to catch
+            - Categories of issues that none of the 6 reviewers are equipped to catch
             - Patterns in agent comments suggesting a reviewer was out of its depth
               (e.g., a code reviewer trying to comment on security concerns it can't deeply analyze)
             - Recurring blind spots across multiple PRs (check recent closed PRs if helpful:
@@ -159,13 +160,13 @@ jobs:
             You should only propose a new reviewer or change if:
             - There is a CLEAR, REPEATED gap (not a one-off edge case)
             - The gap represents a category of bugs that could reach production
-            - None of the existing 5 reviewers can reasonably be extended to cover it
+            - None of the existing 6 reviewers can reasonably be extended to cover it
             - The cost/benefit ratio clearly favors adding the step
 
             **MOST OF THE TIME, the correct answer is: no gap found, no action needed.**
 
             **IF NO GAP IS FOUND (expected most of the time):**
-            Simply output: 'Review coverage evaluation complete for PR #${PR_NUMBER}. No gaps identified. The existing 5-reviewer pipeline adequately covered this PR.'
+            Simply output: 'Review coverage evaluation complete for PR #${PR_NUMBER}. No gaps identified. The existing 6-reviewer pipeline adequately covered this PR.'
             Then exit. Do NOT create an issue.
 
             **IF A GENUINE GAP IS FOUND:**
@@ -181,7 +182,7 @@ jobs:
             **Identified from:** PR #${PR_NUMBER}
 
             ### Gap Description
-            [What category of issues is not being caught by the current 5-reviewer pipeline?]
+            [What category of issues is not being caught by the current 6-reviewer pipeline?]
 
             ### Evidence
             [Specific examples from the PR diff and/or agent review comments that demonstrate the gap]
