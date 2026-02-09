@@ -10,7 +10,7 @@ RUN cargo build --release && rm -rf src
 
 # Build the real application
 COPY src/ src/
-RUN touch src/main.rs && cargo build --release
+RUN touch src/lib.rs src/main.rs && cargo build --release
 
 # ---- Runtime Stage ----
 FROM debian:bookworm-slim
