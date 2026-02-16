@@ -22,6 +22,8 @@ on:
       - "Build and Push Docker Image"
       - "Claude Code"
       - "Claude Code Review"
+      - "Deploy to GitHub Pages"
+      - "Review Coverage Evaluator"
     types:
       - completed
 
@@ -216,6 +218,8 @@ jobs:
             - Style/lint check failures (cargo clippy, cargo fmt)
             - Coverage below threshold
             - Application Dockerfile build failures
+            - GitHub Pages build failures (Jekyll/Ruby errors)
+            - Review coverage evaluation failures (post-merge analysis errors)
 
             DECISION LOGIC:
             - If the failure is ACTIONS_FAILURE: Create a GitHub issue

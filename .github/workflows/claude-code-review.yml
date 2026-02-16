@@ -69,6 +69,8 @@ jobs:
       pr_body_b64: ${{ steps.get-pr.outputs.pr_body_b64 }}
       head_ref: ${{ steps.get-pr.outputs.head_ref }}
       head_repo: ${{ steps.get-pr.outputs.head_repo }}
+      # Draft PR status - used to skip auto-fix pipeline for TDD workflows
+      is_draft: ${{ steps.get-pr.outputs.is_draft }}
       # Handle workflow_run, workflow_dispatch, and pull_request events
       # For pull_request (reopen), tests haven't run yet so tests_passed is false
       tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || github.event.workflow_run.conclusion == 'success' }}
@@ -82,6 +84,9 @@ jobs:
       reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
       # SECURITY: Authorization status - blocks external/untrusted PR authors
       author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
+      # File classification - determines which reviews to run
+      config_only: ${{ steps.classify-files.outputs.config_only }}
+      has_rust_code: ${{ steps.classify-files.outputs.has_rust_code }}
 
     steps:
       - name: Get PR from workflow run or dispatch inputs
@@ -145,9 +150,11 @@ jobs:
               core.setOutput('pr_body_b64', prBodyB64);
               core.setOutput('head_ref', pr.head.ref);
               core.setOutput('head_repo', pr.head.repo.full_name);
+              core.setOutput('is_draft', pr.draft ? 'true' : 'false');
             } else {
               console.log('No open PR found for this workflow run');
               core.setOutput('pr_number', '');
+              core.setOutput('is_draft', 'false');
             }
 
       - name: Extract linked issue from PR body
@@ -288,6 +295,31 @@ jobs:
               ;;
           esac
 
+      - name: Classify PR files
+        if: steps.get-pr.outputs.pr_number != ''
+        id: classify-files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+          FILES=$(gh pr diff $PR_NUMBER --name-only --repo ${{ github.repository }})
+          echo "Changed files:"
+          echo "$FILES"
+          CONFIG_ONLY="true"
+          HAS_RUST_CODE="false"
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            if [[ "$file" == *.rs ]]; then
+              HAS_RUST_CODE="true"
+            fi
+            if [[ "$file" == *.rs ]] || [[ "$file" == Cargo.toml ]] || [[ "$file" == Cargo.lock ]] || [[ "$file" == Dockerfile ]] || [[ "$file" == docker-compose.yml ]]; then
+              CONFIG_ONLY="false"
+            fi
+          done <<< "$FILES"
+          echo "Classification: config_only=$CONFIG_ONLY has_rust_code=$HAS_RUST_CODE"
+          echo "config_only=$CONFIG_ONLY" >> $GITHUB_OUTPUT
+          echo "has_rust_code=$HAS_RUST_CODE" >> $GITHUB_OUTPUT
+
   # Build and cache devcontainer image
   # SECURITY: Always build from main branch, NEVER from PR branches
   # This prevents malicious Dockerfile modifications from being used to build the container
@@ -296,6 +328,7 @@ jobs:
     needs: get-context
     if: |
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true'
     permissions:
@@ -329,6 +362,7 @@ jobs:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'false' &&
@@ -593,8 +627,10 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
+      needs.get-context.outputs.config_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -696,6 +732,7 @@ jobs:
     needs: [get-context, build-devcontainer]
     if: |
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -892,8 +929,10 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
+      needs.get-context.outputs.config_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1028,8 +1067,10 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
+      needs.get-context.outputs.has_rust_code == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1167,6 +1208,7 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -1316,6 +1358,7 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -1520,6 +1563,7 @@ jobs:
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -1730,6 +1774,16 @@ jobs:
             echo "Reviews already passed for this PR - skipping re-review"
             echo "To re-run reviews: close and reopen the PR"
             echo "skipped_with_success=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Skip reviews for draft PRs (TDD workflow support)
+          IS_DRAFT="${{ needs.get-context.outputs.is_draft }}"
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "Draft PR - skipping auto-fix and reviews"
+            echo "Draft PRs support TDD workflows where tests may intentionally fail."
+            echo "Mark the PR as ready for review to enable auto-fix and agent reviews."
+            echo "is_draft=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
