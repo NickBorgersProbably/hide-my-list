@@ -1777,6 +1777,16 @@ jobs:
             exit 0
           fi
 
+          # Skip reviews for draft PRs (TDD workflow support)
+          IS_DRAFT="${{ needs.get-context.outputs.is_draft }}"
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "Draft PR - skipping auto-fix and reviews"
+            echo "Draft PRs support TDD workflows where tests may intentionally fail."
+            echo "Mark the PR as ready for review to enable auto-fix and agent reviews."
+            echo "is_draft=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           # SECURITY: Check if author was authorized
           AUTHOR_AUTHORIZED="${{ needs.get-context.outputs.author_authorized }}"
           if [ "$AUTHOR_AUTHORIZED" != "true" ]; then
