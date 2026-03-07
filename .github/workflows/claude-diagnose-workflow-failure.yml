@@ -113,6 +113,7 @@ jobs:
 
       - name: Build and push devcontainer
         uses: devcontainers/ci@v0.3
+        continue-on-error: true
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}

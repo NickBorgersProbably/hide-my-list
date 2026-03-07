@@ -352,6 +352,10 @@ jobs:
 
       - name: Build and push devcontainer
         uses: devcontainers/ci@v0.3
+        # continue-on-error: Post-action cleanup may fail on GHCR push
+        # even when the image builds successfully. Downstream review jobs
+        # will fail independently if the image is actually unavailable.
+        continue-on-error: true
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
