@@ -1,34 +1,20 @@
-# Devcontainer Dockerfile with pre-installed Claude Code and Playwright
-# This caches system packages and tools so rebuilds are faster
-# Consolidates devcontainer features into Dockerfile for better layer caching
+# Devcontainer for hide-my-list (OpenClaw agent project)
+# Provides Claude Code CLI, GitHub CLI, and validation tools
+# No Rust toolchain — this is a conversational AI project
 
-FROM mcr.microsoft.com/devcontainers/rust:1
+FROM mcr.microsoft.com/devcontainers/base:ubuntu
 
-# Install rust-analyzer LSP (used by Claude Code for diagnostics)
-RUN rustup component add rust-analyzer
-
-# Install system packages: Playwright browser dependencies, zsh, and utilities
-# Consolidates what was previously in common-utils feature
+# Install system packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Shell and common utilities (from common-utils feature)
-    zsh \
-    # Core Chromium dependencies
-    libglib2.0-0 libnss3 libnspr4 libdbus-1-3 libatk1.0-0 \
-    libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libatspi2.0-0 \
-    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
-    # Fonts
-    fonts-liberation fonts-noto-color-emoji \
-    # Playwright host dependencies (recommended)
-    libcairo2 libpango-1.0-0 \
-    # Utilities used by Claude Code
-    bc \
-    # Python YAML library for YAML validation
-    python3-yaml \
-    && rm -rf /var/lib/apt/lists/* \
-    # Set zsh as default shell for vscode user
-    && chsh -s /usr/bin/zsh vscode
+    # Shell script validation
+    shellcheck \
+    # Python for YAML validation and scripting
+    python3-pip python3-yaml \
+    # Utilities
+    bc curl jq \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install GitHub CLI (from github-cli feature)
+# Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
@@ -36,7 +22,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js LTS (needed for Claude Code and Playwright)
+# Install Node.js LTS (needed for Claude Code)
 ARG NODE_VERSION=20
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && apt-get install -y nodejs \
@@ -45,29 +31,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create directories for vscode user with correct ownership
-RUN mkdir -p /home/vscode/.claude/tmp \
-    && mkdir -p /home/vscode/.claude/plugins/cache \
-    && mkdir -p /home/vscode/.claude/plugins/marketplaces \
-    && mkdir -p /home/vscode/.cache/ms-playwright \
-    && chown -R vscode:vscode /home/vscode/.claude \
-    && chown -R vscode:vscode /home/vscode/.cache
+# Install yamllint for workflow validation
+RUN pip3 install --break-system-packages yamllint
 
-# Switch to vscode user for plugin installation
+# Set up Claude directories for vscode user
+RUN mkdir -p /home/vscode/.claude/tmp \
+    && chown -R vscode:vscode /home/vscode/.claude
+
 USER vscode
 WORKDIR /home/vscode
-
-# Set TMPDIR to avoid EXDEV errors during plugin installation
-ENV TMPDIR=/home/vscode/.claude/tmp
-
-# Install playwright-skill plugin
-RUN claude plugin marketplace add lackeyjb/playwright-skill \
-    && claude plugin install playwright-skill@playwright-skill
-
-# Install Playwright npm dependencies and browser
-RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwright-skill \
-    && npm install \
-    && npx playwright install chromium
-
-# Switch back to root for any remaining operations
-USER root

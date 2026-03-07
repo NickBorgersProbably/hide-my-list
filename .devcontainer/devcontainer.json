@@ -1,5 +1,5 @@
 {
-  "name": "Hide My List (Rust)",
+  "name": "Hide My List (OpenClaw Agent)",
   "build": {
     "dockerfile": "Dockerfile"
   },
@@ -9,23 +9,9 @@
       "moby": "false"
     }
   },
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "rust-lang.rust-analyzer",
-        "bierner.markdown-mermaid"
-      ]
-    }
-  },
-  "postCreateCommand": "bash .devcontainer/post-create.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh",
-  "forwardPorts": [],
-  "portsAttributes": {},
   "mounts": [
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
   ],
-  "remoteEnv": {
-    "SSH_AUTH_SOCK": ""
-  },
   "remoteUser": "vscode"
 }
