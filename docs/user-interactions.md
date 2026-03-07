@@ -795,12 +795,12 @@ sequenceDiagram
     AI->>U: Hey! Ready to add a task or work on something?
 
     U->>AI: I need to email the team about the offsite
-    AI->>U: Got it - is there a deadline for this?
-    U->>AI: Should go out today
-    AI->>U: Added - social task, ~15 min, high urgency. What else?
+    AI->>U: Got it — social, ~15 min, moderate priority. Steps: 1) Draft email, 2) Review, 3) Send. What else?
+    U->>AI: Actually that's urgent, needs to go out today
+    AI->>U: Updated to high priority. Anything else?
 
     U->>AI: Also need to book travel for the offsite
-    AI->>U: Added - independent task, ~30 min. Ready to work or keep adding?
+    AI->>U: Got it — independent, ~30 min. Ready to work or keep adding?
 
     U->>AI: I've got 20 minutes before a meeting
     AI->>U: Perfect - how about sending that team email? It's short and urgent.

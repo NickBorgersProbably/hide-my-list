@@ -1216,8 +1216,7 @@ stateDiagram-v2
     Idle --> Intake: ADD_TASK intent
     Idle --> Selection: GET_TASK intent
 
-    Intake --> Intake: Clarifying
-    Intake --> Idle: Task saved
+    Intake --> Idle: Task saved (zero questions)
 
     Selection --> Active: Task accepted
     Selection --> Selection: Task rejected

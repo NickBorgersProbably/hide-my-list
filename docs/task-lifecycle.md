@@ -49,7 +49,7 @@ stateDiagram-v2
 
 | State | Description | Notion Status |
 |-------|-------------|---------------|
-| Intake | Task being captured, AI asking questions | N/A (not yet saved) |
+| Intake | Task being captured, AI inferring labels | N/A (not yet saved) |
 | Labeling | AI assigning work type, urgency, time estimate | N/A (not yet saved) |
 | Complexity | AI evaluating if task needs breakdown | N/A (not yet saved) |
 | Breakdown | AI creating sub-tasks (hidden from user) | N/A (parent) / `pending` (sub-tasks) |
@@ -71,17 +71,12 @@ flowchart TD
     IsTask -->|No| Chat[Handle as conversation]
     IsTask -->|Yes| Extract[Extract task details]
 
-    Extract --> Confidence{Confidence level?}
-
-    Confidence -->|High >80%| SaveDirect[Save with inferred labels]
-    Confidence -->|Medium 50-80%| MentionLabels[Save, mention inferred labels]
-    Confidence -->|Low <50%| AskQuestion[Ask ONE clarifying question]
-
-    AskQuestion --> UserAnswer[User responds]
-    UserAnswer --> Extract
-
-    SaveDirect --> Saved([Task saved to Notion])
-    MentionLabels --> Saved
+    Extract --> Infer[Infer ALL labels aggressively]
+    Infer --> Save[Save with inferred defaults]
+    Save --> Confirm([Confirm with inferred labels])
+    Confirm --> Correction{User corrects?}
+    Correction -->|Yes| Update[Update task]
+    Correction -->|No / Moves on| Done([Done])
 ```
 
 ## Phase 2: Label Assignment
