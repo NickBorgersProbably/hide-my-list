@@ -410,11 +410,18 @@ stateDiagram-v2
 
 ## Phase 5: Check-In Follow-Up
 
-When a user accepts a task, the system sets a timer for 1.25x the estimated time. If the user hasn't marked the task complete, the system proactively checks in.
+When a user accepts a task, the system provides a brief **initiation reward** (acknowledging that starting is the hardest part), sets `started_at`, and sets a timer for 1.25x the estimated time. If the user hasn't marked the task complete, the system proactively checks in.
+
+> **Task Initiation Rewards (Issue #7):** Starting is harder than finishing for
+> ADHD brains. The moment of acceptance triggers a brief acknowledgment:
+> "You're in. That's the hardest part." This is lighter than completion
+> celebrations — encouragement, not a party.
 
 ```mermaid
 flowchart TD
-    Accept([User accepts task]) --> SetTimer[Set timer: estimate × 1.25]
+    Accept([User accepts task]) --> InitReward[Initiation reward:<br/>"You're in. That's the hardest part."]
+    InitReward --> SetStarted[Set started_at timestamp]
+    SetStarted --> SetTimer[Set timer: estimate × 1.25]
     SetTimer --> Wait[Timer running...]
 
     Wait --> TimerFires{Timer expires}

@@ -1187,11 +1187,13 @@ stateDiagram-v2
     Intake --> Intake: Clarifying
     Intake --> Idle: Task saved
 
-    Selection --> Active: Task accepted
+    Selection --> Active: Task accepted + initiation reward
     Selection --> Selection: Task rejected
     Selection --> Idle: No suitable task
 
-    Active --> Idle: Task completed
+    Active --> FirstStep: First sub-step done + reward
+    FirstStep --> Active: Continue working
+    Active --> Idle: Task completed + celebration
     Active --> Selection: Task abandoned
     Active --> CheckingIn: Timer expires
 
