@@ -40,6 +40,18 @@ The reward system operates on the principle that **completing tasks should feel 
 2. **Social reinforcement** - Loved ones acknowledge achievements
 3. **Anticipatory pleasure** - Suggestions for enjoyable activities
 
+### RSD-Safe Reward Principles
+
+> **Shame Prevention:** The reward system must never create an implicit comparison
+> between "good" sessions (many completions) and "bad" sessions (few or none).
+> Rewards celebrate what happened, never highlight what didn't.
+
+- **Celebrate effort, not just results** — "You showed up and tried today. That counts."
+- **Never reference streak breaks negatively** — if a streak ends, don't mention it. Just start fresh.
+- **Partial progress is real progress** — completing sub-tasks deserves acknowledgment
+- **Safe exits get warmth, not silence** — "See you next time" is better than no response
+- **No guilt-inducing comparisons** — never "You did 3 tasks yesterday but only 1 today"
+
 ---
 
 ## Reward Architecture

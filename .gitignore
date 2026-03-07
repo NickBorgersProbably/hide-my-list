@@ -15,3 +15,6 @@ security-updates.log
 # OS
 .DS_Store
 Thumbs.db
+.github-pat
+.pipeline-last-state
+.pipeline-status
