@@ -55,7 +55,7 @@ PERSONALITY:
 
 CONSTRAINTS:
 - Never show the user their full task list
-- Ask at most ONE question at a time
+- Never ask clarifying questions during task intake — infer everything
 - Keep responses under 50 words unless explaining something complex
 - Always be ready to add a task or suggest one
 
@@ -135,23 +135,26 @@ Intent:
 flowchart TD
     subgraph Process["Intake Process"]
         Parse[Parse task description]
-        Infer[Infer labels]
+        Infer[Infer ALL labels aggressively]
         Complexity{Complexity check}
         Breakdown[Generate sub-tasks]
-        Confidence{Confidence check}
-        Ask[Ask clarifying question]
-        Save[Generate save response]
+        Save[Save with inferred defaults]
     end
 
     Parse --> Infer
     Infer --> Complexity
     Complexity -->|Too large| Breakdown
-    Complexity -->|Manageable| Confidence
+    Complexity -->|Manageable| Save
     Breakdown --> Save
-    Confidence -->|Low| Ask
-    Confidence -->|High| Save
-    Ask --> Parse
 ```
+
+> **Decision Fatigue Prevention (Issue #11):** The intake flow NEVER asks
+> clarifying questions. Every field is inferred from context, keywords, and
+> reasonable defaults. The user can correct after the fact, but they are never
+> asked to generate answers. Each question is a decision point that depletes
+> limited executive function resources. Research shows 82% of ADHD participants
+> report frequent decision-making difficulties, and 58% experience decision
+> paralysis at least once a week.
 
 ### Task Intake Prompt
 
@@ -221,9 +224,21 @@ BREAKDOWN SIGNALS (use_hidden_subtasks=true):
 - Long duration: estimated > 60 minutes
 - Multiple deliverables: "prepare and send", "design and implement"
 
-DECISION:
-If any confidence < 0.5, set needs_clarification=true and provide ONE question.
-If all confidences >= 0.5, set needs_clarification=false.
+DECISION FATIGUE PREVENTION:
+NEVER ask clarifying questions. ALWAYS infer and save immediately.
+Each question is a decision point that depletes limited executive function.
+
+- If urgency is unclear, default to 50 (moderate)
+- If time is unclear, estimate based on task type (calls: 15min, writing: 45min, etc.)
+- If work type is ambiguous, pick the most likely one
+- If task is vague, infer scope from the most common interpretation
+
+The confirmation message should state what you inferred, allowing the user to
+correct if needed — but never requiring them to answer a question first.
+
+Example:
+  ❌ "Is this time-sensitive?" (forces a decision)
+  ✅ "Got it — focus work, ~45 min, moderate priority." (user can correct or move on)
 
 OUTPUT (JSON):
 {
@@ -235,8 +250,6 @@ OUTPUT (JSON):
   "time_estimate_minutes": 0,
   "time_confidence": 0.0,
   "energy_required": "...",
-  "needs_clarification": true|false,
-  "clarification_question": "..." or null,
   "use_hidden_subtasks": true|false,
   "sub_tasks": [
     {
@@ -248,15 +261,18 @@ OUTPUT (JSON):
   ],
   "inline_steps": "1. First step\n2. Second step\n3. Third step" (if use_hidden_subtasks=false),
   "presentable_title": "..." (first actionable step if use_hidden_subtasks=true),
-  "confirmation_message": "..." (brief confirmation including steps summary)
+  "confirmation_message": "..." (brief confirmation including inferred labels and steps)
 }
 
 CONFIRMATION MESSAGE FORMAT:
-- For inline steps: "Added - [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
-- For hidden sub-tasks: "Added - [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
+- For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
+- For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
 
-IMPORTANT: The user should always see specific next actions, never just "Added - focus work, ~30 min".
-Every task confirmation includes the concrete steps they'll take.
+IMPORTANT:
+- The user should always see specific next actions, never just "Added - focus work, ~30 min".
+- Every task confirmation includes the concrete steps they'll take.
+- Confirmations state what was inferred — the user can correct, but isn't asked to decide.
+- Zero questions. Zero decisions required. Just acknowledge and move forward.
 ```
 
 ### Storage Decision Rules
@@ -294,19 +310,19 @@ flowchart TD
 
 **Quick Tasks (Inline Steps) - Personalized:**
 
-| User Says | User Preferences | Confirmation Message |
-|-----------|------------------|---------------------|
-| "Call mom" | tea, cozy chair | "Added - social, ~15 min. Plan: 1) Make a cup of tea, 2) Settle into the cozy chair, 3) Make call, 4) Note any follow-ups" |
-| "Call mom" | (none set) | "Added - social, ~15 min. Plan: 1) Find quiet spot, 2) Make call, 3) Note any follow-ups" |
-| "Pay electricity bill" | batches admin tasks | "Added - independent, ~10 min. Steps: 1) Open banking app, 2) Find payee, 3) Enter amount and pay" |
-| "Reply to Jake's email" | tea before social | "Added - social, ~10 min. Steps: 1) Make tea, 2) Read his email, 3) Draft and send response" |
+| User Says | User Preferences | Confirmation (No Questions Asked) |
+|-----------|------------------|-----------------------------------|
+| "Call mom" | tea, cozy chair | "Got it — social, ~15 min. Plan: 1) Make a cup of tea, 2) Settle into the cozy chair, 3) Make call, 4) Note any follow-ups" |
+| "Call mom" | (none set) | "Got it — social, ~15 min. Plan: 1) Find quiet spot, 2) Make call, 3) Note any follow-ups" |
+| "Pay electricity bill" | batches admin tasks | "Got it — independent, ~10 min. Steps: 1) Open banking app, 2) Find payee, 3) Enter amount and pay" |
+| "Reply to Jake's email" | tea before social | "Got it — social, ~10 min. Steps: 1) Make tea, 2) Read his email, 3) Draft and send response" |
 
 **Standard Tasks (Inline Steps) - Personalized:**
 
-| User Says | User Preferences | Confirmation Message |
-|-----------|------------------|---------------------|
-| "Review the proposal" | coffee, phone away | "Added - focus, ~45 min. Plan: 1) Make coffee, put phone away, 2) Read intro, 3) Check numbers, 4) Note concerns, 5) Draft feedback" |
-| "Prepare for meeting" | natural light spot | "Added - focus, ~30 min. Steps: 1) Find your sunny spot, 2) Review agenda, 3) Gather materials, 4) Note talking points" |
+| User Says | User Preferences | Confirmation (No Questions Asked) |
+|-----------|------------------|-----------------------------------|
+| "Review the proposal" | coffee, phone away | "Got it — focus, ~45 min. Plan: 1) Make coffee, put phone away, 2) Read intro, 3) Check numbers, 4) Note concerns, 5) Draft feedback" |
+| "Prepare for meeting" | natural light spot | "Got it — focus, ~30 min. Steps: 1) Find your sunny spot, 2) Review agenda, 3) Gather materials, 4) Note talking points" |
 
 **Large Tasks (Hidden Sub-tasks):**
 
@@ -369,26 +385,42 @@ flowchart TD
     end
 ```
 
-### Clarifying Questions
+### Inference Defaults (No Questions Asked)
+
+> **Design principle:** Every question is a decision point. Decision points deplete
+> executive function. We infer aggressively and let the user correct if needed.
 
 ```mermaid
 flowchart TD
-    subgraph Questions["One Question at a Time"]
-        Q1["Urgency unclear →<br/>'Is this time-sensitive?'"]
-        Q2["Time unclear →<br/>'About how long will this take?'"]
-        Q3["Type ambiguous →<br/>'Is this focused work or more routine?'"]
-        Q4["Task vague →<br/>'Can you tell me a bit more?'"]
+    subgraph Defaults["Aggressive Inference"]
+        D1["Urgency unclear →<br/>Default: 50 (moderate)"]
+        D2["Time unclear →<br/>Estimate from task type"]
+        D3["Type ambiguous →<br/>Pick most likely match"]
+        D4["Task vague →<br/>Interpret most common meaning"]
     end
 ```
 
-**Question Templates:**
+**Default Inference Rules:**
 
-| Missing Info | Question |
-|--------------|----------|
-| Urgency | "Is this time-sensitive, or can it wait?" |
-| Time | "About how long do you think this will take?" |
-| Work type | "Is this focused thinking or more routine work?" |
-| Task unclear | "Can you tell me a bit more about what that involves?" |
+| Missing Info | Default | Rationale |
+|--------------|---------|-----------|
+| Urgency | 50 (moderate) | Safe middle ground, easy to adjust |
+| Time estimate | Based on work type (see table below) | Better than asking |
+| Work type | Infer from keywords | Even low confidence beats asking |
+| Energy | Match to work type | Focus→high, independent→low |
+
+**Time Estimate Defaults by Work Type:**
+
+| Work Type | Default Estimate | Examples |
+|-----------|-----------------|----------|
+| focus | 45 min | Writing, coding, research |
+| creative | 30 min | Brainstorming, design |
+| social | 15 min | Calls, emails, messages |
+| independent | 20 min | Filing, organizing, errands |
+
+**User Corrections:**
+If the user says "actually that's urgent" or "that'll take longer", update the task.
+This is reactive correction, not proactive questioning — it preserves executive function.
 
 ---
 
@@ -1224,9 +1256,7 @@ sequenceDiagram
 
     U->>I: "I need to finish the report"
     I->>T: ADD_TASK intent
-    T->>U: "Got it. When's it due?"
-    U->>T: "Friday"
-    T->>U: "Added - focus work, ~2 hours, moderate urgency."
+    T->>U: "Got it — focus work, ~2 hours, moderate priority. First step: outline the key sections."
 
     U->>I: "I have 30 minutes, feeling tired"
     I->>S: GET_TASK intent
