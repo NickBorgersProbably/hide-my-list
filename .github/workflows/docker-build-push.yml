@@ -1,23 +1,16 @@
 name: Build and Push Docker Image
 
-# This workflow is a placeholder for future containerization needs.
-# The application is currently an OpenClaw agent, not a standalone server.
-# Retained for potential future use (e.g., containerized Notion API proxy).
+# Disabled — this is an OpenClaw agent project with no application Dockerfile.
+# The devcontainer image is built by the review pipeline, not this workflow.
+# Retained for potential future use.
 
 on:
-  push:
-    branches:
-      - main
-      - master
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 jobs:
   placeholder:
     name: Docker Build (No-op)
     runs-on: ubuntu-latest
-    if: hashFiles('Dockerfile') != ''
     steps:
       - name: Skip
-        run: echo "No Dockerfile present — this is an OpenClaw agent project"
+        run: echo "No application Dockerfile — this is an OpenClaw agent project"

@@ -19,7 +19,6 @@ on:
   workflow_run:
     workflows:
       - "PR Tests"
-      - "Build and Push Docker Image"
       - "Claude Code"
       - "Claude Code Review"
       - "Deploy to GitHub Pages"
