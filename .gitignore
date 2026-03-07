@@ -1,10 +1,17 @@
-# Build artifacts
-/target/
-**/*.rs.bk
-
-# env file
+# Environment and secrets
 .env
+.pr-signal
+
+# Runtime state (agent-managed, not version controlled)
+state.json
+security-updates.log
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db

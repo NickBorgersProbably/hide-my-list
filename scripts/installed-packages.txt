@@ -1,0 +1,5 @@
+# Packages installed by agent — track these for security patching
+# unattended-upgrades handles security patches via noble-security
+# This file is updated by security-update.sh cron (daily 04:00 UTC)
+socat
+shellcheck

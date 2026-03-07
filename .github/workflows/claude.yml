@@ -16,7 +16,7 @@ on:
 
 env:
   # Note: must be lowercase for Docker compatibility
-  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/hide-my-list-devcontainer
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
 
 jobs:
   # Security gate: Check if the actor is authorized to trigger Claude

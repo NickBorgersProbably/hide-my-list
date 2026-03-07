@@ -19,7 +19,6 @@ on:
   workflow_run:
     workflows:
       - "PR Tests"
-      - "Build and Push Docker Image"
       - "Claude Code"
       - "Claude Code Review"
       - "Deploy to GitHub Pages"
@@ -33,7 +32,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/hide-my-list-devcontainer
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
 
 jobs:
   # Only proceed if the workflow failed
@@ -114,6 +113,7 @@ jobs:
 
       - name: Build and push devcontainer
         uses: devcontainers/ci@v0.3
+        continue-on-error: true
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
@@ -280,3 +280,13 @@ jobs:
           name: workflow-diagnosis-output
           path: diagnose-output.jsonl
           retention-days: 7
+
+      - name: Notify agent webhook
+        if: always()
+        continue-on-error: true
+        run: |
+          # Signal the OpenClaw agent that a workflow failure was diagnosed
+          WEBHOOK_URL="${{ vars.AGENT_WEBHOOK_URL }}"
+          if [ -n "$WEBHOOK_URL" ]; then
+            curl -s --max-time 5 "$WEBHOOK_URL" >/dev/null 2>&1 || true
+          fi
