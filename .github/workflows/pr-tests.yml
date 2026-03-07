@@ -1,16 +1,12 @@
 name: PR Tests
 
-# SECURITY NOTE: This workflow runs on all PRs including from forks.
-# This is intentional - we want to test external contributions.
+# This workflow validates PRs for the OpenClaw agent project.
+# No Rust compilation — validates scripts, docs, and configuration.
 #
 # Security model:
-# - This workflow has READ-ONLY permissions (contents: read, pull-requests: read)
-# - No secrets are exposed to PR builds
-# - This workflow does NOT trigger Claude or any AI-powered reviews for external PRs
-# - The Claude Code Review workflow has separate authorization checks that block external PRs
-#
-# External PRs will have their tests run but will NOT trigger automated Claude reviews.
-# A repository maintainer must manually review external contributions.
+# - READ-ONLY permissions (contents: read, pull-requests: read)
+# - No secrets exposed to PR builds
+# - External PRs get tests but NOT Claude reviews (handled by claude-code-review.yml)
 
 on:
   pull_request:
@@ -20,7 +16,7 @@ on:
       - '**'
   push:
     branches:
-      - 'claude/**'  # Only test development branches; main/master tested in docker-build-push.yml
+      - 'claude/**'
   workflow_dispatch:
     inputs:
       ref:
@@ -37,219 +33,114 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.filter.outputs.code }}
-      docker: ${{ steps.filter.outputs.docker }}
+      scripts: ${{ steps.filter.outputs.scripts }}
+      docs: ${{ steps.filter.outputs.docs }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check for code changes
+      - name: Check for changes
         uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
-            code:
-              - 'src/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'web/**'
-              - 'static/**'
+            scripts:
+              - 'scripts/**'
+            docs:
+              - 'docs/**'
+              - 'design/**'
+              - 'README.md'
+              - 'AGENTS.md'
+            workflows:
               - '.github/workflows/**'
-            docker:
-              - 'Dockerfile'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'src/**'
-              - 'web/**'
-              - 'static/**'
 
-  style-checks:
-    name: Rust Style & Linting
+  script-validation:
+    name: Script Validation
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.scripts == 'true'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
 
-      - name: Cache cargo registry and build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
-
-  unit-tests:
-    name: Unit Tests (Required for PR Merge)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
-
-      - name: Run unit tests
-        run: cargo test --lib --bins
-
-  integration-tests:
-    name: Integration Tests (Required for PR Merge)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
-
-      - name: Run integration tests
-        run: cargo test --test '*'
-
-  docker-build:
-    name: Docker Build Validation
-    needs: changes
-    if: needs.changes.outputs.docker == 'true'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Check Dockerfile exists
-        id: dockerfile
+      - name: Lint shell scripts
         run: |
-          if [ -f Dockerfile ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "No Dockerfile found, skipping Docker build validation"
-          fi
+          find scripts/ -name '*.sh' -exec shellcheck {} +
 
-      - name: Set up Docker Buildx
-        if: steps.dockerfile.outputs.exists == 'true'
-        uses: docker/setup-buildx-action@v3
-
-      - name: Validate Docker build
-        if: steps.dockerfile.outputs.exists == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          tags: hide-my-list-test:pr
-          load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Container startup smoke test
-        if: steps.dockerfile.outputs.exists == 'true'
+      - name: Check script permissions
         run: |
-          echo "Running container startup smoke test..."
-
-          docker run -d --name smoke-test \
-            -p 8080:8080 \
-            hide-my-list-test:pr
-
-          # Wait for container to either become healthy or crash
-          echo "Waiting for container to start (max 30 seconds)..."
-          for i in $(seq 1 30); do
-            # Check if container is still running
-            if ! docker ps -q --filter "name=smoke-test" | grep -q .; then
-              echo "Container exited unexpectedly!"
-              echo ""
-              echo "Container logs:"
-              docker logs smoke-test
-              docker rm smoke-test || true
+          find scripts/ -name '*.sh' | while read f; do
+            if [ ! -x "$f" ]; then
+              echo "ERROR: $f is not executable"
               exit 1
             fi
-
-            # Check if health endpoint responds
-            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
-              echo "Container started successfully (health check passed)"
-              break
-            fi
-
-            if [ $i -eq 30 ]; then
-              echo "Container failed to become healthy within 30 seconds"
-              echo ""
-              echo "Container logs:"
-              docker logs smoke-test
-              docker stop smoke-test || true
-              docker rm smoke-test || true
-              exit 1
-            fi
-
-            sleep 1
           done
+          echo "All scripts have execute permission"
 
-          # Cleanup
-          docker stop smoke-test
-          docker rm smoke-test
-          echo "Container smoke test passed"
+  doc-validation:
+    name: Documentation Validation
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
 
-      - name: Docker Build Summary
-        if: always() && steps.dockerfile.outputs.exists == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for broken internal links
         run: |
-          echo "==============================================="
-          echo "        DOCKER BUILD VALIDATION SUMMARY"
-          echo "==============================================="
-          echo "Docker image builds successfully"
-          echo "Container starts without panic (smoke test)"
-          echo "Health endpoint responds"
-          echo ""
-          echo "DOCKER BUILD VALIDATION PASSED"
-          echo "==============================================="
+          ERRORS=0
+          # Check markdown files for internal links and verify targets exist
+          find docs/ design/ -name '*.md' | while read f; do
+            # Extract relative links like [text](./file.md) or [text](../docs/file.md)
+            grep -oP '\[.*?\]\(\K[^)]+' "$f" 2>/dev/null | grep -v '^http' | while read link; do
+              # Resolve relative to the file's directory
+              dir=$(dirname "$f")
+              target="$dir/$link"
+              # Strip anchors
+              target=$(echo "$target" | cut -d'#' -f1)
+              if [ -n "$target" ] && [ ! -e "$target" ]; then
+                echo "BROKEN LINK in $f: $link (resolved to $target)"
+                ERRORS=$((ERRORS + 1))
+              fi
+            done
+          done
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "$ERRORS broken links found"
+            exit 1
+          fi
+          echo "No broken internal links found"
+
+  workflow-validation:
+    name: Workflow YAML Validation
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate workflow YAML syntax
+        run: |
+          pip install yamllint
+          yamllint -d "{extends: default, rules: {line-length: disable, truthy: disable, comments-indentation: disable}}" \
+            .github/workflows/*.yml
 
   all-tests-passed:
     name: All Required Tests
     runs-on: ubuntu-latest
-    needs: [changes, style-checks, unit-tests, integration-tests, docker-build]
+    needs: [changes, script-validation, doc-validation, workflow-validation]
     if: always()
 
     steps:
       - name: Check test results
         run: |
-          # A job is considered passed if it succeeded OR was skipped (due to path filtering)
           check_result() {
             local result=$1
             [[ "$result" == "success" || "$result" == "skipped" ]]
@@ -257,20 +148,16 @@ jobs:
 
           failed=false
 
-          if ! check_result "${{ needs.style-checks.result }}"; then
-            echo "Style Checks: ${{ needs.style-checks.result }}"
+          if ! check_result "${{ needs.script-validation.result }}"; then
+            echo "Script Validation: ${{ needs.script-validation.result }}"
             failed=true
           fi
-          if ! check_result "${{ needs.unit-tests.result }}"; then
-            echo "Unit Tests: ${{ needs.unit-tests.result }}"
+          if ! check_result "${{ needs.doc-validation.result }}"; then
+            echo "Doc Validation: ${{ needs.doc-validation.result }}"
             failed=true
           fi
-          if ! check_result "${{ needs.integration-tests.result }}"; then
-            echo "Integration Tests: ${{ needs.integration-tests.result }}"
-            failed=true
-          fi
-          if ! check_result "${{ needs.docker-build.result }}"; then
-            echo "Docker Build: ${{ needs.docker-build.result }}"
+          if ! check_result "${{ needs.workflow-validation.result }}"; then
+            echo "Workflow Validation: ${{ needs.workflow-validation.result }}"
             failed=true
           fi
 
@@ -280,10 +167,9 @@ jobs:
             exit 1
           fi
 
-          echo "All required tests passed - PR is ready to merge"
+          echo "All required tests passed"
           echo ""
           echo "Job Results:"
-          echo "  Style Checks: ${{ needs.style-checks.result }}"
-          echo "  Unit Tests: ${{ needs.unit-tests.result }}"
-          echo "  Integration Tests: ${{ needs.integration-tests.result }}"
-          echo "  Docker Build: ${{ needs.docker-build.result }}"
+          echo "  Script Validation: ${{ needs.script-validation.result }}"
+          echo "  Doc Validation: ${{ needs.doc-validation.result }}"
+          echo "  Workflow Validation: ${{ needs.workflow-validation.result }}"

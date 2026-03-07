@@ -33,7 +33,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/hide-my-list-devcontainer
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
 
 jobs:
   # Only proceed if the workflow failed

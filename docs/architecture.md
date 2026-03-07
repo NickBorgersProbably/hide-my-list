@@ -13,93 +13,76 @@ hide-my-list is an AI-powered task manager where users never directly view their
 
 ```mermaid
 flowchart TB
-    subgraph Client["Web Browser"]
-        UI[Vanilla JS Chat UI]
+    subgraph Agent["OpenClaw Agent"]
+        AI[Conversational AI Layer]
+        Scripts[Notion CLI Scripts]
+        Webhook[Webhook Signal Receiver]
     end
 
-    subgraph Server["Go Backend"]
-        HTTP[HTTP Server<br/>stdlib net/http]
-        API[API Handlers]
-        Conv[Conversation<br/>State Manager]
+    subgraph Messaging["Messaging Surfaces"]
+        Web[Web Chat]
+        Signal[Signal]
+        Telegram[Telegram]
+        Discord[Discord]
     end
 
     subgraph External["External Services"]
-        Claude[Anthropic Claude API]
-        Notion[Notion API]
+        Notion[Notion API<br/>Task Storage]
+        GitHub[GitHub Actions<br/>Review Pipeline]
     end
 
-    UI <-->|HTTP POST /api/chat| HTTP
-    HTTP --> API
-    API <--> Conv
-    API <-->|Task labeling<br/>Task selection<br/>Intent parsing| Claude
-    API <-->|CRUD operations| Notion
+    Messaging <-->|OpenClaw routing| AI
+    AI <-->|CRUD operations| Scripts
+    Scripts <-->|REST API| Notion
+    GitHub -->|PR review complete| Webhook
+    Webhook -->|Signal file| AI
 ```
+
+## How It Works
+
+There is no standalone server. The OpenClaw agent *is* the application. It:
+
+1. **Receives messages** from any configured messaging surface (web chat, Signal, Telegram, Discord, etc.)
+2. **Detects intent** from natural language (add task, get task, complete, reject, etc.)
+3. **Manages tasks** in a Notion database via API
+4. **Selects tasks** based on user mood, energy, and available time
+5. **Breaks down tasks** into concrete, personalized sub-steps
+6. **Celebrates completions** with immediate positive reinforcement
 
 ## Component Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Frontend["web/"]
-        HTML[index.html]
-        JS[app.js]
-        CSS[style.css]
+    subgraph Prompts["Conversation Layer"]
+        Intent[Intent Detection]
+        Intake[Task Intake]
+        Selection[Task Selection]
+        Breakdown[Task Breakdown]
+        Reward[Reward & Celebration]
     end
 
-    subgraph Backend["internal/"]
-        subgraph api["api/"]
-            Handlers[handlers.go]
-        end
-        subgraph ai["ai/"]
-            AIClient[client.go]
-            Prompts[prompts.go]
-        end
-        subgraph notion["notion/"]
-            NotionClient[client.go]
-            Tasks[tasks.go]
-            Preferences[preferences.go]
-        end
-        subgraph models["models/"]
-            Task[task.go]
-            UserPrefs[preferences.go]
-        end
-        subgraph preferences["preferences/"]
-            PrefManager[manager.go]
-            PrefContext[context.go]
-        end
-        subgraph rewards["rewards/"]
-            RewardEngine[engine.go]
-            RewardDelivery[delivery.go]
-        end
+    subgraph Scripts["scripts/"]
+        NotionCLI[notion-cli.sh<br/>Task CRUD]
+        WebhookSig[webhook-signal.sh<br/>CI Notifications]
+        SecUpdate[security-update.sh<br/>Package Patching]
     end
 
-    subgraph Entry["cmd/server/"]
-        Main[main.go]
+    subgraph Storage["Notion Database"]
+        Tasks[(Tasks)]
     end
 
-    subgraph Integrations["External Integrations"]
-        HomeAudio[Home Audio<br/>Sonos/HomePod/Echo]
-        SMS[SMS/Messaging<br/>Twilio/iMessage]
-        MediaAPIs[Media APIs<br/>Giphy/Sora]
+    subgraph CI["GitHub Actions"]
+        PRTests[PR Tests]
+        Review[Multi-Agent Review]
     end
 
-    Main --> Handlers
-    Handlers --> AIClient
-    Handlers --> NotionClient
-    Handlers --> RewardEngine
-    Handlers --> PrefManager
-    AIClient --> Prompts
-    NotionClient --> Tasks
-    NotionClient --> Preferences
-    Tasks --> Task
-    Preferences --> UserPrefs
-    AIClient --> Task
-    AIClient --> PrefContext
-    PrefManager --> PrefContext
-    PrefManager --> Preferences
-    RewardEngine --> RewardDelivery
-    RewardDelivery --> HomeAudio
-    RewardDelivery --> SMS
-    RewardDelivery --> MediaAPIs
+    Intent --> Intake
+    Intent --> Selection
+    Intake --> NotionCLI
+    Selection --> NotionCLI
+    NotionCLI --> Tasks
+    Breakdown --> NotionCLI
+    Review --> WebhookSig
 ```
 
 ## Request Flow
@@ -107,111 +90,38 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant User
-    participant UI as Chat UI
-    participant Server as Go Server
-    participant Prefs as Preference Manager
-    participant Claude as Claude API
+    participant Surface as Messaging Surface
+    participant Agent as OpenClaw Agent
     participant Notion as Notion API
-    participant HomeAudio as Home Audio
-    participant SMS as SMS Service
 
-    User->>UI: Types message
-    UI->>Server: POST /api/chat
-    Server->>Claude: Determine intent
-    Claude-->>Server: Intent + parameters
+    User->>Surface: Types message
+    Surface->>Agent: Routed via OpenClaw
+    Agent->>Agent: Detect intent
 
     alt Task Intake
-        Server->>Prefs: Get user preferences
-        Prefs->>Notion: Fetch preferences
-        Notion-->>Prefs: User preference data
-        Prefs-->>Server: Preference context block
-        Server->>Claude: Extract task details + preferences context
-        Claude-->>Server: Labels + personalized breakdown
-        alt Simple Task
-            Server->>Notion: Create single task
-        else Complex Task
-            Server->>Notion: Create parent + sub-tasks (hidden)
-        end
-        Notion-->>Server: Task ID(s)
-        Server-->>UI: Confirmation with personalized steps
+        Agent->>Agent: Extract task details + labels
+        Agent->>Notion: Create task (with breakdown)
+        Notion-->>Agent: Task ID
+        Agent-->>Surface: Confirmation
     else Task Selection
-        Server->>Notion: Fetch pending tasks (exclude has_subtasks)
-        Notion-->>Server: Task list
-        Server->>Claude: Select best match
-        Claude-->>Server: Selected task + reasoning
-        Server-->>UI: Task suggestion + time_estimate
-    else Task Acceptance
-        Server->>Notion: Update status to in_progress
-        Server-->>UI: Confirmation + check_in_delay
-        UI->>UI: Set check-in timer
+        Agent->>Notion: Query pending tasks
+        Notion-->>Agent: Task list (user never sees this)
+        Agent->>Agent: Score & select best match
+        Agent-->>Surface: "Here's what I'd suggest..."
     else Task Completion
-        Server->>Notion: Update status
-        alt Is Sub-task
-            Server->>Notion: Check if all siblings complete
-            Notion-->>Server: Sibling status
-            opt All Complete
-                Server->>Notion: Update parent to completed
-            end
-        end
-        Notion-->>Server: Success
-        Server->>Server: Trigger Reward Engine
-        par Reward Delivery
-            Server-->>UI: Emoji celebration + GIF
-            Server->>HomeAudio: Play victory music
-            Server->>SMS: Text significant other
-        end
-        UI->>UI: Clear check-in timer
-        opt High Intensity Achievement
-            Server-->>UI: Suggest fun outing
-        end
+        Agent->>Notion: Update status + timestamp
+        Agent-->>Surface: Celebration!
     else Task Rejection
-        Server->>Notion: Update rejection notes
-        Server->>Claude: Select alternative
-        Claude-->>Server: New suggestion
-        Server-->>UI: Alternative task
+        Agent->>Notion: Update rejection count
+        Agent->>Agent: Select alternative
+        Agent-->>Surface: "No problem. How about..."
     else Cannot Finish
-        Server->>Claude: Ask what was accomplished
-        Claude-->>Server: Progress question
-        Server-->>UI: Progress question
-        User->>UI: Describes progress
-        UI->>Server: Progress response
-        Server->>Claude: Analyze remaining work
-        Claude-->>Server: Sub-task breakdown
-        Server->>Notion: Update parent + create sub-tasks
-        Notion-->>Server: Success
-        Server-->>UI: Offer first remaining sub-task
-    else Check-In (timer triggered)
-        UI->>Server: POST /api/chat (CHECK_IN)
-        Server->>Notion: Verify task still in_progress
-        Server->>Claude: Generate follow-up
-        Claude-->>Server: Check-in message
-        Server-->>UI: "How's [task] going?"
+        Agent->>Agent: Ask what was accomplished
+        Agent->>Notion: Create sub-tasks for remainder
+        Agent-->>Surface: "Let's break this down..."
     end
 
-    UI-->>User: Display response
-```
-
-## Check-In Timer Flow
-
-```mermaid
-sequenceDiagram
-    participant UI as Chat UI
-    participant Timer as JS Timer
-    participant Server as Go Server
-
-    Note over UI,Server: User accepts task (time_estimate: 30 min)
-
-    UI->>Timer: Set timer for 37.5 min (1.25x)
-    Timer-->>UI: Timer running
-
-    alt User completes before timer
-        UI->>Server: "Done!"
-        UI->>Timer: Clear timer
-    else Timer fires
-        Timer->>UI: Timer expired
-        UI->>Server: CHECK_IN message
-        Server-->>UI: "How's [task] going?"
-    end
+    Surface-->>User: Display response
 ```
 
 ## Data Flow
@@ -222,10 +132,9 @@ flowchart TD
         Msg[Chat Message]
     end
 
-    subgraph Processing["Server Processing"]
+    subgraph Processing["Agent Processing"]
         Intent[Intent Detection]
         Intake[Task Intake]
-        PrefLookup[Preference Lookup]
         Complexity[Complexity Evaluation]
         Breakdown[Personalized Breakdown]
         Select[Task Selection]
@@ -236,7 +145,6 @@ flowchart TD
 
     subgraph Storage["Notion Database"]
         DB[(Tasks Table)]
-        Prefs[(User Preferences)]
     end
 
     subgraph Output["User Output"]
@@ -250,9 +158,7 @@ flowchart TD
     Intent -->|"reject"| Reject
     Intent -->|"cannot finish"| CannotFinish
 
-    Intake --> PrefLookup
-    PrefLookup -->|Get preferences| Prefs
-    PrefLookup --> Complexity
+    Intake --> Complexity
     Complexity -->|Simple| DB
     Complexity -->|Complex| Breakdown
     Breakdown -->|Create parent + sub-tasks| DB
@@ -261,9 +167,7 @@ flowchart TD
     Complete -->|Update status| DB
     Reject -->|Update notes| DB
 
-    CannotFinish -->|Ask progress| Response
-    CannotFinish --> PrefLookup
-    PrefLookup --> Breakdown
+    CannotFinish --> Breakdown
 
     Intake --> Response
     Select --> Response
@@ -272,68 +176,63 @@ flowchart TD
     Breakdown --> Response
 ```
 
-## Deployment Architecture
-
-```mermaid
-flowchart TB
-    subgraph Local["Local Development"]
-        Dev[Go Binary<br/>localhost:8080]
-        DevNotion[Notion Dev Database]
-        DevClaude[Claude API<br/>Dev Key]
-    end
-
-    subgraph Production["Production"]
-        Prod[Go Binary<br/>Docker Container]
-        ProdNotion[Notion Prod Database]
-        ProdClaude[Claude API<br/>Prod Key]
-    end
-
-    Dev <--> DevNotion
-    Dev <--> DevClaude
-    Prod <--> ProdNotion
-    Prod <--> ProdClaude
-```
-
 ## Technology Choices
 
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
-| Backend | Go (stdlib) | Single binary, fast, no framework overhead |
-| Frontend | Vanilla JS | No build step, fast iteration |
-| Database | Notion | Zero setup, visual backup, rich API |
-| AI | Claude API | Strong reasoning, structured output |
-| Hosting | Docker | Simple deployment, portable |
+| Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
+| Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
+| AI | Claude (via OpenClaw) | Strong reasoning, structured output, conversation memory |
+| Messaging | OpenClaw Surfaces | Multi-channel by default (web, Signal, Telegram, Discord) |
+| CI/CD | GitHub Actions | Multi-agent review pipeline with full internet for research |
+| Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 
 ## Environment Variables
 
-### Core Services
-
 | Variable | Purpose |
 |----------|---------|
-| `ANTHROPIC_API_KEY` | Claude API authentication |
 | `NOTION_API_KEY` | Notion integration token |
 | `NOTION_DATABASE_ID` | Tasks database identifier |
-| `NOTION_PREFERENCES_DB_ID` | User preferences database identifier |
-| `PORT` | HTTP server port (default: 8080) |
+| `WEBHOOK_PORT` | CI notification webhook port (default: 9199) |
 
-### Reward System (Optional)
+## Security Architecture
 
-| Variable | Purpose |
-|----------|---------|
-| `TWILIO_ACCOUNT_SID` | Twilio account for SMS notifications |
-| `TWILIO_AUTH_TOKEN` | Twilio authentication token |
-| `TWILIO_PHONE_NUMBER` | Sender phone number for SMS |
-| `SONOS_API_KEY` | Sonos home audio integration |
-| `HOME_ASSISTANT_URL` | Home Assistant endpoint for audio control |
-| `HOME_ASSISTANT_TOKEN` | Home Assistant authentication |
-| `GIPHY_API_KEY` | Giphy API for celebration GIFs |
-| `SORA_API_KEY` | OpenAI Sora for AI-generated celebration videos |
-| `OPENWEATHER_API_KEY` | Weather API for outing suggestions |
+```mermaid
+flowchart TB
+    subgraph Sandbox["OpenClaw Sandbox"]
+        Agent[Agent]
+        Scripts[Scripts]
+        Webhook[Webhook Listener]
+    end
 
-## Security Considerations
+    subgraph Proxy["Squid Proxy"]
+        ACL[Domain Allowlist]
+    end
 
-- API keys stored in environment variables, never in code
-- Single-user MVP (no authentication initially)
-- CORS configured for local development
-- Notion integration has minimal required permissions
-- No sensitive data stored in conversation state
+    subgraph External["External"]
+        Notion[api.notion.com]
+        GitHub[api.github.com]
+        Research[PubMed, CHADD, etc.]
+    end
+
+    subgraph CIEnv["GitHub Actions"]
+        CI[Claude Code Reviewers]
+        FullNet[Full Internet Access]
+    end
+
+    Agent --> Proxy
+    Proxy -->|Allowed| Notion
+    Proxy -->|Allowed| GitHub
+    Proxy -->|Allowed| Research
+    Proxy -.->|Blocked| FullNet
+
+    CI --> FullNet
+
+    Webhook -->|Only writes timestamp| Agent
+```
+
+- **Network isolation**: Agent runs behind squid proxy with domain allowlist
+- **Webhook security**: Listener discards all request data, only writes self-generated timestamp
+- **CI separation**: GitHub Actions reviewers have full internet but no access to home systems
+- **Credential handling**: API keys in `.env` (gitignored), never logged or committed
+- **Least privilege**: PR test workflows have read-only permissions

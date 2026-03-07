@@ -54,7 +54,7 @@ concurrency:
 
 env:
   # Note: must be lowercase for Docker compatibility
-  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/hide-my-list-devcontainer
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
 
 jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
@@ -86,7 +86,7 @@ jobs:
       author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
       # File classification - determines which reviews to run
       config_only: ${{ steps.classify-files.outputs.config_only }}
-      has_rust_code: ${{ steps.classify-files.outputs.has_rust_code }}
+      has_scripts: ${{ steps.classify-files.outputs.has_scripts }}
 
     steps:
       - name: Get PR from workflow run or dispatch inputs
@@ -306,19 +306,19 @@ jobs:
           echo "Changed files:"
           echo "$FILES"
           CONFIG_ONLY="true"
-          HAS_RUST_CODE="false"
+          HAS_SCRIPTS="false"
           while IFS= read -r file; do
             [ -z "$file" ] && continue
-            if [[ "$file" == *.rs ]]; then
-              HAS_RUST_CODE="true"
+            if [[ "$file" == *.sh ]]; then
+              HAS_SCRIPTS="true"
             fi
-            if [[ "$file" == *.rs ]] || [[ "$file" == Cargo.toml ]] || [[ "$file" == Cargo.lock ]] || [[ "$file" == Dockerfile ]] || [[ "$file" == docker-compose.yml ]]; then
+            if [[ "$file" == scripts/* ]] || [[ "$file" == docs/* ]] || [[ "$file" == design/* ]] || [[ "$file" == *.md ]]; then
               CONFIG_ONLY="false"
             fi
           done <<< "$FILES"
-          echo "Classification: config_only=$CONFIG_ONLY has_rust_code=$HAS_RUST_CODE"
+          echo "Classification: config_only=$CONFIG_ONLY has_scripts=$HAS_SCRIPTS"
           echo "config_only=$CONFIG_ONLY" >> $GITHUB_OUTPUT
-          echo "has_rust_code=$HAS_RUST_CODE" >> $GITHUB_OUTPUT
+          echo "has_scripts=$HAS_SCRIPTS" >> $GITHUB_OUTPUT
 
   # Build and cache devcontainer image
   # SECURITY: Always build from main branch, NEVER from PR branches
@@ -497,10 +497,10 @@ jobs:
             5. Commit and push your fixes
 
             IMPORTANT RULES FOR THIS REPOSITORY:
-            - Use \`cargo test\` to run all tests
-            - Use \`cargo fmt --check\` to check formatting
-            - Use \`cargo clippy -- -D warnings\` for linting
-            - Follow Rust best practices: proper error handling with Result/Option types
+            - This is an OpenClaw agent project, not a compiled application
+            - Use \`shellcheck scripts/*.sh\` for shell script linting
+            - Use \`yamllint .github/workflows/*.yml\` for workflow validation
+            - Check documentation links are not broken
             - Never use \`git push --no-verify\`
             - If this is attempt 2+, review what was tried before and try a different approach
 
@@ -692,15 +692,15 @@ jobs:
             2. If author pushed new commits, rebase: git pull --rebase origin ${HEAD_REF}
             3. If conflicts, abort and note in comment
 
-            Use: \`cargo test\`, \`cargo fmt --check\`, \`cargo clippy -- -D warnings\`
+            Validate: \`shellcheck scripts/*.sh\` for shell scripts
 
             Check for:
-            - Proper error handling with Result/Option types (no unwrap() in production code)
-            - Memory safety: correct use of lifetimes, borrowing, and ownership
-            - Thread safety: proper Arc<Mutex<>> usage, Send/Sync bounds
-            - Missing error propagation (use ? operator instead of unwrap)
-            - Unsafe code blocks without justification
-            - Race conditions in async code
+            - Shell script correctness and safety (quoting, error handling, set -euo pipefail)
+            - Prompt design quality (docs/ai-prompts.md) — ADHD-informed conversation patterns
+            - Documentation accuracy and completeness
+            - Security concerns in scripts (credential handling, input validation)
+            - Notion API usage patterns (proper error handling, rate limiting)
+            - Consistency between docs and actual behavior
 
             For HIGH SEVERITY issues, fix directly, commit, and push.
 
@@ -1028,13 +1028,12 @@ jobs:
 
             Check changed files (\`git diff origin/main...HEAD --name-only\`):
 
-            FOR RUST CODE: Check for missing tests, proper use of #[cfg(test)] modules,
-            async tests using #[tokio::test], missing edge case coverage, tests that
-            rely on timing or external state.
+            FOR SCRIPTS: Run shellcheck, verify error handling, check for missing edge cases.
             FOR WORKFLOWS: Validate YAML syntax, check action refs, verify permissions.
-            FOR CONFIG: Validate syntax.
+            FOR DOCS: Verify internal links, check consistency with other docs.
+            FOR PROMPT DESIGN: Verify conversation patterns follow ADHD-informed principles.
 
-            Run \`cargo test\` to verify.
+            Run \`shellcheck scripts/*.sh\` to verify scripts.
 
             For HIGH SEVERITY issues, fix directly and push.
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
@@ -1070,7 +1069,7 @@ jobs:
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.has_rust_code == 'true' &&
+      needs.get-context.outputs.has_scripts == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1157,36 +1156,36 @@ jobs:
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 240 \
-              "You are a CONCURRENCY and SAFETY specialist reviewing PR #${PR_NUMBER}.
+              "You are a SECURITY and INFRASTRUCTURE specialist reviewing PR #${PR_NUMBER}.
 
             **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
-            Do NOT list files reviewed. Do NOT explain concurrency concepts.
+            Do NOT list files reviewed. Do NOT explain general security concepts.
             If there are no actionable issues, post a short approval and move on.
 
             Run \`git diff origin/main...HEAD\` to see changes.
 
-            Check for Rust-specific concurrency and safety issues:
-            - Proper Arc<Mutex<>> or Arc<RwLock<>> usage for shared state
-            - Potential deadlocks from lock ordering issues
-            - Async task spawning without proper cancellation (tokio::spawn without JoinHandle tracking)
-            - Missing Send/Sync bounds on types shared across threads
-            - Unsafe code blocks without proper safety documentation
-            - Use of unwrap()/expect() that could panic in async contexts
-            - Missing error propagation in async chains
-            - Potential data races from interior mutability (Cell/RefCell across threads)
+            Check for security and infrastructure issues:
+            - Credential/secret handling in scripts (no hardcoded tokens, proper .env usage)
+            - Input validation and injection risks (especially in webhook/API handlers)
+            - Shell script safety (proper quoting, error handling, set -euo pipefail)
+            - Workflow permissions (principle of least privilege)
+            - Network security (proxy bypass attempts, unexpected outbound connections)
+            - Notion API token handling (never logged, never committed)
+            - Resource exhaustion risks (unbounded loops, missing timeouts)
+            - Prompt injection vectors in CI/CD pipelines
 
-            Run \`cargo test\` to verify.
+            Run \`shellcheck scripts/*.sh\` to verify.
 
             For HIGH SEVERITY bugs, fix directly and push.
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
             Post exactly ONE comment using:
-            gh pr comment ${PR_NUMBER} --body '## Concurrency & Safety Review
+            gh pr comment ${PR_NUMBER} --body '## Security & Infrastructure Review
 
-            [If no issues: \"Approved - No concurrency or safety issues\" and stop here]
+            [If no issues: \"Approved - No security or infrastructure issues\" and stop here]
 
             ### Issues Found
-            [Only list race conditions, missing locks, unsafe code, etc. Reference file:line. Skip if none.]
+            [Only list security risks, credential leaks, injection vectors, etc. Reference file:line. Skip if none.]
 
             ### Fixes Applied
             [List commits pushed, if any. Skip section if none.]
@@ -2040,3 +2039,14 @@ jobs:
           echo -e "$COMMENT" | gh pr comment "$PR_NUMBER" --body-file - --repo "$REPO"
 
           echo "Posted review summary to PR #$PR_NUMBER"
+
+      - name: Notify agent webhook
+        if: always() && needs.get-context.outputs.pr_number != ''
+        continue-on-error: true
+        run: |
+          # Signal the OpenClaw agent that reviews are complete
+          # The webhook discards all request data — only the connection itself is the signal
+          WEBHOOK_URL="${{ vars.AGENT_WEBHOOK_URL }}"
+          if [ -n "$WEBHOOK_URL" ]; then
+            curl -s --max-time 5 "$WEBHOOK_URL" >/dev/null 2>&1 || true
+          fi
