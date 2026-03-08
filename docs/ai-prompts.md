@@ -55,7 +55,7 @@ PERSONALITY:
 
 CONSTRAINTS:
 - Never show the user their full task list
-- Never ask clarifying questions during task intake — infer everything
+- Prefer inference over questions during task intake — ask only when truly needed
 - Keep responses under 50 words unless explaining something complex
 - Always be ready to add a task or suggest one
 
@@ -136,25 +136,32 @@ flowchart TD
     subgraph Process["Intake Process"]
         Parse[Parse task description]
         Infer[Infer ALL labels aggressively]
+        Sufficient{Enough context?}
+        Clarify[Ask ONE clarifying question]
         Complexity{Complexity check}
         Breakdown[Generate sub-tasks]
         Save[Save with inferred defaults]
     end
 
     Parse --> Infer
-    Infer --> Complexity
+    Infer --> Sufficient
+    Sufficient -->|Yes| Complexity
+    Sufficient -->|No, too vague| Clarify
+    Clarify -->|User responds| Infer
     Complexity -->|Too large| Breakdown
     Complexity -->|Manageable| Save
     Breakdown --> Save
 ```
 
-> **Decision Fatigue Prevention (Issue #11):** The intake flow NEVER asks
-> clarifying questions. Every field is inferred from context, keywords, and
-> reasonable defaults. The user can correct after the fact, but they are never
-> asked to generate answers. Each question is a decision point that depletes
-> limited executive function resources. Research shows 82% of ADHD participants
-> report frequent decision-making difficulties, and 58% experience decision
-> paralysis at least once a week.
+> **Decision Fatigue Prevention (Issue #11):** The intake flow strongly prefers
+> inference over questions. Every field should be inferred from context, keywords,
+> and reasonable defaults whenever possible. However, when the task description is
+> genuinely too vague to act on (e.g., "do the thing", "handle that"), the system
+> may ask up to **3 clarifying questions per task**, asked **one at a time**. Each
+> question is a decision point that depletes limited executive function resources
+> — so questions are a last resort, not a default. Research shows 82% of ADHD
+> participants report frequent decision-making difficulties, and 58% experience
+> decision paralysis at least once a week.
 
 ### Task Intake Prompt
 
@@ -164,6 +171,7 @@ The user wants to add a task. Extract details, infer labels, and ALWAYS generate
 User said: "{user_message}"
 Previous context: {conversation_history}
 User preferences: {user_preferences_context}
+Clarification count so far: {clarification_count} (max 3)
 
 CORE PRINCIPLE: Users interpret vague goals as infinite and avoid them.
 Every task MUST have explicit sub-tasks that define exactly what "done" looks like.
@@ -225,23 +233,45 @@ BREAKDOWN SIGNALS (use_hidden_subtasks=true):
 - Multiple deliverables: "prepare and send", "design and implement"
 
 DECISION FATIGUE PREVENTION:
-NEVER ask clarifying questions. ALWAYS infer and save immediately.
-Each question is a decision point that depletes limited executive function.
+Prefer inference over questions. Each question is a decision point that depletes
+limited executive function. Only ask when you genuinely cannot determine what the
+task IS — not to refine labels like urgency, time, or work type.
 
+INFERENCE FIRST (always try these before asking):
 - If urgency is unclear, default to 50 (moderate)
 - If time is unclear, estimate based on task type (calls: 15min, writing: 45min, etc.)
 - If work type is ambiguous, pick the most likely one
-- If task is vague, infer scope from the most common interpretation
+- If task is somewhat vague, infer scope from the most common interpretation
+
+CLARIFYING QUESTIONS (last resort):
+- Ask ONLY when the task description is too vague to identify what the task actually is
+  (e.g., "do the thing", "handle that", "take care of it" with no prior context)
+- Ask ONE question at a time — never multiple questions in a single message
+- Maximum 3 clarifying questions per task — after 3, infer and save with best guess
+- Questions should be simple, low-effort to answer (yes/no or short answer preferred)
+- Never ask about labels (urgency, time, energy) — always infer those
+
+WHEN TO ASK vs. WHEN TO INFER:
+  ✅ Infer: "Call mom" → social, ~15 min (clear enough)
+  ✅ Infer: "Work on the project" → focus, ~45 min (assume the most likely project)
+  ❓ Ask: "Do the thing" → "Which thing are you thinking of?"
+  ❓ Ask: "Handle that" (no context) → "What needs handling?"
+  ✅ Infer after 3 questions: save with best guess, user can correct
 
 The confirmation message should state what you inferred, allowing the user to
-correct if needed — but never requiring them to answer a question first.
+correct if needed.
 
 Example:
-  ❌ "Is this time-sensitive?" (forces a decision)
-  ✅ "Got it — focus work, ~45 min, moderate priority." (user can correct or move on)
+  ❌ "Is this time-sensitive?" (forces a label decision — never ask this)
+  ❌ "What type of work is this?" (infer from keywords — never ask this)
+  ✅ "Got it — focus work, ~45 min, moderate priority." (inferred, user can correct)
+  ✅ "Which report are you referring to?" (genuinely unclear what the task is)
 
 OUTPUT (JSON):
+
+If task is clear enough to save:
 {
+  "action": "save",
   "title": "...",
   "work_type": "...",
   "work_type_confidence": 0.0,
@@ -264,6 +294,14 @@ OUTPUT (JSON):
   "confirmation_message": "..." (brief confirmation including inferred labels and steps)
 }
 
+If task is too vague and clarification_count < 3:
+{
+  "action": "clarify",
+  "clarification_question": "...",
+  "clarification_count": 1,
+  "reason": "brief explanation of what is unclear"
+}
+
 CONFIRMATION MESSAGE FORMAT:
 - For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
 - For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
@@ -272,7 +310,9 @@ IMPORTANT:
 - The user should always see specific next actions, never just "Added - focus work, ~30 min".
 - Every task confirmation includes the concrete steps they'll take.
 - Confirmations state what was inferred — the user can correct, but isn't asked to decide.
-- Zero questions. Zero decisions required. Just acknowledge and move forward.
+- Minimize questions. Minimize decisions. Infer aggressively and move forward.
+- If you must ask, ask ONE simple question. Never batch questions together.
+- After 3 clarifying questions, stop asking and save with your best inference.
 ```
 
 ### Storage Decision Rules
@@ -385,10 +425,12 @@ flowchart TD
     end
 ```
 
-### Inference Defaults (No Questions Asked)
+### Inference Defaults (Questions as Last Resort)
 
 > **Design principle:** Every question is a decision point. Decision points deplete
 > executive function. We infer aggressively and let the user correct if needed.
+> When the task itself is too vague to identify, we may ask up to 3 simple
+> clarifying questions — one at a time — before falling back to best-guess inference.
 
 ```mermaid
 flowchart TD
@@ -421,6 +463,20 @@ flowchart TD
 **User Corrections:**
 If the user says "actually that's urgent" or "that'll take longer", update the task.
 This is reactive correction, not proactive questioning — it preserves executive function.
+
+**Clarifying Questions (when task identity is unclear):**
+If the task description is too vague to determine what the task IS (not its labels),
+the system may ask up to 3 simple clarifying questions, one at a time:
+
+| Question # | Behavior |
+|------------|----------|
+| 1 | Ask one simple question about what the task is |
+| 2 | Ask a follow-up if still unclear |
+| 3 | Final question — after this, infer and save regardless |
+| 4+ | Never reached — save with best guess after question 3 |
+
+Questions should be low-effort: prefer yes/no or short-answer format.
+Never ask about labels (urgency, time, type) — always infer those.
 
 ---
 
@@ -1216,7 +1272,7 @@ stateDiagram-v2
     Idle --> Intake: ADD_TASK intent
     Idle --> Selection: GET_TASK intent
 
-    Intake --> Idle: Task saved (zero questions)
+    Intake --> Idle: Task saved (after inference or up to 3 questions)
 
     Selection --> Active: Task accepted
     Selection --> Selection: Task rejected
@@ -1236,7 +1292,7 @@ stateDiagram-v2
 | State | Data Stored |
 |-------|-------------|
 | Idle | None |
-| Intake | Partial task data, conversation history |
+| Intake | Partial task data, conversation history, clarification_count |
 | Selection | Current task context |
 | Active | Active task ID, start time, check-in count |
 | CheckingIn | Active task ID, elapsed time, check-in count |
@@ -1256,6 +1312,13 @@ sequenceDiagram
     U->>I: "I need to finish the report"
     I->>T: ADD_TASK intent
     T->>U: "Got it — focus work, ~2 hours, moderate priority. First step: outline the key sections."
+
+    Note over U,T: Vague task example (clarifying question)
+    U->>I: "Handle that thing"
+    I->>T: ADD_TASK intent
+    T->>U: "Which thing are you thinking of?"
+    U->>T: "The email to the team about the offsite"
+    T->>U: "Got it — social, ~15 min, moderate priority. Steps: 1) Draft email, 2) Review, 3) Send."
 
     U->>I: "I have 30 minutes, feeling tired"
     I->>S: GET_TASK intent

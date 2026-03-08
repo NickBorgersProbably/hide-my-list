@@ -63,19 +63,45 @@ sequenceDiagram
     AI->>N: Create task with inferred labels
     N-->>AI: Task created
     AI->>U: "Got it — focus work, ~30 min, moderate priority.<br/>Plan: 1) Read intro, 2) Check numbers, 3) Note concerns, 4) Draft feedback"
+
+    Note over U,AI: Vague task example
+
+    U->>AI: "Take care of that thing from yesterday"
+
+    Note over AI: Task too vague — cannot identify what the task is
+    Note over AI: Clarification 1 of max 3
+
+    AI->>U: "Which thing from yesterday?"
+    U->>AI: "The proposal review for Sarah"
+
+    Note over AI: Now clear — infer labels and save
+
+    AI->>N: Create task with inferred labels
+    N-->>AI: Task created
+    AI->>U: "Got it — focus work, ~30 min, moderate priority.<br/>Plan: 1) Read intro, 2) Check numbers, 3) Note concerns, 4) Draft feedback"
 ```
 
-> **Decision Fatigue Prevention:** No questions asked during intake. All fields
-> are inferred from context and keywords. The user can correct ("actually that's
-> urgent") but is never forced to decide. See [Issue #11](https://github.com/NickBorgersProbably/hide-my-list/issues/11).
+> **Decision Fatigue Prevention:** The system strongly prefers inference over
+> questions. All labels (urgency, time, work type) are always inferred from
+> context and keywords — never asked about. When the task itself is too vague to
+> identify (e.g., "do the thing"), the system may ask up to 3 simple clarifying
+> questions, one at a time. The user can also correct after the fact ("actually
+> that's urgent") but is never forced to decide on labels.
+> See [Issue #11](https://github.com/NickBorgersProbably/hide-my-list/issues/11).
 
-### Intake Flow (Zero Questions)
+### Intake Flow (Inference-First, Questions as Last Resort)
 
 ```mermaid
 flowchart TD
     Start([User describes task]) --> Parse[AI parses description]
     Parse --> Infer[Infer ALL labels aggressively]
-    Infer --> Save[Save to Notion with defaults]
+    Infer --> Clear{Task clear enough?}
+    Clear -->|Yes| Save[Save to Notion with defaults]
+    Clear -->|No, too vague| AskCount{Questions asked < 3?}
+    AskCount -->|Yes| Ask[Ask ONE clarifying question]
+    AskCount -->|No, limit reached| Save
+    Ask --> UserAnswer[User answers]
+    UserAnswer --> Infer
     Save --> Confirm([Confirm with inferred labels])
     Confirm --> Correction{User corrects?}
     Correction -->|Yes| Update[Update task]
@@ -86,9 +112,14 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    subgraph Always["Every Task (No Questions)"]
+    subgraph Always["Clear Tasks (Inferred Immediately)"]
         Q1[User: "Call mom"] --> Q2[AI: "Got it — social, ~15 min, low priority"]
         Q3[User: "Work on the project"] --> Q4[AI: "Got it — focus, ~45 min, moderate priority.<br/>First step: outline the key sections."]
+    end
+
+    subgraph Clarify["Vague Tasks (Ask to Clarify)"]
+        V1[User: "Handle that thing"] --> V2[AI: "Which thing are you thinking of?"]
+        V3[User: "The email to the team"] --> V4[AI: "Got it — social, ~15 min, moderate priority."]
     end
 
     subgraph Correction["User Can Correct (Optional)"]
@@ -799,7 +830,9 @@ sequenceDiagram
     U->>AI: Actually that's urgent, needs to go out today
     AI->>U: Updated to high priority. Anything else?
 
-    U->>AI: Also need to book travel for the offsite
+    U->>AI: Oh and deal with that thing
+    AI->>U: Which thing are you thinking of?
+    U->>AI: Booking travel for the offsite
     AI->>U: Got it — independent, ~30 min. Ready to work or keep adding?
 
     U->>AI: I've got 20 minutes before a meeting

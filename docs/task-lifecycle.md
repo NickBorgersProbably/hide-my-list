@@ -49,7 +49,7 @@ stateDiagram-v2
 
 | State | Description | Notion Status |
 |-------|-------------|---------------|
-| Intake | Task being captured, AI inferring labels | N/A (not yet saved) |
+| Intake | Task being captured, AI inferring labels (may ask up to 3 clarifying questions if too vague) | N/A (not yet saved) |
 | Labeling | AI assigning work type, urgency, time estimate | N/A (not yet saved) |
 | Complexity | AI evaluating if task needs breakdown | N/A (not yet saved) |
 | Breakdown | AI creating sub-tasks (hidden from user) | N/A (parent) / `pending` (sub-tasks) |
@@ -72,7 +72,13 @@ flowchart TD
     IsTask -->|Yes| Extract[Extract task details]
 
     Extract --> Infer[Infer ALL labels aggressively]
-    Infer --> Save[Save with inferred defaults]
+    Infer --> Clear{Task clear enough?}
+    Clear -->|Yes| Save[Save with inferred defaults]
+    Clear -->|No, too vague| AskCount{Questions asked < 3?}
+    AskCount -->|Yes| Ask[Ask ONE clarifying question]
+    AskCount -->|No, limit reached| Save
+    Ask --> UserAnswer[User answers]
+    UserAnswer --> Infer
     Save --> Confirm([Confirm with inferred labels])
     Confirm --> Correction{User corrects?}
     Correction -->|Yes| Update[Update task]
@@ -667,9 +673,8 @@ journey
     title Task: "Review Sarah's proposal"
     section Intake
       User describes task: 5: User
-      AI asks about deadline: 3: AI
-      User says "by Friday": 5: User
-      AI confirms and labels: 4: AI
+      AI infers labels from context: 4: AI
+      AI confirms with inferred labels: 4: AI
     section Waiting
       Task sits in Notion: 3: System
       2 days pass: 2: System
