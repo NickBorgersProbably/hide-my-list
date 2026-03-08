@@ -59,6 +59,9 @@ The reward system operates on the principle that **completing tasks should feel 
 ```mermaid
 flowchart TB
     subgraph Trigger["Reward Triggers"]
+        Initiation[Task Started]
+        FirstStep[First Step Done]
+        Resume[Resumed After Break]
         Complete[Task Completed]
         Streak[Streak Achieved]
         Milestone[Milestone Reached]
@@ -82,6 +85,9 @@ flowchart TB
         Outing[Suggest Outing]
     end
 
+    Initiation --> Select
+    FirstStep --> Select
+    Resume --> Select
     Complete --> Select
     Streak --> Select
     Milestone --> Select
@@ -127,7 +133,49 @@ flowchart LR
     Epic --> EpicEmoji
 ```
 
-#### Celebration Message Templates
+#### Initiation Reward Templates (Issue #7)
+
+> **Design principle:** Starting is harder than finishing for ADHD brains.
+> Initiation rewards acknowledge this truth. They should feel like genuine
+> encouragement from someone who understands, not participation trophies.
+> Keep them brief — the user is about to start working.
+
+```mermaid
+flowchart TD
+    subgraph Triggers["Initiation Trigger Points"]
+        Accept[User accepts task] --> StartReward[Initiation Reward]
+        FirstStep[First sub-step completed] --> ProgressReward[First-Step Reward]
+        Return[User returns to paused task] --> ResumeReward[Resume Reward]
+    end
+
+    subgraph Intensity["Reward Intensity Scale"]
+        Init["Initiation: Lightest<br/>Brief acknowledgment"]
+        First["First Step: Light<br/>Momentum confirmation"]
+        Res["Resume: Light-Medium<br/>Extra recognition (re-starting is hard)"]
+        Comp["Completion: Full<br/>Real celebration"]
+    end
+
+    StartReward --> Init
+    ProgressReward --> First
+    ResumeReward --> Res
+```
+
+| Trigger | Intensity | Example Messages |
+|---------|-----------|------------------|
+| Task accepted (starting) | Lightest | "You're in. That's the hardest part.", "Starting — nice.", "Let's go." |
+| First sub-step done | Light | "First step done — you're in motion now.", "One down. Momentum's real." |
+| Resumed after break | Light-Medium | "Back at it — picking up where you left off is a skill.", "Welcome back. Ready to keep going?" |
+| Started 3+ tasks today | Light | "Third start today — your initiation muscle is getting stronger." |
+
+**Important design constraints:**
+- Initiation rewards must be **briefer and lighter** than completion rewards
+- Never celebrate starting so much that it diminishes the completion celebration
+- Tone is **acknowledgment of difficulty**, not generic cheerleading
+- "You started" validates that starting is genuinely hard — don't trivialize it
+- First-time users should always get an initiation reward; for returning users,
+  vary frequency to avoid habituation (see Issue #12 for novelty)
+
+#### Completion Celebration Message Templates
 
 | Trigger | Intensity | Example Messages |
 |---------|-----------|------------------|

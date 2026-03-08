@@ -30,6 +30,9 @@ erDiagram
         relation parent_task_id FK "Parent task (if sub-task)"
         number sequence "Order within parent (1, 2, 3...)"
         rich_text progress_notes "What user accomplished"
+        date started_at "Set when user accepts task"
+        number steps_completed "Sub-steps finished"
+        number resume_count "Times user returned to task"
     }
 
     USER_PREFERENCES {
@@ -397,6 +400,26 @@ Format:
 - Understanding what work remains after CANNOT_FINISH
 - Creating accurate sub-tasks for remaining work
 - Providing context when resuming work
+
+### StartedAt (date)
+
+Timestamp set when the user accepts and begins a task. Used for:
+- Calculating actual task duration (with CompletedAt)
+- Triggering initiation rewards
+- Building per-user time estimation data for time blindness compensation (Issue #6)
+
+### StepsCompleted (number)
+
+Count of sub-steps the user has completed within the current task. Used for:
+- Triggering first-step rewards (when incrementing from 0 to 1)
+- Tracking partial progress during CANNOT_FINISH events
+- Providing encouragement on sub-task completion
+
+### ResumeCount (number)
+
+Number of times the user has returned to a task after stepping away. Used for:
+- Triggering "back at it" rewards (re-starting is hard)
+- Understanding user work patterns (frequent breaks vs. sustained sessions)
 
 ---
 

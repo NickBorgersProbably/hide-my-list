@@ -1325,11 +1325,13 @@ stateDiagram-v2
 
     Intake --> Idle: Task saved (after inference or up to 3 questions)
 
-    Selection --> Active: Task accepted
+    Selection --> Active: Task accepted + initiation reward
     Selection --> Selection: Task rejected
     Selection --> Idle: No suitable task
 
-    Active --> Idle: Task completed
+    Active --> FirstStep: First sub-step done + reward
+    FirstStep --> Active: Continue working
+    Active --> Idle: Task completed + celebration
     Active --> Selection: Task abandoned
     Active --> CheckingIn: Timer expires
 
