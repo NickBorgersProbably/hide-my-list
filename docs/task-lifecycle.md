@@ -35,6 +35,10 @@ stateDiagram-v2
     InProgress --> Completed: User finishes
     InProgress --> Pending: User abandons
     InProgress --> CannotFinish: Task too large
+    InProgress --> ResumeDetection: Gap ≥ 15 min + re-engage
+
+    ResumeDetection --> InProgress: Resume confirmed
+    ResumeDetection --> Pending: User abandons (>24h)
 
     CannotFinish --> Breakdown: Break into smaller pieces
 
@@ -58,6 +62,7 @@ stateDiagram-v2
 | In Progress | User actively working on task | `in_progress` |
 | Check-In | System following up on task progress | `in_progress` |
 | Rejected | User declined, giving feedback | `pending` |
+| Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
 | Cannot Finish | User indicates task is too large | `in_progress` (triggers breakdown) |
 | Completed | Task finished | `completed` |
 
@@ -599,6 +604,183 @@ flowchart LR
         Learn3 --> A3[Multiply estimates<br/>by 1.2x]
     end
 ```
+
+## Phase 5.1: Resume Detection
+
+When a user returns to a conversation after stepping away while a task is `in_progress`, the system detects this as a **resume event** and provides encouragement. Re-engaging after a break is psychologically harder than starting fresh — the system explicitly acknowledges this.
+
+### Single Trigger Model
+
+Resume detection uses a **single gate** — all conditions must be met simultaneously. There are no alternate trigger paths or override mechanisms.
+
+```mermaid
+flowchart TD
+    Msg([User sends message]) --> HasInProgress{Any task with<br/>status = in_progress?}
+
+    HasInProgress -->|No| NoResume([No resume detection])
+    HasInProgress -->|Yes| CheckGap{Last user message<br/>≥ 15 minutes ago?}
+
+    CheckGap -->|No, < 15 min| NoResume
+    CheckGap -->|Yes, ≥ 15 min| CheckDupe{Resume already<br/>recorded for this gap?}
+
+    CheckDupe -->|Yes| NoResume
+    CheckDupe -->|No| CheckDuration{How long was<br/>the gap?}
+
+    CheckDuration -->|15 min – 24 hours| ResumeDetected([Resume detected])
+    CheckDuration -->|> 24 hours| AskConfirm([Ask: continue or abandon?])
+```
+
+**Why a single gate:** PR #50 attempted a three-signal approach (session boundary, explicit phrase, inactivity gap) where some signals could bypass the time threshold. Three of four reviewers identified this as a contradiction that produces unreliable behavior. The single-gate model eliminates ambiguity: every resume event goes through the same conditions, every time.
+
+### Trigger Conditions (ALL required)
+
+| # | Condition | Source | Rationale |
+|---|-----------|--------|-----------|
+| 1 | At least one task has `status = in_progress` | Notion query | No resume without active work |
+| 2 | Gap ≥ 15 minutes since last user message | Conversation platform timestamp | Filters out normal pauses (bathroom, snack, quick interruption) |
+| 3 | No resume already recorded for this gap | `last_resumed_at` field | Prevents duplicate detection within same re-engagement |
+
+**What about session boundaries and explicit phrases?**
+- A new conversation session naturally involves a time gap — if it's ≥ 15 minutes, resume fires. If not, no resume is needed (the user barely left).
+- Phrases like "I'm back" or "resuming" are treated as normal messages. If they arrive after a 15+ minute gap, resume fires. The system does not need to parse intent to detect a resume — the gap speaks for itself.
+
+### Gap Duration Behavior
+
+| Gap Duration | Behavior | Rationale |
+|--------------|----------|-----------|
+| < 15 minutes | No action | Normal pause — bathroom, snack, quick interruption |
+| 15 min – 4 hours | Resume detected, brief encouragement | Standard break — user likely remembers context |
+| 4 – 24 hours | Resume detected, state reminder | Extended break — remind user where they left off |
+| > 24 hours | Confirmation prompt: "Still working on X, or should we put it back?" | Stale task — user may have moved on mentally |
+
+### Resume Response Flow
+
+```mermaid
+flowchart TD
+    ResumeDetected([Resume detected]) --> RecordResume[Increment resume_count<br/>Set last_resumed_at<br/>Log to progress_notes]
+
+    RecordResume --> GapLength{Gap duration?}
+
+    GapLength -->|15 min – 4 hours| Brief["Brief encouragement +<br/>resume reward"]
+    GapLength -->|4 – 24 hours| Remind["State reminder:<br/>steps completed, where left off +<br/>resume reward"]
+
+    Brief --> ResetCheckins[Reset check-in count to 0<br/>Set new check-in timer]
+    Remind --> ResetCheckins
+
+    ResetCheckins --> Continue([User continues working])
+```
+
+```mermaid
+flowchart TD
+    LongGap([Gap > 24 hours]) --> Ask["Still working on [task],<br/>or should we put it back?"]
+
+    Ask --> UserChoice{User response}
+
+    UserChoice -->|Continue| RecordResume[Record resume +<br/>state reminder +<br/>resume reward]
+    UserChoice -->|Abandon| ReturnPending[Set status → pending<br/>Log gap in progress_notes]
+
+    RecordResume --> ResetCheckins[Reset check-in count<br/>Set new check-in timer]
+    ResetCheckins --> Continue([User continues])
+    ReturnPending --> Done([Task returned to queue])
+```
+
+### Resume Rewards
+
+Resume rewards are **light-medium intensity** — heavier than initiation rewards (because re-starting is harder than starting) but lighter than completion rewards.
+
+| Resume # | Message Examples | Intensity |
+|----------|------------------|-----------|
+| 1st | "Welcome back! Picking up where you left off is a superpower." | Light-medium |
+| 2nd | "Back again — that's persistence." | Light-medium |
+| 3rd+ | "You keep coming back to this. That takes real grit." | Light-medium |
+
+> **Shame-safe:** Resume messages always celebrate the return, never reference the absence.
+> Never say "You were gone for X hours" or "It's been a while." The gap is logged
+> internally for analytics but never surfaced to the user.
+
+### State Restoration on Resume
+
+When resume fires, the system restores task context:
+
+| Action | Purpose |
+|--------|---------|
+| Increment `resume_count` | Track pattern for rewards and analytics |
+| Set `last_resumed_at` to now | De-duplication guard for this gap |
+| Append to `progress_notes`: `[timestamp] Resumed (gap: Xm)` | Internal audit trail |
+| Reset check-in count to 0 | Fresh check-in cycle after break |
+| Set new check-in timer (based on remaining estimate) | Proactive follow-up without carrying over stale timers |
+| Remind user of `steps_completed` and last progress note | Help user regain context (4+ hour gaps only) |
+
+### De-duplication Guards
+
+**Problem:** Without guards, a resume could be detected multiple times for the same gap — e.g., if the user sends several messages in quick succession after returning.
+
+**Solution:** The `last_resumed_at` timestamp acts as a de-duplication key.
+
+```mermaid
+flowchart TD
+    GapDetected{Gap ≥ 15 min?} -->|Yes| CheckLastResume{last_resumed_at<br/>within this gap?}
+
+    CheckLastResume -->|"last_resumed_at is before<br/>the gap started"| Fire[Resume fires ✓]
+    CheckLastResume -->|"last_resumed_at is after<br/>the gap started"| Skip[Already recorded ✗]
+
+    Fire --> UpdateField[Set last_resumed_at = now]
+```
+
+**Concrete example:**
+1. User sends message at 10:00
+2. User goes silent
+3. User returns at 10:30 — gap is 30 min, `last_resumed_at` is null or before 10:00 → **resume fires**, sets `last_resumed_at = 10:30`
+4. User sends another message at 10:31 — gap from 10:30 is 1 min → **no resume** (gap < 15 min from most recent message)
+5. User goes silent again
+6. User returns at 11:15 — gap is 44 min from 10:31, `last_resumed_at` is 10:30 (before 10:31) → **resume fires again**
+
+### Multiple In-Progress Tasks
+
+If more than one task has `status = in_progress` when resume fires:
+
+```mermaid
+flowchart TD
+    ResumeDetected([Resume detected]) --> CountTasks{How many<br/>in_progress tasks?}
+
+    CountTasks -->|1 task| SingleResume[Resume that task directly]
+    CountTasks -->|2+ tasks| AskUser["Which one are you<br/>picking back up?<br/>• Task A<br/>• Task B<br/>• Neither — suggest something new"]
+
+    AskUser --> UserPicks{User choice}
+    UserPicks -->|Task A or B| ResumeChosen[Resume chosen task]
+    UserPicks -->|Neither| ReturnAll[Return all to pending<br/>Enter task selection]
+
+    SingleResume --> ResumeFlow([Normal resume flow])
+    ResumeChosen --> ResumeFlow
+```
+
+**Rules for multiple in-progress tasks:**
+- Resume reward fires **once** (for the session), not once per task
+- The user chooses which task to resume — the system does not auto-select
+- Tasks the user doesn't choose remain `in_progress` (they may resume those later)
+- If user says "neither," all in-progress tasks return to `pending`
+
+### False-Positive Mitigation
+
+| Risk | Mitigation | Why It Works |
+|------|------------|--------------|
+| Micro-breaks (< 15 min) trigger resume | 15-minute floor | Filters bathroom breaks, snack runs, quick interruptions |
+| Stale tasks auto-resume after days | >24h confirmation prompt | User explicitly confirms intent to continue |
+| Duplicate resume for same gap | `last_resumed_at` de-dup guard | Only one resume per inactivity gap |
+| Multiple tasks get separate resume rewards | Single reward per session return | One acknowledgment regardless of task count |
+| Unearned reward from false detection | Light-medium intensity only | Resume rewards are encouragement, not celebration — low blast radius if wrong |
+
+### Notion Field Requirements
+
+Resume detection requires these fields on each task:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `resume_count` | number | Running total of resume events (existing) |
+| `last_resumed_at` | date | Timestamp of most recent resume detection (new) |
+| `progress_notes` | rich_text | Append-only log including resume entries (existing) |
+| `started_at` | date | When task was accepted (existing) |
+| `steps_completed` | number | For context restoration on resume (existing) |
 
 ## Phase 5.5: Cannot Finish (Re-breakdown)
 
