@@ -6,7 +6,7 @@ on:
   pull_request_review_comment:
     types: [created]
   issues:
-    types: [opened, assigned]
+    types: [opened]
   pull_request_review:
     types: [submitted]
 
@@ -275,6 +275,9 @@ jobs:
             - Never use \`git push --no-verify\`
 
             Complete the user's request. If you make changes, create a branch, commit them, and open a PR.
+            BEFORE creating a new PR, check if one already exists for this issue:
+              gh pr list --state open --search 'Resolves #${ISSUE_NUMBER} OR Fixes #${ISSUE_NUMBER} OR Closes #${ISSUE_NUMBER}'
+            If a PR already exists, push changes to that PR's branch instead of creating a new one.
             Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
             fi
 
@@ -327,7 +330,24 @@ jobs:
       - name: Create gh config directory for devcontainer mount
         run: mkdir -p ~/.config/gh
 
+      - name: Check for existing PR
+        id: check-existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ISSUE_NUM=${{ github.event.issue.number }}
+          # Search for open PRs whose body contains "Resolves #N", "Fixes #N", or "Closes #N"
+          EXISTING=$(gh pr list --state open --search "Resolves #${ISSUE_NUM} OR Fixes #${ISSUE_NUM} OR Closes #${ISSUE_NUM}" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "PR #${EXISTING} already targets issue #${ISSUE_NUM}, skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "No existing PR found for issue #${ISSUE_NUM}"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Label issue as claude-started
+        if: steps.check-existing.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -337,6 +357,7 @@ jobs:
           gh issue edit ${{ github.event.issue.number }} --add-label "claude-started" --repo ${{ github.repository }}
 
       - name: Log in to GHCR
+        if: steps.check-existing.outputs.skip != 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -345,6 +366,7 @@ jobs:
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Resolve issue in devcontainer
+        if: steps.check-existing.outputs.skip != 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
