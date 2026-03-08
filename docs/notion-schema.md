@@ -33,6 +33,7 @@ erDiagram
         date started_at "Set when user accepts task"
         number steps_completed "Sub-steps finished"
         number resume_count "Times user returned to task"
+        date last_resumed_at "De-dup guard for resume detection"
     }
 
     USER_PREFERENCES {
@@ -420,6 +421,28 @@ Count of sub-steps the user has completed within the current task. Used for:
 Number of times the user has returned to a task after stepping away. Used for:
 - Triggering "back at it" rewards (re-starting is hard)
 - Understanding user work patterns (frequent breaks vs. sustained sessions)
+- Selecting escalating resume reward messages (1st, 2nd, 3rd+)
+
+Incremented by the resume detection mechanism (see [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)) when ALL of:
+1. Task has `status = in_progress`
+2. Gap ≥ 15 minutes since last user message
+3. No resume already recorded for this gap (checked via `last_resumed_at`)
+
+---
+
+### LastResumedAt (date)
+
+Timestamp of the most recent resume detection for this task. Used as a de-duplication guard to prevent multiple resume events from firing for the same inactivity gap.
+
+```
+Format: ISO 8601 (2025-01-04T10:30:00Z)
+```
+
+**Set when:** Resume detection fires (all three conditions met)
+**Checked by:** Resume detection gate — if `last_resumed_at` falls after the start of the current gap, resume has already been recorded and does not fire again
+**Reset when:** Never reset — each resume overwrites with the new timestamp
+
+See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection) for the full detection mechanism.
 
 ---
 
@@ -726,6 +749,7 @@ sequenceDiagram
 | Reject task | `rejectionCount += 1, rejectionNotes += reason` |
 | Unblock task | Clear blocked status in rejectionNotes |
 | Cannot finish | `status → has_subtasks, progressNotes += progress` |
+| Resume task | `resume_count += 1, last_resumed_at → now, progressNotes += "[ts] Resumed (gap: Xm)"` |
 | Create sub-task | `parent_task_id, sequence, status = pending` |
 | Complete sub-task | `status → completed` (check if parent complete) |
 
