@@ -369,10 +369,10 @@ flowchart TD
     NotFeeling --> ActionGeneral[Log rejection<br/>Try different task]
 ```
 
-### Rejection Escalation (RSD-Safe)
+### Rejection Escalation (Shame-Safe)
 
 > **Shame Prevention:** Multiple rejections are the highest-risk moment for
-> RSD-triggered shame. Each escalation step must explicitly normalize the
+> rejection-triggered shame. Each escalation step must explicitly normalize the
 > experience. Never frame rejection accumulation as a problem.
 
 ```mermaid
@@ -485,7 +485,7 @@ flowchart LR
 - The AI presents only the current actionable sub-task
 - Parent task only completes when all sub-tasks are done
 
-### Cannot Finish Response Templates (RSD-Safe)
+### Cannot Finish Response Templates (Shame-Safe)
 
 | Scenario | Response Template |
 |----------|-------------------|
@@ -699,7 +699,7 @@ flowchart TD
     NewTime --> Reset3[Set timer to time × 1.25]
 ```
 
-### Check-In Response Templates (RSD-Safe)
+### Check-In Response Templates (Shame-Safe)
 
 > **Shame Prevention:** Check-ins can feel like surveillance. Keep the tone
 > curious and warm — a friend checking in, not a manager following up.

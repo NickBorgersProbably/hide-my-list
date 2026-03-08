@@ -40,7 +40,7 @@ The reward system operates on the principle that **completing tasks should feel 
 2. **Social reinforcement** - Loved ones acknowledge achievements
 3. **Anticipatory pleasure** - Suggestions for enjoyable activities
 
-### RSD-Safe Reward Principles
+### Shame-Safe Reward Principles
 
 > **Shame Prevention:** The reward system must never create an implicit comparison
 > between "good" sessions (many completions) and "bad" sessions (few or none).
