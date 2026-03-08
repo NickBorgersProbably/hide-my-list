@@ -218,15 +218,59 @@ jobs:
 
             # Build the prompt based on whether this is a PR or issue comment
             if [ "$IS_PR" = "true" ]; then
+              # Fetch PR description/body
+              PR_BODY=$(gh api "repos/${REPO}/pulls/${ISSUE_NUMBER}" --jq '.body' 2>/dev/null || echo "")
+
+              # Fetch all PR conversation comments (issue comments endpoint covers PR top-level comments)
+              PR_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+
+              # Fetch PR review comments (inline code review comments)
+              PR_REVIEW_COMMENTS=$(gh api "repos/${REPO}/pulls/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** reviewed at \(.created_at) on \(.path):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+
+              # Try to find a linked issue number from the PR body (e.g. "Fixes #123", "Resolves #45", "Closes #7")
+              LINKED_ISSUE=""
+              LINKED_ISSUE_BODY=""
+              LINKED_ISSUE_COMMENTS=""
+              if [ -n "$PR_BODY" ]; then
+                LINKED_ISSUE=$(echo "$PR_BODY" | grep -oiE '(fix(es)?|close(s)?|resolve(s)?)\s*#[0-9]+' | head -1 | grep -oE '[0-9]+' || echo "")
+                if [ -n "$LINKED_ISSUE" ]; then
+                  LINKED_ISSUE_BODY=$(gh api "repos/${REPO}/issues/${LINKED_ISSUE}" --jq '"**\(.title)**\n\(.body)"' 2>/dev/null || echo "")
+                  LINKED_ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${LINKED_ISSUE}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 30000 || echo "")
+                fi
+              fi
+
               PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
 
-            The user said: ${COMMENT_BODY}
+            PR DESCRIPTION:
+            ${PR_BODY}
+
+            PR CONVERSATION COMMENTS:
+            ${PR_COMMENTS}
+
+            PR REVIEW COMMENTS (inline):
+            ${PR_REVIEW_COMMENTS}
+            "
+
+              # Append linked issue context if found
+              if [ -n "$LINKED_ISSUE" ] && [ -n "$LINKED_ISSUE_BODY" ]; then
+                PROMPT="${PROMPT}
+            LINKED ISSUE #${LINKED_ISSUE}:
+            ${LINKED_ISSUE_BODY}
+
+            LINKED ISSUE COMMENTS:
+            ${LINKED_ISSUE_COMMENTS}
+            "
+              fi
+
+              PROMPT="${PROMPT}
+            THE TRIGGERING COMMENT (this is the primary request you must address):
+            ${COMMENT_BODY}
 
             YOUR TASK: IMPLEMENT the requested changes. Do NOT just provide review comments or suggestions.
 
             WORKFLOW:
-            1. Read the user's request carefully
-            2. If they reference another comment, fetch it: gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments
+            1. Read the triggering comment carefully - this is your primary task
+            2. Use the PR description, comments, review comments, and linked issue above for full context
             3. Understand what changes are needed
             4. Implement the changes in the code
             5. Run \`cargo test\` to verify your changes work
@@ -246,9 +290,22 @@ jobs:
 
             You are on branch ${PR_HEAD_REF}. Make the changes, commit, and push them."
             else
+              # Fetch the issue body via API for complete content
+              ISSUE_BODY_FULL=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '"**\(.title)**\n\(.body)"' 2>/dev/null || echo "")
+
+              # Fetch all comments on the issue for context
+              ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+
               PROMPT="You are responding to a request in ${REPO} issue #${ISSUE_NUMBER}.
 
-            The user said: ${COMMENT_BODY}
+            ISSUE:
+            ${ISSUE_BODY_FULL}
+
+            ISSUE COMMENTS:
+            ${ISSUE_COMMENTS}
+
+            THE TRIGGERING COMMENT (this is the primary request you must address):
+            ${COMMENT_BODY}
 
             IMPORTANT RULES FOR THIS REPOSITORY:
             - Use \`cargo test\` to run all tests
