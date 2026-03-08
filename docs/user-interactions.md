@@ -349,7 +349,7 @@ sequenceDiagram
     AI->>U: "How about the quarterly report?"
     U->>AI: "Not that one"
 
-    AI->>U: "No problem - what's steering you away from it?"
+    AI->>U: "No problem — that helps me learn what works for you. What's steering you away?"
     U->>AI: "Not in the mood for deep work"
 
     Note over AI: Record: mood mismatch for focus work
@@ -381,25 +381,35 @@ flowchart TD
     NotFeeling --> ActionGeneral[Log rejection<br/>Try different task]
 ```
 
-### Rejection Escalation
+### Rejection Escalation (Shame-Safe)
+
+> **Shame Prevention:** Multiple rejections are the highest-risk moment for
+> rejection-triggered shame. Each escalation step must explicitly normalize the
+> experience. Never frame rejection accumulation as a problem.
 
 ```mermaid
 flowchart TD
-    R1[1st Rejection] --> Suggest1[Suggest alternative]
+    R1[1st Rejection] --> Suggest1["Suggest alternative<br/>'No problem — here's something different'"]
     Suggest1 --> R2[2nd Rejection]
-    R2 --> Suggest2[Suggest very different task]
+    R2 --> Suggest2["Very different task + normalize<br/>'Your no's help me learn — trying something else'"]
     Suggest2 --> R3[3rd Rejection]
-    R3 --> Escalate["Having trouble finding a match.<br/>Want to tell me what you're in the mood for?"]
-    Escalate --> UserInput[User describes preference]
-    UserInput --> CustomSearch[Search with explicit criteria]
+    R3 --> Normalize["Explicit normalization<br/>'Sometimes the brain just isn't in task mode.<br/>That's not a failure — it's information.'"]
+    Normalize --> Offer["Offer choice:<br/>describe what sounds good OR take a break"]
+    Offer -->|Describes mood| CustomSearch[Search with explicit criteria]
+    Offer -->|Break| SafeExit["'I'll be here when you're ready.<br/>No pressure, no judgment.'"]
     CustomSearch --> R4{4th+ Rejection?}
-    R4 -->|Yes| GracefulExit["Maybe now's not the time.<br/>I'll be here when you're ready."]
+    R4 -->|Yes| SafeExit
     R4 -->|No| Continue[Continue suggesting]
 ```
 
 ## Flow 5: Cannot Finish (Task Breakdown)
 
-When a user indicates they cannot finish a task, it signals the task was too large and needs to be broken down into smaller sub-tasks. **Critically, the AI must first ask what the user accomplished** to understand what remains.
+When a user indicates they cannot finish a task, it signals the task was too large and needs to be broken down into smaller sub-tasks. **Critically, the AI must first acknowledge their progress, then ask what they accomplished** to understand what remains.
+
+> **Shame Prevention:** "Cannot finish" is a high-risk moment. The user is telling
+> you they couldn't do something. Always lead with acknowledging effort and reframe
+> the situation: they didn't fail — they discovered the task's real size. That's
+> valuable information.
 
 ```mermaid
 sequenceDiagram
@@ -412,7 +422,7 @@ sequenceDiagram
 
     Note over AI: CANNOT_FINISH detected
 
-    AI->>U: "No worries - what did you get into before stopping?"
+    AI->>U: "No worries — you figured out it's bigger than it seemed. What did you get into?"
     U->>AI: "I drafted the outline and did initial research"
 
     Note over AI: Analyze: Outline + research done<br/>Writing and analysis remain
@@ -422,7 +432,7 @@ sequenceDiagram
 
     Note over N: Hidden sub-tasks created:<br/>1. Write executive summary<br/>2. Draft competitive analysis<br/>3. Finalize recommendations
 
-    AI->>U: "Good progress! Ready to tackle the executive summary? Should take about 30 min."
+    AI->>U: "Real progress — outline and research are done. Ready to tackle the executive summary? Should take about 30 min."
 ```
 
 ### Cannot Finish Decision Tree
@@ -487,14 +497,14 @@ flowchart LR
 - The AI presents only the current actionable sub-task
 - Parent task only completes when all sub-tasks are done
 
-### Cannot Finish Response Templates
+### Cannot Finish Response Templates (Shame-Safe)
 
 | Scenario | Response Template |
 |----------|-------------------|
-| First time | "Got it - that's a big one. I've broken it into smaller pieces. Ready for the first chunk?" |
-| Already broken | "Still too much? Let me find an even smaller piece to start with." |
-| Can't break further | "This is pretty atomic. What specific part is blocking you?" |
-| Making progress | "Nice - one piece done. Ready for the next bit?" |
+| First time | "Now we know this task's real size. I've broken it into smaller pieces — ready for the first chunk?" |
+| Already broken | "Still too big — that's useful info. Let me find an even smaller piece to start with." |
+| Can't break further | "This is pretty focused already. What's the specific part that's hard?" |
+| Making progress | "Nice — one piece done! Ready for the next bit?" |
 
 ---
 
@@ -701,18 +711,22 @@ flowchart TD
     NewTime --> Reset3[Set timer to time × 1.25]
 ```
 
-### Check-In Response Templates
+### Check-In Response Templates (Shame-Safe)
+
+> **Shame Prevention:** Check-ins can feel like surveillance. Keep the tone
+> curious and warm — a friend checking in, not a manager following up.
+> Never imply the user should have finished by now.
 
 | Scenario | AI Response |
 |----------|-------------|
 | 1st check-in | "How's [task] going? Still at it?" |
-| 2nd check-in | "Still working on [task]?" |
-| 3rd check-in | "Want to take a break from [task]? I'll be here when you're ready." |
+| 2nd check-in | "Still working on [task]? No rush either way." |
+| 3rd check-in | "Want to take a break from [task]? Totally fine — I'll be here when you're ready." |
 | User says done | "Nice! Marking that off. Ready for another?" |
-| User still working | "No rush - keep at it! I'll check back in a bit." |
-| User got distracted | "Happens to everyone. Want to jump back in, or try something else?" |
-| User needs more time | "No problem. About how much longer do you think?" |
-| User wants to stop | "Got it - I'll put that back in the queue. What would you like to do instead?" |
+| User still working | "No rush — keep at it! I'll check back in a bit." |
+| User got distracted | "Happens to literally everyone. Want to jump back in, or try something else?" |
+| User needs more time | "No problem — time estimates are just guesses anyway. About how much longer?" |
+| User wants to stop | "Totally fine — I'll keep it for later. No pressure. What sounds good instead?" |
 
 ### Client-Side Timer Implementation
 
