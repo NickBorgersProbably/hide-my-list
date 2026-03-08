@@ -254,3 +254,5 @@ flowchart TB
 - **CI separation**: GitHub Actions reviewers have full internet but no access to home systems
 - **Credential handling**: API keys in `.env` (gitignored), never logged or committed
 - **Least privilege**: PR test workflows have read-only permissions
+
+For the full security architecture — including agent trust model, threat model, and prompt injection analysis — see [SECURITY.md](../SECURITY.md).
