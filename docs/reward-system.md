@@ -152,24 +152,40 @@ flowchart TD
         Return[User returns to paused task] --> ResumeReward[Resume Reward]
     end
 
-    subgraph Intensity["Reward Intensity Scale"]
-        Init["Initiation: Lightest<br/>Brief acknowledgment"]
-        First["First Step: Light<br/>Momentum confirmation"]
-        Res["Resume: Light-Medium<br/>Extra recognition (re-starting is hard)"]
-        Comp["Completion: Full<br/>Real celebration"]
+    subgraph Scoring["Unified Scoring (see Reward Scaling Algorithm)"]
+        Calc["Score calculated using<br/>base_score + streak_bonus − diminishing"]
+        Cap["Capped by initiation_ceiling<br/>to keep lighter than completion"]
     end
 
-    StartReward --> Init
-    ProgressReward --> First
-    ResumeReward --> Res
+    subgraph Intensity["Maps to Unified Intensity Levels"]
+        Lightest["Score 0-10 → Lightest<br/>Brief acknowledgment"]
+        Low["Score 11-25 → Low<br/>Momentum confirmation"]
+        Medium["Score 26-50 → Medium<br/>(max for initiation triggers)"]
+    end
+
+    StartReward --> Calc
+    ProgressReward --> Calc
+    ResumeReward --> Calc
+    Calc --> Cap
+    Cap --> Intensity
 ```
 
-| Trigger | Intensity | Example Messages |
-|---------|-----------|------------------|
-| Task accepted (starting) | Lightest | "You're in. That's the hardest part.", "Starting — nice.", "Let's go." |
-| First sub-step done | Light | "First step done — you're in motion now.", "One down. Momentum's real." |
-| Resumed after break | Light-Medium | "Back at it — picking up where you left off is a skill.", "Welcome back. Ready to keep going?" |
-| Started 3+ tasks today | Light | "Third start today — your initiation muscle is getting stronger." |
+Initiation rewards use the **same scoring algorithm** as completion rewards
+(see [Reward Scaling Algorithm](#reward-scaling-algorithm)), with two
+initiation-specific adjustments:
+
+1. **`initiation_base_weight`** — a multiplier (default `0.4`) applied to the
+   base score, keeping initiation rewards inherently lighter.
+2. **`initiation_ceiling`** — an intensity cap (default `Medium / 50`) that
+   prevents initiation rewards from ever reaching `High` or `Epic`, preserving
+   those tiers for completion.
+
+| Trigger | Base-Weight | Ceiling | Example Messages |
+|---------|-------------|---------|------------------|
+| Task accepted (starting) | 0.3 | Lightest (10) | "You're in. That's the hardest part.", "Starting — nice.", "Let's go." |
+| First sub-step done | 0.4 | Low (25) | "First step done — you're in motion now.", "One down. Momentum's real." |
+| Resumed after break | 0.5 | Medium (50) | "Back at it — picking up where you left off is a skill.", "Welcome back. Ready to keep going?" |
+| Started 3+ tasks today | 0.4 | Low (25) | "Third start today — your initiation muscle is getting stronger." |
 
 **Important design constraints:**
 - Initiation rewards must be **briefer and lighter** than completion rewards
@@ -624,6 +640,7 @@ flowchart TD
     subgraph Input["Reward Inputs"]
         TaskDifficulty["Task Difficulty<br/>time + energy"]
         StreakCount["Current Streak"]
+        TriggerType["Trigger Type<br/>initiation | completion"]
         TimeOfDay["Time of Day"]
         RecentRewards["Recent Reward History"]
         UserPrefs["User Preferences"]
@@ -631,13 +648,14 @@ flowchart TD
 
     subgraph Calculate["Intensity Calculation"]
         Base["Base Score<br/>from task difficulty"]
-        Multiplier["Streak Multiplier<br/>1.0 + (streak × 0.1)"]
+        Weight["Apply initiation_base_weight<br/>(1.0 for completion)"]
+        Multiplier["Streak Bonus<br/>streak_count × 5"]
         Diminishing["Diminishing Returns<br/>reduce if many recent rewards"]
-        Cap["Cap at intensity level"]
+        Cap["Apply initiation_ceiling<br/>(100 for completion)"]
     end
 
     subgraph Output["Reward Selection"]
-        Intensity["Intensity Level<br/>low|medium|high|epic"]
+        Intensity["Intensity Level<br/>lightest|low|medium|high|epic"]
         Channels["Active Channels"]
         Content["Specific Content"]
     end
@@ -648,16 +666,21 @@ flowchart TD
 
 ### Intensity Levels
 
-| Level | Score Range | Emoji Count | AI Image | Music | Text SO | Outing |
-|-------|-------------|-------------|----------|-------|---------|--------|
-| Low | 0-25 | 1-2 | Gentle theme | No | No | No |
-| Medium | 26-50 | 2-4 | Enthusiastic theme | Maybe | Maybe | No |
-| High | 51-75 | 4-6 | Majestic theme | Yes | Yes | Maybe |
-| Epic | 76-100 | 6+ | Cosmic theme (high quality) | Yes | Yes | Yes |
+| Level | Score Range | Emoji Count | AI Image | Music | Text SO | Outing | Used For |
+|-------|-------------|-------------|----------|-------|---------|--------|----------|
+| Lightest | 0-10 | 0 | No | No | No | No | Initiation only |
+| Low | 11-25 | 1-2 | Gentle theme | No | No | No | Initiation + Completion |
+| Medium | 26-50 | 2-4 | Enthusiastic theme | Maybe | Maybe | No | Initiation (max) + Completion |
+| High | 51-75 | 4-6 | Majestic theme | Yes | Yes | Maybe | Completion only |
+| Epic | 76-100 | 6+ | Cosmic theme (high quality) | Yes | Yes | Yes | Completion only |
 
 ### Score Calculation
 
+The same formula is used for **both** initiation and completion rewards.
+Initiation triggers apply a weight and ceiling to keep them lighter.
+
 ```
+# --- Shared base calculation (initiation + completion) ---
 base_score = (time_estimate / 15) * 10 + (energy_level * 10)
 streak_bonus = streak_count * 5
 milestone_bonus = is_parent_complete ? 25 : 0
@@ -666,8 +689,26 @@ milestone_bonus += is_all_cleared ? 50 : 0
 raw_score = base_score + streak_bonus + milestone_bonus
 diminishing = max(0, (rewards_in_last_hour - 2) * 10)
 
-final_score = min(100, max(0, raw_score - diminishing))
+# --- Completion rewards ---
+completion_score = min(100, max(0, raw_score - diminishing))
+
+# --- Initiation rewards ---
+# initiation_base_weight: per-trigger multiplier (see table above)
+#   task_accepted = 0.3, first_step = 0.4, resumed = 0.5, multi_start = 0.4
+# initiation_ceiling: per-trigger max score
+#   task_accepted = 10, first_step = 25, resumed = 50, multi_start = 25
+weighted_score = (base_score * initiation_base_weight) + streak_bonus
+initiation_score = min(initiation_ceiling, max(0, weighted_score - diminishing))
 ```
+
+**Why two adjustments?**
+- `initiation_base_weight` scales down the task-difficulty component because
+  the user hasn't done the work yet — only started it.
+- `initiation_ceiling` guarantees that no initiation reward ever reaches `High`
+  or `Epic`, keeping those tiers exclusively for completion. This ensures
+  starting a task never feels more rewarding than finishing one.
+- `streak_bonus` is kept at full value for initiation because building a
+  *starting* streak is genuinely hard for ADHD and deserves recognition.
 
 ---
 
@@ -760,18 +801,24 @@ stateDiagram-v2
     Pending --> InProgress: User accepts
     InProgress --> Completed: User finishes
 
-    Completed --> RewardEvaluation: Trigger rewards
-    RewardEvaluation --> RewardDelivery: Calculate intensity
+    Pending --> InitiationReward: User accepts (initiation trigger)
+    InProgress --> InitiationReward: First step done / Resumed
+
+    InitiationReward --> RewardEvaluation: Calculate score (weighted + capped)
+    Completed --> RewardEvaluation: Calculate score (full)
+
+    RewardEvaluation --> RewardDelivery: Map score to intensity level
 
     state RewardDelivery {
         [*] --> Emoji
-        Emoji --> GIF: if enabled
-        GIF --> Music: if enabled
-        Music --> TextSO: if enabled
-        TextSO --> Outing: if high intensity
+        Emoji --> GIF: if enabled + score ≥ Medium
+        GIF --> Music: if enabled + score ≥ High
+        Music --> TextSO: if enabled + score ≥ High
+        TextSO --> Outing: if score = Epic
         Outing --> [*]
     }
 
+    InitiationReward --> InProgress: Continue working
     RewardDelivery --> [*]: All rewards delivered
 ```
 
