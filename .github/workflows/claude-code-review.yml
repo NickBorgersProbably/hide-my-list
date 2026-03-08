@@ -924,6 +924,7 @@ jobs:
             If there are no actionable issues, post a short approval and move on.
 
             Run \`git diff origin/main...HEAD\` to see changes.
+            Read SECURITY.md for the project's security model and threat assumptions.
 
             Check for security and infrastructure issues:
             - Credential/secret handling in scripts (no hardcoded tokens, proper .env usage)
