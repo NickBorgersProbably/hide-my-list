@@ -28,6 +28,7 @@ flowchart TB
 
     subgraph External["External Services"]
         Notion[Notion API<br/>Task Storage]
+        OpenAI[OpenAI API<br/>Image Generation]
         GitHub[GitHub Actions<br/>Review Pipeline]
     end
 
@@ -63,6 +64,8 @@ flowchart LR
 
     subgraph Scripts["scripts/"]
         NotionCLI[notion-cli.sh<br/>Task CRUD]
+        RewardImg[generate-reward-image.sh<br/>AI Celebration Images]
+        RecapVid[generate-weekly-recap.sh<br/>Weekly Recap Video]
         WebhookSig[webhook-signal.sh<br/>CI Notifications]
         SecUpdate[security-update.sh<br/>Package Patching]
     end
@@ -82,6 +85,7 @@ flowchart LR
     Selection --> NotionCLI
     NotionCLI --> Tasks
     Breakdown --> NotionCLI
+    Reward --> RewardImg
     Review --> WebhookSig
 ```
 
@@ -186,6 +190,8 @@ flowchart TD
 | Messaging | OpenClaw Surfaces | Multi-channel by default (web, Signal, Telegram, Discord) |
 | CI/CD | GitHub Actions | Multi-agent review pipeline with full internet for research |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
+| Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
+| Video | ffmpeg | Weekly recap compilation |
 
 ## Environment Variables
 
@@ -193,7 +199,17 @@ flowchart TD
 |----------|---------|
 | `NOTION_API_KEY` | Notion integration token |
 | `NOTION_DATABASE_ID` | Tasks database identifier |
+| `OPENAI_API_KEY` | OpenAI API key for reward image generation |
 | `WEBHOOK_PORT` | CI notification webhook port (default: 9199) |
+
+## Prerequisites
+
+| Dependency | Purpose |
+|------------|---------|
+| `python3` | JSON payload construction, image decoding |
+| `curl` | API calls (Notion, OpenAI) |
+| `ffmpeg` | Weekly recap video generation |
+| `bc` | Arithmetic in recap script |
 
 ## Security Architecture
 
@@ -211,6 +227,7 @@ flowchart TB
 
     subgraph External["External"]
         Notion[api.notion.com]
+        OpenAI[api.openai.com]
         GitHub[api.github.com]
         Research[PubMed, CHADD, etc.]
     end
@@ -222,6 +239,7 @@ flowchart TB
 
     Agent --> Proxy
     Proxy -->|Allowed| Notion
+    Proxy -->|Allowed| OpenAI
     Proxy -->|Allowed| GitHub
     Proxy -->|Allowed| Research
     Proxy -.->|Blocked| FullNet

@@ -194,107 +194,173 @@ flowchart TD
 
 ---
 
-### Animated GIF Celebrations
+### AI-Generated Celebration Images
 
-Fun, culturally relevant GIFs that bring joy and humor to task completion.
+Every completion gets a **unique, AI-generated celebration image** via OpenAI's `gpt-image-1` model. This provides the novelty that ADHD brains crave — no two celebrations look the same, preventing habituation and maintaining dopamine response.
+
+#### Why AI-Generated Over Static GIFs
+
+- **Novelty**: ADHD brains habituate to repeated stimuli. Static GIF pools become predictable. Every AI image is unique.
+- **Dopamine**: Novel visual stimuli trigger stronger dopamine release than familiar ones.
+- **Personalization**: Prompts can incorporate user context, streaks, and preferences.
+- **Scalability**: No need to curate and maintain a GIF library.
 
 ```mermaid
 flowchart TD
-    subgraph Categories["GIF Categories"]
-        Party["Party/Celebration<br/>Taylor Swift dancing"]
-        Victory["Victory/Triumph<br/>Fist pumps, confetti"]
-        Dance["Dance Moves<br/>Happy dances"]
-        Reaction["Reactions<br/>Mind blown, amazed"]
-        Custom["Custom/Seasonal<br/>Holiday themed"]
+    subgraph Trigger["Completion Trigger"]
+        Complete[Task Completed]
+        Intensity[Calculate Intensity]
     end
 
-    subgraph Selection["Selection Logic"]
-        Random[Weighted Random]
-        Preference[User Preference Learning]
-        Context[Context Matching]
+    subgraph Generation["Image Generation"]
+        Theme[Select Random Theme Pool]
+        Prompt[Build Prompt]
+        Style[Apply Intensity Styling]
+        Generate[OpenAI gpt-image-1 API]
     end
 
-    Categories --> Selection
-    Selection --> Display[Display in Chat UI]
+    subgraph Delivery["Image Delivery"]
+        Chat[Embed in Chat Message]
+        Signal[Send via Signal/Telegram]
+    end
+
+    Complete --> Intensity
+    Intensity --> Theme
+    Theme --> Prompt
+    Prompt --> Style
+    Style --> Generate
+    Generate --> Delivery
 ```
 
-#### GIF Source Configuration
+#### Image Generation Script
 
-| Category | Example GIFs | Trigger Weight |
-|----------|--------------|----------------|
-| taylor_swift_party | T-Swift celebrating, dancing | High for major wins |
-| office_celebration | Jim/Pam high five, Michael dancing | Medium tasks |
-| animal_celebration | Dancing cats, excited dogs | Quick wins |
-| movie_moments | Victory scenes, celebrations | Streaks |
-| custom_sora | AI-generated celebration videos | Epic achievements |
+`scripts/generate-reward-image.sh` handles all image generation:
 
-#### User Preference Learning
+```bash
+# Generate a reward image
+./scripts/generate-reward-image.sh <intensity> [task_title] [streak_count]
+
+# Examples:
+./scripts/generate-reward-image.sh low "Call dentist" 0
+./scripts/generate-reward-image.sh medium "Review proposal" 2
+./scripts/generate-reward-image.sh epic "Complete Q4 report" 5
+```
+
+Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
+
+#### Theme Pools by Intensity
+
+Each intensity level has a pool of 5+ thematic prompts. A random theme is selected each time, ensuring variety.
+
+| Intensity | Theme Style | Examples |
+|-----------|-------------|---------|
+| Low | Gentle, warm, cozy | Cheerful bird with sparkle, paper airplane in clouds, happy cat in sunbeam |
+| Medium | Enthusiastic, joyful | Fox dancing in wildflowers, confetti explosion, otter on rainbow waterfall |
+| High | Majestic, powerful | Phoenix rising from golden flames, astronaut planting flag, whale in starfield |
+| Epic | Cosmic, transcendent | Galaxy forming a crown, reality folding into light cathedral, cosmic phoenix |
+
+#### Streak Enhancements
+
+Streak count modifies the generated image:
+
+| Streak | Visual Enhancement |
+|--------|--------------------|
+| 0-2 | Base theme only |
+| 3-4 | Three orbiting stars added |
+| 5+ | Trail of five glowing orbs added |
+
+#### Novelty Mechanics (Issue #12)
+
+The image generation system inherently addresses novelty concerns:
+
+1. **Random theme selection** — each intensity has 5+ themes, randomly chosen
+2. **AI variation** — even the same prompt produces different images each time
+3. **Streak-responsive** — visual elements change as streaks grow
+4. **Expandable pools** — new themes can be added to the script without code changes
+
+Future enhancements:
+- Seasonal/holiday theme injection
+- User preference learning (track which themes get positive reactions)
+- Milestone surprise themes (hidden achievements at 10th, 50th, 100th task)
+
+#### Graceful Degradation — Offline Fallback Rewards
+
+If image generation is unavailable for any reason (API outage, missing API key, network error, malformed response), the script **does not fail silently**. Instead, it suggests a fun, non-digital real-life reward drawn from a pool of 12 suggestions:
+
+- Favorite snack, cupcake, ice cream, chocolate
+- 30 minutes of a favorite video game
+- Fancy coffee or hot chocolate
+- A walk outside, stretches, or yoga
+- Mini dance party, calling a friend, watching a show
+- Ordering favorite takeout
+
+The fallback writes the suggestion to a `.txt` file (instead of `.png`) and exits successfully, so the reward pipeline always delivers something positive. This prevents the "expected reward didn't arrive" anti-pattern identified in Hallowell-Ratey's ADHD framework.
+
+#### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | OpenAI API authentication for image generation |
+
+#### Image Archive & Collection
+
+Every generated reward image is automatically archived to `rewards/` with metadata:
+
+- **File naming**: `YYYY-MM-DD_HHMMSS_<intensity>.png`
+- **Manifest log**: `rewards/manifest.log` tracks timestamp, intensity, task title, and file path
+- **Persistent**: Images survive across sessions — your celebration history is preserved
+
+#### Weekly Recap Video
+
+`scripts/generate-weekly-recap.sh` compiles all reward images from the past week into a card-flip transition video:
+
+```bash
+# Generate recap of past 7 days (default)
+./scripts/generate-weekly-recap.sh
+
+# Custom range
+./scripts/generate-weekly-recap.sh 14  # past 2 weeks
+```
+
+Features:
+- **Card-flip transitions** between images (fadegrays, circlecrop, radial, etc.)
+- **Variety in transitions** — each cut uses a different style
+- **Fade-out ending** for a polished finish
+- **Output**: `rewards/weekly-recap-YYYY-MM-DD.mp4`
+
+The recap serves as a tangible record of accomplishment — scrolling through a week of unique celebration images is itself a reward.
 
 ```mermaid
 flowchart LR
-    subgraph Input["User Signals"]
-        Like["❤️ Reaction"]
-        Share["Shared GIF"]
-        Skip["Quickly dismissed"]
+    subgraph Archive["Image Archive"]
+        Mon["Mon: 2 images"]
+        Tue["Tue: 3 images"]
+        Wed["Wed: 1 image"]
+        Thu["Thu: 4 images"]
+        Fri["Fri: 2 images"]
     end
 
-    subgraph Learning["Preference Model"]
-        Weight["Adjust category weights"]
-        Style["Learn humor style"]
-        Avoid["Reduce disliked types"]
+    subgraph Recap["Weekly Recap"]
+        Video["Card-flip video<br/>12 images, ~40 seconds"]
     end
 
-    subgraph Output["Personalized Selection"]
-        Favorites["More favorites"]
-        Fresh["New discoveries"]
-    end
-
-    Input --> Learning
-    Learning --> Output
+    Archive --> Recap
+    Recap --> Deliver["Send via Signal/Telegram"]
 ```
 
----
+#### Technical Details
 
-### AI-Generated Video Celebrations (Sora Integration)
-
-For truly epic achievements, the system can generate custom celebration videos using Sora.
-
-```mermaid
-flowchart TD
-    subgraph Triggers["Video Triggers"]
-        ParentComplete["Parent task completed<br/>(all sub-tasks done)"]
-        WeekClear["Week's tasks cleared"]
-        Milestone["Major milestone reached"]
-    end
-
-    subgraph Generation["Sora Video Generation"]
-        Prompt["Generate celebration prompt"]
-        Style["Apply user style preferences"]
-        Create["Create 5-10 second clip"]
-        Cache["Cache for reuse"]
-    end
-
-    subgraph Delivery["Video Delivery"]
-        Embed["Embed in chat"]
-        Notify["Push notification"]
-        Save["Save to gallery"]
-    end
-
-    Triggers --> Prompt
-    Prompt --> Style
-    Style --> Create
-    Create --> Cache
-    Cache --> Delivery
-```
-
-#### Video Prompt Templates
-
-| Achievement Type | Prompt Template |
-|-----------------|-----------------|
-| Project complete | "Celebratory confetti explosion with [user_name] written in sparkles, joyful upbeat energy" |
-| Week cleared | "Sunset celebration scene, victorious figure silhouette, peaceful accomplishment" |
-| Difficult task | "Epic mountain summit moment, clouds parting, triumphant achievement" |
-| Streak milestone | "Fireworks display spelling out [streak_count], night sky celebration" |
+| Setting | Value |
+|---------|-------|
+| Model | `gpt-image-1` |
+| Size | 1024x1024 |
+| Quality | `auto` (low-high), `high` (epic) |
+| Output format | PNG (images), MP4 (recap video) |
+| Typical generation time | 10-20 seconds |
+| Archive location | `rewards/` |
+| Video codec | H.264 (libx264) |
+| Display per image | 2.5 seconds |
+| Transition duration | 0.8 seconds |
 
 ---
 
@@ -582,12 +648,12 @@ flowchart TD
 
 ### Intensity Levels
 
-| Level | Score Range | Emoji Count | GIF | Music | Video | Text SO | Outing |
-|-------|-------------|-------------|-----|-------|-------|---------|--------|
-| Low | 0-25 | 1-2 | No | No | No | No | No |
-| Medium | 26-50 | 2-4 | Maybe | Maybe | No | Maybe | No |
-| High | 51-75 | 4-6 | Yes | Yes | No | Yes | Maybe |
-| Epic | 76-100 | 6+ | Yes | Yes | Yes | Yes | Yes |
+| Level | Score Range | Emoji Count | AI Image | Music | Text SO | Outing |
+|-------|-------------|-------------|----------|-------|---------|--------|
+| Low | 0-25 | 1-2 | Gentle theme | No | No | No |
+| Medium | 26-50 | 2-4 | Enthusiastic theme | Maybe | Maybe | No |
+| High | 51-75 | 4-6 | Majestic theme | Yes | Yes | Maybe |
+| Epic | 76-100 | 6+ | Cosmic theme (high quality) | Yes | Yes | Yes |
 
 ### Score Calculation
 
@@ -672,12 +738,12 @@ sequenceDiagram
 
     par Parallel Reward Delivery
         R->>AI: Emoji celebration message
-        R->>AI: Selected GIF
+        R->>AI: AI-generated celebration image
         R->>HA: Play victory music
         R->>SMS: Text significant other
     end
 
-    AI->>U: "CRUSHED IT! 🔥💪✨ [GIF: Taylor Swift dancing]"
+    AI->>U: "CRUSHED IT! 🔥💪✨ [unique AI celebration image]"
 
     opt High intensity + cleared schedule
         R->>AI: Outing suggestion
@@ -738,14 +804,13 @@ stateDiagram-v2
 
 | Variable | Purpose | Example |
 |----------|---------|---------|
+| `OPENAI_API_KEY` | OpenAI API for image generation | `sk-proj-xxxxxxxx` |
 | `TWILIO_ACCOUNT_SID` | Twilio authentication | `ACxxxxxxxx` |
 | `TWILIO_AUTH_TOKEN` | Twilio authentication | `xxxxxxxx` |
 | `TWILIO_PHONE_NUMBER` | Sender phone number | `+1234567890` |
 | `SONOS_API_KEY` | Sonos integration | `xxxxxxxx` |
 | `HOME_ASSISTANT_URL` | Home Assistant endpoint | `http://ha.local:8123` |
 | `HOME_ASSISTANT_TOKEN` | Home Assistant auth | `xxxxxxxx` |
-| `SORA_API_KEY` | OpenAI Sora access | `sk-xxxxxxxx` |
-| `GIPHY_API_KEY` | GIF search | `xxxxxxxx` |
 | `OPENWEATHER_API_KEY` | Weather for outings | `xxxxxxxx` |
 
 ---
@@ -762,25 +827,27 @@ gantt
     Emoji celebrations           :done, p1a, 0, 1
     Basic completion messages    :done, p1b, 0, 1
 
-    section Phase 2: Visual
-    GIF integration              :p2a, 1, 2
-    GIF preference learning      :p2b, 2, 3
+    section Phase 2: AI Images
+    Image generation script      :done, p2a, 1, 2
+    Intensity-based themes       :done, p2b, 1, 2
+    Streak visual enhancements   :done, p2c, 1, 2
 
     section Phase 3: Audio
-    Home audio integration       :p3a, 3, 4
-    Music preference config      :p3b, 4, 5
+    Home audio integration       :p3a, 2, 3
+    Music preference config      :p3b, 3, 4
 
     section Phase 4: Social
-    SMS notifications            :p4a, 5, 6
-    Multi-platform messaging     :p4b, 6, 7
+    SMS notifications            :p4a, 4, 5
+    Multi-platform messaging     :p4b, 5, 6
 
-    section Phase 5: AI
-    Sora video generation        :p5a, 7, 8
-    Personalized outings         :p5b, 8, 9
+    section Phase 5: Novelty
+    Seasonal theme injection     :p5a, 6, 7
+    Milestone surprises          :p5b, 6, 7
+    Preference learning          :p5c, 7, 8
 
     section Phase 6: Polish
-    Preference learning          :p6a, 9, 10
-    A/B testing framework        :p6b, 10, 11
+    Personalized outings         :p6a, 8, 9
+    A/B testing framework        :p6b, 9, 10
 ```
 
 ---
