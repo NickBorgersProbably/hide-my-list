@@ -14,11 +14,17 @@ AI agents have a fundamental problem: prompt injection is unsolved. Any agent th
 
 The goal is to ensure no single session or component combines all three without a human in the loop. Here's how hide-my-list's components break down:
 
-### Main agent — [BC] configuration
+### Main agent — [ABC] configuration
 
-The agent accesses Notion data **[B]** and writes tasks **[C]**, but its input channel is constrained. Only an authenticated user behind Tailscale can talk to it — there's no public API, no open web interface, no email ingestion. User input is treated as trusted because the network layer ensures only the owner can provide it. This makes it a **[BC]** configuration: sensitive data and state changes, but no untrusted input.
+The agent is reachable through OpenClaw's messaging channels, which are internet-facing — Tailscale only protects administrative interfaces like SSH and the control UI. That means the agent processes user input from outside the Tailnet **[A]**, accesses Notion data and API credentials **[B]**, and creates/updates tasks **[C]**. This is an [ABC] configuration, which the Rule of Two says requires additional controls.
 
-If we ever add input channels that aren't user-initiated (email ingestion, Slack integration, processing web content), this stops being [BC] and we'd need to add controls — either sandboxing the untrusted input processing away from Notion access, or requiring human confirmation before the agent acts on external data.
+Our mitigations for this:
+- **Proxy domain allowlist** limits where a manipulated agent can send data — even a successful prompt injection can only reach allowlisted domains, not arbitrary endpoints
+- **Proxy blocks private network ranges**, preventing a compromised agent from pivoting internally
+- **Notion API scoping** — the integration token is scoped to specific databases, not the entire workspace
+- **No destructive capabilities** — the agent can create and update tasks but has no access to delete data, send emails, execute code, or reach systems beyond Notion
+
+This is an honest [ABC] and we rely on infrastructure constraints rather than pretending the input channel is trusted. If the agent gained broader capabilities (more integrations, code execution, outbound messaging), the proxy allowlist and Notion scoping would need to be revisited — or we'd need human-in-the-loop confirmation for sensitive actions.
 
 ### Webhook — [A] only
 
@@ -35,11 +41,11 @@ Additional CI/CD controls:
 
 ## Infrastructure controls
 
-The trust model above describes *what* the agent can do. The infrastructure below constrains *how* it can do it — defense in depth in case the application-level assumptions are wrong.
+Because the main agent is [ABC], infrastructure controls are not just defense-in-depth — they're the primary constraint on what a manipulated agent could do.
 
 ### Network
 
-The agent VM sits behind a Tailscale overlay network. There's no public IP and no open ports on the internet. You need to be on the Tailnet (with device posture checks) to reach anything.
+The agent's conversational interface is reachable through OpenClaw's channels without Tailscale. Administrative interfaces (SSH, control UI) require Tailscale overlay network access with device posture checks.
 
 On the host, UFW defaults to deny-all in both directions. Inbound allows only SSH and WireGuard. Outbound allows DNS, NTP, WireGuard, and traffic to the overlay subnet. HTTP/HTTPS ports are not open — all web traffic goes through a forward proxy.
 
@@ -69,22 +75,23 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 
 ## Threat model
 
-| Threat | Trust model | Infrastructure backstop |
-|--------|-------------|------------------------|
-| Prompt injection causes data exfiltration | Agent is [BC] — no untrusted input channel to inject through | Proxy allowlist blocks unauthorized destinations |
-| Agent pivots to internal network | [BC] config has no external input to trigger pivoting | Proxy blocks private ranges; firewall restricts egress |
-| Malicious webhook payload | Webhook is [A]-only — all data discarded, no access to credentials or external systems | Connection limits and hard timeout |
+| Threat | Trust model | Mitigation |
+|--------|-------------|------------|
+| Prompt injection causes data exfiltration | Agent is [ABC] — injection is possible via messaging channels | Proxy allowlist limits reachable destinations; Notion token scoped to specific databases |
+| Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Proxy blocks private ranges; firewall restricts egress to overlay subnet |
+| Malicious webhook payload | Webhook is [A]-only — data discarded, no credentials or external access | Connection limits and hard timeout |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked; devcontainer built only from main |
-| API keys extracted from config | Keys are only accessible to the application user | Config is 0600; never logged or committed |
-| Unauthorized access to agent | Input channel requires Tailscale authentication | Firewall allows only SSH and WireGuard inbound |
+| API keys extracted from config | Keys only accessible to application user | Config is 0600; never logged or committed |
+| Unauthorized admin access | Admin interfaces require Tailscale authentication | Firewall allows only SSH and WireGuard inbound |
 
 ## What would need to change
 
-The current security posture assumes a single trusted user as the only input source. Things that would require rethinking:
+The agent is already [ABC], so the current posture depends on infrastructure constraints (proxy allowlist, Notion scoping, no destructive capabilities) to limit blast radius. Things that would require rethinking:
 
-- **Adding untrusted input channels** (email, Slack, web content) — the main agent would become [ABC], requiring either human-in-the-loop confirmation for actions, or sandboxing the input processing away from Notion access
-- **Multi-user support** — one user's input could target another user's data; would need per-user credential scoping
-- **Broader API access** — currently limited to Notion; adding more integrations increases what a compromised agent can do
+- **Broader API access** — currently limited to Notion; adding more integrations (calendar, email, file storage) widens what a compromised agent can do and would need per-integration scoping and possibly human-in-the-loop confirmation
+- **Multi-user support** — one user's input could target another user's data; would need per-user credential scoping and session isolation
+- **Outbound messaging** — if the agent could send emails or messages, a prompt injection could use it for spam or social engineering; would need human confirmation for outbound communication
+- **Code execution** — any ability to run arbitrary code would require sandboxing isolated from the Notion credentials
 
 ## Reporting vulnerabilities
 
