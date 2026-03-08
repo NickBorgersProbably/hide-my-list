@@ -955,7 +955,7 @@ jobs:
             ### Conclusion
             [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/security-review-output.jsonl
 
-      - name: Upload concurrency review output
+      - name: Upload security review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
