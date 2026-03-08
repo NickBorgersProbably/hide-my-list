@@ -4,6 +4,8 @@
 
 hide-my-list is a personal AI agent that holds Notion API credentials and runs unattended on a VM. It's not a bank — but an always-on process with API keys deserves more thought than a typical side project. This doc describes what we actually do and why.
 
+The infrastructure sections name specific technologies (Tailscale, Squid, UFW, Gravwell) because that's what we run. The principles matter more than the tools — deny-by-default egress, domain allowlisting, credential isolation, and network segmentation can be implemented with whatever fits your stack.
+
 ## Agent trust model
 
 AI agents have a fundamental problem: prompt injection is unsolved. Any agent that processes untrusted input can potentially be manipulated. Meta's [Agents Rule of Two](https://ai.meta.com/blog/practical-ai-agent-security/) gives a useful framework for thinking about this. An agent becomes dangerous when it combines all three of:
