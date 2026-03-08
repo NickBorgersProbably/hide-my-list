@@ -4,6 +4,9 @@
 # with a JSDOM environment (mermaid requires DOM APIs even for parse-only mode).
 # This catches errors that would prevent GitHub from rendering diagrams.
 #
+# Dependencies (mermaid, jsdom, dompurify) are pre-installed in the devcontainer.
+# Falls back to installing them in a temp directory if not found globally.
+#
 # Usage: validate-mermaid.sh [dir...]
 # Defaults to docs/ and design/ if no directories specified.
 
@@ -47,8 +50,17 @@ try {
 }
 VALIDATOR
 
-# Install dependencies for the validator
-(cd "$TMPDIR" && npm init -y --silent > /dev/null 2>&1 && npm install mermaid jsdom dompurify > /dev/null 2>&1)
+# Check if dependencies are available globally (pre-installed in devcontainer/CI).
+# ESM imports don't use NODE_PATH, so we symlink global node_modules into the temp dir.
+GLOBAL_MODULES=$(npm root -g 2>/dev/null)
+if [ -n "$GLOBAL_MODULES" ] && \
+   [ -d "$GLOBAL_MODULES/mermaid" ] && [ -d "$GLOBAL_MODULES/jsdom" ] && [ -d "$GLOBAL_MODULES/dompurify" ]; then
+  echo "Using pre-installed Mermaid dependencies"
+  ln -s "$GLOBAL_MODULES" "$TMPDIR/node_modules"
+else
+  echo "Installing Mermaid dependencies..."
+  (cd "$TMPDIR" && npm init -y --silent > /dev/null 2>&1 && npm install mermaid jsdom dompurify > /dev/null 2>&1)
+fi
 
 # Find all markdown files and extract/validate mermaid blocks
 for dir in "${DIRS[@]}"; do

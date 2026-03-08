@@ -31,6 +31,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install Mermaid validation dependencies (used by scripts/validate-mermaid.sh)
+RUN npm install -g mermaid jsdom dompurify
+
 # Install yamllint for workflow validation
 RUN pip3 install --break-system-packages yamllint
 
