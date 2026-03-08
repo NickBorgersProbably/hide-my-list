@@ -18,13 +18,19 @@ The goal is to ensure no single session or component combines all three without 
 
 The agent is reachable through OpenClaw's messaging channels, which are internet-facing — Tailscale only protects administrative interfaces like SSH and the control UI. That means the agent processes user input from outside the Tailnet **[A]**, accesses Notion data and API credentials **[B]**, and creates/updates tasks **[C]**. This is an [ABC] configuration, which the Rule of Two says requires additional controls.
 
-Our mitigations for this:
+The [A] surface breaks down into two categories:
+
+- **User messages** — the owner could send a malicious prompt deliberately, but that's an accepted risk for a single-user system. The more realistic concern is pasting in content that contains an embedded injection.
+- **GitHub content** — the agent can reach GitHub through the proxy allowlist, which means PR descriptions, issue bodies, and code content are all potential prompt injection vectors. This is a real and unmitigated risk. An attacker who can get content into a repo the agent reads could attempt injection.
+- **Web content** — the proxy allowlist *does* help here. The agent can't fetch arbitrary URLs, so it's unlikely to stumble into prompt injections via web search. It can only reach explicitly allowlisted domains.
+
+Our mitigations for the [ABC] configuration:
 - **Proxy domain allowlist** limits where a manipulated agent can send data — even a successful prompt injection can only reach allowlisted domains, not arbitrary endpoints
 - **Proxy blocks private network ranges**, preventing a compromised agent from pivoting internally
 - **Notion API scoping** — the integration token is scoped to specific databases, not the entire workspace
 - **No destructive capabilities** — the agent can create and update tasks but has no access to delete data, send emails, execute code, or reach systems beyond Notion
 
-This is an honest [ABC] and we rely on infrastructure constraints rather than pretending the input channel is trusted. If the agent gained broader capabilities (more integrations, code execution, outbound messaging), the proxy allowlist and Notion scoping would need to be revisited — or we'd need human-in-the-loop confirmation for sensitive actions.
+These are real mitigations but not complete ones. A prompt injection via GitHub content could still manipulate how the agent creates or labels tasks within Notion — the blast radius is limited by what the Notion token can do, not by preventing injection entirely. If the agent gained broader capabilities (more integrations, code execution, outbound messaging), the proxy allowlist and Notion scoping would need to be revisited — or we'd need human-in-the-loop confirmation for sensitive actions.
 
 ### Webhook — [A] only
 
@@ -77,7 +83,8 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 
 | Threat | Trust model | Mitigation |
 |--------|-------------|------------|
-| Prompt injection causes data exfiltration | Agent is [ABC] — injection is possible via messaging channels | Proxy allowlist limits reachable destinations; Notion token scoped to specific databases |
+| Prompt injection via user message | Agent is [ABC] — direct injection possible but single-user risk is accepted | Proxy allowlist limits exfiltration destinations; Notion token scoped to specific databases |
+| Prompt injection via GitHub content | Agent is [ABC] — GitHub is allowlisted, so PR/issue content is an unmitigated injection vector | Blast radius limited to Notion operations the token permits; no destructive capabilities |
 | Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Proxy blocks private ranges; firewall restricts egress to overlay subnet |
 | Malicious webhook payload | Webhook is [A]-only — data discarded, no credentials or external access | Connection limits and hard timeout |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked; devcontainer built only from main |
