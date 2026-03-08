@@ -218,15 +218,52 @@ jobs:
 
             # Build the prompt based on whether this is a PR or issue comment
             if [ "$IS_PR" = "true" ]; then
-              PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
+              # Fetch all PR comments for full conversation context
+              PR_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
 
-            The user said: ${COMMENT_BODY}
+              # Fetch the PR body which may link to an issue
+              PR_BODY=$(gh api "repos/${REPO}/pulls/${ISSUE_NUMBER}" --jq '.body' 2>/dev/null || echo "")
+
+              # Extract linked issue number from PR body (matches "Fixes #N", "Closes #N", "Resolves #N", or just "#N")
+              LINKED_ISSUE=""
+              LINKED_ISSUE_TITLE=""
+              LINKED_ISSUE_BODY=""
+              LINKED_ISSUE_COMMENTS=""
+              ISSUE_NUM=$(echo "$PR_BODY" | grep -oP '(?:(?:[Ff]ix(?:es)?|[Cc]lose[sd]?|[Rr]esolve[sd]?)\s+#|#)(\d+)' | head -1 | grep -oP '\d+')
+              if [ -n "$ISSUE_NUM" ]; then
+                LINKED_ISSUE="$ISSUE_NUM"
+                LINKED_ISSUE_TITLE=$(gh api "repos/${REPO}/issues/${ISSUE_NUM}" --jq '.title' 2>/dev/null || echo "")
+                LINKED_ISSUE_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUM}" --jq '.body' 2>/dev/null || echo "")
+                LINKED_ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUM}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 30000 || echo "")
+              fi
+
+              # Build context sections
+              ISSUE_CONTEXT=""
+              if [ -n "$LINKED_ISSUE" ]; then
+                ISSUE_CONTEXT="
+            LINKED ISSUE #${LINKED_ISSUE}: ${LINKED_ISSUE_TITLE}
+            ${LINKED_ISSUE_BODY}
+
+            ISSUE COMMENTS (if any):
+            ${LINKED_ISSUE_COMMENTS}
+            "
+              fi
+
+              PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
+            ${ISSUE_CONTEXT}
+            PR COMMENTS (conversation history):
+            ${PR_COMMENTS}
+
+            ---
+            PRIMARY REQUEST (the comment that triggered this execution — this is the task you must fulfill):
+            ${COMMENT_BODY}
 
             YOUR TASK: IMPLEMENT the requested changes. Do NOT just provide review comments or suggestions.
+            Use the linked issue and PR comments above for context, but focus on fulfilling the PRIMARY REQUEST.
 
             WORKFLOW:
-            1. Read the user's request carefully
-            2. If they reference another comment, fetch it: gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments
+            1. Read the primary request carefully
+            2. Review the linked issue and PR comments for context
             3. Understand what changes are needed
             4. Implement the changes in the code
             5. Run \`cargo test\` to verify your changes work
@@ -246,9 +283,23 @@ jobs:
 
             You are on branch ${PR_HEAD_REF}. Make the changes, commit, and push them."
             else
+              # For issue comments, fetch all comments for context
+              ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+
+              # Fetch the issue body
+              ISSUE_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body' 2>/dev/null || echo "")
+
               PROMPT="You are responding to a request in ${REPO} issue #${ISSUE_NUMBER}.
 
-            The user said: ${COMMENT_BODY}
+            ISSUE BODY:
+            ${ISSUE_BODY}
+
+            ISSUE COMMENTS (conversation history):
+            ${ISSUE_COMMENTS}
+
+            ---
+            PRIMARY REQUEST (the comment that triggered this execution — this is the task you must fulfill):
+            ${COMMENT_BODY}
 
             IMPORTANT RULES FOR THIS REPOSITORY:
             - Use \`cargo test\` to run all tests
