@@ -225,6 +225,52 @@ Future enhancements:
 |----------|---------|
 | `OPENAI_API_KEY` | OpenAI API authentication for image generation |
 
+#### Image Archive & Collection
+
+Every generated reward image is automatically archived to `rewards/` with metadata:
+
+- **File naming**: `YYYY-MM-DD_HHMMSS_<intensity>.png`
+- **Manifest log**: `rewards/manifest.log` tracks timestamp, intensity, task title, and file path
+- **Persistent**: Images survive across sessions — your celebration history is preserved
+
+#### Weekly Recap Video
+
+`scripts/generate-weekly-recap.sh` compiles all reward images from the past week into a card-flip transition video:
+
+```bash
+# Generate recap of past 7 days (default)
+./scripts/generate-weekly-recap.sh
+
+# Custom range
+./scripts/generate-weekly-recap.sh 14  # past 2 weeks
+```
+
+Features:
+- **Card-flip transitions** between images (fadegrays, circlecrop, radial, etc.)
+- **Variety in transitions** — each cut uses a different style
+- **Fade-out ending** for a polished finish
+- **Output**: `rewards/weekly-recap-YYYY-MM-DD.mp4`
+
+The recap serves as a tangible record of accomplishment — scrolling through a week of unique celebration images is itself a reward.
+
+```mermaid
+flowchart LR
+    subgraph Archive["Image Archive"]
+        Mon["Mon: 2 images"]
+        Tue["Tue: 3 images"]
+        Wed["Wed: 1 image"]
+        Thu["Thu: 4 images"]
+        Fri["Fri: 2 images"]
+    end
+
+    subgraph Recap["Weekly Recap"]
+        Video["Card-flip video<br/>12 images, ~40 seconds"]
+    end
+
+    Archive --> Recap
+    Recap --> Deliver["Send via Signal/Telegram"]
+```
+
 #### Technical Details
 
 | Setting | Value |
@@ -232,8 +278,12 @@ Future enhancements:
 | Model | `gpt-image-1` |
 | Size | 1024x1024 |
 | Quality | `auto` (low-high), `high` (epic) |
-| Output format | PNG |
+| Output format | PNG (images), MP4 (recap video) |
 | Typical generation time | 10-20 seconds |
+| Archive location | `rewards/` |
+| Video codec | H.264 (libx264) |
+| Display per image | 2.5 seconds |
+| Transition duration | 0.8 seconds |
 
 ---
 

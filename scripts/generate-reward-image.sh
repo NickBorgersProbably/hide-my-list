@@ -15,7 +15,16 @@ INTENSITY="${1:-medium}"
 TASK_TITLE="${2:-a task}"
 STREAK="${3:-0}"
 TIMESTAMP="$(date +%s)"
+DATE_STR="$(date +%Y-%m-%d)"
+TIME_STR="$(date +%H%M%S)"
+
+# Archive directory — persistent collection of all reward images
+ARCHIVE_DIR="$SCRIPT_DIR/../rewards"
+mkdir -p "$ARCHIVE_DIR"
+
+# Output goes to both /tmp (for immediate use) and archive (for collection)
 OUTPUT="/tmp/reward-${TIMESTAMP}.png"
+ARCHIVE_FILE="${ARCHIVE_DIR}/${DATE_STR}_${TIME_STR}_${INTENSITY}.png"
 
 # Build a prompt based on intensity and context
 build_prompt() {
@@ -137,5 +146,11 @@ elif 'url' in result:
     import urllib.request
     urllib.request.urlretrieve(result['url'], '$OUTPUT')
 "
+
+# Copy to archive
+cp "$OUTPUT" "$ARCHIVE_FILE"
+
+# Write metadata for the weekly recap
+echo "${TIMESTAMP}|${INTENSITY}|${TASK_TITLE}|${ARCHIVE_FILE}" >> "$ARCHIVE_DIR/manifest.log"
 
 echo "$OUTPUT"

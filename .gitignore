@@ -2,6 +2,9 @@
 .env
 .pr-signal
 
+# Reward image archive (user data, not code)
+rewards/
+
 # Runtime state (agent-managed, not version controlled)
 state.json
 security-updates.log
