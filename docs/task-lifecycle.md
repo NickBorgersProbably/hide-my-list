@@ -388,6 +388,7 @@ stateDiagram-v2
     state "Task Presented" as Presented
     state "Decision Point" as Decision
     state "Working" as Working
+    state "Step Completed" as StepDone
     state "Completion Check" as Check
 
     [*] --> Presented
@@ -396,8 +397,12 @@ stateDiagram-v2
     Decision --> Working: Accept
     Decision --> Rejected: Reject
 
-    Working --> Check: User signals done
+    Working --> StepDone: User completes a step
+    Working --> Check: User signals done (all steps)
     Working --> Interrupted: User needs to switch
+
+    StepDone --> Working: Continue to next step
+    StepDone --> Check: Final step done
 
     Check --> Completed: Confirmed done
     Check --> Working: Need more time
@@ -408,6 +413,44 @@ stateDiagram-v2
 
     Completed --> [*]
 ```
+
+### Step Completion and `steps_completed` Tracking
+
+When a user completes a sub-step (inline step or sub-task), the system increments `steps_completed` and checks whether to fire a first-step reward.
+
+```mermaid
+flowchart TD
+    StepDone([User completes a step]) --> Increment[Increment steps_completed]
+    Increment --> CheckFirst{steps_completed == 1?}
+
+    CheckFirst -->|Yes| FirstStepReward[First-step reward:<br/>"First step down. You're rolling."]
+    CheckFirst -->|No| Encourage[Brief encouragement:<br/>"Nice, keep going."]
+
+    FirstStepReward --> UpdateNotion[Update steps_completed in Notion]
+    Encourage --> UpdateNotion
+
+    UpdateNotion --> MoreSteps{More steps remaining?}
+
+    MoreSteps -->|Yes| NextStep[Present next step]
+    MoreSteps -->|No| Complete([Mark task completed])
+
+    NextStep --> Working([User continues working])
+```
+
+> **First-Step Rewards (Issue #7):** Completing the first step is a critical
+> momentum point for ADHD brains. The reward is lighter than task completion
+> but acknowledges progress: "First step down. You're rolling." This bridges
+> the gap between the initiation reward (accepting) and completion celebration.
+
+### Step Tracking Examples
+
+| Scenario | `steps_completed` | Reward Triggered |
+|----------|-------------------|------------------|
+| User accepts task | 0 | Initiation reward |
+| User finishes step 1 | 0 → 1 | **First-step reward** |
+| User finishes step 2 | 1 → 2 | Brief encouragement |
+| User finishes step 3 (last) | 2 → 3 | Completion reward |
+| User hits CANNOT_FINISH after step 2 | 2 (preserved) | — (progress noted) |
 
 ### Task Initiation Rewards
 
@@ -426,11 +469,20 @@ After acceptance, the system sets `started_at` and sets a timer for 1.25x the es
 flowchart TD
     Accept([User accepts task]) --> InitReward[Initiation reward:<br/>"You're in. That's the hardest part."]
     InitReward --> SetStarted[Set started_at timestamp]
-    SetStarted --> SetTimer[Set timer: estimate × 1.25]
+    SetStarted --> InitSteps[Set steps_completed = 0]
+    InitSteps --> SetTimer[Set timer: estimate × 1.25]
     SetTimer --> Wait[Timer running...]
 
+    Wait --> StepDone[User completes a step]
     Wait --> TimerFires{Timer expires}
     Wait --> UserDone[User says "Done!"]
+
+    StepDone --> IncrSteps[Increment steps_completed]
+    IncrSteps --> IsFirst{steps_completed == 1?}
+    IsFirst -->|Yes| FirstReward[First-step reward:<br/>"First step down. You're rolling."]
+    IsFirst -->|No| Brief[Brief encouragement]
+    FirstReward --> Wait
+    Brief --> Wait
 
     UserDone --> ClearTimer[Clear timer]
     ClearTimer --> Complete([Mark completed])
