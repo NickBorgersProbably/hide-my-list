@@ -406,6 +406,7 @@ jobs:
 
             PR CREATION:
             gh pr create --title 'Fix #${ISSUE_NUMBER}: <brief description>' \\
+              --assignee NickBorgers \\
               --body 'Resolves #${ISSUE_NUMBER}
 
             ## Summary

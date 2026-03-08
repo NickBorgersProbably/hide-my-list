@@ -232,6 +232,7 @@ jobs:
             gh label create \"github-actions\" --color \"0366d6\" --description \"GitHub Actions workflow issues\" 2>/dev/null || true
             gh issue create \\
               --title \"Workflow Failure: ${WORKFLOW_NAME} run #${RUN_ID} - Actions Configuration Issue\" \\
+              --assignee NickBorgers \\
               --label \"bug,github-actions\" \\
               --body \"\$(cat <<'ISSUE_BODY'
             ## Workflow Failure Report
