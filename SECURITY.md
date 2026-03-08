@@ -34,7 +34,7 @@ The webhook listener ([`scripts/webhook-signal.sh`](scripts/webhook-signal.sh)) 
 
 ### CI/CD review agents — [AC] configuration
 
-PR review agents process untrusted code **[A]** and write PR comments **[C]**, but have no access to infrastructure secrets or Notion credentials **[B]**. Workflows run with minimal permissions (`contents: read`, `pull-requests: read`). This is a safe [AC] configuration — even if a malicious PR manipulated a review agent, there's no sensitive data to exfiltrate.
+PR review agents process untrusted code **[A]** and write PR comments **[C]**, but have no access to infrastructure secrets or Notion credentials **[B]**. Workflows use only repo-scoped GitHub token permissions (contents/pull-requests/issues write for posting reviews); no infrastructure secrets or Notion credentials are available. This is a safe [AC] configuration — even if a malicious PR manipulated a review agent, there's no sensitive data to exfiltrate.
 
 Additional CI/CD controls:
 - Fork PRs are blocked from triggering Claude Code reviews (author must be a collaborator/member/owner)
