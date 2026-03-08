@@ -47,6 +47,7 @@ The CI pipeline includes a **psychological research evidence reviewer** that val
 - [User Interactions](docs/user-interactions.md)
 - [User Preferences](docs/user-preferences.md)
 - [Reward System](docs/reward-system.md)
+- [Security Architecture](SECURITY.md)
 
 ## License
 
