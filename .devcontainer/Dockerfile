@@ -31,6 +31,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install OpenClaw CLI
+RUN npm install -g @anthropic-ai/openclaw
+
 # Install yamllint for workflow validation
 RUN pip3 install --break-system-packages yamllint
 

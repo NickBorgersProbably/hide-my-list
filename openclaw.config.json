@@ -1,0 +1,40 @@
+{
+  // OpenClaw project config for hide-my-list
+  // Merges with global ~/.openclaw/openclaw.json at runtime
+
+  "systemPrompt": {
+    "file": "docs/ai-prompts.md"
+  },
+
+  "contextFiles": [
+    "docs/task-lifecycle.md",
+    "docs/notion-schema.md",
+    "docs/user-interactions.md",
+    "docs/user-preferences.md",
+    "docs/reward-system.md",
+    "design/adhd-priorities.md"
+  ],
+
+  "tools": {
+    "exec": {
+      "host": "sandbox",
+      "security": "allowlist",
+      "pathPrepend": ["./scripts"],
+      "safeBins": [
+        "notion-cli.sh",
+        "generate-reward-image.sh",
+        "generate-weekly-recap.sh",
+        "check-github-status.sh"
+      ]
+    }
+  },
+
+  "env": {
+    "NOTION_API_KEY": { "required": true, "description": "Notion integration token for task CRUD" },
+    "NOTION_DATABASE_ID": { "required": true, "description": "Notion database ID for the tasks table" },
+    "OPENAI_API_KEY": { "required": true, "description": "OpenAI API key for reward image generation" },
+    "WEBHOOK_PORT": { "required": false, "description": "CI notification webhook port (default: 9199)" }
+  },
+
+  "surfaces": ["web", "signal", "telegram", "discord"]
+}

@@ -41,7 +41,7 @@ flowchart TB
 
 ## How It Works
 
-There is no standalone server. The OpenClaw agent *is* the application. It:
+There is no standalone server. The OpenClaw agent *is* the application. Running `openclaw start` loads the project config (`openclaw.config.json`), which wires the system prompt (`docs/ai-prompts.md`) to the shell scripts via the exec tool. It:
 
 1. **Receives messages** from any configured messaging surface (web chat, Signal, Telegram, Discord, etc.)
 2. **Detects intent** from natural language (add task, get task, complete, reject, etc.)
@@ -189,6 +189,7 @@ flowchart TD
 | AI | Claude (via OpenClaw) | Strong reasoning, structured output, conversation memory |
 | Messaging | OpenClaw Surfaces | Multi-channel by default (web, Signal, Telegram, Discord) |
 | CI/CD | GitHub Actions | Multi-agent review pipeline with full internet for research |
+| CLI | OpenClaw (`openclaw start`) | Loads config, wires prompt to tools, manages surfaces |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
