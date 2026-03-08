@@ -186,6 +186,68 @@ jobs:
           fi
           echo "EOF" >> $GITHUB_OUTPUT
 
+      - name: Gather PR and linked issue context
+        id: full-context
+        if: steps.pr-context.outputs.is_pr == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr-context.outputs.pr_number }}
+        run: |
+          # Fetch PR title and body
+          PR_TITLE=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.title' 2>/dev/null || echo "")
+          PR_BODY=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.body' 2>/dev/null || echo "")
+
+          echo "pr_title<<EOF" >> $GITHUB_OUTPUT
+          echo "$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "pr_body<<EOF" >> $GITHUB_OUTPUT
+          echo "$PR_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Fetch all PR comments (issue comments endpoint covers PR conversation comments)
+          PR_COMMENTS=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null \
+            | head -c 50000 || echo "")
+
+          echo "pr_comments<<EOF" >> $GITHUB_OUTPUT
+          echo "$PR_COMMENTS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Extract linked issue number from PR body (matches "Resolves #N", "Fixes #N", "Closes #N")
+          LINKED_ISSUE=""
+          if [ -n "$PR_BODY" ]; then
+            LINKED_ISSUE=$(echo "$PR_BODY" | grep -ioP '(?:resolves|fixes|closes|fix|resolve|close)\s+#\K[0-9]+' | head -1 || echo "")
+          fi
+
+          echo "linked_issue=$LINKED_ISSUE" >> $GITHUB_OUTPUT
+
+          # If there's a linked issue, fetch its details and comments
+          if [ -n "$LINKED_ISSUE" ]; then
+            ISSUE_TITLE=$(gh api "repos/${REPO}/issues/${LINKED_ISSUE}" --jq '.title' 2>/dev/null || echo "")
+            ISSUE_BODY=$(gh api "repos/${REPO}/issues/${LINKED_ISSUE}" --jq '.body' 2>/dev/null || echo "")
+            ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${LINKED_ISSUE}/comments" \
+              --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null \
+              | head -c 30000 || echo "")
+
+            echo "issue_title<<EOF" >> $GITHUB_OUTPUT
+            echo "$ISSUE_TITLE" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+
+            echo "issue_body<<EOF" >> $GITHUB_OUTPUT
+            echo "$ISSUE_BODY" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+
+            echo "issue_comments<<EOF" >> $GITHUB_OUTPUT
+            echo "$ISSUE_COMMENTS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "issue_title=" >> $GITHUB_OUTPUT
+            echo "issue_body=" >> $GITHUB_OUTPUT
+            echo "issue_comments=" >> $GITHUB_OUTPUT
+          fi
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -209,6 +271,13 @@ jobs:
             CLAUDE_CONFIG_DIR=/workspaces/hide-my-list/.claude-session
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
+            PR_TITLE=${{ steps.full-context.outputs.pr_title }}
+            PR_BODY=${{ steps.full-context.outputs.pr_body }}
+            PR_COMMENTS=${{ steps.full-context.outputs.pr_comments }}
+            LINKED_ISSUE=${{ steps.full-context.outputs.linked_issue }}
+            LINKED_ISSUE_TITLE=${{ steps.full-context.outputs.issue_title }}
+            LINKED_ISSUE_BODY=${{ steps.full-context.outputs.issue_body }}
+            LINKED_ISSUE_COMMENTS=${{ steps.full-context.outputs.issue_comments }}
           runCmd: |
             # Run Claude Code inside the devcontainer with full tool access
             # Use < /dev/null to prevent hanging on TTY input
@@ -218,15 +287,45 @@ jobs:
 
             # Build the prompt based on whether this is a PR or issue comment
             if [ "$IS_PR" = "true" ]; then
+              # Build linked issue context section if a linked issue exists
+              ISSUE_CONTEXT=""
+              if [ -n "$LINKED_ISSUE" ]; then
+                ISSUE_CONTEXT="
+            --- LINKED ISSUE #${LINKED_ISSUE} ---
+            Title: ${LINKED_ISSUE_TITLE}
+
+            Body:
+            ${LINKED_ISSUE_BODY}
+
+            Issue Comments:
+            ${LINKED_ISSUE_COMMENTS}
+            --- END LINKED ISSUE ---"
+              fi
+
               PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
 
-            The user said: ${COMMENT_BODY}
+            === TRIGGERING COMMENT (this is your primary task) ===
+            ${COMMENT_BODY}
+            === END TRIGGERING COMMENT ===
 
-            YOUR TASK: IMPLEMENT the requested changes. Do NOT just provide review comments or suggestions.
+            --- PR CONTEXT ---
+            PR Title: ${PR_TITLE}
+
+            PR Description:
+            ${PR_BODY}
+
+            PR Comments (full conversation history):
+            ${PR_COMMENTS}
+            --- END PR CONTEXT ---
+            ${ISSUE_CONTEXT}
+
+            YOUR TASK: IMPLEMENT the requested changes described in the TRIGGERING COMMENT above.
+            Use the PR context, comments, and linked issue to fully understand the background and intent.
+            Do NOT just provide review comments or suggestions.
 
             WORKFLOW:
-            1. Read the user's request carefully
-            2. If they reference another comment, fetch it: gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments
+            1. Read the triggering comment carefully — this is the specific ask you must fulfill
+            2. Read the full PR conversation and linked issue for background context
             3. Understand what changes are needed
             4. Implement the changes in the code
             5. Run \`cargo test\` to verify your changes work
