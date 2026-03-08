@@ -21,12 +21,12 @@ if [ ! -f "$ARCHIVE_DIR/manifest.log" ]; then
 fi
 
 # Calculate cutoff timestamp
-CUTOFF=$(date -d "$DAYS_BACK days ago" +%s 2>/dev/null || date -v-${DAYS_BACK}d +%s 2>/dev/null)
+CUTOFF=$(date -d "$DAYS_BACK days ago" +%s 2>/dev/null || date -v-"${DAYS_BACK}"d +%s 2>/dev/null)
 
 # Collect images from the past N days
 IMAGES=()
 TITLES=()
-while IFS='|' read -r timestamp intensity title filepath; do
+while IFS='|' read -r timestamp _intensity title filepath; do
     if [ "$timestamp" -ge "$CUTOFF" ] 2>/dev/null && [ -f "$filepath" ]; then
         IMAGES+=("$filepath")
         TITLES+=("$title")
@@ -50,8 +50,6 @@ TOTAL_PER_IMAGE=$(echo "$DISPLAY_SECS + $TRANSITION_SECS" | bc)
 # Build ffmpeg filter for card-flip style transitions
 # Each image is shown for DISPLAY_SECS then flips to the next
 INPUTS=""
-FILTER=""
-OVERLAY_CHAIN=""
 
 for i in "${!IMAGES[@]}"; do
     INPUTS="$INPUTS -loop 1 -t ${TOTAL_PER_IMAGE} -i ${IMAGES[$i]}"
@@ -117,6 +115,7 @@ else
     FINAL_OFFSET=$(echo "$IMAGE_COUNT * $DISPLAY_SECS" | bc)
     FULL_FILTER="${SCALE_FILTERS}${FILTER_PARTS}${LAST_STREAM}fade=t=out:st=${FINAL_OFFSET}:d=1,format=yuv420p[outv]"
 
+    # shellcheck disable=SC2086
     eval ffmpeg -y $INPUTS \
         -filter_complex "'${FULL_FILTER}'" \
         -map "'[outv]'" \
