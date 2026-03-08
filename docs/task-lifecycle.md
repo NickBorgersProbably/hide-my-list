@@ -409,14 +409,18 @@ stateDiagram-v2
     Completed --> [*]
 ```
 
-## Phase 5: Check-In Follow-Up
+### Task Initiation Rewards
 
-When a user accepts a task, the system provides a brief **initiation reward** (acknowledging that starting is the hardest part), sets `started_at`, and sets a timer for 1.25x the estimated time. If the user hasn't marked the task complete, the system proactively checks in.
+When a user accepts a task, the system provides a brief **initiation reward** acknowledging that starting is the hardest part.
 
 > **Task Initiation Rewards (Issue #7):** Starting is harder than finishing for
 > ADHD brains. The moment of acceptance triggers a brief acknowledgment:
 > "You're in. That's the hardest part." This is lighter than completion
 > celebrations — encouragement, not a party.
+
+## Phase 5: Check-In Follow-Up
+
+After acceptance, the system sets `started_at` and sets a timer for 1.25x the estimated time. If the user hasn't marked the task complete, the system proactively checks in.
 
 ```mermaid
 flowchart TD
