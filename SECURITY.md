@@ -20,7 +20,16 @@ The agent's messaging channels are authenticated and paired — only the owner c
 
 The caveat is **GitHub content**. The agent can reach GitHub through the proxy allowlist, which means PR descriptions, issue bodies, and code content are potential prompt injection vectors. If the agent processes content from a repo that an attacker can contribute to, that's an untrusted input — making it effectively [ABC] for that interaction. This is a real risk. The proxy prevents the agent from stumbling into injections via arbitrary web browsing, but it can't filter what's inside allowlisted GitHub responses.
 
-Mitigations:
+#### Credential exfiltration
+
+The main credential theft risk isn't someone reading the config file off disk — admin surfaces are locked behind Tailscale and the file permissions are fine. The real risk is that the agent itself is an LLM that has access to its own API credentials at runtime and could be prompted into revealing them. This is the nature of the problem: you have a stochastic system that's helpful by design, sitting there ready to answer questions, and it has credentials in its context.
+
+We use frontier-lab-hosted models with the expectation that their safety alignment provides some resistance to prompt injection. However, the research on this is not reassuring. Studies have found that more capable models can actually be *more* susceptible to prompt injection — the same instruction-following ability that makes them useful also makes them better at following injected instructions ([Li et al., EMNLP 2024](https://aclanthology.org/2024.emnlp-main.33/)). Some frontier models have shown better resistance through alignment work — Claude 3 resisted direct injection in [multimodal prompt injection testing](https://arxiv.org/html/2509.05883v1) where GPT-4o, Gemma, and LLaMA did not — but no model can reliably defend against prompt injection through alignment alone. We treat model-level resistance as a speed bump, not a wall.
+
+#### Mitigations
+
+Given that prompt injection is a when-not-if problem, the controls focus on limiting blast radius:
+
 - **Proxy domain allowlist** limits where a manipulated agent can send data — even a successful injection can only reach allowlisted domains, not arbitrary endpoints
 - **Proxy blocks private network ranges**, preventing a compromised agent from pivoting internally
 - **Notion API scoping** — the integration token is scoped to specific databases, not the entire workspace
@@ -43,7 +52,7 @@ Additional CI/CD controls:
 
 ## Infrastructure controls
 
-Because the main agent is [ABC], infrastructure controls are not just defense-in-depth — they're the primary constraint on what a manipulated agent could do.
+When the agent processes GitHub content it becomes [ABC], and infrastructure controls are the primary constraint on what a manipulated agent could do.
 
 ### Network
 
@@ -60,7 +69,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 ### Application hardening
 
 - Runs as a non-root user via systemd
-- Config file (containing API keys) is `0600` — owner-only read/write
+- Config file (containing API keys) is `0600` — this protects against other local users reading it, but the real credential exposure risk is the agent itself being prompted into revealing them (see [credential exfiltration](#credential-exfiltration) above)
 - No credentials in the repo
 - Auto-restart with backoff (`RestartSec=10`) to avoid tight loops
 
@@ -84,12 +93,12 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 | Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Proxy blocks private ranges; firewall restricts egress to overlay subnet |
 | Malicious webhook payload | Webhook is [A]-only — data discarded, no credentials or external access | Connection limits and hard timeout |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked; devcontainer built only from main |
-| API keys extracted from config | Keys only accessible to application user | Config is 0600; never logged or committed |
+| Credential exfiltration via prompt injection | The agent has credentials in its runtime context and could be prompted to reveal them | Proxy allowlist limits where credentials could be sent; admin surfaces behind Tailscale; model alignment is a speed bump, not a guarantee |
 | Unauthorized admin access | Admin interfaces require Tailscale authentication | Firewall allows only SSH and WireGuard inbound |
 
 ## What would need to change
 
-The agent is already [ABC], so the current posture depends on infrastructure constraints (proxy allowlist, Notion scoping, no destructive capabilities) to limit blast radius. Things that would require rethinking:
+The agent is [BC] for direct interaction but becomes [ABC] when processing GitHub content. The current posture depends on infrastructure constraints (proxy allowlist, Notion scoping, no destructive capabilities) to limit blast radius when that happens. Things that would require rethinking:
 
 - **Broader API access** — currently limited to Notion; adding more integrations (calendar, email, file storage) widens what a compromised agent can do and would need per-integration scoping and possibly human-in-the-loop confirmation
 - **Multi-user support** — one user's input could target another user's data; would need per-user credential scoping and session isolation
