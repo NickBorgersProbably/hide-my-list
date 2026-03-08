@@ -9,24 +9,57 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# --- Offline fallback rewards ---
+# When image generation is unavailable (API outage, missing key, network error),
+# suggest a real-life non-digital reward so the user still gets a celebration.
+OFFLINE_REWARDS=(
+    "Grab your favorite snack — you earned it!"
+    "Treat yourself to a cupcake or some ice cream!"
+    "Play your favorite video game for 30 minutes — guilt-free!"
+    "Make yourself a fancy coffee or hot chocolate."
+    "Take a walk outside and enjoy the fresh air for 15 minutes."
+    "Put on your favorite song and have a mini dance party!"
+    "Call or text a friend you haven't talked to in a while."
+    "Watch an episode of your favorite show — you deserve a break!"
+    "Grab a piece of chocolate or your favorite candy."
+    "Do some stretches or a quick yoga session — treat your body!"
+    "Read a chapter of a book you've been meaning to get to."
+    "Order your favorite takeout for dinner tonight."
+)
+
+# Print a random offline reward suggestion and write it to a text file.
+# Exits 0 so callers know the reward was delivered (just not as an image).
+suggest_offline_reward() {
+    local reason="$1"
+    local count=${#OFFLINE_REWARDS[@]}
+    local index=$((RANDOM % count))
+    local suggestion="${OFFLINE_REWARDS[$index]}"
+
+    echo "Image generation unavailable ($reason) — here's a real-life reward instead:" >&2
+    echo "  🎁 $suggestion" >&2
+
+    # Write the suggestion to a text file so callers can use it
+    local fallback_file="/tmp/reward-${TIMESTAMP:-$(date +%s)}-fallback.txt"
+    printf '%s\n' "$suggestion" > "$fallback_file"
+    echo "$fallback_file"
+    exit 0
+}
+
 ENV_FILE="$SCRIPT_DIR/../.env"
 if [ ! -f "$ENV_FILE" ]; then
-    echo "Error: .env file not found at $ENV_FILE" >&2
-    exit 1
+    suggest_offline_reward "env file not found"
 fi
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
 if [ -z "${OPENAI_API_KEY:-}" ]; then
-    echo "Error: OPENAI_API_KEY not set in .env" >&2
-    exit 1
+    suggest_offline_reward "OPENAI_API_KEY not set"
 fi
 
 # Check dependencies
 for cmd in python3 curl; do
     if ! command -v "$cmd" &>/dev/null; then
-        echo "Error: $cmd is required but not found" >&2
-        exit 1
+        suggest_offline_reward "$cmd not found"
     fi
 done
 
@@ -117,6 +150,8 @@ else
 fi
 
 # Generate the image — pass variables via environment to avoid shell injection
+# Temporarily allow failure so we can catch network/curl errors
+set +e
 RESPONSE=$(
     PROMPT="$PROMPT" QUALITY="$QUALITY" \
     python3 -c "
@@ -129,11 +164,17 @@ payload = json.dumps({
     'quality': os.environ['QUALITY']
 })
 print(payload)
-" | curl -s -X POST "https://api.openai.com/v1/images/generations" \
+" | curl -s --max-time 30 -X POST "https://api.openai.com/v1/images/generations" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
     -d @-
 )
+CURL_EXIT=$?
+set -e
+
+if [ $CURL_EXIT -ne 0 ] || [ -z "$RESPONSE" ]; then
+    suggest_offline_reward "network error or API unreachable"
+fi
 
 # Check for errors
 ERROR=$(echo "$RESPONSE" | python3 -c "
@@ -144,11 +185,11 @@ if 'error' in data:
 " 2>/dev/null || true)
 
 if [ -n "$ERROR" ]; then
-    echo "Error generating image: $ERROR" >&2
-    exit 1
+    suggest_offline_reward "API error: $ERROR"
 fi
 
 # Extract and save the image (gpt-image-1 returns b64_json by default)
+set +e
 OUTPUT_PATH="$OUTPUT" python3 -c "
 import json, sys, base64, os
 data = json.load(sys.stdin)
@@ -162,6 +203,12 @@ elif 'url' in result:
     import urllib.request
     urllib.request.urlretrieve(result['url'], out)
 " <<< "$RESPONSE"
+EXTRACT_EXIT=$?
+set -e
+
+if [ $EXTRACT_EXIT -ne 0 ] || [ ! -s "$OUTPUT" ]; then
+    suggest_offline_reward "failed to decode image from API response"
+fi
 
 # Copy to archive
 cp "$OUTPUT" "$ARCHIVE_FILE"

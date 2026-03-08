@@ -219,6 +219,19 @@ Future enhancements:
 - User preference learning (track which themes get positive reactions)
 - Milestone surprise themes (hidden achievements at 10th, 50th, 100th task)
 
+#### Graceful Degradation — Offline Fallback Rewards
+
+If image generation is unavailable for any reason (API outage, missing API key, network error, malformed response), the script **does not fail silently**. Instead, it suggests a fun, non-digital real-life reward drawn from a pool of 12 suggestions:
+
+- Favorite snack, cupcake, ice cream, chocolate
+- 30 minutes of a favorite video game
+- Fancy coffee or hot chocolate
+- A walk outside, stretches, or yoga
+- Mini dance party, calling a friend, watching a show
+- Ordering favorite takeout
+
+The fallback writes the suggestion to a `.txt` file (instead of `.png`) and exits successfully, so the reward pipeline always delivers something positive. This prevents the "expected reward didn't arrive" anti-pattern identified in Hallowell-Ratey's ADHD framework.
+
 #### Environment Variables
 
 | Variable | Purpose |
