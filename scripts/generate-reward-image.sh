@@ -8,8 +8,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+ENV_FILE="$SCRIPT_DIR/../.env"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Error: .env file not found at $ENV_FILE" >&2
+    exit 1
+fi
 # shellcheck source=/dev/null
-source "$SCRIPT_DIR/../.env"
+source "$ENV_FILE"
+
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+    echo "Error: OPENAI_API_KEY not set in .env" >&2
+    exit 1
+fi
+
+# Check dependencies
+for cmd in python3 curl; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo "Error: $cmd is required but not found" >&2
+        exit 1
+    fi
+done
 
 INTENSITY="${1:-medium}"
 TASK_TITLE="${2:-a task}"
@@ -32,7 +51,6 @@ build_prompt() {
 
     case "$INTENSITY" in
         low)
-            # Gentle, warm acknowledgment
             local themes=(
                 "A small cheerful bird landing on a branch with a tiny sparkle, soft warm colors"
                 "A single firework blooming in a twilight sky, gentle and pretty"
@@ -42,7 +60,6 @@ build_prompt() {
             )
             ;;
         medium)
-            # Enthusiastic celebration
             local themes=(
                 "A fox doing a victory dance in a meadow full of wildflowers, joyful energy"
                 "Colorful confetti exploding from a gift box with sparkles everywhere"
@@ -52,7 +69,6 @@ build_prompt() {
             )
             ;;
         high)
-            # Major accomplishment
             local themes=(
                 "A magnificent phoenix rising from golden flames into a starlit sky, powerful and majestic"
                 "A dragon made of northern lights soaring over a glowing cityscape, epic achievement"
@@ -62,7 +78,6 @@ build_prompt() {
             )
             ;;
         epic)
-            # Maximum celebration
             local themes=(
                 "An entire galaxy forming the shape of a crown, supernovae exploding in celebration, cosmic triumph"
                 "A titan standing atop a mountain as reality itself celebrates with fractured light and prismatic explosions"
@@ -94,31 +109,31 @@ build_prompt() {
 
 PROMPT=$(build_prompt)
 
-# Choose model and size based on intensity
+# Choose quality based on intensity
 if [ "$INTENSITY" = "epic" ]; then
-    MODEL="gpt-image-1"
-    SIZE="1024x1024"
     QUALITY="high"
 else
-    MODEL="gpt-image-1"
-    SIZE="1024x1024"
     QUALITY="auto"
 fi
 
-# Generate the image
-RESPONSE=$(curl -s -X POST "https://api.openai.com/v1/images/generations" \
+# Generate the image — pass variables via environment to avoid shell injection
+RESPONSE=$(
+    PROMPT="$PROMPT" QUALITY="$QUALITY" \
+    python3 -c "
+import json, os
+payload = json.dumps({
+    'model': 'gpt-image-1',
+    'prompt': os.environ['PROMPT'],
+    'n': 1,
+    'size': '1024x1024',
+    'quality': os.environ['QUALITY']
+})
+print(payload)
+" | curl -s -X POST "https://api.openai.com/v1/images/generations" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$(python3 -c "
-import json
-print(json.dumps({
-    'model': '$MODEL',
-    'prompt': '''$PROMPT''',
-    'n': 1,
-    'size': '$SIZE',
-    'quality': '$QUALITY'
-}))
-")")
+    -d @-
+)
 
 # Check for errors
 ERROR=$(echo "$RESPONSE" | python3 -c "
@@ -134,23 +149,24 @@ if [ -n "$ERROR" ]; then
 fi
 
 # Extract and save the image (gpt-image-1 returns b64_json by default)
-echo "$RESPONSE" | python3 -c "
-import json, sys, base64
+OUTPUT_PATH="$OUTPUT" python3 -c "
+import json, sys, base64, os
 data = json.load(sys.stdin)
 result = data['data'][0]
+out = os.environ['OUTPUT_PATH']
 if 'b64_json' in result:
     img_data = base64.b64decode(result['b64_json'])
-    with open('$OUTPUT', 'wb') as f:
+    with open(out, 'wb') as f:
         f.write(img_data)
 elif 'url' in result:
     import urllib.request
-    urllib.request.urlretrieve(result['url'], '$OUTPUT')
-"
+    urllib.request.urlretrieve(result['url'], out)
+" <<< "$RESPONSE"
 
 # Copy to archive
 cp "$OUTPUT" "$ARCHIVE_FILE"
 
-# Write metadata for the weekly recap
-echo "${TIMESTAMP}|${INTENSITY}|${TASK_TITLE}|${ARCHIVE_FILE}" >> "$ARCHIVE_DIR/manifest.log"
+# Write metadata for the weekly recap (tab-delimited to avoid issues with | in titles)
+printf '%s\t%s\t%s\t%s\n' "$TIMESTAMP" "$INTENSITY" "$TASK_TITLE" "$ARCHIVE_FILE" >> "$ARCHIVE_DIR/manifest.log"
 
 echo "$OUTPUT"
