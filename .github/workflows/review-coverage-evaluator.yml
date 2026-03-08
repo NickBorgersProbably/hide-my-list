@@ -175,6 +175,7 @@ jobs:
             2. Create a GitHub issue:
                gh issue create \\
                  --title \"Review Pipeline Gap: <brief description of the gap>\" \\
+                 --assignee NickBorgers \\
                  --label \"review-pipeline\" \\
                  --body \"\$(cat <<'ISSUE_BODY'
             ## Review Pipeline Coverage Gap
