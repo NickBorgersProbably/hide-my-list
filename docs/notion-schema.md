@@ -417,9 +417,17 @@ Count of sub-steps the user has completed within the current task. Used for:
 
 ### ResumeCount (number)
 
-Number of times the user has returned to a task after stepping away. Used for:
-- Triggering "back at it" rewards (re-starting is hard)
+Number of times the user has returned to a task after stepping away. Incremented when the system detects a resume (see [task-lifecycle.md — Resume Detection](./task-lifecycle.md#phase-51-resume-detection) for the full detection mechanism).
+
+**Detection triggers** (any one is sufficient):
+1. **Session boundary** — a new conversation session starts while a task is `in_progress`
+2. **Inactivity gap** — no user messages for >= 15 minutes, then user re-engages with the active task
+3. **Explicit signal** — user says "I'm back", "resuming", or similar phrases
+
+**Used for:**
+- Triggering "back at it" rewards (re-starting is hard — see reward table in task-lifecycle.md)
 - Understanding user work patterns (frequent breaks vs. sustained sessions)
+- Logging resume events in `progress_notes` with gap duration
 
 ---
 

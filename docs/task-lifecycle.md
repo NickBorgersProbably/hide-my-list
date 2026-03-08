@@ -500,6 +500,98 @@ The system limits check-ins to 3 per task session to avoid nagging:
 
 If the user returns later and re-accepts the same task, the check-in count resets.
 
+## Phase 5.1: Resume Detection
+
+When a user returns to a task after stepping away, the system detects the resume and increments `resume_count`. Re-engaging with a task after a break requires real effort (especially for ADHD brains), and the system acknowledges this with a "back at it" reward.
+
+### What Constitutes a Resume
+
+A resume is detected when **all** of the following are true:
+
+1. A task has status `in_progress`
+2. There has been a **gap in user interaction** of at least **15 minutes** (no messages from the user in any conversation with the agent)
+3. The user sends a new message that relates to the active task (either explicitly referencing it or continuing work in the same conversation context)
+
+```mermaid
+flowchart TD
+    Msg([User sends message]) --> HasActive{Task currently<br/>in_progress?}
+
+    HasActive -->|No| Normal[Handle normally]
+    HasActive -->|Yes| CheckGap{Last user message<br/>> 15 min ago?}
+
+    CheckGap -->|No| Continue[Continue session<br/>No resume triggered]
+    CheckGap -->|Yes| CheckIntent{Message relates to<br/>active task?}
+
+    CheckIntent -->|No| NewIntent[Handle as new intent<br/>No resume triggered]
+    CheckIntent -->|Yes| Resume[Trigger resume]
+
+    Resume --> Increment[Increment resume_count]
+    Increment --> Reward["'Welcome back! Picking up<br/>where you left off is a superpower.'"]
+    Reward --> ResetCheckins[Reset check-in count]
+    ResetCheckins --> SetTimer[Set new check-in timer]
+```
+
+### Detection Signals (Priority Order)
+
+The system uses a layered approach to detect resumes:
+
+| Priority | Signal | Detection Method | Example |
+|----------|--------|------------------|---------|
+| 1 | **Session boundary** | A new conversation session starts while a task is `in_progress` | User opens a new chat window |
+| 2 | **Inactivity gap** | No user messages for >= 15 minutes with an `in_progress` task | User goes to lunch, comes back |
+| 3 | **Explicit signal** | User says phrases like "I'm back", "picking up where I left off", "resuming" | User announces return |
+
+Any one of these signals is sufficient to trigger a resume. Session boundaries and explicit signals always trigger a resume regardless of the time gap.
+
+### Time Threshold Rationale
+
+The 15-minute threshold balances two concerns:
+
+- **Too short** (< 10 min): Normal pauses (bathroom, getting water) would trigger false resumes
+- **Too long** (> 30 min): Genuine re-engagement after distraction would go unrecognized
+
+15 minutes is chosen because it exceeds typical micro-breaks but catches the common ADHD pattern of getting pulled away by a distraction and returning.
+
+### Resume vs. Abandon
+
+```mermaid
+flowchart TD
+    Gap{Inactivity gap<br/>with in_progress task} --> Short{< 15 min?}
+    Short -->|Yes| NoAction[No action — normal pause]
+    Short -->|No| Medium{< 4 hours?}
+    Medium -->|Yes| ResumeDetected[Resume detected<br/>Increment resume_count]
+    Medium -->|No| Long{< 24 hours?}
+    Long -->|Yes| GentleResume["Resume + gentle check-in<br/>'Still working on X?'"]
+    Long -->|No| AbandonCheck["Offer to return task to queue<br/>'Want to keep going or set this aside?'"]
+```
+
+| Gap Duration | Behavior |
+|-------------|----------|
+| < 15 min | No action (normal pause) |
+| 15 min – 4 hours | Resume detected, increment `resume_count`, brief encouragement |
+| 4 – 24 hours | Resume detected, increment `resume_count`, confirm user still wants to work on task |
+| > 24 hours | Ask if user wants to continue or return task to `pending` |
+
+### Resume Rewards
+
+Returning to a task is psychologically harder than starting one fresh. The system acknowledges this:
+
+| Resume Count | Reward |
+|-------------|--------|
+| 1st resume | "Welcome back! Picking up where you left off is a superpower." |
+| 2nd resume | "Back again — that's persistence." |
+| 3rd+ resume | "You keep coming back to this. That takes real grit." |
+
+### On Resume: State Restoration
+
+When a resume is detected, the system:
+
+1. Increments `resume_count`
+2. Appends a timestamped entry to `progress_notes`: `[timestamp] Resumed (gap: Xm)`
+3. Resets the check-in count to 0 (fresh check-in cycle)
+4. Sets a new check-in timer based on remaining estimated time
+5. Briefly reminds the user where they left off (using `progress_notes` and `steps_completed`)
+
 ## Phase 6: Rejection Handling
 
 ```mermaid
