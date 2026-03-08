@@ -122,6 +122,20 @@ jobs:
       packages: read
 
     steps:
+      - name: Add eyes reaction to acknowledge comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+              -f content='eyes' || echo "Warning: reaction failed"
+          elif [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
+            gh api repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}/reactions \
+              -f content='eyes' || echo "Warning: reaction failed"
+          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            echo "Note: GitHub API does not support reactions on PR reviews"
+          fi
+
       - name: Get PR context
         id: pr-context
         env:
