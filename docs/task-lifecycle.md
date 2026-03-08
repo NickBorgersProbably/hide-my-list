@@ -428,8 +428,8 @@ flowchart TD
     StepDone([User completes a step]) --> Increment[Increment steps_completed]
     Increment --> CheckFirst{steps_completed == 1?}
 
-    CheckFirst -->|Yes| FirstStepReward["First-step reward:#lt;br/#gt;#quot;First step down. You're rolling.#quot;"]
-    CheckFirst -->|No| Encourage["Brief encouragement:#lt;br/#gt;#quot;Nice, keep going.#quot;"]
+    CheckFirst -->|Yes| FirstStepReward["First-step reward:<br/>#quot;First step down. You're rolling.#quot;"]
+    CheckFirst -->|No| Encourage["Brief encouragement:<br/>#quot;Nice, keep going.#quot;"]
 
     FirstStepReward --> UpdateNotion[Update steps_completed in Notion]
     Encourage --> UpdateNotion
@@ -472,7 +472,7 @@ After acceptance, the system sets `started_at` and sets a timer for 1.25x the es
 
 ```mermaid
 flowchart TD
-    Accept([User accepts task]) --> InitReward["Initiation reward:#lt;br/#gt;#quot;You're in. That's the hardest part.#quot;"]
+    Accept([User accepts task]) --> InitReward["Initiation reward:<br/>#quot;You're in. That's the hardest part.#quot;"]
     InitReward --> SetStarted[Set started_at timestamp]
     SetStarted --> InitSteps[Set steps_completed = 0]
     InitSteps --> SetTimer[Set timer: estimate × 1.25]
@@ -484,7 +484,7 @@ flowchart TD
 
     StepDone --> IncrSteps[Increment steps_completed]
     IncrSteps --> IsFirst{steps_completed == 1?}
-    IsFirst -->|Yes| FirstReward["First-step reward:#lt;br/#gt;#quot;First step down. You're rolling.#quot;"]
+    IsFirst -->|Yes| FirstReward["First-step reward:<br/>#quot;First step down. You're rolling.#quot;"]
     IsFirst -->|No| Brief[Brief encouragement]
     FirstReward --> Wait
     Brief --> Wait

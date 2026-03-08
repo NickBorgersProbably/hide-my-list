@@ -114,7 +114,7 @@ flowchart TD
 flowchart LR
     subgraph Always["Clear Tasks (Inferred Immediately)"]
         Q1["User: #quot;Call mom#quot;"] --> Q2["AI: #quot;Got it — social, ~15 min, low priority#quot;"]
-        Q3["User: #quot;Work on the project#quot;"] --> Q4["AI: #quot;Got it — focus, ~45 min, moderate priority.#lt;br/#gt;First step: outline the key sections.#quot;"]
+        Q3["User: #quot;Work on the project#quot;"] --> Q4["AI: #quot;Got it — focus, ~45 min, moderate priority.<br/>First step: outline the key sections.#quot;"]
     end
 
     subgraph Clarify["Vague Tasks (Ask to Clarify)"]
@@ -262,8 +262,8 @@ flowchart TD
     Evaluate --> Score[Calculate Intensity Score]
     Score --> Level{Intensity Level}
 
-    Level -->|Low| LowReward["Emoji only#lt;br/#gt;#quot;Nice! ✨#quot;"]
-    Level -->|Medium| MedReward["Emoji + AI image#lt;br/#gt;#quot;Crushing it! 🎉💪#quot;"]
+    Level -->|Low| LowReward["Emoji only<br/>#quot;Nice! ✨#quot;"]
+    Level -->|Medium| MedReward["Emoji + AI image<br/>#quot;Crushing it! 🎉💪#quot;"]
     Level -->|High| HighReward[Emoji + AI image + Music + Text SO]
     Level -->|Epic| EpicReward[All rewards + AI Video + Outing]
 
@@ -275,8 +275,8 @@ flowchart TD
     end
 
     subgraph InterpersonalRewards["Interpersonal Rewards"]
-        TextSO["Text Significant Other#lt;br/#gt;#quot;Your partner crushed a big task!#quot;"]
-        Outing["Suggest Fun Outing#lt;br/#gt;#quot;Coffee at your favorite spot?#quot;"]
+        TextSO["Text Significant Other<br/>#quot;Your partner crushed a big task!#quot;"]
+        Outing["Suggest Fun Outing<br/>#quot;Coffee at your favorite spot?#quot;"]
     end
 
     HighReward --> SystemRewards
