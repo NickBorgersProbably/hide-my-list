@@ -6,7 +6,7 @@ An ADHD-informed task manager where users never see their task list. The AI hand
 
 ## Architecture
 
-- **Runtime**: OpenClaw agent via `openclaw start` (configured in `openclaw.config.json`, no standalone server)
+- **Runtime**: OpenClaw agent (no standalone server)
 - **Storage**: Notion database via API
 - **Scripts**: `scripts/` directory contains Notion CLI helpers and infrastructure tooling
 - **Docs**: `docs/` defines the system — prompt architecture, interaction patterns, and behavior specs that the agent executes
@@ -24,7 +24,6 @@ These docs are not documentation about a separate system — they are the system
 - `docs/user-preferences.md` — Personalization behavior spec
 - `docs/reward-system.md` — Multi-channel reward behavior spec
 - `design/adhd-priorities.md` — Core design principles grounded in ADHD research
-- `openclaw.config.json` — OpenClaw runtime configuration — references system prompt, declares exec tools, lists required env vars
 - `scripts/notion-cli.sh` — Notion API helper for task CRUD operations
 - `scripts/webhook-signal.sh` — Minimal webhook receiver for CI/CD notifications
 
