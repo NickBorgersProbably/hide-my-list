@@ -1330,6 +1330,14 @@ jobs:
             - User interaction changes -> docs/user-interactions.md
             - Workflow changes (.github/workflows/*.yml) -> update relevant docs
 
+            Also validate any Mermaid diagrams in changed docs:
+            - Run \`./scripts/validate-mermaid.sh\` to check all diagrams parse correctly
+              (this installs its own npm dependencies in a temp directory — just run it)
+            - If any diagrams fail validation, fix the syntax errors
+            - Common issue: double quotes inside stadium-shaped nodes like \`([User: \"Done!\"])\`
+              must use single quotes or \`&quot;\` instead
+            - GitHub only renders valid Mermaid — syntax errors produce blank/broken diagrams
+
             If updates needed, make changes directly and push.
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
