@@ -7,16 +7,31 @@
 # Dependencies (mermaid, jsdom, dompurify) are pre-installed in the devcontainer.
 # Falls back to installing them in a temp directory if not found globally.
 #
-# Usage: validate-mermaid.sh [dir...]
-# Defaults to docs/ and design/ if no directories specified.
+# Usage: validate-mermaid.sh [file-or-dir...]
+# Accepts markdown files and/or directories (searched recursively).
+# Defaults to docs/ and design/ if no arguments specified.
 
 set -euo pipefail
 
+ARGS=()
 if [ $# -gt 0 ]; then
-  DIRS=("$@")
+  ARGS=("$@")
 else
-  DIRS=(docs/ design/)
+  ARGS=(docs/ design/)
 fi
+
+# Separate files and directories
+FILES=()
+DIRS=()
+for arg in "${ARGS[@]}"; do
+  if [ -f "$arg" ]; then
+    FILES+=("$arg")
+  elif [ -d "$arg" ]; then
+    DIRS+=("$arg")
+  else
+    echo "WARNING: $arg is not a file or directory, skipping"
+  fi
+done
 
 ERRORS=0
 CHECKED=0
@@ -59,37 +74,50 @@ if [ -n "$GLOBAL_MODULES" ] && \
   ln -s "$GLOBAL_MODULES" "$TMPDIR/node_modules"
 else
   echo "Installing Mermaid dependencies..."
-  (cd "$TMPDIR" && npm init -y --silent > /dev/null 2>&1 && npm install mermaid jsdom dompurify > /dev/null 2>&1)
+  (cd "$TMPDIR" && npm init -y --silent > /dev/null 2>&1 && npm install mermaid@11 jsdom@25 dompurify@3 > /dev/null 2>&1)
 fi
 
-# Find all markdown files and extract/validate mermaid blocks
+# Validate mermaid blocks in a single markdown file
+validate_file() {
+  local mdfile="$1"
+
+  # Extract mermaid blocks with awk
+  awk '
+    /^```mermaid/ { capture=1; block++; next }
+    /^```/ && capture { capture=0; next }
+    capture { print > "'"$TMPDIR"'/block_" block ".mmd" }
+  ' "$mdfile"
+
+  # Validate each extracted block
+  for block_file in "$TMPDIR"/block_*.mmd; do
+    [ -f "$block_file" ] || continue
+    CHECKED=$((CHECKED + 1))
+    BLOCK_NUM=$(basename "$block_file" | sed 's/block_//;s/\.mmd//')
+
+    if ! node "$TMPDIR/validate.mjs" "$block_file" 2>"$TMPDIR/err.txt"; then
+      echo "ERROR: Invalid Mermaid diagram in $mdfile (block #$BLOCK_NUM)"
+      echo "  Content (first 5 lines):"
+      head -5 "$block_file" | sed 's/^/    /'
+      echo "  Error:"
+      sed 's/^/    /' "$TMPDIR/err.txt"
+      echo ""
+      ERRORS=$((ERRORS + 1))
+    fi
+    rm -f "$block_file" "$TMPDIR/err.txt"
+  done
+}
+
+# Process individual files passed as arguments
+for mdfile in "${FILES[@]}"; do
+  [[ "$mdfile" == *.md ]] || continue
+  validate_file "$mdfile"
+done
+
+# Find markdown files in directories
 for dir in "${DIRS[@]}"; do
   [ -d "$dir" ] || continue
   while IFS= read -r -d '' mdfile; do
-    # Extract mermaid blocks with awk
-    awk '
-      /^```mermaid/ { capture=1; block++; next }
-      /^```/ && capture { capture=0; next }
-      capture { print > "'"$TMPDIR"'/block_" block ".mmd" }
-    ' "$mdfile"
-
-    # Validate each extracted block
-    for block_file in "$TMPDIR"/block_*.mmd; do
-      [ -f "$block_file" ] || continue
-      CHECKED=$((CHECKED + 1))
-      BLOCK_NUM=$(basename "$block_file" | sed 's/block_//;s/\.mmd//')
-
-      if ! node "$TMPDIR/validate.mjs" "$block_file" 2>"$TMPDIR/err.txt"; then
-        echo "ERROR: Invalid Mermaid diagram in $mdfile (block #$BLOCK_NUM)"
-        echo "  Content (first 5 lines):"
-        head -5 "$block_file" | sed 's/^/    /'
-        echo "  Error:"
-        sed 's/^/    /' "$TMPDIR/err.txt"
-        echo ""
-        ERRORS=$((ERRORS + 1))
-      fi
-      rm -f "$block_file" "$TMPDIR/err.txt"
-    done
+    validate_file "$mdfile"
   done < <(find "$dir" -name '*.md' -print0)
 done
 
