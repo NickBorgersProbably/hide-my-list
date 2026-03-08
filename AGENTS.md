@@ -41,13 +41,10 @@ From `docs/ai-prompts.md`:
 ## Review pipeline
 
 PRs are reviewed by a multi-agent Claude Code pipeline:
-1. Design Review — validates intent fulfillment and design quality
-2. Code Review — code quality, error handling, safety
-3. Test Review — test coverage and quality
-4. Concurrency Review — thread safety and async correctness
-5. Documentation Review — validates spec files are consistent and complete
-6. Psych Research Review — validates against ADHD clinical research
-7. Merge Decision — synthesizes all reviews into GO/NO-GO
+1. Design Review — validates intent fulfillment, design quality, and doc consistency
+2. Security & Infrastructure Review — script safety, credential handling, workflow permissions
+3. Psych Research Review — validates against ADHD clinical research
+4. Merge Decision — synthesizes all reviews into GO/NO-GO
 
 ## When making changes
 
