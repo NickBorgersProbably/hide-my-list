@@ -116,6 +116,9 @@ jobs:
           fi
           echo "No broken internal links found"
 
+      - name: Validate Mermaid diagrams
+        run: ./scripts/validate-mermaid.sh
+
   workflow-validation:
     name: Workflow YAML Validation
     needs: changes
