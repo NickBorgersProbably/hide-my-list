@@ -506,24 +506,27 @@ When a user returns to a task after stepping away, the system detects the resume
 
 ### What Constitutes a Resume
 
-A resume is detected when **all** of the following are true:
+A resume is detected when a task has status `in_progress` and **any one** of the following detection signals fires:
 
-1. A task has status `in_progress`
-2. There has been a **gap in user interaction** of at least **15 minutes** (no messages from the user in any conversation with the agent)
-3. The user sends a new message that relates to the active task (either explicitly referencing it or continuing work in the same conversation context)
+1. **Session boundary** — a new conversation session starts while a task is `in_progress` (triggers regardless of time since last message)
+2. **Inactivity gap** — no user messages for >= 15 minutes with an `in_progress` task, then the user re-engages with the active task
+3. **Explicit signal** — user says phrases like "I'm back", "picking up where I left off", "resuming" (triggers regardless of time since last message)
 
 ```mermaid
 flowchart TD
-    Msg([User sends message]) --> HasActive{Task currently<br/>in_progress?}
+    HasActive{Task currently<br/>in_progress?}
 
     HasActive -->|No| Normal[Handle normally]
-    HasActive -->|Yes| CheckGap{Last user message<br/>> 15 min ago?}
+    HasActive -->|Yes| NewSession{New conversation<br/>session?}
+
+    NewSession -->|Yes| Resume[Trigger resume]
+    NewSession -->|No| ExplicitSignal{User says<br/>'I'm back' etc.?}
+
+    ExplicitSignal -->|Yes| Resume
+    ExplicitSignal -->|No| CheckGap{Last user message<br/>> 15 min ago?}
 
     CheckGap -->|No| Continue[Continue session<br/>No resume triggered]
-    CheckGap -->|Yes| CheckIntent{Message relates to<br/>active task?}
-
-    CheckIntent -->|No| NewIntent[Handle as new intent<br/>No resume triggered]
-    CheckIntent -->|Yes| Resume[Trigger resume]
+    CheckGap -->|Yes| Resume
 
     Resume --> Increment[Increment resume_count]
     Increment --> Reward["'Welcome back! Picking up<br/>where you left off is a superpower.'"]
@@ -535,13 +538,13 @@ flowchart TD
 
 The system uses a layered approach to detect resumes:
 
-| Priority | Signal | Detection Method | Example |
-|----------|--------|------------------|---------|
-| 1 | **Session boundary** | A new conversation session starts while a task is `in_progress` | User opens a new chat window |
-| 2 | **Inactivity gap** | No user messages for >= 15 minutes with an `in_progress` task | User goes to lunch, comes back |
-| 3 | **Explicit signal** | User says phrases like "I'm back", "picking up where I left off", "resuming" | User announces return |
+| Priority | Signal | Detection Method | Time gap required? | Example |
+|----------|--------|------------------|--------------------|---------|
+| 1 | **Session boundary** | A new conversation session starts while a task is `in_progress` | No | User opens a new chat window |
+| 2 | **Explicit signal** | User says phrases like "I'm back", "picking up where I left off", "resuming" | No | User announces return |
+| 3 | **Inactivity gap** | No user messages for >= 15 minutes with an `in_progress` task | Yes (>= 15 min) | User goes to lunch, comes back |
 
-Any one of these signals is sufficient to trigger a resume. Session boundaries and explicit signals always trigger a resume regardless of the time gap.
+Any one of these signals is sufficient to trigger a resume. Session boundaries and explicit signals always trigger a resume regardless of the time gap; the 15-minute threshold applies only to passive inactivity detection.
 
 ### Time Threshold Rationale
 
