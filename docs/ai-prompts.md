@@ -816,7 +816,7 @@ When a user indicates they cannot finish a task, we need to understand what was 
 
 ```mermaid
 flowchart TD
-    CannotFinish([User: "This is too big"]) --> AskProgress[Ask what was accomplished]
+    CannotFinish(["User: #quot;This is too big#quot;"]) --> AskProgress[Ask what was accomplished]
     AskProgress --> UserProgress[User describes progress]
     UserProgress --> Analyze[Analyze remaining work]
     Analyze --> CreateSubtasks[Create sub-tasks for remainder]
@@ -1075,7 +1075,7 @@ When a user signals they need help starting or continuing a task, the agent prov
 
 ```mermaid
 flowchart TD
-    NeedHelp([User: "How do I start?"]) --> CheckActive{Has active task?}
+    NeedHelp(["User: #quot;How do I start?#quot;"]) --> CheckActive{Has active task?}
     CheckActive -->|Yes| AnalyzeState[Determine where user is]
     CheckActive -->|No| SuggestTask[Suggest getting a task first]
 

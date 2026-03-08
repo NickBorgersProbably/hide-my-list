@@ -323,7 +323,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Request([User: "I have 30 min, feeling tired"]) --> Parse[Parse time + mood]
+    Request(["User: #quot;I have 30 min, feeling tired#quot;"]) --> Parse[Parse time + mood]
     Parse --> Fetch[Fetch pending tasks from Notion]
     Fetch --> Score[Score each task]
 
@@ -428,8 +428,8 @@ flowchart TD
     StepDone([User completes a step]) --> Increment[Increment steps_completed]
     Increment --> CheckFirst{steps_completed == 1?}
 
-    CheckFirst -->|Yes| FirstStepReward[First-step reward:<br/>"First step down. You're rolling."]
-    CheckFirst -->|No| Encourage[Brief encouragement:<br/>"Nice, keep going."]
+    CheckFirst -->|Yes| FirstStepReward["First-step reward:#lt;br/#gt;#quot;First step down. You're rolling.#quot;"]
+    CheckFirst -->|No| Encourage["Brief encouragement:#lt;br/#gt;#quot;Nice, keep going.#quot;"]
 
     FirstStepReward --> UpdateNotion[Update steps_completed in Notion]
     Encourage --> UpdateNotion
@@ -472,7 +472,7 @@ After acceptance, the system sets `started_at` and sets a timer for 1.25x the es
 
 ```mermaid
 flowchart TD
-    Accept([User accepts task]) --> InitReward[Initiation reward:<br/>"You're in. That's the hardest part."]
+    Accept([User accepts task]) --> InitReward["Initiation reward:#lt;br/#gt;#quot;You're in. That's the hardest part.#quot;"]
     InitReward --> SetStarted[Set started_at timestamp]
     SetStarted --> InitSteps[Set steps_completed = 0]
     InitSteps --> SetTimer[Set timer: estimate × 1.25]
@@ -480,11 +480,11 @@ flowchart TD
 
     Wait --> StepDone[User completes a step]
     Wait --> TimerFires{Timer expires}
-    Wait --> UserDone[User says "Done!"]
+    Wait --> UserDone["User says #quot;Done!#quot;"]
 
     StepDone --> IncrSteps[Increment steps_completed]
     IncrSteps --> IsFirst{steps_completed == 1?}
-    IsFirst -->|Yes| FirstReward[First-step reward:<br/>"First step down. You're rolling."]
+    IsFirst -->|Yes| FirstReward["First-step reward:#lt;br/#gt;#quot;First step down. You're rolling.#quot;"]
     IsFirst -->|No| Brief[Brief encouragement]
     FirstReward --> Wait
     Brief --> Wait
@@ -856,7 +856,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Done([User: "Done!"]) --> Update[Update Notion status]
+    Done(["User: #quot;Done!#quot;"]) --> Update[Update Notion status]
     Update --> Reward[Trigger Reward Engine]
 
     Reward --> Calculate[Calculate intensity score]

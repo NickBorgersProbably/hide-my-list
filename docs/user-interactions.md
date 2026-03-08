@@ -113,17 +113,17 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Always["Clear Tasks (Inferred Immediately)"]
-        Q1[User: "Call mom"] --> Q2[AI: "Got it — social, ~15 min, low priority"]
-        Q3[User: "Work on the project"] --> Q4[AI: "Got it — focus, ~45 min, moderate priority.<br/>First step: outline the key sections."]
+        Q1["User: #quot;Call mom#quot;"] --> Q2["AI: #quot;Got it — social, ~15 min, low priority#quot;"]
+        Q3["User: #quot;Work on the project#quot;"] --> Q4["AI: #quot;Got it — focus, ~45 min, moderate priority.#lt;br/#gt;First step: outline the key sections.#quot;"]
     end
 
     subgraph Clarify["Vague Tasks (Ask to Clarify)"]
-        V1[User: "Handle that thing"] --> V2[AI: "Which thing are you thinking of?"]
-        V3[User: "The email to the team"] --> V4[AI: "Got it — social, ~15 min, moderate priority."]
+        V1["User: #quot;Handle that thing#quot;"] --> V2["AI: #quot;Which thing are you thinking of?#quot;"]
+        V3["User: #quot;The email to the team#quot;"] --> V4["AI: #quot;Got it — social, ~15 min, moderate priority.#quot;"]
     end
 
     subgraph Correction["User Can Correct (Optional)"]
-        C1[User: "Actually that's urgent"] --> C2[AI: "Updated to high priority."]
+        C1["User: #quot;Actually that's urgent#quot;"] --> C2["AI: #quot;Updated to high priority.#quot;"]
     end
 ```
 
@@ -257,13 +257,13 @@ The completion flow triggers a multi-channel reward system designed to maximize 
 
 ```mermaid
 flowchart TD
-    Done([User: "Done!"]) --> Evaluate[Evaluate Achievement]
+    Done(["User: #quot;Done!#quot;"]) --> Evaluate[Evaluate Achievement]
 
     Evaluate --> Score[Calculate Intensity Score]
     Score --> Level{Intensity Level}
 
-    Level -->|Low| LowReward[Emoji only<br/>"Nice! ✨"]
-    Level -->|Medium| MedReward[Emoji + AI image<br/>"Crushing it! 🎉💪"]
+    Level -->|Low| LowReward["Emoji only#lt;br/#gt;#quot;Nice! ✨#quot;"]
+    Level -->|Medium| MedReward["Emoji + AI image#lt;br/#gt;#quot;Crushing it! 🎉💪#quot;"]
     Level -->|High| HighReward[Emoji + AI image + Music + Text SO]
     Level -->|Epic| EpicReward[All rewards + AI Video + Outing]
 
@@ -275,8 +275,8 @@ flowchart TD
     end
 
     subgraph InterpersonalRewards["Interpersonal Rewards"]
-        TextSO[Text Significant Other<br/>"Your partner crushed a big task!"]
-        Outing[Suggest Fun Outing<br/>"Coffee at your favorite spot?"]
+        TextSO["Text Significant Other#lt;br/#gt;#quot;Your partner crushed a big task!#quot;"]
+        Outing["Suggest Fun Outing#lt;br/#gt;#quot;Coffee at your favorite spot?#quot;"]
     end
 
     HighReward --> SystemRewards
@@ -299,7 +299,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Done([User: "Done!"]) --> Update[Update Notion]
+    Done(["User: #quot;Done!#quot;"]) --> Update[Update Notion]
     Update --> Reward[Trigger Reward Engine]
 
     Reward --> SessionCheck{First completion today?}
@@ -439,7 +439,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    CannotFinish([User: "This is too big"]) --> AskProgress["Ask: What did you accomplish?"]
+    CannotFinish(["User: #quot;This is too big#quot;"]) --> AskProgress["Ask: What did you accomplish?"]
     AskProgress --> UserDescribes[User describes progress]
     UserDescribes --> Analyze[Analyze remaining work]
     Analyze --> HasSubtasks{Already has sub-tasks?}
@@ -763,7 +763,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Request([User: "What should I do?"]) --> Check[Check Notion]
+    Request(["User: #quot;What should I do?#quot;"]) --> Check[Check Notion]
     Check --> Empty{Any pending tasks?}
 
     Empty -->|Yes| Normal[Normal selection flow]
@@ -779,7 +779,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Request([User: "15 min, feeling focused"]) --> Check[Check tasks]
+    Request(["User: #quot;15 min, feeling focused#quot;"]) --> Check[Check tasks]
     Check --> NoMatch{Any tasks match?}
 
     NoMatch -->|All too long| TimeIssue["Nothing fits 15 minutes.<br/>Your shortest task is 30 min."]
@@ -795,7 +795,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Ask([User: "What's in my list?"]) --> Philosophy[Explain philosophy]
+    Ask(["User: #quot;What's in my list?#quot;"]) --> Philosophy[Explain philosophy]
 
     Philosophy --> Response["I keep track so you don't have to!<br/>You've got 8 tasks waiting.<br/>Ready to knock one out?"]
 
