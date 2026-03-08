@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Pre-commit hook: validates staged files by category.
+# Install with: bash .githooks/install-hooks.sh
+
+set -euo pipefail
+
+# Get staged files (added, copied, modified — not deleted)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$STAGED_FILES" ]; then
+  exit 0
+fi
+
+FAILED=0
+
+# --- Scripts: shellcheck ---
+SCRIPT_FILES=$(echo "$STAGED_FILES" | grep '^scripts/.*\.sh$' || true)
+if [ -n "$SCRIPT_FILES" ]; then
+  echo "Running shellcheck on staged scripts..."
+  if ! echo "$SCRIPT_FILES" | xargs shellcheck; then
+    FAILED=1
+  fi
+fi
+
+# --- Docs: mermaid rendering lint + mermaid syntax validation ---
+DOC_FILES=$(echo "$STAGED_FILES" | grep -E '^(docs/|design/|README\.md|AGENTS\.md)' | grep '\.md$' || true)
+if [ -n "$DOC_FILES" ]; then
+  echo "Running Mermaid rendering lint on staged docs..."
+  # shellcheck disable=SC2086
+  if ! bash scripts/lint-mermaid-rendering.sh $DOC_FILES; then
+    FAILED=1
+  fi
+
+  echo "Running Mermaid syntax validation on staged docs..."
+  # shellcheck disable=SC2086
+  if ! bash scripts/validate-mermaid.sh $DOC_FILES; then
+    FAILED=1
+  fi
+fi
+
+# --- Workflows: yamllint ---
+WORKFLOW_FILES=$(echo "$STAGED_FILES" | grep '^\.github/workflows/.*\.yml$' || true)
+if [ -n "$WORKFLOW_FILES" ]; then
+  if command -v yamllint &> /dev/null; then
+    echo "Running yamllint on staged workflows..."
+    if ! echo "$WORKFLOW_FILES" | xargs yamllint -d "{extends: default, rules: {line-length: disable, truthy: disable, comments-indentation: disable}}"; then
+      FAILED=1
+    fi
+  else
+    echo "WARNING: yamllint not installed, skipping workflow validation"
+  fi
+fi
+
+if [ "$FAILED" -ne 0 ]; then
+  echo ""
+  echo "Pre-commit checks failed. Fix the issues above before committing."
+  exit 1
+fi

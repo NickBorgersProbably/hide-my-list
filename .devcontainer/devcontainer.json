@@ -9,6 +9,7 @@
       "moby": "false"
     }
   },
+  "postCreateCommand": "bash .githooks/install-hooks.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh",
   "mounts": [
     "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
