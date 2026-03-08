@@ -87,6 +87,7 @@ jobs:
       # File classification - determines which reviews to run
       config_only: ${{ steps.classify-files.outputs.config_only }}
       has_scripts: ${{ steps.classify-files.outputs.has_scripts }}
+      docs_only: ${{ steps.classify-files.outputs.docs_only }}
 
     steps:
       - name: Get PR from workflow run or dispatch inputs
@@ -307,6 +308,7 @@ jobs:
           echo "$FILES"
           CONFIG_ONLY="true"
           HAS_SCRIPTS="false"
+          DOCS_ONLY="true"
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             if [[ "$file" == *.sh ]]; then
@@ -315,10 +317,15 @@ jobs:
             if [[ "$file" == scripts/* ]] || [[ "$file" == docs/* ]] || [[ "$file" == design/* ]] || [[ "$file" == *.md ]]; then
               CONFIG_ONLY="false"
             fi
+            # docs_only: true when all changed files are *.md, docs/*, or design/*
+            if [[ "$file" != *.md ]] && [[ "$file" != docs/* ]] && [[ "$file" != design/* ]]; then
+              DOCS_ONLY="false"
+            fi
           done <<< "$FILES"
-          echo "Classification: config_only=$CONFIG_ONLY has_scripts=$HAS_SCRIPTS"
+          echo "Classification: config_only=$CONFIG_ONLY has_scripts=$HAS_SCRIPTS docs_only=$DOCS_ONLY"
           echo "config_only=$CONFIG_ONLY" >> $GITHUB_OUTPUT
           echo "has_scripts=$HAS_SCRIPTS" >> $GITHUB_OUTPUT
+          echo "docs_only=$DOCS_ONLY" >> $GITHUB_OUTPUT
 
   # Build and cache devcontainer image
   # SECURITY: Always build from main branch, NEVER from PR branches
@@ -497,7 +504,7 @@ jobs:
             1. Check the workflow run logs: gh run view ${RUN_ID} --log-failed
             2. Identify the root cause of failures (failing tests, clippy warnings, fmt issues, etc.)
             3. Fix the issues in the code
-            4. Run \`cargo test\` locally to verify your fix works
+            4. Run \`shellcheck scripts/*.sh\` and \`yamllint .github/workflows/*.yml\` to verify your fix works
             5. Commit and push your fixes
 
             IMPORTANT RULES FOR THIS REPOSITORY:
@@ -623,111 +630,6 @@ jobs:
         with:
           name: fix-failures-output-attempt-${{ needs.get-context.outputs.fix_attempts }}
           path: fix-failures-output.jsonl
-          retention-days: 7
-
-  # Claude review (code review) - runs after design-review
-  claude-review:
-    needs: [get-context, build-devcontainer, design-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.config_only != 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-
-    steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
-
-      - name: Create gh config directory for devcontainer mount
-        run: mkdir -p ~/.config/gh
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run Claude review in devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ github.token }}
-            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
-            REPO=${{ github.repository }}
-            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-          runCmd: |
-            # Run Claude Code review inside the devcontainer
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 450 \
-              "You are reviewing PR #${PR_NUMBER} in ${REPO}.
-
-            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
-            Do NOT comment on code that is fine. Do NOT provide general observations or praise.
-            If there are no actionable issues, post a short approval and move on.
-
-            Tests have already passed. Focus on code quality review.
-
-            BEFORE PUSHING CHANGES:
-            1. git fetch origin ${HEAD_REF}
-            2. If author pushed new commits, rebase: git pull --rebase origin ${HEAD_REF}
-            3. If conflicts, abort and note in comment
-
-            Validate: \`shellcheck scripts/*.sh\` for shell scripts
-
-            Check for:
-            - Shell script correctness and safety (quoting, error handling, set -euo pipefail)
-            - Prompt design quality (docs/ai-prompts.md) — ADHD-informed conversation patterns
-            - Documentation accuracy and completeness
-            - Security concerns in scripts (credential handling, input validation)
-            - Notion API usage patterns (proper error handling, rate limiting)
-            - Consistency between docs and actual behavior
-
-            For HIGH SEVERITY issues, fix directly, commit, and push.
-
-            Post exactly ONE comment using:
-            gh pr comment ${PR_NUMBER} --body '## Code Review
-
-            [If no issues: \"Approved - No issues found\" and stop here]
-
-            ### Issues Found
-            [Only list actionable items. Reference specific files:lines. Skip if none.]
-
-            ### Fixes Applied
-            [List commits pushed, if any. Skip section if none.]
-
-            ### Conclusion
-            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/claude-review-output.jsonl
-
-      - name: Upload Claude review output
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: claude-review-output
-          path: claude-review-output.jsonl
           retention-days: 7
 
   # Design review specialist - validates PR implements issue intent and reviews design quality
@@ -890,6 +792,8 @@ jobs:
             - If the PR doesn't clearly address the issue, this is a blocking concern
             - Design flaws that could cause production issues are blocking
             - Minor design suggestions are non-blocking but should be noted
+            - If the diff is under 20 lines, keep your entire review under 100 words
+            - Check that spec files (docs/*.md) remain consistent with code changes. If updates are needed, make them directly and push.
 
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
@@ -898,21 +802,12 @@ jobs:
 
             ### Intent Validation
             [Does this PR fulfill the intent of the issue/description?]
-            - Fully addresses the stated requirements, OR
-            - Partially addresses (explain gaps), OR
-            - Does not address the core issue (explain why)
 
-            ### Design Analysis
-            [Your critical review of the design decisions]
+            ### Concerns
+            [Potential issues, edge cases, trade-offs - be specific. Skip if none.]
 
-            **Strengths:**
-            [What the design does well - be specific]
-
-            **Concerns:**
-            [Potential issues, edge cases, trade-offs - be specific]
-
-            **Suggestions:**
-            [Alternative approaches or improvements to consider]
+            ### Doc Updates Applied
+            [List doc consistency fixes pushed, if any. Skip if none.]
 
             ### Conclusion
             [Approved - Design is sound and fulfills intent |
@@ -927,16 +822,15 @@ jobs:
           path: design-review-output.jsonl
           retention-days: 7
 
-  # Test-focused reviewer - runs after claude-review (code review)
-  test-review:
-    needs: [get-context, build-devcontainer, claude-review]
+  # Security and infrastructure specialist - runs in parallel with design and psych
+  security-review:
+    needs: [get-context, build-devcontainer]
     if: |
-      always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.config_only != 'true' &&
+      needs.get-context.outputs.docs_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1004,144 +898,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Test review in devcontainer
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ github.token }}
-            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
-            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-          runCmd: |
-            # Using Sonnet: Checklist-based review with clear criteria
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model sonnet \
-              --dangerously-skip-permissions \
-              --max-turns 200 \
-              "You are a QA tester for PR #${PR_NUMBER}.
-
-            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
-            Do NOT list files reviewed. Do NOT describe what tests do. Do NOT praise good tests.
-            If there are no actionable issues, post a short approval and move on.
-
-            Check changed files (\`git diff origin/main...HEAD --name-only\`):
-
-            FOR SCRIPTS: Run shellcheck, verify error handling, check for missing edge cases.
-            FOR WORKFLOWS: Validate YAML syntax, check action refs, verify permissions.
-            FOR DOCS: Verify internal links, check consistency with other docs.
-            FOR PROMPT DESIGN: Verify conversation patterns follow ADHD-informed principles.
-
-            Run \`shellcheck scripts/*.sh\` to verify scripts.
-
-            For HIGH SEVERITY issues, fix directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
-
-            Post exactly ONE comment using:
-            gh pr comment ${PR_NUMBER} --body '## Test Review
-
-            [If no issues: \"Approved - Tests look good\" and stop here]
-
-            ### Issues Found
-            [Only list actionable items: missing tests, flaky tests, etc. Skip if none.]
-
-            ### Fixes Applied
-            [List commits pushed, if any. Skip section if none.]
-
-            ### Conclusion
-            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/test-review-output.jsonl
-
-      - name: Upload test review output
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-review-output
-          path: test-review-output.jsonl
-          retention-days: 7
-
-  # Concurrency/safety specialist - runs after test-review
-  concurrency-review:
-    needs: [get-context, build-devcontainer, test-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.has_scripts == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-
-    steps:
-      - name: Verify tests passed on current commit
-        id: verify-tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Get the current HEAD SHA of the PR
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
-          echo "Checking test status for commit $HEAD_SHA"
-
-          # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=40
-          ATTEMPT=1
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
-
-            if [ "$STATUS" = "success" ]; then
-              echo "All Required Tests passed on current commit"
-              echo "verified=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
-              sleep 10
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-
-          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
-          echo "Skipping review - tests must pass first"
-          echo "verified=false" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR branch
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
-
-      - name: Pull latest changes
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
-
-      - name: Create gh config directory for devcontainer mount
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh
-
-      - name: Log in to GHCR
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Concurrency review in devcontainer
+      - name: Security review in devcontainer
         if: steps.verify-tests.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
@@ -1167,6 +924,7 @@ jobs:
             If there are no actionable issues, post a short approval and move on.
 
             Run \`git diff origin/main...HEAD\` to see changes.
+            Read SECURITY.md for the project's security model and threat assumptions.
 
             Check for security and infrastructure issues:
             - Credential/secret handling in scripts (no hardcoded tokens, proper .env usage)
@@ -1195,183 +953,25 @@ jobs:
             [List commits pushed, if any. Skip section if none.]
 
             ### Conclusion
-            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/concurrency-review-output.jsonl
+            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/security-review-output.jsonl
 
-      - name: Upload concurrency review output
+      - name: Upload security review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: concurrency-review-output
-          path: concurrency-review-output.jsonl
-          retention-days: 7
-
-  # Documentation update specialist - runs after concurrency-review
-  docs-review:
-    needs: [get-context, build-devcontainer, concurrency-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-
-    steps:
-      - name: Verify tests passed on current commit
-        id: verify-tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Get the current HEAD SHA of the PR
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
-          echo "Checking test status for commit $HEAD_SHA"
-
-          # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=40
-          ATTEMPT=1
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
-
-            if [ "$STATUS" = "success" ]; then
-              echo "All Required Tests passed on current commit"
-              echo "verified=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
-              sleep 10
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-
-          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
-          echo "Skipping review - tests must pass first"
-          echo "verified=false" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR branch
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
-
-      - name: Pull latest changes
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
-
-      - name: Create gh config directory for devcontainer mount
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh
-
-      - name: Log in to GHCR
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Documentation review in devcontainer
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
-          env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-            GH_TOKEN=${{ github.token }}
-            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
-            PR_TITLE=${{ needs.get-context.outputs.pr_title }}
-            PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
-            ISSUE_NUMBER=${{ needs.get-context.outputs.issue_number }}
-            ISSUE_TITLE=${{ needs.get-context.outputs.issue_title }}
-            ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
-            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-          runCmd: |
-            # Decode base64-encoded bodies (handles special characters safely)
-            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
-            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
-
-            # Using Opus: Documentation updates require accurate changes when PR opener missed them
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 200 \
-              "You are a DOCUMENTATION specialist reviewing PR #${PR_NUMBER}.
-
-            **CRITICAL: BE BRIEF. Only report documentation that MUST be updated.**
-            Do NOT list docs that don't need changes. Do NOT provide checklists of N/A items.
-            If no docs need updating, post a short approval and move on.
-
-            Context (if available):
-            Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
-            PR: ${PR_TITLE}
-
-            Run \`git diff origin/main...HEAD\` to see changes.
-
-            Only check docs relevant to the actual code changes:
-            - Architecture changes -> docs/architecture.md
-            - Task lifecycle changes -> docs/task-lifecycle.md
-            - AI prompt changes -> docs/ai-prompts.md
-            - Notion schema changes -> docs/notion-schema.md
-            - User interaction changes -> docs/user-interactions.md
-            - Workflow changes (.github/workflows/*.yml) -> update relevant docs
-
-            Also validate any Mermaid diagrams in changed docs:
-            - Run \`./scripts/validate-mermaid.sh\` to check all diagrams parse correctly
-              (this installs its own npm dependencies in a temp directory — just run it)
-            - If any diagrams fail validation, fix the syntax errors
-            - Common issue: double quotes inside stadium-shaped nodes like \`([User: \"Done!\"])\`
-              must use single quotes or \`&quot;\` instead
-            - GitHub only renders valid Mermaid — syntax errors produce blank/broken diagrams
-
-            If updates needed, make changes directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
-
-            Post exactly ONE comment using:
-            gh pr comment ${PR_NUMBER} --body '## Documentation Review
-
-            [If no updates needed: \"Approved - No doc updates required\" and stop here]
-
-            ### Updates Required
-            [Only list docs that MUST be updated. Skip if none.]
-
-            ### Updates Applied
-            [List commits pushed, if any. Skip section if none.]
-
-            ### Conclusion
-            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/docs-review-output.jsonl
-
-      - name: Upload documentation review output
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: docs-review-output
-          path: docs-review-output.jsonl
+          name: security-review-output
+          path: security-review-output.jsonl
           retention-days: 7
 
   # Psychological research evidence reviewer - validates features against ADHD research literature
   psych-review:
-    needs: [get-context, build-devcontainer, docs-review]
+    needs: [get-context, build-devcontainer]
     if: |
-      always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
+      needs.get-context.outputs.config_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1570,7 +1170,7 @@ jobs:
 
   # Final decision maker - synthesizes all reviews and makes go/no-go call
   merge-decision:
-    needs: [get-context, build-devcontainer, claude-review, design-review, test-review, concurrency-review, docs-review, psych-review]
+    needs: [get-context, build-devcontainer, design-review, security-review, psych-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -1656,11 +1256,8 @@ jobs:
             GH_TOKEN=${{ github.token }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-            CLAUDE_REVIEW_RESULT=${{ needs.claude-review.result }}
             DESIGN_REVIEW_RESULT=${{ needs.design-review.result }}
-            TEST_REVIEW_RESULT=${{ needs.test-review.result }}
-            CONCURRENCY_REVIEW_RESULT=${{ needs.concurrency-review.result }}
-            DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
+            SECURITY_REVIEW_RESULT=${{ needs.security-review.result }}
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
           runCmd: |
             # Using Sonnet: Summarization task - synthesizes existing review results
@@ -1675,11 +1272,8 @@ jobs:
             You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
 
             **REVIEW STATUS:**
-            - Code Review: ${CLAUDE_REVIEW_RESULT}
             - Design Review: ${DESIGN_REVIEW_RESULT}
-            - Test Review: ${TEST_REVIEW_RESULT}
-            - Concurrency Review: ${CONCURRENCY_REVIEW_RESULT}
-            - Docs Review: ${DOCS_REVIEW_RESULT}
+            - Security & Infrastructure Review: ${SECURITY_REVIEW_RESULT}
             - Psych Research Review: ${PSYCH_REVIEW_RESULT}
 
             **YOUR TASK:**
@@ -1753,7 +1347,7 @@ jobs:
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, design-review, test-review, concurrency-review, docs-review, psych-review, merge-decision]
+    needs: [get-context, build-devcontainer, fix-test-failures, design-review, security-review, psych-review, merge-decision]
     if: always()
     permissions:
       statuses: write  # Required to create commit status on PR
@@ -1832,24 +1426,12 @@ jobs:
               echo "Build Devcontainer: ${{ needs.build-devcontainer.result }}"
               failed=true
             fi
-            if ! check_result "${{ needs.claude-review.result }}"; then
-              echo "Claude Review: ${{ needs.claude-review.result }}"
-              failed=true
-            fi
             if ! check_result "${{ needs.design-review.result }}"; then
               echo "Design Review: ${{ needs.design-review.result }}"
               failed=true
             fi
-            if ! check_result "${{ needs.test-review.result }}"; then
-              echo "Test Review: ${{ needs.test-review.result }}"
-              failed=true
-            fi
-            if ! check_result "${{ needs.concurrency-review.result }}"; then
-              echo "Concurrency Review: ${{ needs.concurrency-review.result }}"
-              failed=true
-            fi
-            if ! check_result "${{ needs.docs-review.result }}"; then
-              echo "Docs Review: ${{ needs.docs-review.result }}"
+            if ! check_result "${{ needs.security-review.result }}"; then
+              echo "Security Review: ${{ needs.security-review.result }}"
               failed=true
             fi
             if ! check_result "${{ needs.psych-review.result }}"; then
@@ -1896,11 +1478,8 @@ jobs:
           echo "  Fix Attempts: ${{ needs.get-context.outputs.fix_attempts }}"
           echo "  Build Devcontainer: ${{ needs.build-devcontainer.result }}"
           echo "  Fix Test Failures: ${{ needs.fix-test-failures.result }}"
-          echo "  Claude Review: ${{ needs.claude-review.result }}"
           echo "  Design Review: ${{ needs.design-review.result }}"
-          echo "  Test Review: ${{ needs.test-review.result }}"
-          echo "  Concurrency Review: ${{ needs.concurrency-review.result }}"
-          echo "  Docs Review: ${{ needs.docs-review.result }}"
+          echo "  Security Review: ${{ needs.security-review.result }}"
           echo "  Psych Research Review: ${{ needs.psych-review.result }}"
           echo "  Merge Decision Job: ${{ needs.merge-decision.result }}"
           echo "  Merge Decision Verdict: ${{ needs.merge-decision.outputs.decision }}"
@@ -1958,99 +1537,6 @@ jobs:
           echo "Added 'agent-reviews-passed' label to PR #$PR_NUMBER"
           echo "Subsequent pushes will skip agent reviews."
           echo "To re-run reviews: close and reopen the PR."
-
-      - name: Post review summary comment
-        # Only post summary when reviews actually ran (tests_passed == true)
-        # When tests failed, fix-test-failures triggers a new workflow run that will post the summary
-        if: |
-          always() &&
-          needs.get-context.outputs.pr_number != '' &&
-          needs.get-context.outputs.reviews_already_passed != 'true' &&
-          needs.get-context.outputs.tests_passed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
-          TESTS_PASSED: ${{ needs.get-context.outputs.tests_passed }}
-          FIX_ATTEMPTS: ${{ needs.get-context.outputs.fix_attempts }}
-          BUILD_RESULT: ${{ needs.build-devcontainer.result }}
-          FIX_RESULT: ${{ needs.fix-test-failures.result }}
-          CLAUDE_RESULT: ${{ needs.claude-review.result }}
-          DESIGN_RESULT: ${{ needs.design-review.result }}
-          TEST_RESULT: ${{ needs.test-review.result }}
-          CONCURRENCY_RESULT: ${{ needs.concurrency-review.result }}
-          DOCS_RESULT: ${{ needs.docs-review.result }}
-          PSYCH_RESULT: ${{ needs.psych-review.result }}
-          MERGE_RESULT: ${{ needs.merge-decision.result }}
-          MERGE_DECISION: ${{ needs.merge-decision.outputs.decision }}
-          RUN_ID: ${{ github.run_id }}
-          REPO: ${{ github.repository }}
-          SERVER_URL: ${{ github.server_url }}
-        run: |
-          # Helper function to format result as emoji
-          format_result() {
-            case "$1" in
-              success) echo "Passed" ;;
-              failure) echo "Failed" ;;
-              skipped) echo "Skipped" ;;
-              cancelled) echo "Cancelled" ;;
-              *) echo "$1" ;;
-            esac
-          }
-
-          # Helper function to format merge decision verdict
-          format_merge_decision() {
-            case "$1" in
-              GO) echo "GO" ;;
-              NO-GO) echo "NO-GO" ;;
-              *) echo "Unknown" ;;
-            esac
-          }
-
-          # Build the summary comment
-          COMMENT="## Agent Review Summary\n\n"
-          COMMENT+="**Workflow Run:** [#${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID})\n\n"
-
-          # Determine overall status based on actual merge decision
-          if [ "$MERGE_DECISION" = "GO" ]; then
-            COMMENT+="**Status:** All reviews passed - ready to merge\n\n"
-          elif [ "$MERGE_DECISION" = "NO-GO" ]; then
-            COMMENT+="**Status:** Blocking issues found - see Merge Decision comment for details\n\n"
-          elif [ "${{ steps.check-results.outcome }}" = "success" ]; then
-            COMMENT+="**Status:** All reviews completed successfully\n\n"
-          else
-            COMMENT+="**Status:** Some reviews failed or are incomplete\n\n"
-          fi
-
-          COMMENT+="### Agent Status\n\n"
-          COMMENT+="| Agent | Status |\n"
-          COMMENT+="|-------|--------|\n"
-
-          # Only show fix-test-failures if tests failed
-          if [ "$TESTS_PASSED" = "false" ]; then
-            COMMENT+="| Fix Test Failures | $(format_result "$FIX_RESULT") |\n"
-          fi
-
-          # Show review agents only if tests passed (they would have run)
-          # Order: design-review first (validates intent), then code-review, then others
-          if [ "$TESTS_PASSED" = "true" ]; then
-            COMMENT+="| Design Review | $(format_result "$DESIGN_RESULT") |\n"
-            COMMENT+="| Code Review | $(format_result "$CLAUDE_RESULT") |\n"
-            COMMENT+="| Test Review | $(format_result "$TEST_RESULT") |\n"
-            COMMENT+="| Concurrency Review | $(format_result "$CONCURRENCY_RESULT") |\n"
-            COMMENT+="| Docs Review | $(format_result "$DOCS_RESULT") |\n"
-            COMMENT+="| Psych Research Review | $(format_result "$PSYCH_RESULT") |\n"
-            # Show actual merge decision verdict instead of just job status
-            COMMENT+="| Merge Decision | $(format_merge_decision "$MERGE_DECISION") |\n"
-          fi
-
-          COMMENT+="\n---\n"
-          COMMENT+="_See individual agent comments above for details._\n"
-          COMMENT+="\nGenerated by Claude Code Review workflow"
-
-          # Post the comment
-          echo -e "$COMMENT" | gh pr comment "$PR_NUMBER" --body-file - --repo "$REPO"
-
-          echo "Posted review summary to PR #$PR_NUMBER"
 
       - name: Notify agent webhook
         if: always() && needs.get-context.outputs.pr_number != ''
