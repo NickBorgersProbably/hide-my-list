@@ -227,12 +227,12 @@ sequenceDiagram
     R->>R: Calculate intensity score
 
     par Parallel Reward Delivery
-        R->>AI: Emoji celebration + GIF
+        R->>AI: Emoji + AI-generated image
         R->>HA: Play victory music
         R->>SMS: Text significant other
     end
 
-    AI->>U: "CRUSHED IT! 🔥💪✨ [GIF: Taylor Swift party]"
+    AI->>U: "CRUSHED IT! 🔥💪✨ [unique AI celebration image]"
 
     Note over HA: "We Are The Champions" plays
 
@@ -263,14 +263,14 @@ flowchart TD
     Score --> Level{Intensity Level}
 
     Level -->|Low| LowReward[Emoji only<br/>"Nice! ✨"]
-    Level -->|Medium| MedReward[Emoji + GIF<br/>"Crushing it! 🎉💪"]
-    Level -->|High| HighReward[Emoji + GIF + Music + Text SO]
+    Level -->|Medium| MedReward[Emoji + AI image<br/>"Crushing it! 🎉💪"]
+    Level -->|High| HighReward[Emoji + AI image + Music + Text SO]
     Level -->|Epic| EpicReward[All rewards + AI Video + Outing]
 
     subgraph SystemRewards["System-Generated Rewards"]
         Emoji[Emoji Explosion]
-        GIF[Animated GIF<br/>Taylor Swift, celebrations]
-        Video[AI Video via Sora]
+        AIImage[AI-Generated Image<br/>Unique per completion]
+        
         Music[Home Audio Playback<br/>Sonos/HomePod/Echo]
     end
 
@@ -859,7 +859,7 @@ sequenceDiagram
     U->>AI: Done
 
     par Celebration
-        AI->>U: FIRST ONE DOWN! 🎯✨💪 [GIF: office high five]
+        AI->>U: FIRST ONE DOWN! 🎯✨💪 [unique AI celebration image]
         HA->>HA: Plays victory jingle (15 sec)
         SMS->>SMS: "[Partner], your person just knocked out their first task! 🙌"
     end

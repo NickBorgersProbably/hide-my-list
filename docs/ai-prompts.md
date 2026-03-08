@@ -1329,8 +1329,7 @@ stateDiagram-v2
     Selection --> Selection: Task rejected
     Selection --> Idle: No suitable task
 
-    Active --> FirstStep: First sub-step done + reward
-    FirstStep --> Active: Continue working
+    Active --> Active: First sub-step done + reward
     Active --> Idle: Task completed + celebration
     Active --> Selection: Task abandoned
     Active --> CheckingIn: Timer expires
