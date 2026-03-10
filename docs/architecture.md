@@ -251,7 +251,7 @@ flowchart TB
 
 - **Network isolation**: Agent runs behind squid proxy with domain allowlist
 - **Webhook security**: Listener discards all request data, only writes self-generated timestamp
-- **CI separation**: GitHub Actions reviewers have full internet but no access to home systems
+- **CI separation**: GitHub Actions reviewers have full internet but no access to infrastructure systems (agent runs on an isolated VPS)
 - **Credential handling**: API keys in `.env` (gitignored), never logged or committed
 - **Least privilege**: PR test workflows have read-only permissions
 

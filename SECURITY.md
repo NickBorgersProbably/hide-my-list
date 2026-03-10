@@ -35,7 +35,7 @@ Given that prompt injection is a when-not-if problem, the controls focus on limi
 - **Proxy domain allowlist** limits where a manipulated agent can send data — even a successful injection can only reach allowlisted domains, not arbitrary endpoints
 - **Proxy blocks private network ranges**, preventing a compromised agent from pivoting internally
 - **Notion API scoping** — the integration token is scoped to specific databases, not the entire workspace
-- **No destructive capabilities** — the agent can create and update tasks but has no access to delete data, send emails, or reach systems beyond Notion
+- **Limited integration scope** — the agent can create and update tasks but has no access to delete data, send emails, or reach systems beyond Notion
 - **Code execution** — the OpenClaw instance has arbitrary code execution (it can reconfigure itself); egress controls and Notion scoping limit what that execution can achieve
 
 A prompt injection via GitHub content could still manipulate how the agent creates or labels tasks within Notion — the blast radius is limited by what the Notion token can do, not by preventing injection entirely. If the agent gained broader capabilities (more integrations, outbound messaging), the proxy allowlist and Notion scoping would need to be revisited — or we'd need human-in-the-loop confirmation for sensitive actions.
