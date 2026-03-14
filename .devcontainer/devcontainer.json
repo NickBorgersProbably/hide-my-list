@@ -12,7 +12,9 @@
   "postCreateCommand": "bash .githooks/install-hooks.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh",
   "mounts": [
-    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind",
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+    "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind"
   ],
   "customizations": {
     "vscode": {
