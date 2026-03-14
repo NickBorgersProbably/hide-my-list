@@ -265,6 +265,7 @@ flowchart TB
         Agent[Agent]
         Scripts[Scripts]
         Webhook[Webhook Listener]
+        Reminder[Reminder Daemon]
     end
 
     subgraph Proxy["Squid Proxy"]

@@ -32,6 +32,10 @@ GitHub has been chosen as the tool for facilitating this, and that means we need
 
 The webhook listener ([`scripts/webhook-signal.sh`](scripts/webhook-signal.sh)) receives CI/CD notifications from the network **[A]**, but that's all it does. It immediately discards all request data (`exec 0</dev/null`) and writes a self-generated Unix timestamp to a signal file. It has no access to credentials **[B]** and makes no external calls **[C]**. There's nothing to exploit because nothing is read.
 
+### Reminder daemon — [BC] configuration
+
+The reminder daemon ([`scripts/reminder-daemon.sh`](scripts/reminder-daemon.sh) + [`scripts/check-reminders.sh`](scripts/check-reminders.sh)) sources `.env` credentials **[B]** and updates Notion task status **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
+
 ### CI/CD review agents — [AC] configuration
 
 PR review agents process untrusted code **[A]** and write PR comments **[C]**, but have no access to infrastructure secrets or Notion credentials **[B]**. Workflows use only repo-scoped GitHub token permissions (contents/pull-requests/issues write for posting reviews); no infrastructure secrets or Notion credentials are available. This is a safe [AC] configuration — even if a malicious PR manipulated a review agent, there's no sensitive data to exfiltrate.
