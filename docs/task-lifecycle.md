@@ -22,6 +22,12 @@ stateDiagram-v2
 
     Breakdown --> Pending: Sub-tasks created (hidden)
 
+    Intake --> ReminderPending: Reminder task detected
+    ReminderPending --> ReminderSent: Scheduler fires at remind_at
+    ReminderPending --> ReminderMissed: >15 min past due
+    ReminderSent --> Completed: Reminder delivered
+    ReminderMissed --> Completed: Late reminder delivered
+
     Pending --> Selected: User requests task
     Pending --> Pending: Time passes (urgency static)
 
@@ -64,6 +70,9 @@ stateDiagram-v2
 | Rejected | User declined, giving feedback | `pending` |
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
 | Cannot Finish | User indicates task is too large | `in_progress` (triggers breakdown) |
+| Reminder Pending | Reminder task waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
+| Reminder Sent | Reminder delivered to user on time | `completed` (reminder_status=sent) |
+| Reminder Missed | Reminder >15 min late, delivered with apology | `completed` (reminder_status=missed) |
 | Completed | Task finished | `completed` |
 
 ## Phase 1: Task Intake
@@ -910,6 +919,49 @@ The reward system scales celebrations based on achievement significance:
 | Focus/difficult task | High | Emoji + AI image + Music + Text SO |
 | Parent task complete | Epic | All rewards + AI video + Outing suggestion |
 | All tasks cleared | Epic | Maximum celebration |
+
+## Phase 7: Scheduled Reminder Delivery
+
+Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection — instead, the scheduler delivers them proactively at the specified time.
+
+```mermaid
+flowchart TD
+    Intake([User: Remind me at 6pm PT to email Melanie]) --> Detect[AI detects reminder intent]
+    Detect --> Parse[Parse time + timezone]
+    Parse --> Save[Save to Notion with is_reminder=true]
+
+    Save --> Wait[Task waits in Notion]
+    Wait --> Cron[Scheduler polls every 5 min]
+    Cron --> Due{remind_at <= now?}
+    Due -->|No| Wait
+    Due -->|Yes| Late{>15 min past due?}
+
+    Late -->|No| Send[Deliver reminder]
+    Late -->|Yes| SendMissed[Deliver with apology]
+
+    Send --> Complete[Mark completed + reminder_status=sent]
+    SendMissed --> Complete2[Mark completed + reminder_status=missed]
+
+    Complete --> Done([Done])
+    Complete2 --> Done
+```
+
+### Reminder vs. Normal Task
+
+| Property | Normal Task | Reminder Task |
+|----------|-------------|---------------|
+| Selection | User requests → AI suggests | Scheduler delivers at remind_at |
+| Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
+| Check-ins | Timer-based follow-ups | None (single delivery) |
+| Rejection | User can reject suggestion | N/A (delivered once) |
+
+### Timezone Handling
+
+The AI converts user-specified times to full ISO 8601 timestamps at intake:
+- User's default timezone: US Central (America/Chicago, UTC-6/UTC-5)
+- "6pm PT" → `2025-01-04T18:00:00-08:00`
+- "3pm" (no TZ) → `2025-01-04T15:00:00-06:00` (default Central)
+- "tomorrow 9am ET" → `2025-01-05T09:00:00-05:00`
 
 ## Complete Task Journey Example
 

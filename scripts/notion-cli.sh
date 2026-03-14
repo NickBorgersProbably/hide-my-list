@@ -66,6 +66,27 @@ print(json.dumps({'parent': {'database_id': sys.argv[10]}, 'properties': props})
       -d '{"sorts": [{"property": "Urgency", "direction": "descending"}]}'
     ;;
 
+  query-due-reminders)
+    # Args: before_iso (ISO 8601 timestamp — return reminders due on or before this time)
+    BEFORE_ISO="${2:-$(date -u +%Y-%m-%dT%H:%M:%S%z)}"
+    FILTER=$(python3 -c "
+import json, sys
+print(json.dumps({
+    'filter': {
+        'and': [
+            {'property': 'Is Reminder', 'checkbox': {'equals': True}},
+            {'property': 'Reminder Status', 'select': {'equals': 'pending'}},
+            {'property': 'Status', 'select': {'equals': 'Pending'}},
+            {'property': 'Remind At', 'date': {'on_or_before': sys.argv[1]}}
+        ]
+    },
+    'sorts': [{'property': 'Remind At', 'direction': 'ascending'}]
+}))
+" "$BEFORE_ISO")
+    curl -s -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
+      -d "$FILTER"
+    ;;
+
   update-status)
     # Args: page_id new_status
     PAGE_ID="$2"
@@ -101,6 +122,6 @@ print(json.dumps({'properties': props}))
 
   help)
     echo "Usage: notion-cli.sh <command>"
-    echo "Commands: create-task, query-pending, query-all, update-status, update-property, get-page"
+    echo "Commands: create-task, query-pending, query-all, query-due-reminders, update-status, update-property, get-page"
     ;;
 esac

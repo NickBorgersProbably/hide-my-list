@@ -38,7 +38,7 @@ flowchart TD
 
 | Intent | Example Messages |
 |--------|------------------|
-| ADD_TASK | "I need to...", "Add...", "Remind me to...", "New task:" |
+| ADD_TASK | "I need to...", "Add...", "Remind me to...", "New task:", "Ping me at 6pm to..." |
 | GET_TASK | "I have X minutes", "What should I do?", "I'm ready to work" |
 | COMPLETE | "Done", "Finished", "Completed", "I did it" |
 | REJECT | "Not that one", "Something else", "I don't want to" |
@@ -757,7 +757,63 @@ flowchart LR
 
 ---
 
-## Flow 8: Special Cases
+## Flow 8: Scheduled Reminder Delivery
+
+Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (which are timer-based and require an active session), reminders fire proactively even when the chat is idle.
+
+```mermaid
+sequenceDiagram
+    participant Cron as Scheduler (cron)
+    participant Notion as Notion API
+    participant Signal as Signal File
+    participant Agent as OpenClaw Agent
+    participant User
+
+    Cron->>Notion: Query due reminders (remind_at <= now)
+    Notion-->>Cron: Due reminder tasks
+    Cron->>Notion: Update reminder_status → sent
+    Cron->>Signal: Write .reminder-signal
+    Agent->>Signal: Detect signal file
+    Agent->>User: Deliver reminder
+```
+
+### Reminder Delivery Messages
+
+The agent delivers reminders with a brief, casual tone — like a friend tapping your shoulder:
+
+**On-time delivery (within 5 minutes of scheduled time):**
+> "Hey — you wanted a reminder to email Melanie about availability."
+
+**Late delivery (5-15 minutes past due):**
+> "Heads up — your reminder to call the dentist was set for 3pm. Still want to do it?"
+
+**Missed delivery (>15 minutes past due, flagged as missed):**
+> "I'm late on this one — you had a reminder at 6pm PT to email Melanie. Want to handle it now or reschedule?"
+
+### Reminder Intake
+
+During task intake, the AI detects reminder-style language and sets:
+- `is_reminder = true`
+- `remind_at` = full ISO 8601 timestamp with timezone
+- `reminder_status = pending`
+- `urgency = 90` (time-critical)
+
+**Confirmation message style:**
+> "Got it — I'll ping you at 6pm PT to email Melanie."
+
+The user's timezone defaults to US Central. The AI converts timezone references (PT, CT, ET) to UTC offsets at intake time.
+
+### Reminder vs. Deadline
+
+Reminders and deadlines are different:
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification at 6pm
+- **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
+
+The key signal is notification intent: the user wants to be *told* to do something at a specific time, not just have it prioritized.
+
+---
+
+## Flow 9: Special Cases
 
 ### Empty Queue
 
