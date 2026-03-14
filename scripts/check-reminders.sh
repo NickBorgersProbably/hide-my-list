@@ -2,8 +2,16 @@
 # check-reminders.sh — Poll Notion for due reminders and write a signal file
 #
 # This script is the scheduled reminder system for hide-my-list. It queries
-# Notion for reminder tasks whose Remind At time has arrived, writes their
-# details to a signal file, and marks them as sent.
+# Notion for reminder tasks whose Remind At time has arrived and writes their
+# details to a signal file for the agent to pick up.
+#
+# The script does NOT update reminder status in Notion — the agent marks
+# reminders as sent/completed after confirmed delivery. This gives
+# at-least-once semantics: a duplicate delivery is far better than a lost
+# reminder for an ADHD user relying on this system.
+#
+# If a signal file already exists with unconsumed reminders, new entries are
+# merged in (deduped by page_id) rather than overwriting.
 #
 # Designed to run via reminder-daemon.sh (default: every 5 minutes).
 # The agent checks for the signal file and delivers reminders to the user
@@ -47,7 +55,7 @@ fi
 
 echo "check-reminders: found $RESULT_COUNT due reminder(s)"
 
-# Process each due reminder
+# Process each due reminder — merge into signal file (dedup by page_id)
 echo "$RESPONSE" | python3 -c "
 import json, sys, os
 from datetime import datetime, timezone
@@ -58,7 +66,7 @@ now_epoch = int(sys.argv[1])
 missed_threshold = int(sys.argv[2])
 signal_file = sys.argv[3]
 
-entries = []
+new_entries = []
 for task in results:
     page_id = task['id']
     props = task.get('properties', {})
@@ -75,7 +83,6 @@ for task in results:
     status = 'sent'
     if remind_at_str:
         try:
-            # Parse ISO 8601 timestamp
             remind_at_str_clean = remind_at_str.replace('Z', '+00:00')
             remind_dt = datetime.fromisoformat(remind_at_str_clean)
             remind_epoch = int(remind_dt.timestamp())
@@ -84,69 +91,43 @@ for task in results:
         except (ValueError, OSError):
             pass
 
-    entries.append({
+    new_entries.append({
         'page_id': page_id,
         'title': title,
         'remind_at': remind_at_str,
         'status': status,
     })
 
-# Write signal file with reminder details
+# Merge with existing signal file to avoid dropping unconsumed reminders
+existing_entries = []
+if os.path.exists(signal_file):
+    try:
+        with open(signal_file, 'r') as f:
+            existing_data = json.load(f)
+            existing_entries = existing_data.get('reminders', [])
+    except (json.JSONDecodeError, OSError):
+        pass
+
+# Dedup by page_id — new entries take precedence over stale ones
+seen_ids = {e['page_id'] for e in new_entries}
+merged = list(new_entries)
+for existing in existing_entries:
+    if existing.get('page_id') not in seen_ids:
+        merged.append(existing)
+
 with open(signal_file, 'w') as f:
     f.write(json.dumps({
         'checked_at': datetime.now(timezone.utc).isoformat(),
-        'reminders': entries,
+        'reminders': merged,
     }, indent=2))
 
-print(f'check-reminders: wrote {len(entries)} reminder(s) to signal file')
+added = len(new_entries)
+kept = len(merged) - added
+print(f'check-reminders: wrote {added} new + {kept} existing reminder(s) to signal file')
 
-# Print summary
-for e in entries:
+for e in new_entries:
     flag = ' [MISSED]' if e['status'] == 'missed' else ''
     print(f\"  - {e['title']} (due: {e['remind_at']}){flag}\")
 " "$NOW_EPOCH" "$MISSED_THRESHOLD" "$SIGNAL_FILE"
-
-# Update each reminder's status in Notion
-echo "$RESPONSE" | python3 -c "
-import json, sys
-from datetime import datetime, timezone
-
-data = json.load(sys.stdin)
-results = data.get('results', [])
-now_epoch = int(sys.argv[1])
-missed_threshold = int(sys.argv[2])
-
-for task in results:
-    page_id = task['id']
-    props = task.get('properties', {})
-
-    remind_at_prop = props.get('Remind At', {}).get('date', {})
-    remind_at_str = remind_at_prop.get('start', '') if remind_at_prop else ''
-
-    status = 'sent'
-    if remind_at_str:
-        try:
-            remind_at_str_clean = remind_at_str.replace('Z', '+00:00')
-            remind_dt = datetime.fromisoformat(remind_at_str_clean)
-            remind_epoch = int(remind_dt.timestamp())
-            if (now_epoch - remind_epoch) > missed_threshold:
-                status = 'missed'
-        except (ValueError, OSError):
-            pass
-
-    notion_status = 'Completed'
-    print(f'{page_id}\t{status}\t{notion_status}')
-" "$NOW_EPOCH" "$MISSED_THRESHOLD" | while IFS=$'\t' read -r PAGE_ID REMINDER_STATUS NOTION_STATUS; do
-    # Update Reminder Status property
-    "$SCRIPT_DIR/notion-cli.sh" update-property "$PAGE_ID" "$(python3 -c "
-import json, sys
-print(json.dumps({'properties': {
-    'Reminder Status': {'select': {'name': sys.argv[1]}},
-    'Status': {'select': {'name': sys.argv[2]}},
-}}))
-" "$REMINDER_STATUS" "$NOTION_STATUS")" > /dev/null
-
-    echo "check-reminders: updated $PAGE_ID → reminder_status=$REMINDER_STATUS, status=$NOTION_STATUS"
-done
 
 echo "check-reminders: done"

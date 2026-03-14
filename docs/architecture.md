@@ -206,9 +206,9 @@ sequenceDiagram
     Daemon->>Script: Runs every 5 minutes
     Script->>Notion: Query reminders where remind_at <= now
     Notion-->>Script: Due reminder tasks
-    Script->>Notion: Update reminder_status (sent/missed)
-    Script->>Signal: Write signal file with task details
+    Script->>Signal: Merge into signal file (dedup by page_id)
     Agent->>Signal: Periodic check (same as webhook)
+    Agent->>Notion: Mark reminder as sent/completed
     Agent->>User: Deliver reminder message
 ```
 
@@ -217,11 +217,36 @@ sequenceDiagram
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. The local `reminder-daemon.sh` loop runs `check-reminders.sh` every 5 minutes (configurable).
 3. The script queries Notion for pending reminders where `remind_at <= now`.
-4. For each due reminder, it writes a `.reminder-signal` file and updates the task in Notion.
-5. The agent picks up the signal file (same polling mechanism as the webhook signal) and delivers the reminder to the user via the active messaging surface.
+4. For each due reminder, it merges entries into the `.reminder-signal` file (deduped by `page_id`), preserving any unconsumed reminders from previous cycles.
+5. The agent picks up the signal file (same polling mechanism as the webhook signal), delivers the reminder to the user, and marks the reminder as sent/completed in Notion. This at-least-once delivery model ensures no reminder is silently lost — a duplicate is far better than a miss for an ADHD user.
 6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The reminder daemon compares against UTC — no timezone conversion at check time.
+
+### Operations
+
+**Starting the daemon:**
+
+```bash
+scripts/reminder-daemon.sh              # loop forever, poll every 5 min
+scripts/reminder-daemon.sh --once       # single check and exit
+scripts/reminder-daemon.sh --interval 120  # custom interval (seconds)
+```
+
+**Environment overrides:**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `REMINDER_POLL_INTERVAL` | `300` (5 min) | Polling interval in seconds |
+| `REMINDER_LOG_FILE` | `/tmp/reminder-daemon.log` | Log output location |
+| `REMINDER_PID_FILE` | `/tmp/reminder-daemon.pid` | PID file to prevent duplicate daemons |
+
+**Lifecycle notes:**
+
+- The PID file prevents multiple daemon instances — if one is already running, a second invocation exits with an error.
+- The PID file is automatically cleaned up on exit (via `trap`). If a daemon crashes without cleanup, a stale PID file is detected and removed on the next start.
+- Logs are appended to `REMINDER_LOG_FILE` — check this file to debug missed or delayed reminders.
+- Use `--once` for testing or one-shot cron setups.
 
 ## Technology Choices
 
