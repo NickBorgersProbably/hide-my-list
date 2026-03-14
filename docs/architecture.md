@@ -17,6 +17,7 @@ flowchart TB
         AI[Conversational AI Layer]
         Scripts[Notion CLI Scripts]
         Webhook[Webhook Signal Receiver]
+        Reminder[Reminder Daemon]
     end
 
     subgraph Messaging["Messaging Surfaces"]
@@ -35,9 +36,12 @@ flowchart TB
     Messaging <-->|OpenClaw routing| AI
     AI <-->|CRUD operations| Scripts
     Scripts <-->|REST API| Notion
+    Reminder -->|Polls reminders| Notion
     GitHub -->|PR review complete| Webhook
     Webhook -->|Signal file| AI
+    Reminder -->|Signal file| AI
 ```
+
 
 ## How It Works
 
@@ -49,6 +53,7 @@ There is no standalone server. The OpenClaw agent *is* the application. It:
 4. **Selects tasks** based on user mood, energy, and available time
 5. **Breaks down tasks** into concrete, personalized sub-steps
 6. **Celebrates completions** with immediate positive reinforcement
+7. **Delivers scheduled reminders** even when the chat is idle
 
 ## Component Architecture
 
@@ -66,6 +71,8 @@ flowchart LR
         NotionCLI[notion-cli.sh<br/>Task CRUD]
         RewardImg[generate-reward-image.sh<br/>AI Celebration Images]
         RecapVid[generate-weekly-recap.sh<br/>Weekly Recap Video]
+        ReminderDaemon[reminder-daemon.sh<br/>Reminder Loop]
+        ReminderCheck[check-reminders.sh<br/>Due Reminder Query]
         WebhookSig[webhook-signal.sh<br/>CI Notifications]
         SecUpdate[security-update.sh<br/>Package Patching]
     end
@@ -86,8 +93,11 @@ flowchart LR
     NotionCLI --> Tasks
     Breakdown --> NotionCLI
     Reward --> RewardImg
+    ReminderDaemon --> ReminderCheck
+    ReminderCheck --> NotionCLI
     Review --> WebhookSig
 ```
+
 
 ## Request Flow
 
@@ -180,6 +190,64 @@ flowchart TD
     Breakdown --> Response
 ```
 
+## Scheduled Reminders
+
+The OpenClaw agent model is stateless between messages — there is no persistent process to check a clock. To support wall-clock reminders ("remind me at 6pm to email Melanie"), the system uses a **signal-file pattern** identical to the webhook receiver:
+
+```mermaid
+sequenceDiagram
+    participant Daemon as reminder-daemon.sh
+    participant Script as check-reminders.sh
+    participant Notion as Notion API
+    participant Signal as .reminder-signal
+    participant Agent as OpenClaw Agent
+    participant User
+
+    Daemon->>Script: Runs every 5 minutes
+    Script->>Notion: Query reminders where remind_at <= now
+    Notion-->>Script: Due reminder tasks
+    Script->>Signal: Rewrite signal file with current due reminders
+    Agent->>Signal: Periodic check (same as webhook)
+    Agent->>User: Deliver reminder message
+    Agent->>Notion: Mark reminder as sent/completed
+```
+
+**How it works:**
+
+1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
+2. The local `reminder-daemon.sh` loop runs `check-reminders.sh` every 5 minutes (configurable).
+3. The script queries Notion for pending reminders where `remind_at <= now`.
+4. For each successful Notion query, it rewrites `.reminder-signal` with the current due reminders. Reminders remain in the due query until the agent confirms delivery in Notion, so the signal file does not need to preserve stale local entries across cycles.
+5. The agent picks up the signal file (same polling mechanism as the webhook signal), delivers the reminder to the user, and then marks the reminder as `sent` or `missed` in Notion, updating the task's main `Status` when appropriate. This gives at-least-once delivery without leaving already-delivered reminders queued forever.
+6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
+
+**Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The reminder daemon compares against UTC — no timezone conversion at check time.
+
+### Operations
+
+**Starting the daemon:**
+
+```bash
+scripts/reminder-daemon.sh              # loop forever, poll every 5 min
+scripts/reminder-daemon.sh --once       # single check and exit
+scripts/reminder-daemon.sh --interval 120  # custom interval (seconds)
+```
+
+**Environment overrides:**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `REMINDER_POLL_INTERVAL` | `300` (5 min) | Polling interval in seconds |
+| `REMINDER_LOG_FILE` | `/tmp/reminder-daemon.log` | Log output location |
+| `REMINDER_PID_FILE` | `/tmp/reminder-daemon.pid` | PID file to prevent duplicate daemons |
+
+**Lifecycle notes:**
+
+- The PID file prevents multiple daemon instances — if one is already running, a second invocation exits with an error.
+- The PID file is automatically cleaned up on exit (via `trap`). If a daemon crashes without cleanup, a stale PID file is detected and removed on the next start.
+- Logs are appended to `REMINDER_LOG_FILE` — check this file to debug missed or delayed reminders.
+- Use `--once` for testing or one-shot cron setups.
+
 ## Technology Choices
 
 | Component | Technology | Rationale |
@@ -190,6 +258,7 @@ flowchart TD
 | Messaging | OpenClaw Surfaces | Multi-channel by default (web, Signal, Telegram, Discord) |
 | CI/CD | GitHub Actions | Multi-agent review pipeline with full internet for research |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
+| Scheduled Reminders | reminder-daemon.sh + check-reminders.sh | Local polling every 5 min without GitHub cron |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
 
@@ -201,6 +270,8 @@ flowchart TD
 | `NOTION_DATABASE_ID` | Tasks database identifier |
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
 | `WEBHOOK_PORT` | CI notification webhook port (default: 9199) |
+| `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
+| `REMINDER_POLL_INTERVAL` | Reminder daemon polling interval in seconds (default: 300) |
 
 ## Prerequisites
 
@@ -219,6 +290,7 @@ flowchart TB
         Agent[Agent]
         Scripts[Scripts]
         Webhook[Webhook Listener]
+        Reminder[Reminder Daemon]
     end
 
     subgraph Proxy["Squid Proxy"]

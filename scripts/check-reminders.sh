@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# check-reminders.sh — Poll Notion for due reminders and write a signal file
+#
+# This script is the scheduled reminder system for hide-my-list. It queries
+# Notion for reminder tasks whose Remind At time has arrived and writes their
+# details to a signal file for the agent to pick up.
+#
+# The script does NOT update reminder status in Notion — the agent marks
+# reminders as sent/completed after confirmed delivery. A successful Notion
+# query is treated as the source of truth for which reminders still need
+# delivery, so stale signal entries are cleared automatically once the agent
+# updates Notion.
+#
+# Designed to run via reminder-daemon.sh (default: every 5 minutes).
+# The agent checks for the signal file and delivers reminders to the user
+# through the active messaging surface.
+#
+# SECURITY PROPERTIES:
+#   - Uses the same .env credential loading as notion-cli.sh
+#   - Signal file contains only task IDs and titles — no secrets
+#   - Missed reminders (>15 min past due) are flagged but still delivered
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=/dev/null
+source "$ROOT_DIR/.env"
+
+SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
+NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+NOW_EPOCH=$(date +%s)
+# 15 minutes in seconds — reminders older than this are flagged as missed
+MISSED_THRESHOLD=900
+
+echo "check-reminders: checking at $NOW_ISO"
+
+# Query Notion for due reminders
+if ! RESPONSE=$("$SCRIPT_DIR/notion-cli.sh" query-due-reminders "$NOW_ISO"); then
+    echo "check-reminders: failed to query Notion for due reminders" >&2
+    exit 1
+fi
+
+# Parse and validate the response before deciding that nothing is due
+if ! RESULT_COUNT=$(echo "$RESPONSE" | python3 -c "
+import json, sys
+
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError as exc:
+    print(f'invalid JSON from Notion: {exc}', file=sys.stderr)
+    raise SystemExit(1)
+
+if data.get('object') == 'error':
+    code = data.get('code', 'unknown_error')
+    message = data.get('message', 'unknown Notion API error')
+    print(f'Notion API error: {code}: {message}', file=sys.stderr)
+    raise SystemExit(1)
+
+results = data.get('results')
+if not isinstance(results, list):
+    print('Notion response missing results array', file=sys.stderr)
+    raise SystemExit(1)
+
+print(len(results))
+"); then
+    echo "check-reminders: failed to parse Notion response" >&2
+    exit 1
+fi
+
+if [ "$RESULT_COUNT" -eq 0 ]; then
+    rm -f "$SIGNAL_FILE"
+    echo "check-reminders: no due reminders"
+    exit 0
+fi
+
+echo "check-reminders: found $RESULT_COUNT due reminder(s)"
+
+# Process each due reminder and replace the signal file with the current due set
+echo "$RESPONSE" | python3 -c "
+import json, sys, os
+from datetime import datetime, timezone
+
+data = json.load(sys.stdin)
+results = data.get('results', [])
+now_epoch = int(sys.argv[1])
+missed_threshold = int(sys.argv[2])
+signal_file = sys.argv[3]
+
+new_entries = []
+for task in results:
+    page_id = task['id']
+    props = task.get('properties', {})
+
+    # Extract title
+    title_prop = props.get('Title', {}).get('title', [])
+    title = title_prop[0]['text']['content'] if title_prop else '(untitled)'
+
+    # Extract remind_at
+    remind_at_prop = props.get('Remind At', {}).get('date', {})
+    remind_at_str = remind_at_prop.get('start', '') if remind_at_prop else ''
+
+    # Determine if missed (>15 min past due)
+    status = 'sent'
+    if remind_at_str:
+        try:
+            remind_at_str_clean = remind_at_str.replace('Z', '+00:00')
+            remind_dt = datetime.fromisoformat(remind_at_str_clean)
+            remind_epoch = int(remind_dt.timestamp())
+            if (now_epoch - remind_epoch) > missed_threshold:
+                status = 'missed'
+        except (ValueError, OSError):
+            pass
+
+    new_entries.append({
+        'page_id': page_id,
+        'title': title,
+        'remind_at': remind_at_str,
+        'status': status,
+    })
+
+with open(signal_file, 'w') as f:
+    f.write(json.dumps({
+        'checked_at': datetime.now(timezone.utc).isoformat(),
+        'reminders': new_entries,
+    }, indent=2))
+
+added = len(new_entries)
+print(f'check-reminders: wrote {added} reminder(s) to signal file')
+
+for e in new_entries:
+    flag = ' [MISSED]' if e['status'] == 'missed' else ''
+    print(f\"  - {e['title']} (due: {e['remind_at']}){flag}\")
+" "$NOW_EPOCH" "$MISSED_THRESHOLD" "$SIGNAL_FILE"
+
+echo "check-reminders: done"

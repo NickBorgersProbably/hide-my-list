@@ -14,6 +14,7 @@ HEADERS=(
   -H "Notion-Version: 2022-06-28"
   -H "Content-Type: application/json"
 )
+CURL_ARGS=(-fsS)
 
 case "${1:-help}" in
   create-task)
@@ -50,20 +51,76 @@ if sys.argv[9]:
 print(json.dumps({'parent': {'database_id': sys.argv[10]}, 'properties': props}))
 " "$TITLE" "$STATUS" "$WORK_TYPE" "$URGENCY" "$TIME_EST" "$ENERGY" "$INLINE_STEPS" "$PARENT_ID" "$SEQUENCE" "$NOTION_DATABASE_ID")
 
-    curl -s -X POST "$API/pages" "${HEADERS[@]}" -d "$PROPS"
+    curl "${CURL_ARGS[@]}" -X POST "$API/pages" "${HEADERS[@]}" -d "$PROPS"
+    ;;
+
+  create-reminder)
+    # Args: title remind_at_iso [work_type] [energy]
+    # Example: notion-cli.sh create-reminder "Email Melanie" "2026-03-15T18:00:00-06:00" "Social" "Low"
+    R_TITLE="$2"
+    R_REMIND_AT="$3"
+    R_WORK_TYPE="${4:-Independent}"
+    R_ENERGY="${5:-Low}"
+
+    R_PROPS=$(python3 -c "
+import json, sys
+props = {
+    'Title': {'title': [{'text': {'content': sys.argv[1]}}]},
+    'Status': {'select': {'name': 'Pending'}},
+    'Work Type': {'select': {'name': sys.argv[2]}},
+    'Urgency': {'number': 90},
+    'Time Estimate (min)': {'number': 5},
+    'Energy Required': {'select': {'name': sys.argv[3]}},
+    'Rejection Count': {'number': 0},
+    'Steps Completed': {'number': 0},
+    'Resume Count': {'number': 0},
+    'Is Reminder': {'checkbox': True},
+    'Remind At': {'date': {'start': sys.argv[4]}},
+    'Reminder Status': {'select': {'name': 'pending'}},
+}
+print(json.dumps({'parent': {'database_id': sys.argv[5]}, 'properties': props}))
+" "$R_TITLE" "$R_WORK_TYPE" "$R_ENERGY" "$R_REMIND_AT" "$NOTION_DATABASE_ID")
+
+    curl "${CURL_ARGS[@]}" -X POST "$API/pages" "${HEADERS[@]}" -d "$R_PROPS"
     ;;
 
   query-pending)
-    curl -s -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
+    curl "${CURL_ARGS[@]}" -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
       -d '{
-        "filter": {"property": "Status", "select": {"equals": "Pending"}},
+        "filter": {
+          "and": [
+            {"property": "Status", "select": {"equals": "Pending"}},
+            {"property": "Is Reminder", "checkbox": {"equals": false}}
+          ]
+        },
         "sorts": [{"property": "Urgency", "direction": "descending"}]
       }'
     ;;
 
   query-all)
-    curl -s -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
+    curl "${CURL_ARGS[@]}" -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
       -d '{"sorts": [{"property": "Urgency", "direction": "descending"}]}'
+    ;;
+
+  query-due-reminders)
+    # Args: before_iso (ISO 8601 timestamp — return reminders due on or before this time)
+    BEFORE_ISO="${2:-$(date -u +%Y-%m-%dT%H:%M:%S%z)}"
+    FILTER=$(python3 -c "
+import json, sys
+print(json.dumps({
+    'filter': {
+        'and': [
+            {'property': 'Is Reminder', 'checkbox': {'equals': True}},
+            {'property': 'Reminder Status', 'select': {'equals': 'pending'}},
+            {'property': 'Status', 'select': {'equals': 'Pending'}},
+            {'property': 'Remind At', 'date': {'on_or_before': sys.argv[1]}}
+        ]
+    },
+    'sorts': [{'property': 'Remind At', 'direction': 'ascending'}]
+}))
+" "$BEFORE_ISO")
+    curl "${CURL_ARGS[@]}" -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
+      -d "$FILTER"
     ;;
 
   update-status)
@@ -84,23 +141,23 @@ if sys.argv[2] == 'started_at':
 print(json.dumps({'properties': props}))
 " "$NEW_STATUS" "$EXTRA")
 
-    curl -s -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
+    curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
     ;;
 
   update-property)
     # Args: page_id property_json
     PAGE_ID="$2"
     PROP_JSON="$3"
-    curl -s -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROP_JSON"
+    curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROP_JSON"
     ;;
 
   get-page)
     PAGE_ID="$2"
-    curl -s "$API/pages/$PAGE_ID" "${HEADERS[@]}"
+    curl "${CURL_ARGS[@]}" "$API/pages/$PAGE_ID" "${HEADERS[@]}"
     ;;
 
   help)
     echo "Usage: notion-cli.sh <command>"
-    echo "Commands: create-task, query-pending, query-all, update-status, update-property, get-page"
+    echo "Commands: create-task, create-reminder, query-pending, query-all, query-due-reminders, update-status, update-property, get-page"
     ;;
 esac

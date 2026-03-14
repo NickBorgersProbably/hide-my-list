@@ -1,6 +1,9 @@
 # Environment and secrets
 .env
 .pr-signal
+.reminder-signal
+.reminder-daemon.pid
+.reminder-daemon.log
 
 # Reward image archive (user data, not code)
 rewards/

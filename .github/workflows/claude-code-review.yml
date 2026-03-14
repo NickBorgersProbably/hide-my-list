@@ -350,6 +350,9 @@ jobs:
         with:
           ref: main
 
+      - name: Create directories for devcontainer mounts
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -416,8 +419,8 @@ jobs:
 
           echo "Marked as fix attempt $NEXT_ATTEMPT"
 
-      - name: Create gh config directory for devcontainer mount
-        run: mkdir -p ~/.config/gh
+      - name: Create directories for devcontainer mounts
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -695,9 +698,9 @@ jobs:
         if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
-      - name: Create gh config directory for devcontainer mount
+      - name: Create directories for devcontainer mounts
         if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
       - name: Log in to GHCR
         if: steps.verify-tests.outputs.verified == 'true'
@@ -861,9 +864,9 @@ jobs:
         if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
-      - name: Create gh config directory for devcontainer mount
+      - name: Create directories for devcontainer mounts
         if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
       - name: Log in to GHCR
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1005,9 +1008,9 @@ jobs:
         if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
-      - name: Create gh config directory for devcontainer mount
+      - name: Create directories for devcontainer mounts
         if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
       - name: Log in to GHCR
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1211,9 +1214,9 @@ jobs:
         if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
-      - name: Create gh config directory for devcontainer mount
+      - name: Create directories for devcontainer mounts
         if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
       - name: Log in to GHCR
         if: steps.verify-tests.outputs.verified == 'true'
@@ -1358,9 +1361,9 @@ jobs:
         if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
 
-      - name: Create gh config directory for devcontainer mount
+      - name: Create directories for devcontainer mounts
         if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
       - name: Log in to GHCR
         if: steps.verify-tests.outputs.verified == 'true'
