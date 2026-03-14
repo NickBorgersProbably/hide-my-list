@@ -199,7 +199,7 @@ Every task MUST have explicit sub-tasks that define exactly what "done" looks li
 Analyze the task and provide structured output:
 
 TASK_ANALYSIS:
-- title: (concise task name, max 100 chars)
+- title: (concise task name, max 200 chars)
 - work_type: (focus|creative|social|independent)
 - work_type_confidence: (0.0-1.0)
 - urgency: (0-100)
