@@ -72,7 +72,7 @@ flowchart LR
 
 **Constraints:**
 - Required field
-- Maximum 200 characters (enforced by application)
+- Maximum 100 characters (enforced by application)
 - Plain text only
 
 ---
@@ -726,12 +726,12 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant Server as Go Server
+    participant Agent as OpenClaw Agent
     participant Notion as Notion API
 
-    Server->>Notion: POST /v1/pages
-    Note over Server,Notion: Request body includes:<br/>parent: {database_id}<br/>properties: {all fields}
-    Notion-->>Server: 200 OK with page ID
+    Agent->>Notion: POST /v1/pages
+    Note over Agent,Notion: Request body includes:<br/>parent: {database_id}<br/>properties: {all fields}
+    Notion-->>Agent: 200 OK with page ID
 ```
 
 **Required Fields on Create:**
@@ -749,12 +749,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Server as Go Server
+    participant Agent as OpenClaw Agent
     participant Notion as Notion API
 
-    Server->>Notion: POST /v1/databases/{id}/query
-    Note over Server,Notion: Filter: status = pending<br/>Sort: urgency DESC
-    Notion-->>Server: Array of task pages
+    Agent->>Notion: POST /v1/databases/{id}/query
+    Note over Agent,Notion: Filter: status = pending<br/>Sort: urgency DESC
+    Notion-->>Agent: Array of task pages
 ```
 
 **Common Queries:**
@@ -776,12 +776,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Server as Go Server
+    participant Agent as OpenClaw Agent
     participant Notion as Notion API
 
-    Server->>Notion: PATCH /v1/pages/{id}
-    Note over Server,Notion: Update specific properties
-    Notion-->>Server: 200 OK
+    Agent->>Notion: PATCH /v1/pages/{id}
+    Note over Agent,Notion: Update specific properties
+    Notion-->>Agent: 200 OK
 ```
 
 **Common Updates:**

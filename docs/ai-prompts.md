@@ -1361,6 +1361,7 @@ stateDiagram-v2
     Active --> Idle: Task completed + celebration
     Active --> Selection: Task abandoned
     Active --> CheckingIn: Timer expires
+    Idle --> Active: Resume detected (in_progress task + gap ≥ 15 min)
 
     CheckingIn --> Active: Still working
     CheckingIn --> Idle: Task completed

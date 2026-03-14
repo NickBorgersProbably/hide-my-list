@@ -683,8 +683,7 @@ flowchart TD
 
     CheckInCount -->|1st| Friendly["How's [task] going?"]
     CheckInCount -->|2nd| Brief["Still working on [task]?"]
-    CheckInCount -->|3rd| Gentle["Want to take a break from [task]?"]
-    CheckInCount -->|4th+| Stop[Stop checking in]
+    CheckInCount -->|3rd| Gentle["Want to take a break from [task]?<br/>No further check-ins"]
 
     Friendly --> UserResponse
     Brief --> UserResponse

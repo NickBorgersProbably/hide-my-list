@@ -143,9 +143,10 @@ flowchart TD
     end
 
     subgraph UrgencyRules["Urgency Inference"]
-        U1[/"today, ASAP, urgent"/] --> High[70-100]
-        U2[/"this week, by Friday"/] --> Medium[40-70]
-        U3[/"whenever, no rush"/] --> Low[0-40]
+        U1[/"today, ASAP, urgent, overdue"/] --> High[81-100]
+        U2[/"tomorrow, soon, end of week"/] --> MedHigh[61-80]
+        U3[/"this week, by Friday"/] --> Medium[41-60]
+        U4[/"whenever, no rush, next week"/] --> Low[0-40]
     end
 
     subgraph TimeRules["Time Estimation"]
@@ -236,8 +237,8 @@ See [user-preferences.md](./user-preferences.md) for full preference system docu
 
 | Task Type | Sub-task Approach | Example (with preferences: tea, cozy chair) |
 |-----------|-------------------|---------|
-| Quick (15 min) | 2-4 inline steps | "Call mom" → 1. Make tea, 2. Settle into cozy chair, 3. Make call, 4. Note follow-ups |
-| Standard (30-60 min) | 3-6 inline steps | "Review proposal" → 1. Make coffee, 2. Find quiet spot, 3. Read intro, 4. Check numbers, 5. Note concerns, 6. Draft feedback |
+| Quick (15 min) | 2-3 inline steps | "Call mom" → 1. Make tea, 2. Settle into cozy chair, 3. Make call |
+| Standard (30-60 min) | 3-5 inline steps | "Review proposal" → 1. Make coffee, 2. Find quiet spot, 3. Read intro, 4. Check numbers, 5. Note concerns |
 | Large (60+ min) | Hidden sub-tasks | "Complete report" → 4+ separate tasks in Notion (each with prep steps) |
 
 ### Complexity Signals (For Hidden vs. Inline)
@@ -914,10 +915,11 @@ The reward system scales celebrations based on achievement significance:
 
 | Trigger | Intensity | Rewards Activated |
 |---------|-----------|-------------------|
-| Quick task (< 15 min) | Low | Emoji only |
-| Standard task | Medium | Emoji + AI image |
-| Focus/difficult task | High | Emoji + AI image + Music + Text SO |
-| Parent task complete | Epic | All rewards + AI video + Outing suggestion |
+| Initiation only | Lightest | Brief encouragement, no image |
+| Quick task (< 15 min) | Low | 1-2 emoji + gentle AI image |
+| Standard task | Medium | 2-4 emoji + enthusiastic AI image |
+| Focus/difficult task | High | 4-6 emoji + majestic AI image + Music + Text SO |
+| Parent task complete | Epic | 6+ emoji + cosmic AI image + Music + Text SO + Outing |
 | All tasks cleared | Epic | Maximum celebration |
 
 ## Phase 7: Scheduled Reminder Delivery

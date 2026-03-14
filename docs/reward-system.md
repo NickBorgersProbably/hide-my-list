@@ -17,7 +17,7 @@ mindmap
     System Generated
       Visual Celebration
         Emoji explosions
-        Animated GIFs
+        AI-generated images
         AI-generated videos
       Audio Celebration
         Favorite songs
@@ -75,8 +75,8 @@ flowchart TB
 
     subgraph SystemRewards["System-Generated Rewards"]
         Emoji[Emoji Celebration]
-        GIF[Animated GIF]
-        Video[AI Video<br/>Sora]
+        Image[AI-Generated Image]
+        Video[AI Video<br/>ffmpeg]
         Music[Music Playback<br/>Home Audio]
     end
 
@@ -811,8 +811,8 @@ stateDiagram-v2
 
     state RewardDelivery {
         [*] --> Emoji
-        Emoji --> GIF: if enabled + score ≥ Medium
-        GIF --> Music: if enabled + score ≥ High
+        Emoji --> Image: if enabled + score ≥ Medium
+        Image --> Music: if enabled + score ≥ High
         Music --> TextSO: if enabled + score ≥ High
         TextSO --> Outing: if score = Epic
         Outing --> [*]
@@ -824,26 +824,21 @@ stateDiagram-v2
 
 ---
 
-## API Endpoints
+## Agent Commands
 
-### Reward Configuration
+These capabilities are exposed through conversation commands, not HTTP endpoints.
+The OpenClaw agent handles them directly during conversation.
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/rewards/config` | GET | Get current reward settings |
-| `/api/rewards/config` | PUT | Update reward settings |
-| `/api/rewards/music/test` | POST | Test music integration |
-| `/api/rewards/sms/test` | POST | Test SMS delivery |
-| `/api/rewards/history` | GET | Get recent reward history |
-
-### Home Automation Integration
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/home/status` | GET | Check home system connectivity |
-| `/api/home/rooms` | GET | List available rooms |
-| `/api/home/play` | POST | Trigger music playback |
-| `/api/home/stop` | POST | Stop current playback |
+| Command | Purpose |
+|---------|---------|
+| Reward settings | Get or update current reward settings |
+| Test music | Test music integration |
+| Test SMS | Test SMS delivery |
+| Reward history | Get recent reward history |
+| Home status | Check home system connectivity |
+| List rooms | List available rooms |
+| Play music | Trigger music playback |
+| Stop music | Stop current playback |
 
 ---
 

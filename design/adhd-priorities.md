@@ -34,7 +34,7 @@ These features enhance the experience but do not require fundamental architectur
 
 ## Interaction Patterns Required from Day One
 
-**Zero-question intake as default:** The very first task intake experience should work with zero clarifying questions. The AI infers everything and confirms with accept/reject options.
+**Zero-question intake as default:** The very first task intake experience should work with zero clarifying questions. The AI infers everything and confirms with accept/reject options. When a task is too vague to infer, up to 3 clarifying questions may be asked as a last resort.
 
 **Shame-free messaging as a hard constraint:** Every response template and AI prompt must be reviewed against RSD criteria. The system should never:
 - Use "you should have," "you didn't," or "you failed"
