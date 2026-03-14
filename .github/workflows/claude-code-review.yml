@@ -1151,7 +1151,6 @@ jobs:
           path: psych-review-output.jsonl
           retention-days: 7
 
-  # Final decision maker - synthesizes all reviews and makes go/no-go call
   # Documentation consistency reviewer - ensures docs remain coherent and non-contradictory
   docs-review:
     needs: [get-context, build-devcontainer]
