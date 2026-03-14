@@ -133,7 +133,7 @@ for task in results:
         except (ValueError, OSError):
             pass
 
-    notion_status = 'Completed' if status == 'sent' else 'Pending'
+    notion_status = 'Completed'
     print(f'{page_id}\t{status}\t{notion_status}')
 " "$NOW_EPOCH" "$MISSED_THRESHOLD" | while IFS=$'\t' read -r PAGE_ID REMINDER_STATUS NOTION_STATUS; do
     # Update Reminder Status property

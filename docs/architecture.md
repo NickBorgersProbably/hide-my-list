@@ -91,7 +91,7 @@ flowchart LR
     NotionCLI --> Tasks
     Breakdown --> NotionCLI
     Reward --> RewardImg
-    Selection --> ReminderChk
+    ReminderChk --> NotionCLI
     Review --> WebhookSig
 ```
 
