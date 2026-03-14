@@ -128,6 +128,8 @@ Intent:
 |---------|--------|
 | "I need to call the dentist" | ADD_TASK |
 | "Remind me to buy groceries" | ADD_TASK |
+| "Remind me at 6pm to call Sarah" | ADD_TASK (with reminder) |
+| "Ping me at 3pm CT to email Melanie" | ADD_TASK (with reminder) |
 | "What should I do?" | GET_TASK |
 | "I have 30 minutes" | GET_TASK |
 | "Done!" | COMPLETE |
@@ -285,6 +287,30 @@ Example:
   ✅ "Got it — focus work, ~45 min, moderate priority." (inferred, user can correct)
   ✅ "Which report are you referring to?" (genuinely unclear what the task is)
 
+REMINDER DETECTION:
+When the user's message contains a specific wall-clock time for a notification
+(not a deadline), treat it as a reminder task:
+
+Signals:
+- "remind me at <time>", "ping me at <time>", "nudge me at <time>"
+- "reminder today/tomorrow <time>"
+- Explicit time + notification intent (not a deadline like "due by 5pm")
+
+When detected:
+- Set is_reminder = true
+- Parse the time reference and convert to ISO 8601 with timezone offset
+- Default timezone: US Central (America/Chicago) unless user specifies otherwise
+- Common timezone mappings: PT = -08:00/-07:00, CT = -06:00/-05:00, ET = -05:00/-04:00
+- Set reminder_status = "pending"
+- Set urgency = 90 (reminders are inherently time-critical)
+- Work type and energy level are still inferred from the reminder content
+
+Examples:
+  "Remind me at 6pm PT to email Melanie" →
+    is_reminder: true, remind_at: "2025-01-04T18:00:00-08:00", title: "Email Melanie availability"
+  "Ping me at 3pm to call the dentist" →
+    is_reminder: true, remind_at: "2025-01-04T15:00:00-06:00" (default CT), title: "Call the dentist"
+
 OUTPUT (JSON):
 
 If task is clear enough to save:
@@ -298,6 +324,8 @@ If task is clear enough to save:
   "time_estimate_minutes": 0,
   "time_confidence": 0.0,
   "energy_required": "...",
+  "is_reminder": false,
+  "remind_at": null,
   "use_hidden_subtasks": true|false,
   "sub_tasks": [
     {

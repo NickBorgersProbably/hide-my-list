@@ -34,6 +34,9 @@ erDiagram
         number steps_completed "Sub-steps finished"
         number resume_count "Times user returned to task"
         date last_resumed_at "De-dup guard for resume detection"
+        checkbox is_reminder "True if task is a timed reminder"
+        date remind_at "Wall-clock time to fire reminder (ISO 8601)"
+        select reminder_status "pending|sent|missed"
     }
 
     USER_PREFERENCES {
@@ -443,6 +446,47 @@ Format: ISO 8601 (2025-01-04T10:30:00Z)
 **Reset when:** Never reset — each resume overwrites with the new timestamp
 
 See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection) for the full detection mechanism.
+
+---
+
+### IsReminder (checkbox)
+
+Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow — they are delivered proactively by the scheduled reminder system at the time specified in `Remind At`.
+
+| Value | Description |
+|-------|-------------|
+| `true` | This task is a timed reminder |
+| `false` | Normal task (default) |
+
+**Set when:** AI detects reminder-style language during task intake (e.g., "remind me at 6pm", "ping me at 3pm to call Sarah").
+
+---
+
+### RemindAt (date)
+
+The wall-clock time at which the reminder should fire. Stored as a full ISO 8601 timestamp with timezone offset so the scheduler can compare against the current time.
+
+```
+Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
+```
+
+**Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
+
+**Used by:** The `check-reminders.sh` scheduler script, which queries for pending reminders where `remind_at` is within the current check window.
+
+---
+
+### ReminderStatus (select)
+
+Tracks whether a scheduled reminder has been delivered.
+
+| Value | Description | Trigger |
+|-------|-------------|---------|
+| `pending` | Not yet delivered | Default on creation |
+| `sent` | Successfully delivered to user | Scheduler fires reminder |
+| `missed` | Reminder time passed without delivery | Scheduler detects past-due reminder (>15 min late) |
+
+**Note:** When a reminder is `sent`, the task's main `Status` is also updated to `completed` since the reminder action (notifying the user) is done.
 
 ---
 
