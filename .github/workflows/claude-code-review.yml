@@ -644,7 +644,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
       id-token: write
@@ -690,7 +690,6 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -793,11 +792,14 @@ jobs:
             - Design flaws that could cause production issues are blocking
             - Minor design suggestions are non-blocking but should be noted
             - If the diff is under 20 lines, keep your entire review under 100 words
-            - Check that spec files (docs/*.md) remain consistent with code changes. If updates are needed, make them directly and push.
+            - Check that spec files (docs/*.md) remain consistent with code changes. If updates are needed, describe the needed changes precisely (file path, what to change, and why) so the merge-decision agent can apply them.
+            - Do NOT push any changes. This is a read-only review.
 
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            **INLINE COMMENTS:** Where a concern is tied to a specific line of code, also leave
+            an inline PR review comment on that line. Use inline comments for localized feedback
+            and the summary comment for overall assessment and cross-cutting concerns.
 
-            Post exactly ONE comment using:
+            Post exactly ONE summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Design Review
 
             ### Intent Validation
@@ -806,8 +808,8 @@ jobs:
             ### Concerns
             [Potential issues, edge cases, trade-offs - be specific. Skip if none.]
 
-            ### Doc Updates Applied
-            [List doc consistency fixes pushed, if any. Skip if none.]
+            ### Doc Updates Needed
+            [Describe doc consistency fixes needed with exact file paths and changes. Skip if none.]
 
             ### Conclusion
             [Approved - Design is sound and fulfills intent |
@@ -834,7 +836,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
       id-token: write
@@ -880,7 +882,6 @@ jobs:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
       - name: Pull latest changes
         if: steps.verify-tests.outputs.verified == 'true'
@@ -938,10 +939,14 @@ jobs:
 
             Run \`shellcheck scripts/*.sh\` to verify.
 
-            For HIGH SEVERITY bugs, fix directly and push.
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            Do NOT push any changes. This is a read-only review.
+            For HIGH SEVERITY bugs, describe the fix precisely (file path, line number, exact change needed) so the merge-decision agent can apply it.
 
-            Post exactly ONE comment using:
+            **INLINE COMMENTS:** Where a finding is tied to a specific line of code, also leave
+            an inline PR review comment on that line. Use inline comments for localized findings
+            and the summary comment for overall assessment.
+
+            Post exactly ONE summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Security & Infrastructure Review
 
             [If no issues: \"Approved - No security or infrastructure issues\" and stop here]
@@ -949,8 +954,8 @@ jobs:
             ### Issues Found
             [Only list security risks, credential leaks, injection vectors, etc. Reference file:line. Skip if none.]
 
-            ### Fixes Applied
-            [List commits pushed, if any. Skip section if none.]
+            ### Fixes Needed
+            [Describe fixes precisely with file paths, line numbers, and exact changes. Skip section if none.]
 
             ### Conclusion
             [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/security-review-output.jsonl
@@ -1147,7 +1152,11 @@ jobs:
             When citing concerns, reference the specific research framework (e.g., 'Per Barkley\\'s
             model of EF deficits, this design places too much demand on working memory because...')
 
-            Post exactly ONE comment using:
+            **INLINE COMMENTS:** Where a concern is tied to a specific line of code or text, also
+            leave an inline PR review comment on that line. Use inline comments for localized
+            feedback and the summary comment for overall assessment.
+
+            Post exactly ONE summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Psychological Research Evidence Review
 
             [If no user-facing changes: \"Approved - No user-facing behavioral changes to evaluate against ADHD research.\" and stop]
@@ -1280,7 +1289,10 @@ jobs:
             1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
             2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
             3. If there are merge conflicts AND you believe the PR should be merged, resolve them
-            4. Make a GO/NO-GO decision
+            4. **Apply fixes from reviewers**: Check the Design Review comment for \"Doc Updates Needed\" and
+               the Security Review comment for \"Fixes Needed\". If either reviewer described specific fixes,
+               apply them now (edit the files, commit, and push). You are the ONLY agent with push access.
+            5. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
@@ -1288,7 +1300,7 @@ jobs:
 
             **IF NO-GO:** Explain what must be fixed before the PR can merge.
 
-            **IF GO with fixes needed:** Make the fixes (merge conflicts, minor issues), commit, push, then approve.
+            **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then approve.
 
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
