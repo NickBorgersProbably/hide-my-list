@@ -174,10 +174,9 @@ flowchart LR
 | Signal | Urgency Range |
 |--------|---------------|
 | "today", "ASAP", "urgent" | 81-100 |
-| "tomorrow", "soon" | 71-80 |
-| "this week", "by Friday" | 51-70 |
-| "this month", "next week" | 31-50 |
-| "whenever", "no rush" | 0-30 |
+| "tomorrow", "soon" | 61-80 |
+| "this week", "by Friday" | 41-60 |
+| "whenever", "no rush", "this month", "next week" | 0-40 |
 
 ---
 

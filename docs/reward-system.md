@@ -96,7 +96,7 @@ flowchart TB
     Scale --> Deliver
 
     Deliver --> Emoji
-    Deliver --> GIF
+    Deliver --> Image
     Deliver --> Video
     Deliver --> Music
     Deliver --> TextSO
