@@ -600,8 +600,8 @@ flowchart TD
 
 **Rejection Scoring Impact** (see [notion-schema.md](notion-schema.md#rejectioncount-number) for full details):
 - 0 rejections: No penalty
-- 1-2 rejections: -0.05 from selection score
-- 3+ rejections: -0.10 from selection score
+- 1-2 rejections: -0.05 from score
+- 3+ rejections: -0.10 from score
 
 ### Rejection Learning
 

@@ -720,7 +720,7 @@ initiation_score = min(initiation_ceiling, max(0, weighted_score - diminishing))
 erDiagram
     USER_REWARD_PREFS {
         boolean emoji_enabled "Default: true"
-        boolean gif_enabled "Default: true"
+        boolean image_enabled "Default: true"
         boolean music_enabled "Default: false"
         boolean video_enabled "Default: false"
         boolean text_so_enabled "Default: false"
