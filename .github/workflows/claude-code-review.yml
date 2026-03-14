@@ -1265,12 +1265,34 @@ jobs:
                  (e.g., task-lifecycle.md states should match architecture.md data flow)
                - **AGENTS.md / CLAUDE.md**: Do project instructions still accurately describe
                  the system after this PR?
+               - **Terminology consistency**: Are terms, field names, and enum values
+                 (status, work_type, energy_required) used consistently across docs?
+               - **Numeric constant consistency**: Do shared thresholds (urgency ranges,
+                 step counts, timer values, score ranges) agree across all docs?
+               - **docs/index.md completeness**: Does it list all docs accurately?
 
             Key doc relationships to check:
             - docs/architecture.md <-> docs/task-lifecycle.md (system design vs task states)
             - docs/ai-prompts.md <-> docs/user-interactions.md (prompt behavior vs interaction patterns)
             - docs/user-preferences.md <-> docs/reward-system.md (personalization vs rewards)
+            - docs/notion-schema.md <-> docs/task-lifecycle.md (field definitions vs lifecycle states)
+            - docs/notion-schema.md <-> docs/user-preferences.md (preferences schema vs behavior)
+            - docs/task-lifecycle.md <-> docs/user-interactions.md (state machine vs conversation flows)
+            - docs/reward-system.md <-> docs/task-lifecycle.md (reward triggers vs lifecycle phases)
+            - design/adhd-priorities.md <-> docs/ai-prompts.md (ADHD constraints vs prompt implementation)
             - AGENTS.md <-> docs/ (project instructions vs spec files)
+
+            Source of truth: When field names, status values, or database structure
+            conflict between docs, treat docs/notion-schema.md as canonical. Other
+            docs that reference these values must agree with it.
+
+            Pay special attention to docs/ai-prompts.md — it is the core system
+            specification. Any PR that changes agent behavior must be checked against
+            the prompt architecture defined there.
+
+            Blocking vs non-blocking: A contradiction between docs that would cause
+            the agent to receive conflicting instructions is blocking. A missing
+            update to an example or diagram is non-blocking.
 
             **INLINE COMMENTS:** Where a doc issue is tied to a specific line, also leave
             an inline PR review comment on that line.
