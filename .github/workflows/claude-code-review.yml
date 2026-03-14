@@ -795,7 +795,11 @@ jobs:
             - Check that spec files (docs/*.md) remain consistent with code changes. If updates are needed, describe the needed changes precisely (file path, what to change, and why) so the merge-decision agent can apply them.
             - Do NOT push any changes. This is a read-only review.
 
-            Post exactly ONE comment using:
+            **INLINE COMMENTS:** Where a concern is tied to a specific line of code, also leave
+            an inline PR review comment on that line. Use inline comments for localized feedback
+            and the summary comment for overall assessment and cross-cutting concerns.
+
+            Post exactly ONE summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Design Review
 
             ### Intent Validation
@@ -938,7 +942,11 @@ jobs:
             Do NOT push any changes. This is a read-only review.
             For HIGH SEVERITY bugs, describe the fix precisely (file path, line number, exact change needed) so the merge-decision agent can apply it.
 
-            Post exactly ONE comment using:
+            **INLINE COMMENTS:** Where a finding is tied to a specific line of code, also leave
+            an inline PR review comment on that line. Use inline comments for localized findings
+            and the summary comment for overall assessment.
+
+            Post exactly ONE summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Security & Infrastructure Review
 
             [If no issues: \"Approved - No security or infrastructure issues\" and stop here]
@@ -1144,7 +1152,11 @@ jobs:
             When citing concerns, reference the specific research framework (e.g., 'Per Barkley\\'s
             model of EF deficits, this design places too much demand on working memory because...')
 
-            Post exactly ONE comment using:
+            **INLINE COMMENTS:** Where a concern is tied to a specific line of code or text, also
+            leave an inline PR review comment on that line. Use inline comments for localized
+            feedback and the summary comment for overall assessment.
+
+            Post exactly ONE summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Psychological Research Evidence Review
 
             [If no user-facing changes: \"Approved - No user-facing behavioral changes to evaluate against ADHD research.\" and stop]
