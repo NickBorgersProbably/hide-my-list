@@ -53,10 +53,45 @@ print(json.dumps({'parent': {'database_id': sys.argv[10]}, 'properties': props})
     curl -s -X POST "$API/pages" "${HEADERS[@]}" -d "$PROPS"
     ;;
 
+  create-reminder)
+    # Args: title remind_at_iso [work_type] [energy]
+    # Example: notion-cli.sh create-reminder "Email Melanie" "2026-03-15T18:00:00-06:00" "Social" "Low"
+    R_TITLE="$2"
+    R_REMIND_AT="$3"
+    R_WORK_TYPE="${4:-Independent}"
+    R_ENERGY="${5:-Low}"
+
+    R_PROPS=$(python3 -c "
+import json, sys
+props = {
+    'Title': {'title': [{'text': {'content': sys.argv[1]}}]},
+    'Status': {'select': {'name': 'Pending'}},
+    'Work Type': {'select': {'name': sys.argv[2]}},
+    'Urgency': {'number': 90},
+    'Time Estimate (min)': {'number': 5},
+    'Energy Required': {'select': {'name': sys.argv[3]}},
+    'Rejection Count': {'number': 0},
+    'Steps Completed': {'number': 0},
+    'Resume Count': {'number': 0},
+    'Is Reminder': {'checkbox': True},
+    'Remind At': {'date': {'start': sys.argv[4]}},
+    'Reminder Status': {'select': {'name': 'pending'}},
+}
+print(json.dumps({'parent': {'database_id': sys.argv[5]}, 'properties': props}))
+" "$R_TITLE" "$R_WORK_TYPE" "$R_ENERGY" "$R_REMIND_AT" "$NOTION_DATABASE_ID")
+
+    curl -s -X POST "$API/pages" "${HEADERS[@]}" -d "$R_PROPS"
+    ;;
+
   query-pending)
     curl -s -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
       -d '{
-        "filter": {"property": "Status", "select": {"equals": "Pending"}},
+        "filter": {
+          "and": [
+            {"property": "Status", "select": {"equals": "Pending"}},
+            {"property": "Is Reminder", "checkbox": {"equals": false}}
+          ]
+        },
         "sorts": [{"property": "Urgency", "direction": "descending"}]
       }'
     ;;
@@ -122,6 +157,6 @@ print(json.dumps({'properties': props}))
 
   help)
     echo "Usage: notion-cli.sh <command>"
-    echo "Commands: create-task, query-pending, query-all, query-due-reminders, update-status, update-property, get-page"
+    echo "Commands: create-task, create-reminder, query-pending, query-all, query-due-reminders, update-status, update-property, get-page"
     ;;
 esac

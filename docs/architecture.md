@@ -17,7 +17,7 @@ flowchart TB
         AI[Conversational AI Layer]
         Scripts[Notion CLI Scripts]
         Webhook[Webhook Signal Receiver]
-        ReminderCheck[Reminder Scheduler]
+        Reminder[Reminder Daemon]
     end
 
     subgraph Messaging["Messaging Surfaces"]
@@ -36,11 +36,12 @@ flowchart TB
     Messaging <-->|OpenClaw routing| AI
     AI <-->|CRUD operations| Scripts
     Scripts <-->|REST API| Notion
+    Reminder -->|Polls reminders| Notion
     GitHub -->|PR review complete| Webhook
     Webhook -->|Signal file| AI
-    ReminderCheck -->|Poll every 5 min| Notion
-    ReminderCheck -->|Signal file| AI
+    Reminder -->|Signal file| AI
 ```
+
 
 ## How It Works
 
@@ -52,7 +53,7 @@ There is no standalone server. The OpenClaw agent *is* the application. It:
 4. **Selects tasks** based on user mood, energy, and available time
 5. **Breaks down tasks** into concrete, personalized sub-steps
 6. **Celebrates completions** with immediate positive reinforcement
-7. **Delivers scheduled reminders** proactively, even when the chat is idle
+7. **Delivers scheduled reminders** even when the chat is idle
 
 ## Component Architecture
 
@@ -70,8 +71,9 @@ flowchart LR
         NotionCLI[notion-cli.sh<br/>Task CRUD]
         RewardImg[generate-reward-image.sh<br/>AI Celebration Images]
         RecapVid[generate-weekly-recap.sh<br/>Weekly Recap Video]
+        ReminderDaemon[reminder-daemon.sh<br/>Reminder Loop]
+        ReminderCheck[check-reminders.sh<br/>Due Reminder Query]
         WebhookSig[webhook-signal.sh<br/>CI Notifications]
-        ReminderChk[check-reminders.sh<br/>Scheduled Reminders]
         SecUpdate[security-update.sh<br/>Package Patching]
     end
 
@@ -91,9 +93,11 @@ flowchart LR
     NotionCLI --> Tasks
     Breakdown --> NotionCLI
     Reward --> RewardImg
-    ReminderChk --> NotionCLI
+    ReminderDaemon --> ReminderCheck
+    ReminderCheck --> NotionCLI
     Review --> WebhookSig
 ```
+
 
 ## Request Flow
 
@@ -192,14 +196,14 @@ The OpenClaw agent model is stateless between messages — there is no persisten
 
 ```mermaid
 sequenceDiagram
-    participant Cron as GitHub Actions (cron)
+    participant Daemon as reminder-daemon.sh
     participant Script as check-reminders.sh
     participant Notion as Notion API
     participant Signal as .reminder-signal
     participant Agent as OpenClaw Agent
     participant User
 
-    Cron->>Script: Runs every 5 minutes
+    Daemon->>Script: Runs every 5 minutes
     Script->>Notion: Query reminders where remind_at <= now
     Notion-->>Script: Due reminder tasks
     Script->>Notion: Update reminder_status (sent/missed)
@@ -211,13 +215,13 @@ sequenceDiagram
 **How it works:**
 
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
-2. A GitHub Actions cron job runs `check-reminders.sh` every 5 minutes.
+2. The local `reminder-daemon.sh` loop runs `check-reminders.sh` every 5 minutes (configurable).
 3. The script queries Notion for pending reminders where `remind_at <= now`.
 4. For each due reminder, it writes a `.reminder-signal` file and updates the task in Notion.
 5. The agent picks up the signal file (same polling mechanism as the webhook signal) and delivers the reminder to the user via the active messaging surface.
 6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 
-**Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The scheduler compares against UTC — no timezone conversion at check time.
+**Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The reminder daemon compares against UTC — no timezone conversion at check time.
 
 ## Technology Choices
 
@@ -229,6 +233,7 @@ sequenceDiagram
 | Messaging | OpenClaw Surfaces | Multi-channel by default (web, Signal, Telegram, Discord) |
 | CI/CD | GitHub Actions | Multi-agent review pipeline with full internet for research |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
+| Scheduled Reminders | reminder-daemon.sh + check-reminders.sh | Local polling every 5 min without GitHub cron |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
 
@@ -240,7 +245,8 @@ sequenceDiagram
 | `NOTION_DATABASE_ID` | Tasks database identifier |
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
 | `WEBHOOK_PORT` | CI notification webhook port (default: 9199) |
-| `REMINDER_SIGNAL_FILE` | Path for reminder signal file (default: `.reminder-signal` in workspace) |
+| `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
+| `REMINDER_POLL_INTERVAL` | Reminder daemon polling interval in seconds (default: 300) |
 
 ## Prerequisites
 

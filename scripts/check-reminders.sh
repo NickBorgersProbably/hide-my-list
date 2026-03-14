@@ -5,9 +5,9 @@
 # Notion for reminder tasks whose Remind At time has arrived, writes their
 # details to a signal file, and marks them as sent.
 #
-# Designed to run on a cron schedule (e.g., every 5 minutes via GitHub Actions
-# or a local cron job). The agent checks for the signal file and delivers
-# reminders to the user through the active messaging surface.
+# Designed to run via reminder-daemon.sh (default: every 5 minutes).
+# The agent checks for the signal file and delivers reminders to the user
+# through the active messaging surface.
 #
 # SECURITY PROPERTIES:
 #   - Uses the same .env credential loading as notion-cli.sh
@@ -17,10 +17,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=/dev/null
-source "$SCRIPT_DIR/../.env"
+source "$ROOT_DIR/.env"
 
-SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-/home/caroline/.openclaw/workspace/hide-my-list/.reminder-signal}"
+SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOW_EPOCH=$(date +%s)
 # 15 minutes in seconds — reminders older than this are flagged as missed
