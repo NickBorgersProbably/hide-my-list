@@ -350,6 +350,9 @@ jobs:
         with:
           ref: main
 
+      - name: Create directories for devcontainer mounts
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
