@@ -29,17 +29,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI globally
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
 # Install Mermaid validation dependencies (used by scripts/validate-mermaid.sh)
 RUN npm install -g mermaid@11 jsdom@25 dompurify@3
 
 # Install yamllint for workflow validation
 RUN pip3 install --break-system-packages yamllint
-
-# Set up Claude directories for vscode user
-RUN mkdir -p /home/vscode/.claude/tmp \
-    && chown -R vscode:vscode /home/vscode/.claude
 
 USER vscode
 WORKDIR /home/vscode
