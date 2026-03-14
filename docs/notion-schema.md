@@ -72,7 +72,7 @@ flowchart LR
 
 **Constraints:**
 - Required field
-- Maximum 100 characters (enforced by application)
+- Maximum 200 characters (enforced by application)
 - Plain text only
 
 ---

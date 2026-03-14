@@ -214,12 +214,12 @@ initiation-specific adjustments:
 
 Every completion gets a **unique, AI-generated celebration image** via OpenAI's `gpt-image-1` model. This provides the novelty that ADHD brains crave — no two celebrations look the same, preventing habituation and maintaining dopamine response.
 
-#### Why AI-Generated Over Static GIFs
+#### Why AI-Generated Images
 
-- **Novelty**: ADHD brains habituate to repeated stimuli. Static GIF pools become predictable. Every AI image is unique.
+- **Novelty**: ADHD brains habituate to repeated stimuli. Every AI-generated image is unique, preventing predictability.
 - **Dopamine**: Novel visual stimuli trigger stronger dopamine release than familiar ones.
 - **Personalization**: Prompts can incorporate user context, streaks, and preferences.
-- **Scalability**: No need to curate and maintain a GIF library.
+- **Scalability**: No need to curate and maintain a static image library.
 
 ```mermaid
 flowchart TD

@@ -152,7 +152,7 @@ flowchart TD
     subgraph TimeRules["Time Estimation"]
         T1[/"quick, brief, short"/] --> Quick[15-30 min]
         T2[/"meeting, review"/] --> Med[30-60 min]
-        T3[/"project, deep work"/] --> Long[90+ min]
+        T3[/"project, deep work"/] --> Large[60+ min]
     end
 ```
 
@@ -172,8 +172,8 @@ flowchart TD
 
     Generate --> Evaluate{Task size?}
 
-    Evaluate -->|Small task<br/>15-30 min| InlineSteps[Store sub-tasks inline<br/>Present as numbered steps]
-    Evaluate -->|Medium/Large task<br/>> 30 min| CreateHidden[Create sub-tasks in Notion<br/>Hidden from user]
+    Evaluate -->|Quick/Standard task<br/>15-60 min| InlineSteps[Store sub-tasks inline<br/>Present as numbered steps]
+    Evaluate -->|Large task<br/>60+ min| CreateHidden[Create sub-tasks in Notion<br/>Hidden from user]
 
     InlineSteps --> Ready([Task ready for selection])
     CreateHidden --> LinkParent[Link to parent task]
@@ -597,6 +597,11 @@ flowchart TD
     Complete --> Celebrate([Celebrate completion])
     FindAlt --> Present([Present new task])
 ```
+
+**Rejection Scoring Impact** (see [notion-schema.md](notion-schema.md#rejectioncount-number) for full details):
+- 0 rejections: No penalty
+- 1-2 rejections: -0.05 from selection score
+- 3+ rejections: -0.10 from selection score
 
 ### Rejection Learning
 
