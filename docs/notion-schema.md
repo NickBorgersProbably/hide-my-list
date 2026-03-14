@@ -483,8 +483,8 @@ Tracks whether a scheduled reminder has been delivered.
 | Value | Description | Trigger |
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
-| `sent` | Successfully delivered to user | Scheduler fires reminder |
-| `missed` | Reminder time passed without delivery | Scheduler detects past-due reminder (>15 min late) |
+| `sent` | Successfully delivered to user | Agent confirms delivery after scheduler surfaces the reminder |
+| `missed` | Delivered after being more than 15 minutes late | Agent confirms late delivery using the scheduler's missed flag |
 
 **Note:** When a reminder is `sent`, the task's main `Status` is also updated to `completed` since the reminder action (notifying the user) is done.
 

@@ -14,6 +14,7 @@ HEADERS=(
   -H "Notion-Version: 2022-06-28"
   -H "Content-Type: application/json"
 )
+CURL_ARGS=(-fsS)
 
 case "${1:-help}" in
   create-task)
@@ -50,7 +51,7 @@ if sys.argv[9]:
 print(json.dumps({'parent': {'database_id': sys.argv[10]}, 'properties': props}))
 " "$TITLE" "$STATUS" "$WORK_TYPE" "$URGENCY" "$TIME_EST" "$ENERGY" "$INLINE_STEPS" "$PARENT_ID" "$SEQUENCE" "$NOTION_DATABASE_ID")
 
-    curl -s -X POST "$API/pages" "${HEADERS[@]}" -d "$PROPS"
+    curl "${CURL_ARGS[@]}" -X POST "$API/pages" "${HEADERS[@]}" -d "$PROPS"
     ;;
 
   create-reminder)
@@ -80,11 +81,11 @@ props = {
 print(json.dumps({'parent': {'database_id': sys.argv[5]}, 'properties': props}))
 " "$R_TITLE" "$R_WORK_TYPE" "$R_ENERGY" "$R_REMIND_AT" "$NOTION_DATABASE_ID")
 
-    curl -s -X POST "$API/pages" "${HEADERS[@]}" -d "$R_PROPS"
+    curl "${CURL_ARGS[@]}" -X POST "$API/pages" "${HEADERS[@]}" -d "$R_PROPS"
     ;;
 
   query-pending)
-    curl -s -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
+    curl "${CURL_ARGS[@]}" -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
       -d '{
         "filter": {
           "and": [
@@ -97,7 +98,7 @@ print(json.dumps({'parent': {'database_id': sys.argv[5]}, 'properties': props}))
     ;;
 
   query-all)
-    curl -s -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
+    curl "${CURL_ARGS[@]}" -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
       -d '{"sorts": [{"property": "Urgency", "direction": "descending"}]}'
     ;;
 
@@ -118,7 +119,7 @@ print(json.dumps({
     'sorts': [{'property': 'Remind At', 'direction': 'ascending'}]
 }))
 " "$BEFORE_ISO")
-    curl -s -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
+    curl "${CURL_ARGS[@]}" -X POST "$API/databases/$NOTION_DATABASE_ID/query" "${HEADERS[@]}" \
       -d "$FILTER"
     ;;
 
@@ -140,19 +141,19 @@ if sys.argv[2] == 'started_at':
 print(json.dumps({'properties': props}))
 " "$NEW_STATUS" "$EXTRA")
 
-    curl -s -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
+    curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
     ;;
 
   update-property)
     # Args: page_id property_json
     PAGE_ID="$2"
     PROP_JSON="$3"
-    curl -s -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROP_JSON"
+    curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROP_JSON"
     ;;
 
   get-page)
     PAGE_ID="$2"
-    curl -s "$API/pages/$PAGE_ID" "${HEADERS[@]}"
+    curl "${CURL_ARGS[@]}" "$API/pages/$PAGE_ID" "${HEADERS[@]}"
     ;;
 
   help)

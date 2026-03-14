@@ -6,12 +6,10 @@
 # details to a signal file for the agent to pick up.
 #
 # The script does NOT update reminder status in Notion — the agent marks
-# reminders as sent/completed after confirmed delivery. This gives
-# at-least-once semantics: a duplicate delivery is far better than a lost
-# reminder for an ADHD user relying on this system.
-#
-# If a signal file already exists with unconsumed reminders, new entries are
-# merged in (deduped by page_id) rather than overwriting.
+# reminders as sent/completed after confirmed delivery. A successful Notion
+# query is treated as the source of truth for which reminders still need
+# delivery, so stale signal entries are cleared automatically once the agent
+# updates Notion.
 #
 # Designed to run via reminder-daemon.sh (default: every 5 minutes).
 # The agent checks for the signal file and delivers reminders to the user
@@ -38,24 +36,47 @@ MISSED_THRESHOLD=900
 echo "check-reminders: checking at $NOW_ISO"
 
 # Query Notion for due reminders
-RESPONSE=$("$SCRIPT_DIR/notion-cli.sh" query-due-reminders "$NOW_ISO")
+if ! RESPONSE=$("$SCRIPT_DIR/notion-cli.sh" query-due-reminders "$NOW_ISO"); then
+    echo "check-reminders: failed to query Notion for due reminders" >&2
+    exit 1
+fi
 
-# Parse the response — extract results array length
-RESULT_COUNT=$(echo "$RESPONSE" | python3 -c "
+# Parse and validate the response before deciding that nothing is due
+if ! RESULT_COUNT=$(echo "$RESPONSE" | python3 -c "
 import json, sys
-data = json.load(sys.stdin)
-results = data.get('results', [])
+
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError as exc:
+    print(f'invalid JSON from Notion: {exc}', file=sys.stderr)
+    raise SystemExit(1)
+
+if data.get('object') == 'error':
+    code = data.get('code', 'unknown_error')
+    message = data.get('message', 'unknown Notion API error')
+    print(f'Notion API error: {code}: {message}', file=sys.stderr)
+    raise SystemExit(1)
+
+results = data.get('results')
+if not isinstance(results, list):
+    print('Notion response missing results array', file=sys.stderr)
+    raise SystemExit(1)
+
 print(len(results))
-" 2>/dev/null || echo "0")
+"); then
+    echo "check-reminders: failed to parse Notion response" >&2
+    exit 1
+fi
 
 if [ "$RESULT_COUNT" -eq 0 ]; then
+    rm -f "$SIGNAL_FILE"
     echo "check-reminders: no due reminders"
     exit 0
 fi
 
 echo "check-reminders: found $RESULT_COUNT due reminder(s)"
 
-# Process each due reminder — merge into signal file (dedup by page_id)
+# Process each due reminder and replace the signal file with the current due set
 echo "$RESPONSE" | python3 -c "
 import json, sys, os
 from datetime import datetime, timezone
@@ -98,32 +119,14 @@ for task in results:
         'status': status,
     })
 
-# Merge with existing signal file to avoid dropping unconsumed reminders
-existing_entries = []
-if os.path.exists(signal_file):
-    try:
-        with open(signal_file, 'r') as f:
-            existing_data = json.load(f)
-            existing_entries = existing_data.get('reminders', [])
-    except (json.JSONDecodeError, OSError):
-        pass
-
-# Dedup by page_id — new entries take precedence over stale ones
-seen_ids = {e['page_id'] for e in new_entries}
-merged = list(new_entries)
-for existing in existing_entries:
-    if existing.get('page_id') not in seen_ids:
-        merged.append(existing)
-
 with open(signal_file, 'w') as f:
     f.write(json.dumps({
         'checked_at': datetime.now(timezone.utc).isoformat(),
-        'reminders': merged,
+        'reminders': new_entries,
     }, indent=2))
 
 added = len(new_entries)
-kept = len(merged) - added
-print(f'check-reminders: wrote {added} new + {kept} existing reminder(s) to signal file')
+print(f'check-reminders: wrote {added} reminder(s) to signal file')
 
 for e in new_entries:
     flag = ' [MISSED]' if e['status'] == 'missed' else ''

@@ -773,10 +773,10 @@ sequenceDiagram
     Daemon->>Scr: Trigger every 5 minutes
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
-    Scr->>Notion: Update reminder_status → sent/missed
     Scr->>Signal: Write .reminder-signal
     Agent->>Signal: Detect signal file
     Agent->>User: Deliver reminder
+    Agent->>Notion: Update reminder_status → sent/missed
 ```
 
 ### Reminder Delivery Messages

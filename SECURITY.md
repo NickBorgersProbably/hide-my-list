@@ -34,7 +34,7 @@ The webhook listener ([`scripts/webhook-signal.sh`](scripts/webhook-signal.sh)) 
 
 ### Reminder daemon — [BC] configuration
 
-The reminder daemon ([`scripts/reminder-daemon.sh`](scripts/reminder-daemon.sh) + [`scripts/check-reminders.sh`](scripts/check-reminders.sh)) sources `.env` credentials **[B]** and updates Notion task status **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
+The reminder daemon ([`scripts/reminder-daemon.sh`](scripts/reminder-daemon.sh) + [`scripts/check-reminders.sh`](scripts/check-reminders.sh)) sources `.env` credentials **[B]** and queries Notion plus writes a local signal file **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
 
 ### CI/CD review agents — [AC] configuration
 

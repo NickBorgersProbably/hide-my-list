@@ -206,10 +206,10 @@ sequenceDiagram
     Daemon->>Script: Runs every 5 minutes
     Script->>Notion: Query reminders where remind_at <= now
     Notion-->>Script: Due reminder tasks
-    Script->>Signal: Merge into signal file (dedup by page_id)
+    Script->>Signal: Rewrite signal file with current due reminders
     Agent->>Signal: Periodic check (same as webhook)
-    Agent->>Notion: Mark reminder as sent/completed
     Agent->>User: Deliver reminder message
+    Agent->>Notion: Mark reminder as sent/completed
 ```
 
 **How it works:**
@@ -217,8 +217,8 @@ sequenceDiagram
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. The local `reminder-daemon.sh` loop runs `check-reminders.sh` every 5 minutes (configurable).
 3. The script queries Notion for pending reminders where `remind_at <= now`.
-4. For each due reminder, it merges entries into the `.reminder-signal` file (deduped by `page_id`), preserving any unconsumed reminders from previous cycles.
-5. The agent picks up the signal file (same polling mechanism as the webhook signal), delivers the reminder to the user, and marks the reminder as sent/completed in Notion. This at-least-once delivery model ensures no reminder is silently lost — a duplicate is far better than a miss for an ADHD user.
+4. For each successful Notion query, it rewrites `.reminder-signal` with the current due reminders. Reminders remain in the due query until the agent confirms delivery in Notion, so the signal file does not need to preserve stale local entries across cycles.
+5. The agent picks up the signal file (same polling mechanism as the webhook signal), delivers the reminder to the user, and then marks the reminder as `sent` or `missed` in Notion, updating the task's main `Status` when appropriate. This gives at-least-once delivery without leaving already-delivered reminders queued forever.
 6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The reminder daemon compares against UTC — no timezone conversion at check time.
