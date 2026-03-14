@@ -744,8 +744,10 @@ jobs:
               --max-turns 450 \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
 
-            Your role is to validate that this PR correctly implements the intent described in the
-            linked issue and/or PR description, AND to critically review the design decisions made.
+            Review like an experienced staff engineer. Be direct and selective.
+            Don't praise the design or list strengths — focus on what you'd actually flag in a review.
+            Non-blocking observations are welcome but keep each to one sentence.
+            If the design is sound, approve in one line and move on.
 
             **CONTEXT:**
             PR Title: ${PR_TITLE}
@@ -760,61 +762,33 @@ jobs:
             ${ISSUE_COMMENTS}
 
             **YOUR TASK:**
+            1. Read the issue/PR description to understand the problem being solved.
+            2. Examine the code changes (\`git diff origin/main...HEAD\`).
+            3. Validate: does the PR solve the stated problem? Gaps between intent and delivery are blocking.
+            4. SCOPE CHECK: Compare the PR title/issue against the actual diff.
+               - If the title suggests a narrow fix but the diff introduces new abstractions or
+                 significant code beyond what the title implies, flag as blocking scope creep.
+               - State explicitly: \"Scope check: PASS\" or \"Scope check: FAIL — [reason]\"
+            5. Evaluate design decisions: could a simpler approach work? Flag over-engineering as blocking.
 
-            1. **Understand the Intent**: Read the issue and PR description carefully to understand
-               what problem is being solved and what the expected outcome should be.
-
-            2. **Review the Implementation**: Examine the code changes (\`git diff origin/main...HEAD\`)
-               to understand what was actually implemented.
-
-            3. **Validate Intent Fulfillment**: Does this PR actually solve the problem described?
-               Are there gaps between what was requested and what was delivered?
-
-            4. **Critical Design Review**: Evaluate the design decisions:
-               - Is this a good design for solving the problem?
-               - Are there predictable challenges or edge cases not addressed?
-               - What trade-offs does this design bring?
-               - Are there simpler or more robust alternatives?
-               - Does this design fit well with the existing architecture?
-               - Will this design scale or be maintainable?
-
-            5. **For Design-Heavy PRs** (PRs that introduce new patterns, architectures, or significant
-               structural changes): Be especially thorough in your design critique. Consider:
-               - Extensibility and flexibility
-               - Error handling and failure modes
-               - Performance implications
-               - Coupling and cohesion
-               - Testability
-
-            **IMPORTANT RULES:**
-            - Reference docs/architecture.md for system design context
-            - If the PR doesn't clearly address the issue, this is a blocking concern
-            - Design flaws that could cause production issues are blocking
-            - Minor design suggestions are non-blocking but should be noted
-            - If the diff is under 20 lines, keep your entire review under 100 words
-            - Check that spec files (docs/*.md) remain consistent with code changes. If updates are needed, describe the needed changes precisely (file path, what to change, and why) so the merge-decision agent can apply them.
-            - Do NOT push any changes. This is a read-only review.
+            Reference docs/architecture.md for system design context.
+            Do NOT push any changes. This is a read-only review.
 
             **INLINE COMMENTS:** Where a concern is tied to a specific line of code, also leave
             an inline PR review comment on that line. Use inline comments for localized feedback
-            and the summary comment for overall assessment and cross-cutting concerns.
+            and the summary comment for overall assessment.
 
             Post exactly ONE summary comment using:
             gh pr comment ${PR_NUMBER} --body '## Design Review
 
-            ### Intent Validation
-            [Does this PR fulfill the intent of the issue/description?]
+            ### Blocking Issues
+            [List blocking concerns. Skip section if none.]
 
-            ### Concerns
-            [Potential issues, edge cases, trade-offs - be specific. Skip if none.]
-
-            ### Doc Updates Needed
-            [Describe doc consistency fixes needed with exact file paths and changes. Skip if none.]
+            ### Worth Considering
+            [One-sentence non-blocking observations. Skip section if none.]
 
             ### Conclusion
-            [Approved - Design is sound and fulfills intent |
-             Approved with reservations - Minor design concerns noted |
-             Needs revision - Significant design issues or intent mismatch]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/design-review-output.jsonl
+            [Approved | Approved with reservations | Needs revision — [reason]]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/design-review-output.jsonl
 
       - name: Upload design review output
         uses: actions/upload-artifact@v4
@@ -1177,9 +1151,152 @@ jobs:
           path: psych-review-output.jsonl
           retention-days: 7
 
+  # Documentation consistency reviewer - ensures docs remain coherent and non-contradictory
+  docs-review:
+    needs: [get-context, build-devcontainer]
+    if: |
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
+      needs.get-context.outputs.tests_passed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          MAX_ATTEMPTS=40
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+            if [ "$STATUS" = "success" ]; then
+              echo "All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+          echo "Skipping review - tests must pass first"
+          echo "verified=false" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+
+      - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
+
+      - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docs review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            PR_TITLE=${{ needs.get-context.outputs.pr_title }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 200 \
+              "You are a DOCUMENTATION CONSISTENCY reviewer for PR #${PR_NUMBER} in ${REPO}.
+
+            Your job is to ensure all docs in this project remain coherent, consistent, and
+            free of contradictions after this PR's changes. Don't list docs that don't need
+            changes. If no docs need updating, approve in one line and move on.
+
+            Do NOT push any changes. This is a read-only review. Describe needed fixes precisely
+            (file path, what to change, and why) so the merge-decision agent can apply them.
+
+            **YOUR TASK:**
+            1. Read the code changes: \`git diff origin/main...HEAD\`
+            2. Read ALL docs in docs/ and design/ to understand the current spec
+            3. Check for:
+               - **Contradictions**: Does any doc now contradict what the code actually does?
+               - **Stale references**: Do docs reference behaviors, flows, or components that
+                 this PR changed or removed?
+               - **Missing coverage**: Does this PR introduce new behavior not reflected in any doc?
+               - **Cross-doc consistency**: Do docs that reference each other still agree?
+                 (e.g., task-lifecycle.md states should match architecture.md data flow)
+               - **AGENTS.md / CLAUDE.md**: Do project instructions still accurately describe
+                 the system after this PR?
+
+            Key doc relationships to check:
+            - docs/architecture.md <-> docs/task-lifecycle.md (system design vs task states)
+            - docs/ai-prompts.md <-> docs/user-interactions.md (prompt behavior vs interaction patterns)
+            - docs/user-preferences.md <-> docs/reward-system.md (personalization vs rewards)
+            - AGENTS.md <-> docs/ (project instructions vs spec files)
+
+            **INLINE COMMENTS:** Where a doc issue is tied to a specific line, also leave
+            an inline PR review comment on that line.
+
+            Post exactly ONE summary comment using:
+            gh pr comment ${PR_NUMBER} --body '## Documentation Consistency Review
+
+            [If no docs need updating: \"Approved - All documentation remains consistent.\" and stop]
+
+            ### Updates Needed
+            [For each issue: file path, what to change, why. Be precise enough for another agent to apply the fix.]
+
+            ### Conclusion
+            [Approved | Updates needed (non-blocking) | Blocking contradictions found]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/docs-review-output.jsonl
+
+      - name: Upload docs review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docs-review-output
+          path: docs-review-output.jsonl
+          retention-days: 7
+
   # Final decision maker - synthesizes all reviews and makes go/no-go call
   merge-decision:
-    needs: [get-context, build-devcontainer, design-review, security-review, psych-review]
+    needs: [get-context, build-devcontainer, design-review, security-review, psych-review, docs-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -1268,6 +1385,7 @@ jobs:
             DESIGN_REVIEW_RESULT=${{ needs.design-review.result }}
             SECURITY_REVIEW_RESULT=${{ needs.security-review.result }}
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
+            DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
           runCmd: |
             # Using Sonnet: Summarization task - synthesizes existing review results
             claude --print \
@@ -1284,14 +1402,17 @@ jobs:
             - Design Review: ${DESIGN_REVIEW_RESULT}
             - Security & Infrastructure Review: ${SECURITY_REVIEW_RESULT}
             - Psych Research Review: ${PSYCH_REVIEW_RESULT}
+            - Documentation Consistency Review: ${DOCS_REVIEW_RESULT}
 
             **YOUR TASK:**
             1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
             2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
             3. If there are merge conflicts AND you believe the PR should be merged, resolve them
-            4. **Apply fixes from reviewers**: Check the Design Review comment for \"Doc Updates Needed\" and
-               the Security Review comment for \"Fixes Needed\". If either reviewer described specific fixes,
-               apply them now (edit the files, commit, and push). You are the ONLY agent with push access.
+            4. **Apply fixes from reviewers**: Check the review comments for fixes described by reviewers:
+               - Security Review: \"Fixes Needed\" section
+               - Documentation Consistency Review: \"Updates Needed\" section
+               If any reviewer described specific fixes, apply them now (edit the files, commit, and push).
+               You are the ONLY agent with push access.
             5. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
@@ -1359,7 +1480,7 @@ jobs:
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [get-context, build-devcontainer, fix-test-failures, design-review, security-review, psych-review, merge-decision]
+    needs: [get-context, build-devcontainer, fix-test-failures, design-review, security-review, psych-review, docs-review, merge-decision]
     if: always()
     permissions:
       statuses: write  # Required to create commit status on PR
@@ -1450,6 +1571,10 @@ jobs:
               echo "Psych Research Review: ${{ needs.psych-review.result }}"
               failed=true
             fi
+            if ! check_result "${{ needs.docs-review.result }}"; then
+              echo "Docs Review: ${{ needs.docs-review.result }}"
+              failed=true
+            fi
             if ! check_result "${{ needs.merge-decision.result }}"; then
               echo "Merge Decision: ${{ needs.merge-decision.result }}"
               failed=true
@@ -1493,6 +1618,7 @@ jobs:
           echo "  Design Review: ${{ needs.design-review.result }}"
           echo "  Security Review: ${{ needs.security-review.result }}"
           echo "  Psych Research Review: ${{ needs.psych-review.result }}"
+          echo "  Docs Review: ${{ needs.docs-review.result }}"
           echo "  Merge Decision Job: ${{ needs.merge-decision.result }}"
           echo "  Merge Decision Verdict: ${{ needs.merge-decision.outputs.decision }}"
 
