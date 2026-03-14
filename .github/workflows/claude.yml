@@ -427,7 +427,7 @@ jobs:
             BRANCH NAMING: Use \`claude/issue-${ISSUE_NUMBER}\` as the branch name.
 
             PR CREATION:
-            gh pr create --title 'Fix #${ISSUE_NUMBER}: <brief description>' \\
+            gh pr create --title '<brief description of what this PR accomplishes>' \\
               --assignee NickBorgers \\
               --body 'Resolves #${ISSUE_NUMBER}
 
