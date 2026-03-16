@@ -66,21 +66,21 @@ Our OpenClaw instance gets credentials for:
 
 ### Accepted boundary
 
-If prompt injection occurs, the entire OpenClaw host is considered compromised - and that's not one of our personal computers. The host does have limited access to our TailNet, but tagging is used to keep that limited to deliberate services which are themselves read-only. Another advantage of the GitHub oriented model is that the most valuable work of the system is outside the OpenClaw instance. We'll see if it happens, but it's possible we just nuke the VPS and build another - after we cleanup the Notion DB credentials and recover what we can.
+If prompt injection occurs, the entire OpenClaw host is considered compromised - and that's not one of our personal computers. The host does have limited access to our TailNet, but tagging is used to keep that limited to deliberate services which are themselves read-only. Another advantage of the GitHub oriented model is that the most valuable work of the system is outside the OpenClaw instance. We'll see if it happens, but it's possible we just nuke the VM and build another - after we cleanup the Notion DB credentials and recover what we can.
 
 ### Network isolation
 
-The VM runs on a [VPS](https://en.wikipedia.org/wiki/Virtual_private_server), not the home network, and certainly not a personal laptop; providing inherent system and network isolation.
+The VM is a KVM virtual machine on the home network, not a personal laptop or shared system. VLAN segmentation isolates it from the internal network — the router blocks access to internal IP ranges from the OpenClaw VLANs.
 
 The agent's conversational interface is reachable through OpenClaw's channels without Tailscale. Administrative interfaces (SSH, control UI) require Tailscale overlay network access with device posture checks.
 
-On the host, UFW defaults to deny-all in both directions. Inbound allows only SSH and WireGuard. Outbound allows DNS, NTP, WireGuard, and traffic to the overlay subnet. Outbound HTTP/HTTPS ports are not open — all web traffic goes through a forward proxy.
+On the host, UFW defaults to deny-all inbound with explicit allows for SSH and WireGuard only. Outbound is unrestricted at the host level — host-level services like Tailscale require unrestricted egress to function. OpenClaw runs in a Podman container; outbound HTTP/HTTPS from the container is routed through a forward proxy via the container's proxy environment variables.
 
 ### Forward proxy
 
 A Squid proxy enforces a domain allowlist. If the agent (or anything else on the host) tries to reach a domain that isn't explicitly allowed, the connection is denied. This provides mitigation against prompt injection because the agent will not go consuming arbitrary web content.
 
-**Caveat:** OpenClaw has code execution capability and could modify the local firewall or proxy rules. The on-host egress controls target prompt injection — only an injection success would attempt to remove them. It is assumed the the agent is not trying to break out BEFORE it has been injected by an adversary.
+**Caveat:** OpenClaw has code execution capability and could modify its container's proxy environment or attempt to reach destinations outside the proxy. The egress controls target prompt injection — only an injection success would attempt to remove them. It is assumed the agent is not trying to break out BEFORE it has been injected by an adversary.
 
 The proxy also blocks connections to private network ranges (RFC 1918, loopback, link-local, and the overlay subnet itself) to prevent DNS rebinding attacks. Caching is disabled, `forwarded_for` headers are stripped, and the version string is suppressed.
 
@@ -101,7 +101,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 |--------|-------------|------------|
 | Prompt injection via user message | Agent is [BC] for direct interaction — channels are authenticated/paired, only the owner can send messages | Low risk; owner is the only input source |
 | Prompt injection via GitHub content | Becomes [ABC] when processing GitHub content — PR/issue bodies from external contributors are an injection vector | Blast radius limited to Notion operations the token permits; proxy limits exfiltration destinations |
-| Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; firewall restricts egress to overlay subnet but could be turned off |
+| Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; VLAN segmentation blocks internal network access at the router level |
 | Malicious webhook payload | Webhook is [A]-only — data discarded, no credentials or external access | Connection limits and hard timeout |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked; devcontainer built only from main |
 | Credential exfiltration via prompt injection | The agent has credentials in its runtime context and could be prompted to reveal them | Proxy allowlist limits where credentials could be sent; admin surfaces behind Tailscale; model alignment is a speed bump, not a guarantee |
