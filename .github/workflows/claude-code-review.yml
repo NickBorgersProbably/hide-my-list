@@ -630,6 +630,7 @@ jobs:
       - name: Upload fix attempt output
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: fix-failures-output-attempt-${{ needs.get-context.outputs.fix_attempts }}
           path: fix-failures-output.jsonl
@@ -796,6 +797,7 @@ jobs:
       - name: Upload design review output
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: design-review-output
           path: design-review-output.jsonl
@@ -940,6 +942,7 @@ jobs:
       - name: Upload security review output
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: security-review-output
           path: security-review-output.jsonl
@@ -1149,6 +1152,7 @@ jobs:
       - name: Upload psych review output
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: psych-review-output
           path: psych-review-output.jsonl
@@ -1314,6 +1318,7 @@ jobs:
       - name: Upload docs review output
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: docs-review-output
           path: docs-review-output.jsonl
@@ -1463,6 +1468,7 @@ jobs:
       - name: Upload merge decision output
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: merge-decision-output
           path: merge-decision-output.jsonl

@@ -302,6 +302,7 @@ jobs:
       - name: Upload Claude conversation log
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: claude-conversation-log
           path: claude-conversation.jsonl
@@ -310,6 +311,7 @@ jobs:
       - name: Upload Claude session data
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: claude-session-data
           path: .claude-session/
@@ -447,6 +449,7 @@ jobs:
       - name: Upload issue resolution conversation log
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: resolve-issue-conversation-log
           path: resolve-issue-conversation.jsonl
@@ -455,6 +458,7 @@ jobs:
       - name: Upload Claude session data
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: resolve-issue-session-data
           path: .claude-session/

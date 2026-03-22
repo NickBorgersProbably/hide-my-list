@@ -204,6 +204,7 @@ jobs:
       - name: Upload evaluator output
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: coverage-evaluator-output
           path: coverage-evaluator-output.jsonl

@@ -277,6 +277,7 @@ jobs:
       - name: Upload diagnosis output
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: workflow-diagnosis-output
           path: diagnose-output.jsonl
