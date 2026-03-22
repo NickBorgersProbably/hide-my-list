@@ -93,7 +93,7 @@ jobs:
 
   # Build devcontainer for Claude
   build-devcontainer:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: check-failure
     if: needs.check-failure.outputs.should_diagnose == 'true'
     permissions:
@@ -123,7 +123,7 @@ jobs:
   diagnose-failure:
     needs: [check-failure, build-devcontainer]
     if: needs.check-failure.outputs.should_diagnose == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read
       issues: write

@@ -9,13 +9,15 @@
       "moby": "false"
     }
   },
+  "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\"",
   "postCreateCommand": "bash .githooks/install-hooks.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh",
   "mounts": [
-    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind",
-    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
-    "source=${localEnv:HOME}/.codex,target=/home/vscode/.codex,type=bind"
+    "source=${localEnv:HOME}/.config/gh,target=/tmp/gh-config,type=bind"
   ],
+  "remoteEnv": {
+    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -23,5 +25,6 @@
       ]
     }
   },
+  "updateRemoteUserUID": true,
   "remoteUser": "vscode"
 }
