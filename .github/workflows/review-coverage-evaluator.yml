@@ -49,7 +49,7 @@ jobs:
 
   # Build and cache devcontainer image (same pattern as other workflows)
   build-devcontainer:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: get-pr-context
     if: needs.get-pr-context.outputs.pr_number != ''
     permissions:
@@ -78,7 +78,7 @@ jobs:
   evaluate-coverage:
     needs: [get-pr-context, build-devcontainer]
     if: needs.get-pr-context.outputs.pr_number != ''
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read
       issues: write

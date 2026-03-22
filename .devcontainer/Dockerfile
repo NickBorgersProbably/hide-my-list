@@ -37,5 +37,4 @@ RUN npm install -g mermaid@11 jsdom@25 dompurify@3
 # Install yamllint for workflow validation
 RUN pip3 install --break-system-packages yamllint
 
-USER vscode
-WORKDIR /home/vscode
+USER root

@@ -6,6 +6,7 @@ name: PR Tests
 # Security model:
 # - READ-ONLY permissions (contents: read, pull-requests: read)
 # - No secrets exposed to PR builds
+# - Fork PRs are blocked from running on self-hosted runners
 # - External PRs get tests but NOT Claude reviews (handled by claude-code-review.yml)
 
 on:
@@ -28,10 +29,14 @@ permissions:
   contents: read
   pull-requests: read
 
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+
 jobs:
   changes:
     name: Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     outputs:
       scripts: ${{ steps.filter.outputs.scripts }}
       docs: ${{ steps.filter.outputs.docs }}
@@ -57,117 +62,176 @@ jobs:
             workflows:
               - '.github/workflows/**'
 
+  # Build devcontainer from main branch for security
+  build-devcontainer:
+    runs-on: [self-hosted, homelab]
+    needs: changes
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # SECURITY: Checkout main branch, NOT the PR branch
+      - name: Checkout main branch (security measure)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push devcontainer
+        uses: devcontainers/ci@v0.3
+        continue-on-error: true
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
+
   script-validation:
     name: Script Validation
-    needs: changes
-    if: needs.changes.outputs.scripts == 'true'
-    runs-on: ubuntu-latest
+    needs: [changes, build-devcontainer]
+    if: >-
+      needs.changes.outputs.scripts == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install shellcheck
-        run: sudo apt-get install -y shellcheck
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Lint shell scripts
-        run: |
-          find scripts/ -name '*.sh' -exec shellcheck {} +
+      - name: Run script validation in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          runCmd: |
+            echo "=== Linting shell scripts ==="
+            find scripts/ -name '*.sh' -exec shellcheck {} +
 
-      - name: Check script permissions
-        run: |
-          find scripts/ -name '*.sh' | while read f; do
-            if [ ! -x "$f" ]; then
-              echo "ERROR: $f is not executable"
-              exit 1
-            fi
-          done
-          echo "All scripts have execute permission"
+            echo "=== Checking script permissions ==="
+            find scripts/ -name '*.sh' | while read f; do
+              if [ ! -x "$f" ]; then
+                echo "ERROR: $f is not executable"
+                exit 1
+              fi
+            done
+            echo "All scripts have execute permission"
 
   doc-validation:
     name: Documentation Validation
-    needs: changes
-    if: needs.changes.outputs.docs == 'true'
-    runs-on: ubuntu-latest
+    needs: [changes, build-devcontainer]
+    if: >-
+      needs.changes.outputs.docs == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check for broken internal links
-        run: |
-          ERRORS=0
-          # Check markdown files for internal links and verify targets exist
-          find docs/ design/ -name '*.md' | while read f; do
-            # Extract relative links like [text](./file.md) or [text](../docs/file.md)
-            grep -oP '\[.*?\]\(\K[^)]+' "$f" 2>/dev/null | grep -v '^http' | while read link; do
-              # Resolve relative to the file's directory
-              dir=$(dirname "$f")
-              target="$dir/$link"
-              # Strip anchors
-              target=$(echo "$target" | cut -d'#' -f1)
-              if [ -n "$target" ] && [ ! -e "$target" ]; then
-                echo "BROKEN LINK in $f: $link (resolved to $target)"
-                ERRORS=$((ERRORS + 1))
-              fi
-            done
-          done
-          if [ "$ERRORS" -gt 0 ]; then
-            echo "$ERRORS broken links found"
-            exit 1
-          fi
-          echo "No broken internal links found"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          node-version: '20'
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Mermaid validation dependencies
-        run: npm install -g mermaid@11 jsdom@25 dompurify@3
+      - name: Run doc validation in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CHANGED_FILES=${{ needs.changes.outputs.docs_files }}
+          runCmd: |
+            echo "=== Checking for broken internal links ==="
+            ERRORS=0
+            # Check markdown files for internal links and verify targets exist
+            find docs/ design/ -name '*.md' | while read f; do
+              # Extract relative links like [text](./file.md) or [text](../docs/file.md)
+              grep -oP '\[.*?\]\(\K[^)]+' "$f" 2>/dev/null | grep -v '^http' | while read link; do
+                # Resolve relative to the file's directory
+                dir=$(dirname "$f")
+                target="$dir/$link"
+                # Strip anchors
+                target=$(echo "$target" | cut -d'#' -f1)
+                if [ -n "$target" ] && [ ! -e "$target" ]; then
+                  echo "BROKEN LINK in $f: $link (resolved to $target)"
+                  ERRORS=$((ERRORS + 1))
+                fi
+              done
+            done
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "$ERRORS broken links found"
+              exit 1
+            fi
+            echo "No broken internal links found"
 
-      - name: Lint Mermaid diagrams for rendering issues
-        run: |
-          CHANGED_FILES="${{ needs.changes.outputs.docs_files }}"
-          if [ -n "$CHANGED_FILES" ]; then
-            # shellcheck disable=SC2086
-            ./scripts/lint-mermaid-rendering.sh $CHANGED_FILES
-          else
-            echo "No changed doc files to lint"
-          fi
+            echo "=== Linting Mermaid diagrams ==="
+            if [ -n "$CHANGED_FILES" ]; then
+              # shellcheck disable=SC2086
+              ./scripts/lint-mermaid-rendering.sh $CHANGED_FILES
+            else
+              echo "No changed doc files to lint"
+            fi
 
-      - name: Validate Mermaid diagrams in changed files
-        run: |
-          # Only validate Mermaid diagrams in files changed by this PR
-          CHANGED_FILES="${{ needs.changes.outputs.docs_files }}"
-          if [ -n "$CHANGED_FILES" ]; then
-            # shellcheck disable=SC2086
-            ./scripts/validate-mermaid.sh $CHANGED_FILES
-          else
-            echo "No changed doc files to validate"
-          fi
+            echo "=== Validating Mermaid diagrams ==="
+            if [ -n "$CHANGED_FILES" ]; then
+              # shellcheck disable=SC2086
+              ./scripts/validate-mermaid.sh $CHANGED_FILES
+            else
+              echo "No changed doc files to validate"
+            fi
 
   workflow-validation:
     name: Workflow YAML Validation
-    needs: changes
-    if: needs.changes.outputs.workflows == 'true'
-    runs-on: ubuntu-latest
+    needs: [changes, build-devcontainer]
+    if: >-
+      needs.changes.outputs.workflows == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, homelab]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Validate workflow YAML syntax
-        run: |
-          pip install yamllint
-          yamllint -d "{extends: default, rules: {line-length: disable, truthy: disable, comments-indentation: disable}}" \
-            .github/workflows/*.yml
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run workflow validation in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          runCmd: |
+            yamllint -d "{extends: default, rules: {line-length: disable, truthy: disable, comments-indentation: disable}}" \
+              .github/workflows/*.yml
 
   all-tests-passed:
     name: All Required Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: [changes, script-validation, doc-validation, workflow-validation]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
       - name: Check test results

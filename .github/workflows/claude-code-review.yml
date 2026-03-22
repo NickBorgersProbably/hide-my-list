@@ -331,7 +331,7 @@ jobs:
   # SECURITY: Always build from main branch, NEVER from PR branches
   # This prevents malicious Dockerfile modifications from being used to build the container
   build-devcontainer:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: get-context
     if: |
       needs.get-context.outputs.pr_number != '' &&
@@ -381,7 +381,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'false' &&
       needs.get-context.outputs.fix_attempts < 3
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: write
       pull-requests: write
@@ -645,7 +645,7 @@ jobs:
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read
       pull-requests: write
@@ -811,7 +811,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.docs_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read
       pull-requests: write
@@ -955,7 +955,7 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.config_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read
       pull-requests: write
@@ -1163,7 +1163,7 @@ jobs:
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     permissions:
       contents: read
       pull-requests: write
@@ -1329,7 +1329,7 @@ jobs:
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     outputs:
       decision: ${{ steps.parse-decision.outputs.decision }}
     permissions:
@@ -1504,7 +1504,7 @@ jobs:
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
     name: All Required Agent Reviews
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     needs: [get-context, build-devcontainer, fix-test-failures, design-review, security-review, psych-review, docs-review, merge-decision]
     if: always()
     permissions:

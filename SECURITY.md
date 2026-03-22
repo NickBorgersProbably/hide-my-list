@@ -41,9 +41,10 @@ The reminder daemon ([`scripts/reminder-daemon.sh`](scripts/reminder-daemon.sh) 
 PR review agents process untrusted code **[A]** and write PR comments **[C]**, but have no access to infrastructure secrets or Notion credentials **[B]**. Workflows use only repo-scoped GitHub token permissions (contents/pull-requests/issues write for posting reviews); no infrastructure secrets or Notion credentials are available. This is a safe [AC] configuration — even if a malicious PR manipulated a review agent, there's no sensitive data to exfiltrate.
 
 Additional CI/CD controls:
-- Fork PRs are blocked from triggering Claude Code reviews (author must be a collaborator/member/owner)
+- Fork PRs are blocked from triggering workflows on self-hosted runners (all workflows check `github.event.pull_request.head.repo.full_name == github.repository`; Claude Code reviews additionally require the author to be a collaborator/member/owner)
 - The devcontainer image is built only from the main branch, never from PR branches
-- Review agents run on standard GitHub Actions runners with no infrastructure credentials
+- Review agents run on self-hosted homelab runners with no infrastructure credentials; runners are isolated by the same VLAN segmentation and proxy controls as the main agent host
+- Security gate jobs (`authorize`, `get-context`, `check-failure`, `get-pr-context`) remain on `ubuntu-latest` to process untrusted input before dispatching to self-hosted runners
 
 ### Prompt injection risk
 
@@ -103,7 +104,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 | Prompt injection via GitHub content | Becomes [ABC] when processing GitHub content — PR/issue bodies from external contributors are an injection vector | Blast radius limited to Notion operations the token permits; proxy limits exfiltration destinations |
 | Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; VLAN segmentation blocks internal network access at the router level |
 | Malicious webhook payload | Webhook is [A]-only — data discarded, no credentials or external access | Connection limits and hard timeout |
-| Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked; devcontainer built only from main |
+| Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked from all self-hosted runner workflows; devcontainer built only from main; self-hosted runners isolated by VLAN segmentation |
 | Credential exfiltration via prompt injection | The agent has credentials in its runtime context and could be prompted to reveal them | Proxy allowlist limits where credentials could be sent; admin surfaces behind Tailscale; model alignment is a speed bump, not a guarantee |
 | Unauthorized admin access | Admin interfaces require Tailscale authentication and at least OpenClaw pairing for authentication | Firewall allows only WireGuard inbound |
 
