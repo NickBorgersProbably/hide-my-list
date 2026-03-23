@@ -37,4 +37,11 @@ RUN npm install -g mermaid@11 jsdom@25 dompurify@3
 # Install yamllint for workflow validation
 RUN pip3 install --break-system-packages yamllint
 
+# Pre-configure Claude Code for headless CI use
+# Without hasCompletedOnboarding, Claude enters onboarding wizard in --print mode
+# (see https://github.com/anthropics/claude-code/issues/8938)
+RUN mkdir -p /home/vscode/.claude/tmp \
+    && echo '{"hasCompletedOnboarding": true}' > /home/vscode/.claude.json \
+    && chown -R vscode:vscode /home/vscode/.claude /home/vscode/.claude.json
+
 USER root

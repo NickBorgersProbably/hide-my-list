@@ -15,9 +15,7 @@
   "mounts": [
     "source=${localEnv:HOME}/.config/gh,target=/tmp/gh-config,type=bind"
   ],
-  "remoteEnv": {
-    "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:CLAUDE_CODE_OAUTH_TOKEN}"
-  },
+  "remoteEnv": {},
   "customizations": {
     "vscode": {
       "extensions": [
