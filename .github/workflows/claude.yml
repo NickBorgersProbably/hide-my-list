@@ -207,6 +207,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify Claude auth secret exists
+        env:
+          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "CLAUDE_CODE_OAUTH_TOKEN is set on runner (length: ${#TOKEN}, first4: ${TOKEN:0:4}...)"
+          else
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN is NOT set on the runner. Add it at Settings > Secrets > Actions."
+            exit 1
+          fi
+
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Claude in devcontainer
         uses: devcontainers/ci@v0.3
