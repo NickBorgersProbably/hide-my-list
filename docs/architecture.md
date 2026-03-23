@@ -73,6 +73,7 @@ flowchart LR
         RecapVid[generate-weekly-recap.sh<br/>Weekly Recap Video]
         ReminderDaemon[reminder-daemon.sh<br/>Reminder Loop]
         ReminderCheck[check-reminders.sh<br/>Due Reminder Query]
+        HealthCheck[reminder-health-check.sh<br/>Daemon Monitor]
         WebhookSig[webhook-signal.sh<br/>CI Notifications]
         SecUpdate[security-update.sh<br/>Package Patching]
     end
@@ -290,6 +291,10 @@ If any check fails, the script exits non-zero with diagnostic output. With `--re
 | `WEBHOOK_PORT` | CI notification webhook port (default: 9199) |
 | `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
 | `REMINDER_POLL_INTERVAL` | Reminder daemon polling interval in seconds (default: 300) |
+| `REMINDER_LOG_FILE` | Reminder daemon log output location (default: `/tmp/reminder-daemon.log`) |
+| `REMINDER_PID_FILE` | Reminder daemon PID file to prevent duplicate instances (default: `/tmp/reminder-daemon.pid`) |
+| `REMINDER_HEARTBEAT_FILE` | Heartbeat timestamp file for staleness detection (default: `/tmp/reminder-daemon.heartbeat`) |
+| `REMINDER_STALE_SECONDS` | Max heartbeat age before health check treats daemon as dead (default: `900`) |
 
 ## Prerequisites
 

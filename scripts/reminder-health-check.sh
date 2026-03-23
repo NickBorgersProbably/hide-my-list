@@ -103,7 +103,8 @@ if [[ "$DO_RESTART" == true ]]; then
     echo "Attempting restart..." >&2
     # Clean up stale files before restarting
     rm -f "$PID_FILE" "$HEARTBEAT_FILE"
-    exec "$SCRIPT_DIR/reminder-daemon.sh"
+    "$SCRIPT_DIR/reminder-daemon.sh" &
+    exit 0
 fi
 
 exit 1
