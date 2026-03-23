@@ -207,16 +207,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify Claude auth secret exists
+      - name: Write Claude auth token to mounted path
         env:
           TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          if [ -n "$TOKEN" ]; then
-            echo "CLAUDE_CODE_OAUTH_TOKEN is set on runner (length: ${#TOKEN}, first4: ${TOKEN:0:4}...)"
-          else
-            echo "::error::CLAUDE_CODE_OAUTH_TOKEN is NOT set on the runner. Add it at Settings > Secrets > Actions."
+          # devcontainers/ci env parameter silently drops CLAUDE_CODE_OAUTH_TOKEN
+          # (possibly due to special chars in the value breaking --remote-env parsing).
+          # Work around by writing to a file in the gh-config mount that the
+          # devcontainer.json already binds to /tmp/gh-config.
+          if [ -z "$TOKEN" ]; then
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN secret is not set."
             exit 1
           fi
+          echo -n "$TOKEN" > ~/.config/gh/.claude-token
+          echo "Token written (length: ${#TOKEN})"
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Claude in devcontainer
@@ -226,7 +230,6 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
@@ -235,21 +238,19 @@ jobs:
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
-            # Debug: verify environment variables are propagated into devcontainer
-            echo "=== ENV DEBUG ==="
-            echo "CLAUDE_CODE_OAUTH_TOKEN is set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo 'YES (length: '${#CLAUDE_CODE_OAUTH_TOKEN}')' || echo 'NO')"
-            echo "GH_TOKEN is set: $([ -n "$GH_TOKEN" ] && echo 'YES' || echo 'NO')"
-            echo "CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR"
-            echo "HOME=$HOME"
-            echo "USER=$(whoami)"
-            echo "Claude Code version: $(claude --version 2>&1 || echo 'not found')"
-            echo "Claude .claude.json exists: $([ -f ~/.claude.json ] && cat ~/.claude.json || echo 'NO')"
-            echo "=== END ENV DEBUG ==="
-
-            # Fail fast if auth token is missing
-            if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-              echo "ERROR: CLAUDE_CODE_OAUTH_TOKEN is empty. Check that the secret is configured and devcontainers/ci is passing env vars."
+            # Read auth token from mounted file (bypasses devcontainers/ci env parsing bug)
+            if [ -f /tmp/gh-config/.claude-token ]; then
+              export ANTHROPIC_API_KEY="$(cat /tmp/gh-config/.claude-token)"
+              echo "Auth token loaded from mount (length: ${#ANTHROPIC_API_KEY})"
+            else
+              echo "ERROR: /tmp/gh-config/.claude-token not found"
               exit 1
+            fi
+
+            # Ensure Claude onboarding is complete
+            if [ ! -f ~/.claude.json ]; then
+              echo '{"hasCompletedOnboarding": true}' > ~/.claude.json
+              echo "Created ~/.claude.json"
             fi
 
             # Run Claude Code inside the devcontainer with full tool access
@@ -400,6 +401,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Write Claude auth token to mounted path
+        if: steps.check-existing.outputs.skip != 'true'
+        env:
+          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN secret is not set."
+            exit 1
+          fi
+          echo -n "$TOKEN" > ~/.config/gh/.claude-token
+          echo "Token written (length: ${#TOKEN})"
+
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Resolve issue in devcontainer
         if: steps.check-existing.outputs.skip != 'true'
@@ -409,24 +422,23 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
             CLAUDE_CONFIG_DIR=/tmp/.claude-session
           runCmd: |
-            # Debug: verify environment variables are propagated into devcontainer
-            echo "=== ENV DEBUG (resolve-issue) ==="
-            echo "CLAUDE_CODE_OAUTH_TOKEN is set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo 'YES (length: '${#CLAUDE_CODE_OAUTH_TOKEN}')' || echo 'NO')"
-            echo "GH_TOKEN is set: $([ -n "$GH_TOKEN" ] && echo 'YES' || echo 'NO')"
-            echo "HOME=$HOME"
-            echo "USER=$(whoami)"
-            echo "=== END ENV DEBUG ==="
-
-            if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-              echo "ERROR: CLAUDE_CODE_OAUTH_TOKEN is empty."
+            # Read auth token from mounted file (bypasses devcontainers/ci env parsing bug)
+            if [ -f /tmp/gh-config/.claude-token ]; then
+              export ANTHROPIC_API_KEY="$(cat /tmp/gh-config/.claude-token)"
+              echo "Auth token loaded from mount (length: ${#ANTHROPIC_API_KEY})"
+            else
+              echo "ERROR: /tmp/gh-config/.claude-token not found"
               exit 1
+            fi
+
+            if [ ! -f ~/.claude.json ]; then
+              echo '{"hasCompletedOnboarding": true}' > ~/.claude.json
             fi
 
             # Use < /dev/null to prevent hanging on TTY input
