@@ -207,21 +207,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Write Claude auth token to mounted path
-        env:
-          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          # devcontainers/ci env parameter silently drops CLAUDE_CODE_OAUTH_TOKEN
-          # (possibly due to special chars in the value breaking --remote-env parsing).
-          # Work around by writing to a file in the gh-config mount that the
-          # devcontainer.json already binds to /tmp/gh-config.
-          if [ -z "$TOKEN" ]; then
-            echo "::error::CLAUDE_CODE_OAUTH_TOKEN secret is not set."
-            exit 1
-          fi
-          echo -n "$TOKEN" > ~/.config/gh/.claude-token
-          echo "Token written (length: ${#TOKEN})"
-
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Claude in devcontainer
         uses: devcontainers/ci@v0.3
@@ -230,6 +215,7 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
+            ANTHROPIC_API_KEY=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
@@ -238,12 +224,12 @@ jobs:
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
-            # Read auth token from mounted file (bypasses devcontainers/ci env parsing bug)
-            if [ -f /tmp/gh-config/.claude-token ]; then
-              export ANTHROPIC_API_KEY="$(cat /tmp/gh-config/.claude-token)"
-              echo "Auth token loaded from mount (length: ${#ANTHROPIC_API_KEY})"
-            else
-              echo "ERROR: /tmp/gh-config/.claude-token not found"
+            # Debug: verify auth token propagation
+            echo "ANTHROPIC_API_KEY is set: $([ -n "$ANTHROPIC_API_KEY" ] && echo 'YES (length: '${#ANTHROPIC_API_KEY}')' || echo 'NO')"
+
+            # Fail fast if auth token is missing
+            if [ -z "$ANTHROPIC_API_KEY" ]; then
+              echo "ERROR: ANTHROPIC_API_KEY is empty inside container."
               exit 1
             fi
 
@@ -401,18 +387,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Write Claude auth token to mounted path
-        if: steps.check-existing.outputs.skip != 'true'
-        env:
-          TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::error::CLAUDE_CODE_OAUTH_TOKEN secret is not set."
-            exit 1
-          fi
-          echo -n "$TOKEN" > ~/.config/gh/.claude-token
-          echo "Token written (length: ${#TOKEN})"
-
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Resolve issue in devcontainer
         if: steps.check-existing.outputs.skip != 'true'
@@ -422,18 +396,16 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
+            ANTHROPIC_API_KEY=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
             CLAUDE_CONFIG_DIR=/tmp/.claude-session
           runCmd: |
-            # Read auth token from mounted file (bypasses devcontainers/ci env parsing bug)
-            if [ -f /tmp/gh-config/.claude-token ]; then
-              export ANTHROPIC_API_KEY="$(cat /tmp/gh-config/.claude-token)"
-              echo "Auth token loaded from mount (length: ${#ANTHROPIC_API_KEY})"
-            else
-              echo "ERROR: /tmp/gh-config/.claude-token not found"
+            echo "ANTHROPIC_API_KEY is set: $([ -n "$ANTHROPIC_API_KEY" ] && echo 'YES (length: '${#ANTHROPIC_API_KEY}')' || echo 'NO')"
+            if [ -z "$ANTHROPIC_API_KEY" ]; then
+              echo "ERROR: ANTHROPIC_API_KEY is empty inside container."
               exit 1
             fi
 
