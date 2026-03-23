@@ -505,7 +505,7 @@ jobs:
 
             The tests failed in the PR Tests workflow (run ID: ${RUN_ID}). Your task:
             1. Check the workflow run logs: gh run view ${RUN_ID} --log-failed
-            2. Identify the root cause of failures (failing tests, clippy warnings, fmt issues, etc.)
+            2. Identify the root cause of failures (failing tests, lint warnings, validation issues, etc.)
             3. Fix the issues in the code
             4. Run \`shellcheck scripts/*.sh\` and \`yamllint .github/workflows/*.yml\` to verify your fix works
             5. Commit and push your fixes

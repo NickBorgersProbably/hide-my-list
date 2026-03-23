@@ -213,9 +213,9 @@ jobs:
             - Runner environment issues
 
             NOT ACTIONS_FAILURE (do NOT create an issue):
-            - Rust test failures (cargo test)
-            - Code compilation errors (cargo build failures)
-            - Style/lint check failures (cargo clippy, cargo fmt)
+            - Script lint failures (shellcheck)
+            - YAML validation failures (yamllint)
+            - Documentation validation failures
             - Coverage below threshold
             - Application Dockerfile build failures
             - GitHub Pages build failures (Jekyll/Ruby errors)
