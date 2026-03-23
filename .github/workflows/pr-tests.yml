@@ -15,9 +15,6 @@ on:
       - main
       - master
       - '**'
-  push:
-    branches:
-      - 'claude/**'
   workflow_dispatch:
     inputs:
       ref:
