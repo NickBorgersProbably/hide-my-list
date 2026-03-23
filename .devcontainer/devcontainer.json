@@ -11,7 +11,7 @@
   },
   "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\"",
   "postCreateCommand": "bash .githooks/install-hooks.sh",
-  "postStartCommand": "bash .devcontainer/fix-dns-order.sh",
+  "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
   "mounts": [
     "source=${localEnv:HOME}/.config/gh,target=/tmp/gh-config,type=bind"
   ],

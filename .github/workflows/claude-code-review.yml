@@ -523,7 +523,7 @@ jobs:
 
             [Describe what you found and fixed]
 
-            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/fix-failures-output.jsonl
+            Pushed fix - triggering new test run.'" < /dev/null 2>&1 | tee /tmp/fix-failures-output.jsonl
 
       - name: Trigger PR Tests and reviews after fix
         if: success()
@@ -633,7 +633,7 @@ jobs:
         continue-on-error: true
         with:
           name: fix-failures-output-attempt-${{ needs.get-context.outputs.fix_attempts }}
-          path: fix-failures-output.jsonl
+          path: /tmp/fix-failures-output.jsonl
           retention-days: 7
 
   # Design review specialist - validates PR implements issue intent and reviews design quality
@@ -792,7 +792,7 @@ jobs:
             [One-sentence non-blocking observations. Skip section if none.]
 
             ### Conclusion
-            [Approved | Approved with reservations | Needs revision — [reason]]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/design-review-output.jsonl
+            [Approved | Approved with reservations | Needs revision — [reason]]'" < /dev/null 2>&1 | tee /tmp/design-review-output.jsonl
 
       - name: Upload design review output
         uses: actions/upload-artifact@v4
@@ -800,7 +800,7 @@ jobs:
         continue-on-error: true
         with:
           name: design-review-output
-          path: design-review-output.jsonl
+          path: /tmp/design-review-output.jsonl
           retention-days: 7
 
   # Security and infrastructure specialist - runs in parallel with design and psych
@@ -937,7 +937,7 @@ jobs:
             [Describe fixes precisely with file paths, line numbers, and exact changes. Skip section if none.]
 
             ### Conclusion
-            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/security-review-output.jsonl
+            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /tmp/security-review-output.jsonl
 
       - name: Upload security review output
         uses: actions/upload-artifact@v4
@@ -945,7 +945,7 @@ jobs:
         continue-on-error: true
         with:
           name: security-review-output
-          path: security-review-output.jsonl
+          path: /tmp/security-review-output.jsonl
           retention-days: 7
 
   # Psychological research evidence reviewer - validates features against ADHD research literature
@@ -1147,7 +1147,7 @@ jobs:
             [Only list actionable concerns, organized by research domain. Cite specific frameworks. Skip domains with no issues.]
 
             ### Conclusion
-            [Approved | Approved with suggestions | Blocking concerns found]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/psych-review-output.jsonl
+            [Approved | Approved with suggestions | Blocking concerns found]'" < /dev/null 2>&1 | tee /tmp/psych-review-output.jsonl
 
       - name: Upload psych review output
         uses: actions/upload-artifact@v4
@@ -1155,7 +1155,7 @@ jobs:
         continue-on-error: true
         with:
           name: psych-review-output
-          path: psych-review-output.jsonl
+          path: /tmp/psych-review-output.jsonl
           retention-days: 7
 
   # Documentation consistency reviewer - ensures docs remain coherent and non-contradictory
@@ -1313,7 +1313,7 @@ jobs:
             [For each issue: file path, what to change, why. Be precise enough for another agent to apply the fix.]
 
             ### Conclusion
-            [Approved | Updates needed (non-blocking) | Blocking contradictions found]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/docs-review-output.jsonl
+            [Approved | Updates needed (non-blocking) | Blocking contradictions found]'" < /dev/null 2>&1 | tee /tmp/docs-review-output.jsonl
 
       - name: Upload docs review output
         uses: actions/upload-artifact@v4
@@ -1321,7 +1321,7 @@ jobs:
         continue-on-error: true
         with:
           name: docs-review-output
-          path: docs-review-output.jsonl
+          path: /tmp/docs-review-output.jsonl
           retention-days: 7
 
   # Final decision maker - synthesizes all reviews and makes go/no-go call
@@ -1463,7 +1463,7 @@ jobs:
             [If GO: \"Ready for merge to main and production deployment.\"]
             [If NO-GO: List specific blockers that must be resolved.]
 
-            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/merge-decision-output.jsonl
+            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
 
       - name: Upload merge decision output
         uses: actions/upload-artifact@v4
@@ -1471,7 +1471,7 @@ jobs:
         continue-on-error: true
         with:
           name: merge-decision-output
-          path: merge-decision-output.jsonl
+          path: /tmp/merge-decision-output.jsonl
           retention-days: 7
 
       - name: Parse merge decision from PR comments

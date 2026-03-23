@@ -220,7 +220,7 @@ jobs:
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
-            CLAUDE_CONFIG_DIR=/workspaces/hide-my-list/.claude-session
+            CLAUDE_CONFIG_DIR=/tmp/.claude-session
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
@@ -297,7 +297,7 @@ jobs:
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 400 \
-              "$PROMPT" < /dev/null 2>&1 | tee /workspaces/hide-my-list/claude-conversation.jsonl
+              "$PROMPT" < /dev/null 2>&1 | tee /tmp/claude-conversation.jsonl
 
       - name: Upload Claude conversation log
         uses: actions/upload-artifact@v4
@@ -305,7 +305,7 @@ jobs:
         continue-on-error: true
         with:
           name: claude-conversation-log
-          path: claude-conversation.jsonl
+          path: /tmp/claude-conversation.jsonl
           retention-days: 7
 
       - name: Upload Claude session data
@@ -314,7 +314,7 @@ jobs:
         continue-on-error: true
         with:
           name: claude-session-data
-          path: .claude-session/
+          path: /tmp/.claude-session/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -390,7 +390,7 @@ jobs:
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
-            CLAUDE_CONFIG_DIR=/workspaces/hide-my-list/.claude-session
+            CLAUDE_CONFIG_DIR=/tmp/.claude-session
           runCmd: |
             # Use < /dev/null to prevent hanging on TTY input
             # Use tee to capture output for artifact upload
@@ -444,7 +444,7 @@ jobs:
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:
-            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null 2>&1 | tee /workspaces/hide-my-list/resolve-issue-conversation.jsonl
+            gh issue comment ${ISSUE_NUMBER} --body 'YOUR_EXPLANATION'" < /dev/null 2>&1 | tee /tmp/resolve-issue-conversation.jsonl
 
       - name: Upload issue resolution conversation log
         uses: actions/upload-artifact@v4
@@ -452,7 +452,7 @@ jobs:
         continue-on-error: true
         with:
           name: resolve-issue-conversation-log
-          path: resolve-issue-conversation.jsonl
+          path: /tmp/resolve-issue-conversation.jsonl
           retention-days: 7
 
       - name: Upload Claude session data
@@ -461,6 +461,6 @@ jobs:
         continue-on-error: true
         with:
           name: resolve-issue-session-data
-          path: .claude-session/
+          path: /tmp/.claude-session/
           retention-days: 7
           if-no-files-found: ignore

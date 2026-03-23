@@ -199,7 +199,7 @@ jobs:
             )\"
 
             Remember: When in doubt, do NOT create an issue. False positives erode trust
-            in the pipeline evaluation system." < /dev/null 2>&1 | tee /workspaces/hide-my-list/coverage-evaluator-output.jsonl
+            in the pipeline evaluation system." < /dev/null 2>&1 | tee /tmp/coverage-evaluator-output.jsonl
 
       - name: Upload evaluator output
         uses: actions/upload-artifact@v4
@@ -207,5 +207,5 @@ jobs:
         continue-on-error: true
         with:
           name: coverage-evaluator-output
-          path: coverage-evaluator-output.jsonl
+          path: /tmp/coverage-evaluator-output.jsonl
           retention-days: 7
