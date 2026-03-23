@@ -655,64 +655,21 @@ jobs:
       packages: read
 
     steps:
-      - name: Verify tests passed on current commit
-        id: verify-tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Get the current HEAD SHA of the PR
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
-          echo "Checking test status for commit $HEAD_SHA"
-
-          # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=40
-          ATTEMPT=1
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
-
-            if [ "$STATUS" = "success" ]; then
-              echo "All Required Tests passed on current commit"
-              echo "verified=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
-              sleep 10
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-
-          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
-          echo "Skipping review - tests must pass first"
-          echo "verified=false" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR branch
-        if: steps.verify-tests.outputs.verified == 'true'
+      - name: Checkout for composite action
         uses: actions/checkout@v4
+
+      - name: Reviewer setup
+        id: setup
+        uses: ./.github/actions/reviewer-setup
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-
-      - name: Pull latest changes
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
-
-      - name: Create directories for devcontainer mounts
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
-
-      - name: Log in to GHCR
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ needs.get-context.outputs.pr_number }}
+          head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_repo: ${{ needs.get-context.outputs.head_repo }}
+          github_token: ${{ github.token }}
+          repository: ${{ github.repository }}
 
       - name: Design review in devcontainer
-        if: steps.verify-tests.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -822,64 +779,21 @@ jobs:
       packages: read
 
     steps:
-      - name: Verify tests passed on current commit
-        id: verify-tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Get the current HEAD SHA of the PR
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
-          echo "Checking test status for commit $HEAD_SHA"
-
-          # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=40
-          ATTEMPT=1
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
-
-            if [ "$STATUS" = "success" ]; then
-              echo "All Required Tests passed on current commit"
-              echo "verified=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
-              sleep 10
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-
-          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
-          echo "Skipping review - tests must pass first"
-          echo "verified=false" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR branch
-        if: steps.verify-tests.outputs.verified == 'true'
+      - name: Checkout for composite action
         uses: actions/checkout@v4
+
+      - name: Reviewer setup
+        id: setup
+        uses: ./.github/actions/reviewer-setup
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-
-      - name: Pull latest changes
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
-
-      - name: Create directories for devcontainer mounts
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
-
-      - name: Log in to GHCR
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ needs.get-context.outputs.pr_number }}
+          head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_repo: ${{ needs.get-context.outputs.head_repo }}
+          github_token: ${{ github.token }}
+          repository: ${{ github.repository }}
 
       - name: Security review in devcontainer
-        if: steps.verify-tests.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -967,64 +881,21 @@ jobs:
       packages: read
 
     steps:
-      - name: Verify tests passed on current commit
-        id: verify-tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Get the current HEAD SHA of the PR
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
-          echo "Checking test status for commit $HEAD_SHA"
-
-          # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=40
-          ATTEMPT=1
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
-
-            if [ "$STATUS" = "success" ]; then
-              echo "All Required Tests passed on current commit"
-              echo "verified=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
-              sleep 10
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-
-          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
-          echo "Skipping review - tests must pass first"
-          echo "verified=false" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR branch
-        if: steps.verify-tests.outputs.verified == 'true'
+      - name: Checkout for composite action
         uses: actions/checkout@v4
+
+      - name: Reviewer setup
+        id: setup
+        uses: ./.github/actions/reviewer-setup
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-
-      - name: Pull latest changes
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
-
-      - name: Create directories for devcontainer mounts
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
-
-      - name: Log in to GHCR
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ needs.get-context.outputs.pr_number }}
+          head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_repo: ${{ needs.get-context.outputs.head_repo }}
+          github_token: ${{ github.token }}
+          repository: ${{ github.repository }}
 
       - name: Psych research review in devcontainer
-        if: steps.verify-tests.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1176,62 +1047,21 @@ jobs:
       packages: read
 
     steps:
-      - name: Verify tests passed on current commit
-        id: verify-tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
-          echo "Checking test status for commit $HEAD_SHA"
-
-          MAX_ATTEMPTS=40
-          ATTEMPT=1
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
-
-            if [ "$STATUS" = "success" ]; then
-              echo "All Required Tests passed on current commit"
-              echo "verified=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
-              sleep 10
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-
-          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
-          echo "Skipping review - tests must pass first"
-          echo "verified=false" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR branch
-        if: steps.verify-tests.outputs.verified == 'true'
+      - name: Checkout for composite action
         uses: actions/checkout@v4
+
+      - name: Reviewer setup
+        id: setup
+        uses: ./.github/actions/reviewer-setup
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-
-      - name: Pull latest changes
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
-
-      - name: Create directories for devcontainer mounts
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
-
-      - name: Log in to GHCR
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ needs.get-context.outputs.pr_number }}
+          head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_repo: ${{ needs.get-context.outputs.head_repo }}
+          github_token: ${{ github.token }}
+          repository: ${{ github.repository }}
 
       - name: Docs review in devcontainer
-        if: steps.verify-tests.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1324,9 +1154,144 @@ jobs:
           path: /tmp/docs-review-output.jsonl
           retention-days: 7
 
+  # Prompt engineering reviewer - validates prompt clarity, constraints, and cross-prompt consistency
+  prompt-review:
+    needs: [get-context, build-devcontainer]
+    if: |
+      needs.get-context.outputs.pr_number != '' &&
+      needs.get-context.outputs.is_draft != 'true' &&
+      needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.author_authorized == 'true' &&
+      needs.get-context.outputs.config_only != 'true' &&
+      needs.get-context.outputs.tests_passed == 'true'
+    runs-on: [self-hosted, homelab]
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout for composite action
+        uses: actions/checkout@v4
+
+      - name: Reviewer setup
+        id: setup
+        uses: ./.github/actions/reviewer-setup
+        with:
+          pr_number: ${{ needs.get-context.outputs.pr_number }}
+          head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_repo: ${{ needs.get-context.outputs.head_repo }}
+          github_token: ${{ github.token }}
+          repository: ${{ github.repository }}
+
+      - name: Prompt engineering review in devcontainer
+        if: steps.setup.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            PR_TITLE=${{ needs.get-context.outputs.pr_title }}
+            HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 450 \
+              "You are a PROMPT ENGINEERING reviewer for PR #${PR_NUMBER} in ${REPO}.
+
+            This project is an OpenClaw agent where the prompts in docs/ ARE the application.
+            Prompt quality directly determines application quality. Your job is to ensure all
+            prompts and behavioral specifications remain clear, complete, and consistent.
+
+            Do NOT push any changes. This is a read-only review.
+
+            **CRITICAL: Only report issues that require action from the PR author.**
+            Do NOT explain prompt engineering concepts. Do NOT praise prompts that are fine.
+            If there are no actionable issues, post a short approval and move on.
+
+            **QUICK CHECK:** If this PR does not modify any files in docs/ or design/,
+            post: 'Approved - No prompt or behavioral specification changes to evaluate.'
+            and stop.
+
+            **YOUR TASK:**
+            1. Read the code changes: \`git diff origin/main...HEAD\`
+            2. Read ALL files in docs/ and design/ to understand the full prompt architecture
+            3. Evaluate changes against these criteria:
+
+            **Prompt Clarity** — Could an LLM misinterpret any instruction? Look for:
+            - Ambiguous phrasing that could be read multiple ways
+            - Missing context that an LLM would need to execute correctly
+            - Instructions that conflict with each other within the same prompt
+
+            **Constraint Completeness** — Are behavioral boundaries explicitly stated?
+            - Are there implicit assumptions that should be made explicit?
+            - Could the agent do something harmful or unwanted that isn't explicitly prevented?
+
+            **Cross-Prompt Consistency** — Do different prompt modules give contradictory instructions?
+            - Check docs/ai-prompts.md against docs/user-interactions.md
+            - Check personality constraints across all docs that reference agent behavior
+            - Verify intent detection patterns are consistent
+
+            **Personality/Tone Drift** — Does the change maintain the established personality?
+            - Casual, brief, like texting a helpful friend
+            - No emojis unless user uses them first
+            - Under 50 words unless explaining something complex
+
+            **Shame Prevention Compliance** — BLOCKING if violated
+            - No language that implies user failure or blame
+            - No guilt-inducing framing for incomplete tasks
+            - No comparison to 'normal' productivity expectations
+            - Task rejection must be framed as the system adapting, not the user failing
+
+            **Edge Case Handling** — Are ambiguous inputs, empty states, error conditions covered?
+            - What happens when user input doesn't match any intent pattern?
+            - Are fallback behaviors defined for unexpected states?
+
+            **Few-Shot Example Quality** — Are intent detection examples representative?
+            - Do examples cover the range of real user inputs?
+            - Could examples bias the model toward narrow interpretations?
+
+            **Output Format Reliability** — Will structured output parse correctly downstream?
+            - Are response formats clearly specified?
+            - Could the model deviate from expected format?
+
+            **INLINE COMMENTS:** Where a prompt issue is tied to a specific line, also leave
+            an inline PR review comment on that line.
+
+            Post exactly ONE summary comment using:
+            gh pr comment ${PR_NUMBER} --body '## Prompt Engineering Review
+
+            [If no prompt issues: \"Approved - All prompts remain clear, complete, and consistent.\" and stop]
+
+            ### Issues Found
+            [For each issue: file path, line reference, what the problem is, and how to fix it.
+            Mark shame prevention violations as BLOCKING.]
+
+            ### Conclusion
+            [Approved | Approved with suggestions | Blocking issues found]'" < /dev/null 2>&1 | tee /tmp/prompt-review-output.jsonl
+
+      - name: Upload prompt review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: prompt-review-output
+          path: /tmp/prompt-review-output.jsonl
+          retention-days: 7
+
   # Final decision maker - synthesizes all reviews and makes go/no-go call
   merge-decision:
-    needs: [get-context, build-devcontainer, design-review, security-review, psych-review, docs-review]
+    needs: [get-context, build-devcontainer, design-review, security-review, psych-review, docs-review, prompt-review]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -1345,63 +1310,22 @@ jobs:
       packages: read
 
     steps:
-      - name: Verify tests passed on current commit
-        id: verify-tests
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ needs.get-context.outputs.pr_number }} --jq '.head.sha')
-          echo "Checking test status for commit $HEAD_SHA"
-
-          # Retry loop - check run may not be visible immediately after workflow triggers
-          MAX_ATTEMPTS=40
-          ATTEMPT=1
-          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
-
-            if [ "$STATUS" = "success" ]; then
-              echo "All Required Tests passed on current commit"
-              echo "verified=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-
-            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
-              sleep 10
-            fi
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-
-          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
-          echo "verified=false" >> $GITHUB_OUTPUT
-
-      - name: Checkout PR branch
-        if: steps.verify-tests.outputs.verified == 'true'
+      - name: Checkout for composite action
         uses: actions/checkout@v4
+
+      - name: Reviewer setup
+        id: setup
+        uses: ./.github/actions/reviewer-setup
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
-          repository: ${{ needs.get-context.outputs.head_repo }}
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}
-
-      - name: Pull latest changes
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: git pull origin ${{ needs.get-context.outputs.head_ref }} || true
-
-      - name: Create directories for devcontainer mounts
-        if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
-
-      - name: Log in to GHCR
-        if: steps.verify-tests.outputs.verified == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ needs.get-context.outputs.pr_number }}
+          head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_repo: ${{ needs.get-context.outputs.head_repo }}
+          github_token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          checkout_token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Make merge decision in devcontainer
-        if: steps.verify-tests.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1416,6 +1340,7 @@ jobs:
             SECURITY_REVIEW_RESULT=${{ needs.security-review.result }}
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
+            PROMPT_REVIEW_RESULT=${{ needs.prompt-review.result }}
           runCmd: |
             # Using Sonnet: Summarization task - synthesizes existing review results
             claude --print \
@@ -1432,6 +1357,7 @@ jobs:
             - Design Review: ${DESIGN_REVIEW_RESULT}
             - Security & Infrastructure Review: ${SECURITY_REVIEW_RESULT}
             - Psych Research Review: ${PSYCH_REVIEW_RESULT}
+            - Prompt Engineering Review: ${PROMPT_REVIEW_RESULT}
             - Documentation Consistency Review: ${DOCS_REVIEW_RESULT}
 
             **YOUR TASK:**
@@ -1476,7 +1402,7 @@ jobs:
 
       - name: Parse merge decision from PR comments
         id: parse-decision
-        if: always() && steps.verify-tests.outputs.verified == 'true'
+        if: always() && steps.setup.outputs.verified == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
@@ -1511,7 +1437,7 @@ jobs:
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: [self-hosted, homelab]
-    needs: [get-context, build-devcontainer, fix-test-failures, design-review, security-review, psych-review, docs-review, merge-decision]
+    needs: [get-context, build-devcontainer, fix-test-failures, design-review, security-review, psych-review, docs-review, prompt-review, merge-decision]
     if: always()
     permissions:
       statuses: write  # Required to create commit status on PR
@@ -1606,6 +1532,10 @@ jobs:
               echo "Docs Review: ${{ needs.docs-review.result }}"
               failed=true
             fi
+            if ! check_result "${{ needs.prompt-review.result }}"; then
+              echo "Prompt Engineering Review: ${{ needs.prompt-review.result }}"
+              failed=true
+            fi
             if ! check_result "${{ needs.merge-decision.result }}"; then
               echo "Merge Decision: ${{ needs.merge-decision.result }}"
               failed=true
@@ -1649,6 +1579,7 @@ jobs:
           echo "  Design Review: ${{ needs.design-review.result }}"
           echo "  Security Review: ${{ needs.security-review.result }}"
           echo "  Psych Research Review: ${{ needs.psych-review.result }}"
+          echo "  Prompt Engineering Review: ${{ needs.prompt-review.result }}"
           echo "  Docs Review: ${{ needs.docs-review.result }}"
           echo "  Merge Decision Job: ${{ needs.merge-decision.result }}"
           echo "  Merge Decision Verdict: ${{ needs.merge-decision.outputs.decision }}"

@@ -1,0 +1,91 @@
+name: 'Reviewer Setup'
+description: 'Shared setup for all Claude Code review jobs: verify tests, checkout PR, login to GHCR'
+
+inputs:
+  pr_number:
+    description: 'PR number to review'
+    required: true
+  head_ref:
+    description: 'PR branch name'
+    required: true
+  head_repo:
+    description: 'PR repository (owner/repo)'
+    required: true
+  github_token:
+    description: 'GitHub token for API calls and GHCR login'
+    required: true
+  repository:
+    description: 'Repository (owner/repo) for API calls'
+    required: true
+  checkout_token:
+    description: 'Token for checkout (defaults to github_token, use WORKFLOW_PAT for merge-decision)'
+    required: false
+    default: ''
+
+outputs:
+  verified:
+    description: 'Whether tests passed on the current commit (true/false)'
+    value: ${{ steps.verify-tests.outputs.verified }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Verify tests passed on current commit
+      id: verify-tests
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        # Get the current HEAD SHA of the PR
+        HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        echo "Checking test status for commit $HEAD_SHA"
+
+        # Retry loop - check run may not be visible immediately after workflow triggers
+        MAX_ATTEMPTS=40
+        ATTEMPT=1
+        while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+          STATUS=$(gh api repos/${{ inputs.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+          if [ "$STATUS" = "success" ]; then
+            echo "All Required Tests passed on current commit"
+            echo "verified=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+            sleep 10
+          fi
+          ATTEMPT=$((ATTEMPT + 1))
+        done
+
+        echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
+        echo "Skipping review - tests must pass first"
+        echo "verified=false" >> $GITHUB_OUTPUT
+
+    - name: Checkout PR branch
+      if: steps.verify-tests.outputs.verified == 'true'
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.head_ref }}
+        repository: ${{ inputs.head_repo }}
+        fetch-depth: 0
+        token: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+
+    - name: Pull latest changes
+      if: steps.verify-tests.outputs.verified == 'true'
+      shell: bash
+      run: git pull origin ${{ inputs.head_ref }} || true
+
+    - name: Create directories for devcontainer mounts
+      if: steps.verify-tests.outputs.verified == 'true'
+      shell: bash
+      run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+    - name: Log in to GHCR
+      if: steps.verify-tests.outputs.verified == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.github_token }}

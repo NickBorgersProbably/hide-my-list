@@ -44,8 +44,9 @@ PRs are reviewed by a multi-agent Claude Code pipeline:
 1. Design Review — validates intent fulfillment and design quality
 2. Security & Infrastructure Review — script safety, credential handling, workflow permissions
 3. Psych Research Review — validates against ADHD clinical research
-4. Documentation Consistency Review — checks docs for contradictions, stale references, and cross-doc consistency
-5. Merge Decision — synthesizes all reviews into GO/NO-GO
+4. Prompt Engineering Review — validates prompt clarity, constraints, and cross-prompt consistency
+5. Documentation Consistency Review — checks docs for contradictions, stale references, and cross-doc consistency
+6. Merge Decision — synthesizes all reviews into GO/NO-GO
 
 ## When making changes
 
