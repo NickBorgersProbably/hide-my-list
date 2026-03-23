@@ -240,11 +240,29 @@ scripts/reminder-daemon.sh --interval 120  # custom interval (seconds)
 | `REMINDER_POLL_INTERVAL` | `300` (5 min) | Polling interval in seconds |
 | `REMINDER_LOG_FILE` | `/tmp/reminder-daemon.log` | Log output location |
 | `REMINDER_PID_FILE` | `/tmp/reminder-daemon.pid` | PID file to prevent duplicate daemons |
+| `REMINDER_HEARTBEAT_FILE` | `/tmp/reminder-daemon.heartbeat` | Timestamp updated each cycle for staleness detection |
+| `REMINDER_STALE_SECONDS` | `900` (15 min) | Max heartbeat age before health check treats daemon as dead |
+
+**Health check:**
+
+```bash
+scripts/reminder-health-check.sh              # check status, exit 0 if healthy
+scripts/reminder-health-check.sh --restart     # restart automatically if unhealthy
+```
+
+The health check verifies three conditions:
+1. PID file exists and the referenced process is running
+2. Log file exists
+3. Heartbeat file was written within the staleness threshold (default: 15 min)
+
+If any check fails, the script exits non-zero with diagnostic output. With `--restart`, it cleans up stale files and restarts the daemon.
 
 **Lifecycle notes:**
 
 - The PID file prevents multiple daemon instances — if one is already running, a second invocation exits with an error.
 - The PID file is automatically cleaned up on exit (via `trap`). If a daemon crashes without cleanup, a stale PID file is detected and removed on the next start.
+- The daemon traps SIGTERM, SIGINT, and SIGHUP for clean shutdown logging.
+- A heartbeat file is updated after each reminder check cycle. If the heartbeat goes stale, the health check detects the daemon as dead even if the process is hung.
 - Logs are appended to `REMINDER_LOG_FILE` — check this file to debug missed or delayed reminders.
 - Use `--once` for testing or one-shot cron setups.
 
