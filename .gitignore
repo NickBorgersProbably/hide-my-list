@@ -14,6 +14,7 @@ security-updates.log
 
 # Devcontainer secrets (written by initializeCommand, consumed by postCreateCommand)
 .devcontainer/.gh-token
+.devcontainer/.claude-credentials
 
 # Devcontainer SSH config (environment-specific)
 .devcontainer/known_hosts
