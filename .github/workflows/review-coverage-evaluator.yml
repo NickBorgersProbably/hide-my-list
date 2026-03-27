@@ -104,7 +104,7 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            ANTHROPIC_API_KEY=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-pr-context.outputs.pr_number }}
             REPO=${{ github.repository }}
