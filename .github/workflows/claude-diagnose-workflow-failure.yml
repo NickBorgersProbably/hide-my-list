@@ -150,7 +150,7 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            ANTHROPIC_API_KEY=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             WORKFLOW_NAME=${{ needs.check-failure.outputs.workflow_name }}
             RUN_ID=${{ needs.check-failure.outputs.run_id }}

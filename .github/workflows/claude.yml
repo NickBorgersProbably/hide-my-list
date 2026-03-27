@@ -212,7 +212,7 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            ANTHROPIC_API_KEY=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
@@ -222,11 +222,11 @@ jobs:
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
             # Debug: verify auth token propagation
-            echo "ANTHROPIC_API_KEY is set: $([ -n "$ANTHROPIC_API_KEY" ] && echo 'YES (length: '${#ANTHROPIC_API_KEY}')' || echo 'NO')"
+            echo "CLAUDE_CODE_OAUTH_TOKEN is set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo 'YES (length: '${#CLAUDE_CODE_OAUTH_TOKEN}')' || echo 'NO')"
 
             # Fail fast if auth token is missing
-            if [ -z "$ANTHROPIC_API_KEY" ]; then
-              echo "ERROR: ANTHROPIC_API_KEY is empty inside container."
+            if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+              echo "ERROR: CLAUDE_CODE_OAUTH_TOKEN is empty inside container."
               exit 1
             fi
 
@@ -390,16 +390,16 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            ANTHROPIC_API_KEY=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
             CLAUDE_CONFIG_DIR=/tmp/.claude-session
           runCmd: |
-            echo "ANTHROPIC_API_KEY is set: $([ -n "$ANTHROPIC_API_KEY" ] && echo 'YES (length: '${#ANTHROPIC_API_KEY}')' || echo 'NO')"
-            if [ -z "$ANTHROPIC_API_KEY" ]; then
-              echo "ERROR: ANTHROPIC_API_KEY is empty inside container."
+            echo "CLAUDE_CODE_OAUTH_TOKEN is set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo 'YES (length: '${#CLAUDE_CODE_OAUTH_TOKEN}')' || echo 'NO')"
+            if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+              echo "ERROR: CLAUDE_CODE_OAUTH_TOKEN is empty inside container."
               exit 1
             fi
 
