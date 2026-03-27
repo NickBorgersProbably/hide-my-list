@@ -67,10 +67,9 @@ jobs:
         if: steps.detect.outputs.found == 'true' && steps.find-pr.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.find-pr.outputs.pr_number }}
+          SUMMARY: ${{ steps.detect.outputs.summary }}
         run: |
-          PR_NUMBER="${{ steps.find-pr.outputs.pr_number }}"
-          SUMMARY="${{ steps.detect.outputs.summary }}"
-
           gh pr comment "$PR_NUMBER" --body "$(cat <<EOF
           ## Daemon Script Changes Detected
 
