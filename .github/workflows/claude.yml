@@ -6,7 +6,7 @@ on:
   pull_request_review_comment:
     types: [created]
   issues:
-    types: [opened]
+    types: [opened, reopened]
   pull_request_review:
     types: [submitted]
 
@@ -331,7 +331,7 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      github.event_name == 'issues' && github.event.action == 'opened'
+      github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'reopened')
     runs-on: [self-hosted, homelab]
     permissions:
       contents: write
