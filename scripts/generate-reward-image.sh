@@ -164,7 +164,7 @@ payload = json.dumps({
     'quality': os.environ['QUALITY']
 })
 print(payload)
-" | curl -s --max-time 30 -X POST "https://api.openai.com/v1/images/generations" \
+" | curl -s --max-time 90 -X POST "https://api.openai.com/v1/images/generations" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
     -d @-
