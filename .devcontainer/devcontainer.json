@@ -10,11 +10,10 @@
     }
   },
   "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\"",
-  "postCreateCommand": "bash .githooks/install-hooks.sh",
+  "initializeCommand": "gh auth token > .devcontainer/.gh-token 2>/dev/null || true",
+  "postCreateCommand": "bash .devcontainer/post-create.sh && bash .githooks/install-hooks.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
-  "mounts": [
-    "source=${localEnv:HOME}/.config/gh,target=/tmp/gh-config,type=bind"
-  ],
+  "mounts": [],
   "remoteEnv": {},
   "customizations": {
     "vscode": {
