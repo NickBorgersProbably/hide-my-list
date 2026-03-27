@@ -12,6 +12,14 @@ rewards/
 state.json
 security-updates.log
 
+# Devcontainer secrets (written by initializeCommand, consumed by postCreateCommand)
+.devcontainer/.gh-token
+
+# Devcontainer SSH config (environment-specific)
+.devcontainer/known_hosts
+.devcontainer/ssh_config
+.devcontainer/setup-ssh.sh
+
 # Editor/IDE
 .idea/
 .vscode/

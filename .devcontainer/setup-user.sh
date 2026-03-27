@@ -74,11 +74,4 @@ fi
 # Fix ownership of copied files
 chown -R "$TARGET_USER":"$TARGET_GROUP" /home/"$TARGET_USER"
 
-# Set up gh config symlink if the mount exists
-if [ -d /tmp/gh-config ]; then
-    mkdir -p /home/"$TARGET_USER"/.config
-    ln -sf /tmp/gh-config /home/"$TARGET_USER"/.config/gh
-    chown -h "$TARGET_USER":"$TARGET_GROUP" /home/"$TARGET_USER"/.config/gh
-fi
-
 echo "User $TARGET_USER created successfully."
