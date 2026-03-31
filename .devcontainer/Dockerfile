@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Python for YAML validation and scripting
     python3-pip python3-yaml \
     # Utilities
-    bc curl jq \
+    bc curl jq tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
