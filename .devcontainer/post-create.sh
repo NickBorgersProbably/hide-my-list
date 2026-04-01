@@ -36,3 +36,28 @@ if [ -s "$CLAUDE_CRED_FILE" ]; then
 else
   echo "Warning: No Claude credentials found; Claude Code credentials not available."
 fi
+
+# Merge host Claude Code config into container config (written by initializeCommand)
+# The container .claude.json has hasCompletedOnboarding from the Dockerfile;
+# the host .claude.json has oauthAccount info.
+CLAUDE_CONFIG_FILE="$REPO_ROOT/.devcontainer/.claude-config"
+if [ -s "$CLAUDE_CONFIG_FILE" ]; then
+  echo "Merging Claude Code config from host..."
+  EXISTING_CONFIG="$HOME/.claude.json"
+  if [ -s "$EXISTING_CONFIG" ]; then
+    python3 -c "
+import json, sys
+host = json.load(open(sys.argv[1]))
+container = json.load(open(sys.argv[2]))
+host.update(container)
+json.dump(host, open(sys.argv[2], 'w'), indent=2)
+" "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
+  else
+    cp "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
+  fi
+  chmod 600 "$EXISTING_CONFIG"
+  echo "Claude Code config merged."
+  rm -f "$CLAUDE_CONFIG_FILE"
+else
+  echo "Warning: No Claude config found; skipping config merge."
+fi
