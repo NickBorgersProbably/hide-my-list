@@ -5,6 +5,12 @@ set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Configure tmux to use xterm-256color so CLI tools (e.g. Claude Code) render correctly
+cat > "$HOME/.tmux.conf" << 'TMUXEOF'
+set -g default-terminal "xterm-256color"
+set-environment -g LANG en_US.UTF-8
+TMUXEOF
+
 # Set up gh CLI credentials from host token (written by initializeCommand)
 REPO_TOKEN_FILE="$REPO_ROOT/.devcontainer/.gh-token"
 if [ -s "$REPO_TOKEN_FILE" ]; then
