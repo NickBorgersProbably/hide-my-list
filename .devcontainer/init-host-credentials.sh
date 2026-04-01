@@ -20,3 +20,9 @@ elif command -v security &>/dev/null; then
     security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
         > .claude-credentials 2>/dev/null || true
 fi
+
+CLAUDE_CONFIG="$HOME/.claude.json"
+if [ -f "$CLAUDE_CONFIG" ]; then
+    cp "$CLAUDE_CONFIG" .claude-config
+    chmod 600 .claude-config
+fi
