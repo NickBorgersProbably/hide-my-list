@@ -56,4 +56,4 @@ base_url = "${CODEX_MODEL_BASE_URL}"
 env_key = "${CODEX_MODEL_ENV_KEY}"
 EOF
 
-echo "Codex configured for LiteLLM proxy."
+echo "Codex configured for ${CODEX_MODEL_PROVIDER_NAME} (${CODEX_MODEL_PROVIDER})."
