@@ -30,6 +30,9 @@ outputs:
   verified:
     description: 'Whether PR Tests passed for the current PR head (true/false)'
     value: ${{ steps.verify-tests.outputs.verified }}
+  head_sha:
+    description: 'Current PR head SHA that was verified against PR Tests'
+    value: ${{ steps.verify-tests.outputs.head_sha }}
 
 runs:
   using: 'composite'
@@ -41,7 +44,8 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
         # Compare PR Tests against the current PR head so reviewers never run on stale code.
-        export HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
         echo "Checking PR Tests status for commit $HEAD_SHA"
 
         get_run_json() {
@@ -92,19 +96,14 @@ runs:
         echo "Skipping review - tests must pass on the current PR head first"
         echo "verified=false" >> $GITHUB_OUTPUT
 
-    - name: Checkout PR branch
+    - name: Checkout verified PR commit
       if: steps.verify-tests.outputs.verified == 'true'
       uses: actions/checkout@v4
       with:
-        ref: ${{ inputs.head_ref }}
+        ref: ${{ steps.verify-tests.outputs.head_sha }}
         repository: ${{ inputs.head_repo }}
         fetch-depth: 0
         token: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
-
-    - name: Pull latest changes
-      if: steps.verify-tests.outputs.verified == 'true'
-      shell: bash
-      run: git pull origin ${{ inputs.head_ref }} || true
 
     - name: Create directories for devcontainer mounts
       if: steps.verify-tests.outputs.verified == 'true'

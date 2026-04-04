@@ -76,6 +76,8 @@ jobs:
       tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || github.event.workflow_run.conclusion == 'success' }}
       run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event_name == 'pull_request' && github.run_id || github.event.workflow_run.id }}
       # Workflow run ID for the PR Tests execution that validated this PR head.
+      # reviewer-setup uses that run to verify the current PR head SHA before
+      # checking out the immutable commit for each review job.
       # Reopen-triggered pull_request runs do not have a completed PR Tests run yet.
       pr_tests_run_id: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
