@@ -103,7 +103,7 @@ jobs:
           # Treat @codex as explicit only when it starts a line.
           # This avoids triggering on incidental mentions in prose or logs.
           explicit_invocation() {
-            printf '%s\n' "$1" | grep -Eq '^[[:space:]]*@codex([[:space:]]|$|[:punct:])'
+            printf '%s\n' "$1" | grep -Eq '^[[:space:]]*@codex([[:space:]]|$|[[:punct:]])'
           }
 
           REQUEST_TEXT=""
