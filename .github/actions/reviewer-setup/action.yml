@@ -118,3 +118,10 @@ runs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
+
+    - name: Log out of GHCR
+      if: steps.verify-tests.outputs.verified == 'true'
+      shell: bash
+      run: |
+        # Ensure cached GHCR credentials are cleared on persistent runners.
+        docker logout ghcr.io >/dev/null 2>&1 || echo "GHCR logout skipped: no active session"
