@@ -34,7 +34,25 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Check if PR branch still exists
+      id: check-branch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        # If the PR was already merged and the branch deleted, the checkout will fail.
+        # Detect this early and skip the review gracefully instead of erroring out.
+        HTTP_STATUS=$(gh api repos/${{ inputs.repository }}/branches/${{ inputs.head_ref }} --silent -i 2>&1 | head -1 | awk '{print $2}')
+        if [ "$HTTP_STATUS" = "404" ]; then
+          echo "Branch '${{ inputs.head_ref }}' no longer exists (likely merged and deleted). Skipping review."
+          echo "exists=false" >> $GITHUB_OUTPUT
+        else
+          echo "Branch '${{ inputs.head_ref }}' exists, proceeding with review."
+          echo "exists=true" >> $GITHUB_OUTPUT
+        fi
+
     - name: Verify PR Tests passed on current commit
+      if: steps.check-branch.outputs.exists == 'true'
       id: verify-tests
       shell: bash
       env:
