@@ -1,9 +1,9 @@
 name: Run command in devcontainer
 description: >
-  Runs a command inside a pre-built devcontainer image using plain
-  `docker run` instead of devcontainers/ci, avoiding the known
-  runner bug where the post-step cleanup crashes with
-  "Index was out of range".
+  Runs a command inside a pre-built devcontainer image using the
+  devcontainer CLI directly, avoiding the devcontainers/ci post-step
+  cleanup crash while preserving the repository's devcontainer
+  lifecycle hooks.
 
 inputs:
   image:
@@ -20,7 +20,7 @@ inputs:
     required: false
     default: ''
   workdir:
-    description: Host directory mounted as /workspace (default '.')
+    description: Repo-relative working directory for the command
     required: false
     default: '.'
   pull:
@@ -35,8 +35,10 @@ runs:
       id: prepare-script
       shell: bash
       run: |
-        SCRIPT=$(mktemp /tmp/devcontainer-run-XXXXXX.sh)
+        SCRIPT=$(mktemp "${{ github.workspace }}/.git/devcontainer-run-XXXXXX.sh")
         cat > "$SCRIPT" <<'RUNCMD'
+        set -euo pipefail
+        cd '${{ inputs.workdir }}'
         ${{ inputs.run_cmd }}
         RUNCMD
         chmod +x "$SCRIPT"
@@ -45,32 +47,58 @@ runs:
     - name: Run in devcontainer
       shell: bash
       run: |
+        set -euo pipefail
+
+        WORKSPACE="${{ github.workspace }}"
+        SCRIPT_PATH="${{ steps.prepare-script.outputs.script }}"
+        OVERRIDE_CONFIG=$(mktemp /tmp/devcontainer-override-XXXXXX.json)
+        cleanup() {
+          rm -f "$OVERRIDE_CONFIG" "$SCRIPT_PATH"
+        }
+        trap cleanup EXIT
+
         # Optionally pull the image
         if [ "${{ inputs.pull }}" != "false" ]; then
           docker pull "${{ inputs.image }}"
         fi
 
-        # Build -e flags from the env input
-        ENV_ARGS=()
+        python3 - "$WORKSPACE/.devcontainer/devcontainer.json" "$OVERRIDE_CONFIG" "${{ inputs.image }}" <<'PY'
+        import json
+        import sys
+
+        source_path, target_path, image = sys.argv[1:4]
+        with open(source_path, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+
+        config.pop("build", None)
+        config.pop("initializeCommand", None)
+        config["image"] = image
+
+        with open(target_path, "w", encoding="utf-8") as handle:
+            json.dump(config, handle, indent=2)
+            handle.write("\n")
+        PY
+
+        # Forward remote env vars to both lifecycle hooks and the target command.
+        REMOTE_ENV_ARGS=()
         while IFS= read -r line; do
-          # skip blank lines and comments
           [[ -z "$line" || "$line" == \#* ]] && continue
-          ENV_ARGS+=( -e "$line" )
+          REMOTE_ENV_ARGS+=( --remote-env "$line" )
         done <<'ENVEOF'
         ${{ inputs.env }}
         ENVEOF
 
-        # Ensure mount-source directories exist
-        mkdir -p ~/.config/gh ~/.claude ~/.codex
+        npx -y @devcontainers/cli up \
+          --workspace-folder "$WORKSPACE" \
+          --override-config "$OVERRIDE_CONFIG" \
+          --remove-existing-container \
+          --skip-post-attach \
+          "${REMOTE_ENV_ARGS[@]}"
 
-        docker run --rm --init \
-          --user vscode \
-          --workdir /workspace \
-          -v "${{ github.workspace }}:/workspace" \
-          -v "${{ steps.prepare-script.outputs.script }}:/tmp/devcontainer-run.sh:ro" \
-          -v "$HOME/.config/gh:/home/vscode/.config/gh" \
-          -v "$HOME/.claude:/home/vscode/.claude" \
-          -v "$HOME/.codex:/home/vscode/.codex" \
-          "${ENV_ARGS[@]}" \
-          "${{ inputs.image }}" \
-          bash -lc 'set -euo pipefail; /tmp/devcontainer-run.sh'
+        SCRIPT_NAME=$(basename "$SCRIPT_PATH")
+
+        npx -y @devcontainers/cli exec \
+          --workspace-folder "$WORKSPACE" \
+          --override-config "$OVERRIDE_CONFIG" \
+          "${REMOTE_ENV_ARGS[@]}" \
+          bash -lc "bash './$SCRIPT_NAME'"
