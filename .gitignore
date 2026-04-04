@@ -1,23 +1,39 @@
-# Environment and secrets
+# Per-user content (use .template files to create)
+USER.md
+MEMORY.md
+
+# Runtime state
+state.json
 .env
 .pr-signal
 .reminder-signal
-.reminder-daemon.pid
-.reminder-daemon.log
-
-# Reward image archive (user data, not code)
-rewards/
-
-# Runtime state (agent-managed, not version controlled)
-state.json
+.pipeline-status
+.pipeline-last-state
+.pr-review-state.json
+.pr-review-status
 security-updates.log
 
-# Devcontainer secrets (written by initializeCommand, consumed by postCreateCommand)
+# Memory logs (per-instance daily notes)
+memory/*
+!memory/.gitkeep
+
+# Installed skills (binary, per-instance)
+skills/
+
+# Reward image archive (user data)
+rewards/
+
+# Legacy projects in workspace
+home-automation/
+
+# OpenClaw workspace metadata
+.openclaw/
+.twilio-config
+
+# Devcontainer secrets
 .devcontainer/.gh-token
 .devcontainer/.claude-credentials
 .devcontainer/.claude-config
-
-# Devcontainer SSH config (environment-specific)
 .devcontainer/known_hosts
 .devcontainer/ssh_config
 .devcontainer/setup-ssh.sh
@@ -32,5 +48,3 @@ security-updates.log
 .DS_Store
 Thumbs.db
 .github-pat
-.pipeline-last-state
-.pipeline-status

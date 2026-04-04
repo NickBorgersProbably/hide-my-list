@@ -1,0 +1,105 @@
+# hide-my-list — Setup & Operations
+
+## Prerequisites
+
+- **OpenClaw** installed and configured (`openclaw setup`)
+- **Notion** database created with the schema from `docs/notion-schema.md`
+- **Signal** account configured for messaging (or another supported channel)
+- **LiteLLM proxy** (or direct Anthropic API access) for model routing
+
+## Quick Start
+
+1. Clone this repo as the OpenClaw workspace:
+   ```bash
+   # If starting fresh:
+   git clone https://github.com/NickBorgersProbably/hide-my-list.git ~/.openclaw/workspace
+
+   # If replacing an existing workspace:
+   cd ~/.openclaw/workspace
+   git init
+   git remote add origin https://github.com/NickBorgersProbably/hide-my-list.git
+   git fetch origin main
+   git checkout main
+   ```
+
+2. Create the `.env` file:
+   ```bash
+   cat > ~/.openclaw/workspace/.env << 'EOF'
+   NOTION_API_KEY=ntn_your_key_here
+   NOTION_DATABASE_ID=your_database_id_here
+   OPENAI_API_KEY=sk-your_key_here    # Optional: for reward image generation
+   GITHUB_PAT=ghp_your_token_here     # Optional: for higher GitHub API rate limits
+   EOF
+   ```
+
+3. Run bootstrap:
+   ```bash
+   cd ~/.openclaw/workspace
+   bash setup/bootstrap.sh
+   ```
+
+4. Configure OpenClaw:
+   ```bash
+   # Copy and customize the config template
+   cp setup/openclaw.json.template ~/.openclaw/openclaw.json
+   # Edit ~/.openclaw/openclaw.json — replace all {{PLACEHOLDER}} values
+   ```
+
+5. Start the gateway:
+   ```bash
+   openclaw gateway
+   ```
+
+6. Register cron jobs (from within an agent session or via the control UI):
+   - See `setup/cron/reminder-check.md` for the reminder polling job
+   - See `setup/cron/pipeline-monitor.md` for GitHub monitoring
+   - The heartbeat is built-in and configured in `openclaw.json`
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NOTION_API_KEY` | Yes | Notion integration API key |
+| `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
+| `OPENAI_API_KEY` | No | For AI-generated reward images |
+| `GITHUB_PAT` | No | GitHub personal access token for higher rate limits |
+
+## Cron Jobs
+
+The agent uses OpenClaw's durable cron system instead of bash daemons:
+
+| Job | Schedule | Purpose |
+|-----|----------|---------|
+| reminder-check | Every 5 min | Poll Notion for due reminders, deliver to user |
+| pipeline-monitor | Every 2 min | Check GitHub for PR/CI status changes |
+| heartbeat (built-in) | Every 30 min | System health, cron re-registration |
+
+Cron jobs auto-expire after 7 days. The heartbeat re-registers them automatically.
+
+## Updating
+
+```bash
+cd ~/.openclaw/workspace
+git pull origin main
+```
+
+The agent reads docs on every interaction, so changes take effect immediately. No restart needed unless `openclaw.json` changed.
+
+## Troubleshooting
+
+**Reminders not firing:**
+- Check that the reminder-check cron is registered (ask the agent to check CronList)
+- Verify `.env` has correct NOTION_API_KEY
+- Run `scripts/check-reminders.sh` manually to test Notion connectivity
+
+**Agent not responding:**
+- Check `openclaw status` for channel health
+- Check gateway logs: `openclaw logs`
+
+**Cron jobs disappeared:**
+- They auto-expire after 7 days. The next heartbeat (every 30 min) will re-register them.
+- Or manually re-register per the definitions in `setup/cron/`
+
+**Git pull conflicts:**
+- Agent-edited files (MEMORY.md, memory/*.md) are gitignored so won't conflict
+- If HEARTBEAT.md or AGENTS.md conflict, the repo version is authoritative

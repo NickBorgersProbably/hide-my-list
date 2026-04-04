@@ -21,11 +21,28 @@ The core insight: **for people with ADHD, seeing a long task list isn't motivati
 
 This is an **OpenClaw agent** backed by a **Notion database**. There is no standalone server — the AI conversation layer *is* the application.
 
-- **Agent**: OpenClaw-managed conversational AI
-- **Storage**: Notion database via API
-- **Review Pipeline**: GitHub Actions with multi-agent Claude Code review (design, code, test, concurrency, docs, psych research)
+This repository is designed to be deployed directly as an OpenClaw workspace (`~/.openclaw/workspace/`). The markdown files at the root (`SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`, etc.) are the bootstrap files that OpenClaw loads at session start — they define the agent's personality, operations, and health checks.
 
-See [docs/](docs/) for detailed architecture and design documentation.
+- **Agent**: OpenClaw-managed conversational AI (Claude via LiteLLM proxy)
+- **Storage**: Notion database via API
+- **Scheduling**: OpenClaw durable cron jobs (reminders, pipeline monitoring)
+- **Messaging**: Signal (via OpenClaw channel routing)
+- **Review Pipeline**: GitHub Actions with multi-agent Codex review
+
+See [docs/openclaw-integration.md](docs/openclaw-integration.md) for how the system maps to OpenClaw's architecture.
+
+## Quick start
+
+```bash
+# Clone as OpenClaw workspace
+git clone https://github.com/NickBorgersProbably/hide-my-list.git ~/.openclaw/workspace
+
+# Create .env with your Notion credentials
+# Run the bootstrap script
+cd ~/.openclaw/workspace && bash setup/bootstrap.sh
+```
+
+See [setup/README.md](setup/README.md) for full setup instructions.
 
 ## Research-informed design
 
@@ -40,6 +57,7 @@ The CI pipeline includes a **psychological research evidence reviewer** that val
 
 ## Documentation
 
+- [OpenClaw Integration](docs/openclaw-integration.md)
 - [Architecture](docs/architecture.md)
 - [AI Prompts](docs/ai-prompts.md)
 - [Task Lifecycle](docs/task-lifecycle.md)
@@ -47,7 +65,9 @@ The CI pipeline includes a **psychological research evidence reviewer** that val
 - [User Interactions](docs/user-interactions.md)
 - [User Preferences](docs/user-preferences.md)
 - [Reward System](docs/reward-system.md)
+- [ADHD Design Priorities](design/adhd-priorities.md)
 - [Security Architecture](SECURITY.md)
+- [Setup & Operations](setup/README.md)
 
 ## License
 
