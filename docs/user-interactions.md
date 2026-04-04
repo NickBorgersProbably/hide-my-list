@@ -762,14 +762,15 @@ Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (
 
 ```mermaid
 sequenceDiagram
-    participant Daemon as reminder-daemon.sh
+    participant Cron as reminder-check cron
     participant Scr as check-reminders.sh
     participant Notion as Notion API
     participant Signal as Signal File
     participant Agent as OpenClaw Agent
     participant User
 
-    Daemon->>Scr: Trigger every 5 minutes
+    Cron->>Agent: Trigger reminder-check session
+    Agent->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
     Scr->>Signal: Write .reminder-signal

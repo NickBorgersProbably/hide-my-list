@@ -929,7 +929,7 @@ The reward system scales celebrations based on achievement significance:
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection — instead, the reminder daemon delivers them proactively at the specified time.
+Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection — instead, the durable cron job `reminder-check` runs `scripts/check-reminders.sh`, writes `.reminder-signal`, and the agent delivers due reminders at the specified time.
 
 ```mermaid
 flowchart TD
@@ -938,8 +938,8 @@ flowchart TD
     Parse --> Save[Save to Notion with is_reminder=true]
 
     Save --> Wait[Task waits in Notion]
-    Wait --> Daemon[reminder-daemon.sh polls every 5 min]
-    Daemon --> Due{remind_at <= now?}
+    Wait --> Cron[reminder-check cron runs check-reminders.sh]
+    Cron --> Due{remind_at <= now?}
     Due -->|No| Wait
     Due -->|Yes| Late{>15 min past due?}
 
@@ -957,7 +957,7 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | Reminder daemon delivers at remind_at |
+| Selection | User requests → AI suggests | `reminder-check` cron fires at remind_at |
 | Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |

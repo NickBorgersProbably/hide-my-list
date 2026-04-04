@@ -11,7 +11,7 @@
 # delivery, so stale signal entries are cleared automatically once the agent
 # updates Notion.
 #
-# Designed to run via reminder-daemon.sh (default: every 5 minutes).
+# Designed to run from the durable reminder-check cron job (five-minute cadence).
 # The agent checks for the signal file and delivers reminders to the user
 # through the active messaging surface.
 #

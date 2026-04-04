@@ -28,13 +28,13 @@ One feature which makes OpenClaw interesting is the fact it can change itself, a
 
 GitHub has been chosen as the tool for facilitating this, and that means we need access for OpenClaw to open PRs and pull changes.
 
-### Webhook — [A] only
+### Cron-driven reminder flow — [BC] configuration
 
-The webhook listener ([`scripts/webhook-signal.sh`](scripts/webhook-signal.sh)) receives CI/CD notifications from the network **[A]**, but that's all it does. It immediately discards all request data (`exec 0</dev/null`) and writes a self-generated Unix timestamp to a signal file. It has no access to credentials **[B]** and makes no external calls **[C]**. There's nothing to exploit because nothing is read.
+The reminder path now runs through OpenClaw durable cron. The `reminder-check` job triggers the agent, which runs [`scripts/check-reminders.sh`](scripts/check-reminders.sh), queries Notion using `.env` credentials **[B]**, and writes a local `.reminder-signal` handoff file **[C]** for the same agent session to deliver. It processes no untrusted network input **[A]** — only reminder records the agent created in Notion. This is a safe **[BC]** configuration.
 
-### Reminder daemon — [BC] configuration
+### Cron-driven GitHub polling — [AC] configuration
 
-The reminder daemon ([`scripts/reminder-daemon.sh`](scripts/reminder-daemon.sh) + [`scripts/check-reminders.sh`](scripts/check-reminders.sh)) sources `.env` credentials **[B]** and queries Notion plus writes a local signal file **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
+GitHub status checks now use the durable `pipeline-monitor` cron job plus [`scripts/check-github-status.sh`](scripts/check-github-status.sh). That flow reads untrusted GitHub content **[A]** and can surface follow-up messages or PR activity **[C]**, but it has no access to infrastructure secrets beyond the optional repo-scoped GitHub token and no Notion credentials **[B]**. Removing the inbound webhook means there is no longer an externally reachable listener on the host.
 
 ### CI/CD review agents — [AC] configuration
 
@@ -85,10 +85,11 @@ A Squid proxy enforces a domain allowlist. If the agent (or anything else on the
 
 The proxy also blocks connections to private network ranges (RFC 1918, loopback, link-local, and the overlay subnet itself) to prevent DNS rebinding attacks. Caching is disabled, `forwarded_for` headers are stripped, and the version string is suppressed.
 
-### Webhook hardening
+### Inbound exposure reduction
 
-- Connections capped at 2 concurrent (`socat max-children=2`) with a 3-second hard timeout
-- Exposed via Tailscale Funnel on a separate port from the control UI
+- No webhook listener, `socat` process, or public/Tailscale Funnel port for GitHub notifications
+- OpenClaw durable cron polls GitHub and reminders from inside the existing agent sandbox
+- Heartbeat re-registers cron jobs after OpenClaw's 7-day durable-cron expiry, so reliability no longer depends on long-lived bash daemons
 
 ### Configuration hardening
 
@@ -103,7 +104,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 | Prompt injection via user message | Agent is [BC] for direct interaction — channels are authenticated/paired, only the owner can send messages | Low risk; owner is the only input source |
 | Prompt injection via GitHub content | Becomes [ABC] when processing GitHub content — PR/issue bodies from external contributors are an injection vector | Blast radius limited to Notion operations the token permits; proxy limits exfiltration destinations |
 | Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; VLAN segmentation blocks internal network access at the router level |
-| Malicious webhook payload | Webhook is [A]-only — data discarded, no credentials or external access | Connection limits and hard timeout |
+| Malicious inbound webhook payload | Eliminated — there is no inbound webhook listener anymore | Cron polling removed that attack surface entirely |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked from all self-hosted runner workflows; devcontainer built only from main; self-hosted runners isolated by VLAN segmentation |
 | Credential exfiltration via prompt injection | The agent has credentials in its runtime context and could be prompted to reveal them | Proxy allowlist limits where credentials could be sent; admin surfaces behind Tailscale; model alignment is a speed bump, not a guarantee |
 | Unauthorized admin access | Admin interfaces require Tailscale authentication and at least OpenClaw pairing for authentication | Firewall allows only WireGuard inbound |
