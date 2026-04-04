@@ -94,12 +94,17 @@ runs:
 
     - name: Checkout PR branch
       if: steps.verify-tests.outputs.verified == 'true'
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.head_ref }}
-        repository: ${{ inputs.head_repo }}
-        fetch-depth: 0
-        token: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+      shell: bash
+      env:
+        CHECKOUT_TOKEN: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+      run: |
+        # Avoid nested uses: steps here so the composite action does not register
+        # post-job cleanup hooks that can fail on self-hosted runners.
+        REMOTE_URL="https://x-access-token:${CHECKOUT_TOKEN}@github.com/${{ inputs.head_repo }}.git"
+
+        git remote set-url origin "$REMOTE_URL"
+        git fetch --prune origin "+refs/heads/${{ inputs.head_ref }}:refs/remotes/origin/${{ inputs.head_ref }}"
+        git checkout -B "${{ inputs.head_ref }}" "origin/${{ inputs.head_ref }}"
 
     - name: Pull latest changes
       if: steps.verify-tests.outputs.verified == 'true'
@@ -113,11 +118,12 @@ runs:
 
     - name: Log in to GHCR
       if: steps.verify-tests.outputs.verified == 'true'
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ inputs.github_token }}
+      shell: bash
+      run: |
+        # Use the Docker CLI directly to avoid composite-action post-step failures.
+        echo "${{ inputs.github_token }}" | docker login ghcr.io \
+          --username "${{ github.actor }}" \
+          --password-stdin
 
     - name: Log out of GHCR
       if: steps.verify-tests.outputs.verified == 'true'
