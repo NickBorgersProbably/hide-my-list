@@ -150,7 +150,11 @@ runs:
         git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
           fetch --no-tags --prune "https://github.com/${HEAD_REPO}.git" \
           "refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+        # Keep origin pointed at the PR head repo so later pull/push commands
+        # behave the same way actions/checkout would for cross-repo PRs.
+        git remote set-url origin "https://github.com/${HEAD_REPO}.git"
         git checkout --force -B "${HEAD_REF}" "refs/remotes/origin/${HEAD_REF}"
+        git branch --set-upstream-to "origin/${HEAD_REF}" "${HEAD_REF}" || true
 
     - name: Pull latest changes
       if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'

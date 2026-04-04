@@ -236,7 +236,7 @@ sequenceDiagram
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 5 min, heartbeat re-registers on expiry |
-| Pipeline Monitoring | OpenClaw durable cron + check-github-status.sh | Native cron every 2 min for GitHub PR/CI status |
+| Pipeline Monitoring | OpenClaw durable cron + check-github-status.sh, plus optional `AGENT_WEBHOOK_URL` callback | Cron polls GitHub every 2 min; workflow callback provides faster review-complete notification when enabled |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
 
@@ -303,6 +303,6 @@ flowchart TB
 - **CI separation**: GitHub Actions reviewers have no access to infrastructure or home systems
 - **Credential handling**: API keys in `.env` (gitignored), never logged or committed
 - **Least privilege**: PR test workflows have read-only permissions
-- **No open ports**: Cron-based monitoring replaced the socat webhook listener, eliminating inbound network exposure
+- **Minimal ingress**: Cron handles routine pipeline polling; the optional `AGENT_WEBHOOK_URL` callback is a narrow A-only signal path rather than a general control surface
 
 For the full security architecture — including agent trust model, threat model, and prompt injection analysis — see [SECURITY.md](../SECURITY.md).
