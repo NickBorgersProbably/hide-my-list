@@ -50,6 +50,7 @@ The repo-level "GitHub-only for managed content" rule is intentionally narrower 
 OpenClaw runtime features still operate normally:
 - Bootstrap files are injected into session context by OpenClaw's bootstrap flow and hooks.
 - Heartbeat and durable cron still run on their normal schedules.
+- Cron registrations and task records live in OpenClaw-owned runtime state outside this repo checkout.
 - Messaging, session lifecycle, and hooks remain platform responsibilities.
 
 The one repo-mutating runtime exception is dirty-pull recovery in `HEARTBEAT.md` and `setup/cron/pull-main.md`: preserve the local diff in a GitHub issue, then reset the workspace to match remote so the GitHub-reviewed branch stays the source of truth. That exception exists to reduce merge conflicts and recover safely, not to bypass the GitHub process.
