@@ -1391,7 +1391,9 @@ jobs:
             - Documentation Consistency Review: ${DOCS_REVIEW_RESULT}
 
             **YOUR TASK:**
-            1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
+            1. Read all review feedback on this PR, including inline review comments:
+               - \`gh pr view ${PR_NUMBER} --comments\`
+               - \`gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments --paginate | jq -r '.[] | \"### \\(.path):\\(.line)\\n\\(.body)\\n\"'\`
             2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
             3. If there are merge conflicts AND you believe the PR should be merged, resolve them
             4. **Apply fixes from reviewers**: Check the review comments for fixes described by reviewers:
@@ -1404,6 +1406,7 @@ jobs:
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
+            - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
 
             **IF NO-GO:** Explain what must be fixed before the PR can merge.
 
