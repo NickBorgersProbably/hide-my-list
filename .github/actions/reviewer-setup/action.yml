@@ -39,6 +39,7 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
+        HEAD_REF: ${{ inputs.head_ref }}
       run: |
         # Compare PR Tests against the current PR head so reviewers never run on stale code.
         export HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
@@ -48,7 +49,7 @@ runs:
           if [ -n "${{ inputs.pr_tests_run_id }}" ]; then
             gh api repos/${{ inputs.repository }}/actions/runs/${{ inputs.pr_tests_run_id }} 2>/dev/null
           else
-            gh api "repos/${{ inputs.repository }}/actions/workflows/pr-tests.yml/runs?branch=${{ inputs.head_ref }}&status=completed&per_page=20" \
+            gh api "repos/${{ inputs.repository }}/actions/workflows/pr-tests.yml/runs?branch=${HEAD_REF}&status=completed&per_page=20" \
               --jq '[.workflow_runs[]
                 | select(.head_sha == env.HEAD_SHA)]
                 | sort_by(.run_number)
@@ -97,19 +98,24 @@ runs:
       shell: bash
       env:
         CHECKOUT_TOKEN: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+        HEAD_REF: ${{ inputs.head_ref }}
+        HEAD_REPO: ${{ inputs.head_repo }}
       run: |
         # Avoid nested uses: steps here so the composite action does not register
         # post-job cleanup hooks that can fail on self-hosted runners.
-        REMOTE_URL="https://x-access-token:${CHECKOUT_TOKEN}@github.com/${{ inputs.head_repo }}.git"
-
-        git remote set-url origin "$REMOTE_URL"
-        git fetch --prune origin "+refs/heads/${{ inputs.head_ref }}:refs/remotes/origin/${{ inputs.head_ref }}"
-        git checkout -B "${{ inputs.head_ref }}" "origin/${{ inputs.head_ref }}"
+        AUTH_HEADER=$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')
+        git -c credential.helper= \
+          -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${AUTH_HEADER}" \
+          fetch --prune "https://github.com/${HEAD_REPO}.git" \
+          "+refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+        git checkout -B "$HEAD_REF" "origin/$HEAD_REF"
 
     - name: Pull latest changes
       if: steps.verify-tests.outputs.verified == 'true'
       shell: bash
-      run: git pull origin ${{ inputs.head_ref }} || true
+      env:
+        HEAD_REF: ${{ inputs.head_ref }}
+      run: git pull origin "$HEAD_REF" || true
 
     - name: Create directories for devcontainer mounts
       if: steps.verify-tests.outputs.verified == 'true'
