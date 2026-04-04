@@ -14,6 +14,11 @@ on:
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
 # Only repository collaborators, members, and owners can trigger Claude.
 
+# Prevent duplicate runs for the same issue/PR. New runs cancel in-progress ones.
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
@@ -78,9 +83,18 @@ jobs:
           esac
 
   # Build and cache devcontainer image first
+  # Only build when a downstream job (claude or resolve-issue) will actually run.
+  # Without this gate, every PR review comment triggers a wasted devcontainer build.
   build-devcontainer:
     needs: authorize
-    if: needs.authorize.outputs.authorized == 'true'
+    if: |
+      needs.authorize.outputs.authorized == 'true' &&
+      (
+        (github.event_name == 'issues') ||
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+      )
     runs-on: [self-hosted, homelab]
     permissions:
       contents: read

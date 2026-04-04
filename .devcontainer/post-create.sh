@@ -78,23 +78,15 @@ get_arg_version() {
     printf '%s\n' "$value"
 }
 
-echo "Installing AI coding assistants..."
 export PATH="$HOME/.local/bin:$PATH"
 
+# Codex CLI is baked into the devcontainer image.
+# Verify the expected version is present.
 CODEX_CLI_VERSION="$(get_arg_version CODEX_CLI_VERSION)"
-
-# Install/update Codex via official installer
-install_codex() {
-    echo "Installing Codex CLI ${CODEX_CLI_VERSION}..."
-    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
-        | sh -s -- "${CODEX_CLI_VERSION}"
-}
-
 CURRENT_CODEX_VERSION="$(codex --version 2>/dev/null | awk '{print $2}' || true)"
 if [ "$CURRENT_CODEX_VERSION" != "$CODEX_CLI_VERSION" ]; then
-    install_codex
-else
-    echo "Codex CLI already at ${CURRENT_CODEX_VERSION}, skipping install."
+    echo "Warning: Codex CLI version mismatch (have: ${CURRENT_CODEX_VERSION}, want: ${CODEX_CLI_VERSION})"
+    echo "Rebuilding the devcontainer image should fix this."
 fi
 
 bash "$SCRIPT_DIR/configure-codex.sh"
