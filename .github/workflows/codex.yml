@@ -336,52 +336,6 @@ jobs:
 
             COMMENT_BODY="$(fetch_event_body)"
 
-            fetch_event_body() {
-              case "$EVENT_NAME" in
-                issue_comment)
-                  gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" --jq '.body // ""'
-                  ;;
-                pull_request_review_comment)
-                  gh api "repos/${REPO}/pulls/comments/${COMMENT_ID}" --jq '.body // ""'
-                  ;;
-                pull_request_review)
-                  gh api "repos/${REPO}/pulls/${ISSUE_NUMBER}/reviews/${REVIEW_ID}" --jq '.body // ""'
-                  ;;
-                issues)
-                  gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body // ""'
-                  ;;
-                *)
-                  echo "Unsupported event type: ${EVENT_NAME}" >&2
-                  return 1
-                  ;;
-              esac
-            }
-
-            COMMENT_BODY="$(fetch_event_body)"
-
-            fetch_event_body() {
-              case "$EVENT_NAME" in
-                issue_comment)
-                  gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" --jq '.body // ""'
-                  ;;
-                pull_request_review_comment)
-                  gh api "repos/${REPO}/pulls/comments/${COMMENT_ID}" --jq '.body // ""'
-                  ;;
-                pull_request_review)
-                  gh api "repos/${REPO}/pulls/${ISSUE_NUMBER}/reviews/${REVIEW_ID}" --jq '.body // ""'
-                  ;;
-                issues)
-                  gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body // ""'
-                  ;;
-                *)
-                  echo "Unsupported event type: ${EVENT_NAME}" >&2
-                  return 1
-                  ;;
-              esac
-            }
-
-            COMMENT_BODY="$(fetch_event_body)"
-
             # Build the prompt based on whether this is a PR or issue comment
             # Instead of fetching all context inline, instruct Codex to read it via gh CLI.
             # This avoids pagination limits, prompt size bloat, and comment duplication.
