@@ -34,7 +34,7 @@ mkdir -p "$HOME/.codex"
 # OPENAI_API_KEY is set to a placeholder in devcontainer.json because
 # the LiteLLM proxy doesn't require authentication.
 cat > "$HOME/.codex/config.toml" <<'EOF'
-model = "gpt-5-codex"
+model = "gpt-5.3-codex"
 model_provider = "litellm"
 
 [model_providers.litellm]
