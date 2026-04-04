@@ -27,6 +27,11 @@ CODEX_MODEL_PROVIDER_NAME="${CODEX_MODEL_PROVIDER_NAME:-$CODEX_MODEL_PROVIDER_NA
 CODEX_MODEL_BASE_URL="${CODEX_MODEL_BASE_URL:-$CODEX_MODEL_BASE_URL_DEFAULT}"
 CODEX_MODEL_ENV_KEY="${CODEX_MODEL_ENV_KEY:-$CODEX_MODEL_ENV_KEY_DEFAULT}"
 
+CODEX_GIT_NAME_DEFAULT="codex[bot]"
+CODEX_GIT_EMAIL_DEFAULT="codex[bot]@users.noreply.github.com"
+CODEX_GIT_NAME="${CODEX_GIT_NAME:-$CODEX_GIT_NAME_DEFAULT}"
+CODEX_GIT_EMAIL="${CODEX_GIT_EMAIL:-$CODEX_GIT_EMAIL_DEFAULT}"
+
 # Write Codex CLI configuration with the selected provider.
 cat > "$HOME/.codex/config.toml" <<EOF
 model = "${CODEX_MODEL}"
@@ -37,5 +42,18 @@ name = "${CODEX_MODEL_PROVIDER_NAME}"
 base_url = "${CODEX_MODEL_BASE_URL}"
 env_key = "${CODEX_MODEL_ENV_KEY}"
 EOF
+
+# GitHub Actions runs can create commits on PR and issue-resolution branches.
+# Pin the author/committer identity there so GitHub attributes those commits to
+# the Codex app instead of a runner default or placeholder identity.
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  git config --global user.name "${CODEX_GIT_NAME}"
+  git config --global user.email "${CODEX_GIT_EMAIL}"
+
+  export GIT_AUTHOR_NAME="${CODEX_GIT_NAME}"
+  export GIT_AUTHOR_EMAIL="${CODEX_GIT_EMAIL}"
+  export GIT_COMMITTER_NAME="${CODEX_GIT_NAME}"
+  export GIT_COMMITTER_EMAIL="${CODEX_GIT_EMAIL}"
+fi
 
 echo "Codex configured for ${CODEX_MODEL_PROVIDER_NAME} (${CODEX_MODEL_PROVIDER})."
