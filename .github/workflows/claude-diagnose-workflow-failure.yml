@@ -153,7 +153,7 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             WORKFLOW_NAME=${{ needs.check-failure.outputs.workflow_name }}
             RUN_ID=${{ needs.check-failure.outputs.run_id }}
