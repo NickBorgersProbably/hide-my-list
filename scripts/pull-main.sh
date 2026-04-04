@@ -17,7 +17,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SIGNAL_FILE="$ROOT_DIR/.pull-dirty"
-MAX_DIFF_LINES=50
 
 cd "$ROOT_DIR"
 
@@ -30,22 +29,40 @@ build_dirty_files_json() {
     python3 -c "
 import json, subprocess, sys
 
-max_lines = int(sys.argv[1])
 files = [line.strip() for line in sys.stdin if line.strip()]
 result = []
 for path in files:
+    staged = ''
+    worktree = ''
     try:
-        diff = subprocess.run(
+        staged = subprocess.run(
+            ['git', 'diff', '--cached', '--', path],
+            capture_output=True, text=True, timeout=10
+        ).stdout
+    except Exception:
+        staged = ''
+    try:
+        worktree = subprocess.run(
             ['git', 'diff', '--', path],
             capture_output=True, text=True, timeout=10
         ).stdout
-        lines = diff.split('\n')[:max_lines]
-        snippet = '\n'.join(lines)
     except Exception:
-        snippet = ''
+        worktree = ''
+
+    parts = []
+    staged_clean = staged.strip('\n')
+    worktree_clean = worktree.strip('\n')
+
+    if staged_clean:
+        parts.append('--- staged diff ---\\n' + staged_clean)
+
+    if worktree_clean and worktree_clean != staged_clean:
+        parts.append('--- worktree diff ---\\n' + worktree_clean)
+
+    snippet = '\\n\\n'.join(parts)
     result.append({'path': path, 'diff_snippet': snippet})
 print(json.dumps(result))
-" "$MAX_DIFF_LINES" 2>/dev/null || echo '[]'
+" 2>/dev/null || echo '[]'
 }
 
 # Write the .pull-dirty signal file.
