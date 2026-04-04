@@ -30,7 +30,7 @@ GitHub has been chosen as the tool for facilitating this, and that means we need
 
 ### Pipeline callback + cron monitor — [A] only
 
-The GitHub review pipeline uses two notification paths. The steady-state path is the `pipeline-monitor` cron, which polls GitHub every 2 minutes via `scripts/check-github-status.sh`. For faster feedback after reviews complete, `.github/workflows/codex-code-review.yml` can also hit `AGENT_WEBHOOK_URL`, which is handled by the minimal `scripts/webhook-signal.sh` listener when that endpoint is enabled. That callback remains **[A]** only: it discards request data (`exec 0</dev/null`) and writes a self-generated Unix timestamp to a signal file. It has no access to credentials **[B]** and makes no external calls **[C]**.
+The GitHub review pipeline uses two notification paths. The steady-state path is the `pipeline-monitor` cron, which polls GitHub every 2 minutes via `scripts/check-github-status.sh`. For faster feedback after reviews complete, `.github/workflows/codex-code-review.yml` can also hit `AGENT_WEBHOOK_URL` when an optional external wake-up endpoint is configured. That callback remains **[A]** only: the endpoint is expected to discard request data (`exec 0</dev/null`) and write a self-generated Unix timestamp to a local signal file. It has no access to credentials **[B]** and makes no external calls **[C]**.
 
 ### Reminder delivery flow — [BC] configuration
 
