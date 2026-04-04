@@ -41,7 +41,7 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
         # Compare PR Tests against the current PR head so reviewers never run on stale code.
-        HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        export HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
         echo "Checking PR Tests status for commit $HEAD_SHA"
 
         get_run_json() {
