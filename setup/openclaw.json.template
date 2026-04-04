@@ -67,11 +67,10 @@
   "tools": {
     "web": {
       "search": {
-        "enabled": true,
-        "apiKey": "{{WEB_SEARCH_API_KEY}}"
+        "enabled": false
       },
       "fetch": {
-        "enabled": true
+        "enabled": false
       }
     }
   },
