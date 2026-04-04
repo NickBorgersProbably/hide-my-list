@@ -1,0 +1,10 @@
+# USER.md - About Your Human
+
+- **Name:** {{USER_NAME}}
+- **What to call them:** {{DISPLAY_NAME}}
+- **Timezone:** {{TIMEZONE}} ({{TZ_IDENTIFIER}})
+- **Notes:** {{USER_NOTES}}
+
+## Context
+
+{{ADDITIONAL_CONTEXT}}
