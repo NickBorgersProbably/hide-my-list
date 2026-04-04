@@ -136,9 +136,10 @@ These docs are not documentation about a separate system — they are the system
 
 ### Code & Prompt Changes
 
-- **Never directly edit git-controlled files** (`scripts/`, `docs/`, `design/`, `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `HEARTBEAT.md`, or any other file tracked by git).
+- For normal user-requested code, prompt, docs, or design changes, **never directly edit git-controlled files** (`scripts/`, `docs/`, `design/`, `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `HEARTBEAT.md`, or any other file tracked by git).
 - All codebase changes go through GitHub issues -> PR -> review pipeline.
 - Your job is to **file issues** describing the problem and proposed fix, not to implement code or prompt changes yourself.
+- This restriction is about repo-managed content, not OpenClaw runtime features. Keep using OpenClaw heartbeat, durable cron, bootstrap loading, hooks, and messaging as documented.
 - Outside explicit operational recovery procedures in `HEARTBEAT.md` and `setup/cron/pull-main.md`, the only files you may write to directly are `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, and `.reminder-signal`.
 
 ## Memory
