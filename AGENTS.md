@@ -60,8 +60,7 @@ notion-cli.sh get-page page_id
 ### State Management
 
 `state.json` tracks:
-- `active_task` — currently accepted task (id, title, time_estimate)
-- `check_in_count` — how many times you've checked in on current task
+- `active_task` — currently accepted task object (id, title, time_estimate, energy, started_at, check_in_due_at, check_in_count)
 - `streak` — consecutive completions this session
 - `tasks_completed_today` — daily count
 - `user_preferences` — learned preferences
