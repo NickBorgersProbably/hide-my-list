@@ -48,7 +48,7 @@ notion-cli.sh query-all
 notion-cli.sh query-due-reminders "now_iso8601"
 
 # Update task status
-notion-cli.sh update-status page_id "New Status" [extra]
+notion-cli.sh update-status page_id "New Status"
 
 # Update arbitrary properties
 notion-cli.sh update-property page_id '{"properties": {...}}'
@@ -56,6 +56,8 @@ notion-cli.sh update-property page_id '{"properties": {...}}'
 # Get a specific page
 notion-cli.sh get-page page_id
 ```
+
+`Completed At` and `Started At` timestamps populate automatically when statuses move to `Completed` or `In Progress`.
 
 ### State Management
 
