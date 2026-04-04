@@ -71,17 +71,17 @@ If prompt injection occurs, the entire OpenClaw host is considered compromised -
 
 ### Network isolation
 
-Each OpenClaw instance runs on a dedicated KVM virtual machine on the home network, not a personal laptop or shared system. Each instance has its own VLAN, and the router blocks access to internal IP ranges from the OpenClaw VLANs.
+The VM is a KVM virtual machine on the home network, not a personal laptop or shared system. VLAN segmentation isolates it from the internal network — the router blocks access to internal IP ranges from the OpenClaw VLAN.
 
 The agent's conversational interface is reachable through OpenClaw's channels without Tailscale. Administrative interfaces (SSH, control UI) require Tailscale overlay network access with device posture checks.
 
-On the host, UFW defaults to deny-all inbound with explicit allows for SSH and WireGuard only. Outbound is unrestricted at the host level — host-level services like Tailscale require unrestricted egress to function. OpenClaw runs in a Podman container; outbound HTTP/HTTPS from the container is routed through a forward proxy via the container's proxy environment variables. On high-security instances, kernel-level egress rules enforce this independently of the container's environment — even if the process unsets its proxy variables, direct internet traffic is dropped.
+On the host, UFW defaults to deny-all inbound with explicit allows for SSH and WireGuard only. Outbound is unrestricted at the host level — host-level services like Tailscale require unrestricted egress to function. OpenClaw runs in a Podman container; outbound HTTP/HTTPS from the container is routed through a forward proxy via the container's proxy environment variables. Kernel-level egress rules enforce this independently of the container's environment — even if the process unsets its proxy variables, direct internet traffic is dropped.
 
 ### Forward proxy
 
 A Squid proxy enforces a domain allowlist. If the agent (or anything else on the host) tries to reach a domain that isn't explicitly allowed, the connection is denied. This provides mitigation against prompt injection because the agent will not go consuming arbitrary web content.
 
-**Caveat:** OpenClaw has code execution capability and could attempt to reach destinations outside the proxy. On high-security instances, kernel-level egress rules (see [Network isolation](#network-isolation)) enforce this independently of the container's environment — modifying or unsetting proxy variables does not bypass the restriction.
+**Caveat:** OpenClaw has code execution capability and could attempt to reach destinations outside the proxy. Kernel-level egress rules (see [Network isolation](#network-isolation)) enforce this independently of the container's environment — modifying or unsetting proxy variables does not bypass the restriction.
 
 The proxy also blocks connections to private network ranges (RFC 1918, loopback, link-local, and the overlay subnet itself) to prevent DNS rebinding attacks. Caching is disabled, `forwarded_for` headers are stripped, and the version string is suppressed.
 

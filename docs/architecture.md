@@ -233,7 +233,7 @@ sequenceDiagram
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
 | Messaging | OpenClaw Surfaces | Multi-channel by default (web, Signal, Telegram, Discord) |
-| CI/CD | GitHub Actions | Multi-agent review pipeline with Codex CLI and full internet for research |
+| CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 5 min, heartbeat re-registers on expiry |
 | Pipeline Monitoring | OpenClaw durable cron + check-github-status.sh | Native cron every 2 min for GitHub PR/CI status |
@@ -281,8 +281,9 @@ flowchart TB
     end
 
     subgraph CIEnv["GitHub Actions"]
-        CI[Codex Reviewers]
-        FullNet[Full Internet Access]
+        Gate[Security Gate Jobs<br/>ubuntu-latest]
+        CI[Codex Reviewers<br/>self-hosted]
+        FullNet[GitHub-hosted Egress]
     end
 
     Agent --> Proxy
@@ -292,13 +293,14 @@ flowchart TB
     Proxy -->|Allowed| Research
     Proxy -.->|Blocked| FullNet
 
-    CI --> FullNet
+    CI --> Proxy
+    Gate --> FullNet
 
     Cron -->|Scheduled checks| Scripts
 ```
 
-- **Network isolation**: Agent runs behind squid proxy with domain allowlist
-- **CI separation**: GitHub Actions reviewers have full internet but no access to infrastructure or home systems
+- **Network isolation**: Agent runs behind squid proxy with domain allowlist; kernel-level egress rules enforce this independently of the container
+- **CI separation**: GitHub Actions reviewers have no access to infrastructure or home systems
 - **Credential handling**: API keys in `.env` (gitignored), never logged or committed
 - **Least privilege**: PR test workflows have read-only permissions
 - **No open ports**: Cron-based monitoring replaced the socat webhook listener, eliminating inbound network exposure
