@@ -74,7 +74,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers. This is a platform constraint we work around rather than a feature we chose.
 
-**What we don't use:** `RemoteTrigger` (API-triggered agent sessions). This could replace the GitHub webhook for on-demand PR notifications, but we haven't implemented it yet. The cron-based pipeline monitor handles the common case.
+**RemoteTrigger status:** Baseline operation does not require `RemoteTrigger` (API-triggered agent sessions); the cron-based pipeline monitor handles the common case. The repo still documents `RemoteTrigger` as an optional fast-path for on-demand GitHub notifications in [`setup/cron/pipeline-monitor.md`](../setup/cron/pipeline-monitor.md), so contributors should treat it as a supported optional integration rather than a removed feature.
 
 ## Messaging Channels
 
