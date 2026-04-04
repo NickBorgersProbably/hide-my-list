@@ -224,10 +224,20 @@ jobs:
           PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
           EVENT_NAME="${{ github.event_name }}"
 
-          # If PR was reopened, remove the reviews-passed label to allow re-review
+          # If PR was reopened, remove review progress labels to allow re-review
           if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "reopened" ]; then
-            echo "PR was reopened - removing agent-reviews-passed label to allow re-review"
-            gh pr edit $PR_NUMBER --remove-label "agent-reviews-passed" --repo ${{ github.repository }} 2>/dev/null || true
+            echo "PR was reopened - removing review progress labels to allow re-review"
+            for label in \
+              "agent-reviews-passed" \
+              "all-reviews-started" \
+              "design-review-started" \
+              "security-review-started" \
+              "psych-review-started" \
+              "docs-review-started" \
+              "prompt-review-started" \
+              "merge-decision-started"; do
+              gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+            done
             echo "already_passed=false" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -673,6 +683,56 @@ jobs:
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
+      - name: Mark design review started
+        if: steps.setup.outputs.verified == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          STARTED_LABEL="design-review-started"
+          REQUIRED_STARTED_LABELS=$(cat <<'EOF'
+          design-review-started
+          docs-review-started
+          merge-decision-started
+          EOF
+          )
+
+          if [ "${{ needs.get-context.outputs.docs_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"security-review-started"
+          fi
+
+          if [ "${{ needs.get-context.outputs.config_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"psych-review-started"$'\n'"prompt-review-started"
+          fi
+
+          gh label create "$STARTED_LABEL" \
+            --color "c2e0c6" \
+            --description "Design review has started" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+          gh pr edit $PR_NUMBER --add-label "$STARTED_LABEL" --repo ${{ github.repository }}
+
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+          ALL_STARTED=true
+
+          while IFS= read -r label; do
+            [ -z "$label" ] && continue
+            if ! echo "$LABELS" | grep -qx "$label"; then
+              ALL_STARTED=false
+              break
+            fi
+          done <<< "$REQUIRED_STARTED_LABELS"
+
+          if [ "$ALL_STARTED" = "true" ]; then
+            gh label create "all-reviews-started" \
+              --color "c2e0c6" \
+              --description "All required review jobs have started" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+
+            gh pr edit $PR_NUMBER --add-label "all-reviews-started" --repo ${{ github.repository }}
+            echo "Added all-reviews-started label to PR #$PR_NUMBER"
+          fi
+
       - name: Design review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
@@ -824,6 +884,56 @@ jobs:
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
+      - name: Mark security review started
+        if: steps.setup.outputs.verified == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          STARTED_LABEL="security-review-started"
+          REQUIRED_STARTED_LABELS=$(cat <<'EOF'
+          design-review-started
+          docs-review-started
+          merge-decision-started
+          EOF
+          )
+
+          if [ "${{ needs.get-context.outputs.docs_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"security-review-started"
+          fi
+
+          if [ "${{ needs.get-context.outputs.config_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"psych-review-started"$'\n'"prompt-review-started"
+          fi
+
+          gh label create "$STARTED_LABEL" \
+            --color "c2e0c6" \
+            --description "Security review has started" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+          gh pr edit $PR_NUMBER --add-label "$STARTED_LABEL" --repo ${{ github.repository }}
+
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+          ALL_STARTED=true
+
+          while IFS= read -r label; do
+            [ -z "$label" ] && continue
+            if ! echo "$LABELS" | grep -qx "$label"; then
+              ALL_STARTED=false
+              break
+            fi
+          done <<< "$REQUIRED_STARTED_LABELS"
+
+          if [ "$ALL_STARTED" = "true" ]; then
+            gh label create "all-reviews-started" \
+              --color "c2e0c6" \
+              --description "All required review jobs have started" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+
+            gh pr edit $PR_NUMBER --add-label "all-reviews-started" --repo ${{ github.repository }}
+            echo "Added all-reviews-started label to PR #$PR_NUMBER"
+          fi
+
       - name: Security review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
@@ -925,6 +1035,56 @@ jobs:
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
+
+      - name: Mark psych review started
+        if: steps.setup.outputs.verified == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          STARTED_LABEL="psych-review-started"
+          REQUIRED_STARTED_LABELS=$(cat <<'EOF'
+          design-review-started
+          docs-review-started
+          merge-decision-started
+          EOF
+          )
+
+          if [ "${{ needs.get-context.outputs.docs_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"security-review-started"
+          fi
+
+          if [ "${{ needs.get-context.outputs.config_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"psych-review-started"$'\n'"prompt-review-started"
+          fi
+
+          gh label create "$STARTED_LABEL" \
+            --color "c2e0c6" \
+            --description "Psych research review has started" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+          gh pr edit $PR_NUMBER --add-label "$STARTED_LABEL" --repo ${{ github.repository }}
+
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+          ALL_STARTED=true
+
+          while IFS= read -r label; do
+            [ -z "$label" ] && continue
+            if ! echo "$LABELS" | grep -qx "$label"; then
+              ALL_STARTED=false
+              break
+            fi
+          done <<< "$REQUIRED_STARTED_LABELS"
+
+          if [ "$ALL_STARTED" = "true" ]; then
+            gh label create "all-reviews-started" \
+              --color "c2e0c6" \
+              --description "All required review jobs have started" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+
+            gh pr edit $PR_NUMBER --add-label "all-reviews-started" --repo ${{ github.repository }}
+            echo "Added all-reviews-started label to PR #$PR_NUMBER"
+          fi
 
       - name: Psych research review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1092,6 +1252,56 @@ jobs:
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
+      - name: Mark docs review started
+        if: steps.setup.outputs.verified == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          STARTED_LABEL="docs-review-started"
+          REQUIRED_STARTED_LABELS=$(cat <<'EOF'
+          design-review-started
+          docs-review-started
+          merge-decision-started
+          EOF
+          )
+
+          if [ "${{ needs.get-context.outputs.docs_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"security-review-started"
+          fi
+
+          if [ "${{ needs.get-context.outputs.config_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"psych-review-started"$'\n'"prompt-review-started"
+          fi
+
+          gh label create "$STARTED_LABEL" \
+            --color "c2e0c6" \
+            --description "Docs review has started" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+          gh pr edit $PR_NUMBER --add-label "$STARTED_LABEL" --repo ${{ github.repository }}
+
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+          ALL_STARTED=true
+
+          while IFS= read -r label; do
+            [ -z "$label" ] && continue
+            if ! echo "$LABELS" | grep -qx "$label"; then
+              ALL_STARTED=false
+              break
+            fi
+          done <<< "$REQUIRED_STARTED_LABELS"
+
+          if [ "$ALL_STARTED" = "true" ]; then
+            gh label create "all-reviews-started" \
+              --color "c2e0c6" \
+              --description "All required review jobs have started" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+
+            gh pr edit $PR_NUMBER --add-label "all-reviews-started" --repo ${{ github.repository }}
+            echo "Added all-reviews-started label to PR #$PR_NUMBER"
+          fi
+
       - name: Docs review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
@@ -1217,6 +1427,56 @@ jobs:
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
+
+      - name: Mark prompt review started
+        if: steps.setup.outputs.verified == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          STARTED_LABEL="prompt-review-started"
+          REQUIRED_STARTED_LABELS=$(cat <<'EOF'
+          design-review-started
+          docs-review-started
+          merge-decision-started
+          EOF
+          )
+
+          if [ "${{ needs.get-context.outputs.docs_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"security-review-started"
+          fi
+
+          if [ "${{ needs.get-context.outputs.config_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"psych-review-started"$'\n'"prompt-review-started"
+          fi
+
+          gh label create "$STARTED_LABEL" \
+            --color "c2e0c6" \
+            --description "Prompt engineering review has started" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+          gh pr edit $PR_NUMBER --add-label "$STARTED_LABEL" --repo ${{ github.repository }}
+
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+          ALL_STARTED=true
+
+          while IFS= read -r label; do
+            [ -z "$label" ] && continue
+            if ! echo "$LABELS" | grep -qx "$label"; then
+              ALL_STARTED=false
+              break
+            fi
+          done <<< "$REQUIRED_STARTED_LABELS"
+
+          if [ "$ALL_STARTED" = "true" ]; then
+            gh label create "all-reviews-started" \
+              --color "c2e0c6" \
+              --description "All required review jobs have started" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+
+            gh pr edit $PR_NUMBER --add-label "all-reviews-started" --repo ${{ github.repository }}
+            echo "Added all-reviews-started label to PR #$PR_NUMBER"
+          fi
 
       - name: Prompt engineering review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1355,6 +1615,56 @@ jobs:
           repository: ${{ github.repository }}
           checkout_token: ${{ secrets.WORKFLOW_PAT }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
+
+      - name: Mark merge decision started
+        if: steps.setup.outputs.verified == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          STARTED_LABEL="merge-decision-started"
+          REQUIRED_STARTED_LABELS=$(cat <<'EOF'
+          design-review-started
+          docs-review-started
+          merge-decision-started
+          EOF
+          )
+
+          if [ "${{ needs.get-context.outputs.docs_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"security-review-started"
+          fi
+
+          if [ "${{ needs.get-context.outputs.config_only }}" != "true" ]; then
+            REQUIRED_STARTED_LABELS="${REQUIRED_STARTED_LABELS}"$'\n'"psych-review-started"$'\n'"prompt-review-started"
+          fi
+
+          gh label create "$STARTED_LABEL" \
+            --color "c2e0c6" \
+            --description "Merge decision review has started" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+
+          gh pr edit $PR_NUMBER --add-label "$STARTED_LABEL" --repo ${{ github.repository }}
+
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+          ALL_STARTED=true
+
+          while IFS= read -r label; do
+            [ -z "$label" ] && continue
+            if ! echo "$LABELS" | grep -qx "$label"; then
+              ALL_STARTED=false
+              break
+            fi
+          done <<< "$REQUIRED_STARTED_LABELS"
+
+          if [ "$ALL_STARTED" = "true" ]; then
+            gh label create "all-reviews-started" \
+              --color "c2e0c6" \
+              --description "All required review jobs have started" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+
+            gh pr edit $PR_NUMBER --add-label "all-reviews-started" --repo ${{ github.repository }}
+            echo "Added all-reviews-started label to PR #$PR_NUMBER"
+          fi
 
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
