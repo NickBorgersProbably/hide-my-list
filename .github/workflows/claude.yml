@@ -102,6 +102,8 @@ jobs:
 
       - name: Build and push devcontainer
         uses: devcontainers/ci@v0.3
+        env:
+          BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
