@@ -7,6 +7,7 @@ state.json
 .env
 .pr-signal
 .reminder-signal
+.pull-dirty
 .pipeline-status
 .pipeline-last-state
 .pr-review-state.json

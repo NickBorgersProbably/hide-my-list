@@ -63,6 +63,16 @@
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
 | `GITHUB_PAT` | No | GitHub personal access token for higher rate limits |
+| `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
+
+Advanced overrides for self-hosted LiteLLM setups are also supported:
+
+- `CODEX_MODEL_PROVIDER` (defaults to `litellm`)
+- `CODEX_MODEL_PROVIDER_NAME` (defaults to `LiteLLM`)
+- `CODEX_MODEL_BASE_URL` (defaults to `https://llm.featherback-mermaid.ts.net/v1`)
+- `CODEX_MODEL_ENV_KEY` (defaults to `OPENAI_API_KEY`)
+
+Set these before running the devcontainer bootstrap if your environment differs from the default proxy.
 
 ## Cron Jobs
 
@@ -70,7 +80,7 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| reminder-check | Every 5 min | Poll Notion for due reminders, deliver to user |
+| reminder-check | Every 5 min | Poll Notion for due reminders, write `.reminder-signal`, deliver to user |
 | pipeline-monitor | Every 2 min | Check GitHub for PR/CI status changes |
 | heartbeat (built-in) | Every 30 min | System health, cron re-registration |
 

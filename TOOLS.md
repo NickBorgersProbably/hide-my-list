@@ -11,7 +11,7 @@
 - Title, Status, Work Type, Urgency, Time Estimate (min)
 - Energy Required, Rejection Count, Inline Steps
 - Parent Task, Sequence, Steps Completed, Resume Count
-- Completed At, Started At
+- Completed At, Started At, Is Reminder, Remind At, Reminder Status
 
 ### Status Values
 - Pending, In Progress, Completed, Has Subtasks
@@ -21,6 +21,9 @@
 
 ### Energy Values
 - High, Medium, Low
+
+### Reminder Status Values
+- pending, sent, missed
 
 ## State File
 

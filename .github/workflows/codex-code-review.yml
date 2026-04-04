@@ -320,8 +320,11 @@ jobs:
             if [[ "$file" == scripts/* ]] || [[ "$file" == docs/* ]] || [[ "$file" == design/* ]] || [[ "$file" == *.md ]]; then
               CONFIG_ONLY="false"
             fi
-            # docs_only: true when all changed files are *.md, docs/*, or design/*
-            if [[ "$file" != *.md ]] && [[ "$file" != docs/* ]] && [[ "$file" != design/* ]]; then
+            # docs_only: true when all changed files are inert documentation
+            # In this agentic system, most .md files ARE the application (prompts,
+            # cron jobs, agent identity, behavior specs). Only design/* (research
+            # principles) and README.md files are truly non-behavioral.
+            if [[ "$file" != design/* ]] && [[ "$(basename "$file")" != "README.md" ]]; then
               DOCS_ONLY="false"
             fi
           done <<< "$FILES"
@@ -699,6 +702,20 @@ jobs:
               ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
             fi
 
+            git fetch origin main >/dev/null 2>&1 || true
+            CHANGED_FILES=$(git diff --name-only origin/main...HEAD || echo "")
+            SPEC_FILES=$(echo "$CHANGED_FILES" | grep -E '^(AGENTS\.md|SOUL\.md|TOOLS\.md|HEARTBEAT\.md|docs/.*\.md|setup/cron/.*|scripts/.*)' || true)
+
+            if [ -n "$SPEC_FILES" ]; then
+              SPEC_PASS_REQUIRED="true"
+              SPEC_FILES_BULLETS=$(echo "$SPEC_FILES" | sed 's/^/- /')
+              SPEC_CHECK_DIRECTIVE="The diff touches spec-critical files. You must run the checklist below and treat unresolved contradictions as BLOCKING."
+            else
+              SPEC_PASS_REQUIRED="false"
+              SPEC_FILES_BULLETS="(none)"
+              SPEC_CHECK_DIRECTIVE="If a future diff touches spec-critical files, run this checklist and block the PR until contradictions are resolved."
+            fi
+
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \
@@ -723,6 +740,11 @@ jobs:
             Issue Comments (additional context/requirements):
             ${ISSUE_COMMENTS}
 
+            Changed spec-critical files:
+            ${SPEC_FILES_BULLETS}
+
+            Docs-as-spec consistency required: ${SPEC_PASS_REQUIRED}
+
             **YOUR TASK:**
             1. Read the issue/PR description to understand the problem being solved.
             2. Examine the code changes (\`git diff origin/main...HEAD\`).
@@ -732,9 +754,17 @@ jobs:
                  significant code beyond what the title implies, flag as blocking scope creep.
                - State explicitly: \"Scope check: PASS\" or \"Scope check: FAIL — [reason]\"
             5. Evaluate design decisions: could a simpler approach work? Flag over-engineering as blocking.
+            6. When docs-as-spec consistency is required, follow the checklist below.
 
             Reference docs/architecture.md for system design context.
             Do NOT push any changes. This is a read-only review.
+
+            **DOCS-AS-SPEC CONSISTENCY CHECKLIST**
+            ${SPEC_CHECK_DIRECTIVE}
+            Checklist (complete each item when SPEC required):
+            1. Identify the canonical sources for each changed behavior (docs/ai-prompts.md, docs/task-lifecycle.md, docs/notion-schema.md, AGENTS.md, HEARTBEAT.md, TOOLS.md, setup/cron/*.md, and the runtime scripts/config they reference).
+            2. Cross-check every changed behavior claim against those canonical sources and the actual runtime scripts/config (e.g., reminder cron flows, state transitions, Notion property values).
+            3. Treat contradictions or drift across docs/scripts as BLOCKING. Call them out explicitly with the conflicting sources.
 
             **INLINE COMMENTS:** Where a concern is tied to a specific line of code, also leave
             an inline PR review comment on that line. Use inline comments for localized feedback
@@ -1361,7 +1391,9 @@ jobs:
             - Documentation Consistency Review: ${DOCS_REVIEW_RESULT}
 
             **YOUR TASK:**
-            1. Read the review comments on this PR: \`gh pr view ${PR_NUMBER} --comments\`
+            1. Read all review feedback on this PR, including inline review comments:
+               - \`gh pr view ${PR_NUMBER} --comments\`
+               - \`gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments --paginate | jq -r '.[] | \"### \\(.path):\\(.line)\\n\\(.body)\\n\"'\`
             2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
             3. If there are merge conflicts AND you believe the PR should be merged, resolve them
             4. **Apply fixes from reviewers**: Check the review comments for fixes described by reviewers:
@@ -1374,6 +1406,7 @@ jobs:
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
+            - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
 
             **IF NO-GO:** Explain what must be fixed before the PR can merge.
 

@@ -37,7 +37,7 @@ stateDiagram-v2
     Rejected --> Pending: Rejection recorded
     Rejected --> Selected: Alternative suggested
 
-    InProgress --> CheckIn: Timer expires (1.25x estimate)
+    InProgress --> CheckIn: Check-in window reached
     InProgress --> Completed: User finishes
     InProgress --> Pending: User abandons
     InProgress --> CannotFinish: Task too large
@@ -478,34 +478,36 @@ When a user accepts a task, the system provides a brief **initiation reward** ac
 
 ## Phase 5: Check-In Follow-Up
 
-After acceptance, the system sets `started_at` and sets a timer for 1.25x the estimated time. If the user hasn't marked the task complete, the system proactively checks in.
+After acceptance, the agent records timing metadata and (optionally) relies on an OpenClaw cron job to prompt follow-ups. No browser timer exists.
 
 ```mermaid
 flowchart TD
     Accept([User accepts task]) --> InitReward["Initiation reward:<br/>#quot;You're in. That's the hardest part.#quot;"]
-    InitReward --> SetStarted[Set started_at timestamp]
-    SetStarted --> InitSteps[Set steps_completed = 0]
-    InitSteps --> SetTimer[Set timer: estimate × 1.25]
-    SetTimer --> Wait[Timer running...]
+    InitReward --> SetStarted[Set Notion `Started At`]
+    SetStarted --> InitSteps[Initialize `steps_completed = 0`]
+    InitSteps --> RecordState[Write to state.json:<br/>active_task + check_in_due_at]
+    RecordState --> Wait[Await cron trigger / user updates]
 
-    Wait --> StepDone[User completes a step]
-    Wait --> TimerFires{Timer expires}
+    Wait --> TimerFires{check_in_due_at reached?}
     Wait --> UserDone["User says #quot;Done!#quot;"]
+    Wait --> StepDone[User completes a sub-step]
 
-    StepDone --> IncrSteps[Increment steps_completed]
+    StepDone --> IncrSteps[Increment `steps_completed`]
     IncrSteps --> IsFirst{steps_completed == 1?}
     IsFirst -->|Yes| FirstReward["First-step reward:<br/>#quot;First step down. You're rolling.#quot;"]
     IsFirst -->|No| Brief[Brief encouragement]
     FirstReward --> Wait
     Brief --> Wait
 
-    UserDone --> ClearTimer[Clear timer]
-    ClearTimer --> Complete([Mark completed])
+    UserDone --> ClearState[Clear active_task from state.json]
+    ClearState --> Complete([Mark completed])
 
-    TimerFires --> CheckStatus{Task still in_progress?}
+    TimerFires --> CheckConfigured{Check-in cron configured?}
+    CheckConfigured -->|No| Skip[Log CHECK_IN_SKIPPED, keep waiting]
+    CheckConfigured -->|Yes| ConfirmStatus{Task still `in_progress`?}
 
-    CheckStatus -->|No| Skip[Already completed/abandoned]
-    CheckStatus -->|Yes| AskUser["How's [task] going?"]
+    ConfirmStatus -->|No| Cleanup[Clear state.json, exit]
+    ConfirmStatus -->|Yes| AskUser["How's [task] going?"]
 
     AskUser --> Response{User response}
 
@@ -516,49 +518,41 @@ flowchart TD
     Response --> Abandon["Want to stop"]
 
     Done --> Complete
-    Working --> ResetTimer1[Reset timer: 0.5x original]
-    Distracted --> Nudge["Want to jump back in?"]
-    NeedMore --> AskHow["How much longer?"]
-    Abandon --> ReturnQueue[Return to pending]
+    Working --> ResetHalf[Set next due = now + estimate×0.5;<br/>increment count]
+    Distracted --> Decide{Continue task?}
+    NeedMore --> AskHow["Ask: How much longer?"]
+    Abandon --> ReturnQueue[Return to pending, clear state]
 
-    ResetTimer1 --> Wait2[Timer running...]
-    Nudge --> Response2{User choice}
-    AskHow --> NewTime[User gives time]
+    Decide -->|Yes| ResetHalf
+    Decide -->|No| ReturnQueue
 
-    Response2 -->|Yes| ResetTimer2[Reset timer]
-    Response2 -->|No| ReturnQueue
+    AskHow --> UpdateDue[Set next due = now + user time×1.25;<br/>increment count]
+    ResetHalf --> Wait2[Await next cron trigger]
+    UpdateDue --> Wait2
 
-    NewTime --> ResetTimer3[Set new timer]
-    ResetTimer2 --> Wait2
-    ResetTimer3 --> Wait2
-
-    Wait2 --> CheckIn2{2nd check-in}
-    CheckIn2 --> FinalResponse{Response?}
-
-    FinalResponse -->|Done| Complete
-    FinalResponse -->|Still working| CheckIn3[3rd check-in]
-    FinalResponse -->|Abandon| ReturnQueue
-
-    CheckIn3 --> Gentle["Maybe take a break?<br/>I'll be here when you're ready."]
+    Wait2 --> CheckCount{check_in_count ≥ 3?}
+    CheckCount -->|Yes| Gentle["Gentle nudge:<br/>Maybe take a break?"] --> ReturnQueue
+    CheckCount -->|No| Wait
 ```
 
 ### Check-In Timing Examples
 
-| Time Estimate | First Check-In | Subsequent Check-Ins |
-|---------------|----------------|----------------------|
-| 15 min | 18.75 min | +7.5 min, +3.75 min |
-| 30 min | 37.5 min | +15 min, +7.5 min |
-| 60 min | 75 min | +30 min, +15 min |
-| 120 min | 150 min | +60 min, +30 min |
+| Time Estimate | First Check-In (state.json) | Second Check-In | Third Check-In |
+|---------------|-----------------------------|-----------------|----------------|
+| 15 min | Started At + 18.75 min | +7.5 min | +3.75 min |
+| 30 min | Started At + 37.5 min | +15 min | +7.5 min |
+| 60 min | Started At + 75 min | +30 min | +15 min |
+| 120 min | Started At + 150 min | +60 min | +30 min |
 
 ### Check-In Response Handling
 
 | Response | Action | Timer |
 |----------|--------|-------|
-| "Done!" | Mark completed | Clear |
-| "Still working" | Encourage | Reset to 0.5x |
-| "Got distracted" | Gentle nudge | Reset to 0.5x if continuing |
-| "Need X more minutes" | Acknowledge | Set to X × 1.25 |
+| "Done!" | Mark completed; clear state | N/A |
+| "Still working" | Encourage; increment count | Set `check_in_due_at = now + estimate × 0.5` |
+| "Got distracted" (continue) | Gentle nudge | Same as still working |
+| "Got distracted" (stop) | Return to queue | Clear |
+| "Need X more minutes" | Acknowledge | Set `check_in_due_at = now + X × 1.25` |
 | "Want to stop" | Return to queue | Clear |
 
 ### Maximum Check-Ins
@@ -569,7 +563,7 @@ The system limits check-ins to 3 per task session to avoid nagging:
 2. **2nd check-in**: Brief follow-up
 3. **3rd check-in**: Suggest taking a break, stop checking in
 
-If the user returns later and re-accepts the same task, the check-in count resets.
+If the user returns later and re-accepts the same task, the check-in count resets when `state.json.active_task` is recreated.
 
 ## Phase 6: Rejection Handling
 
@@ -679,7 +673,7 @@ flowchart TD
     GapLength -->|15 min – 4 hours| Brief["Brief encouragement +<br/>resume reward"]
     GapLength -->|4 – 24 hours| Remind["State reminder:<br/>steps completed, where left off +<br/>resume reward"]
 
-    Brief --> ResetCheckins[Reset check-in count to 0<br/>Set new check-in timer]
+    Brief --> ResetCheckins[Reset check-in count to 0<br/>Set new check-in due time]
     Remind --> ResetCheckins
 
     ResetCheckins --> Continue([User continues working])
@@ -694,7 +688,7 @@ flowchart TD
     UserChoice -->|Continue| RecordResume[Record resume +<br/>state reminder +<br/>resume reward]
     UserChoice -->|Abandon| ReturnPending[Set status → pending<br/>Log gap in progress_notes]
 
-    RecordResume --> ResetCheckins[Reset check-in count<br/>Set new check-in timer]
+    RecordResume --> ResetCheckins[Reset check-in count<br/>Set new check-in due time]
     ResetCheckins --> Continue([User continues])
     ReturnPending --> Done([Task returned to queue])
 ```
@@ -723,7 +717,7 @@ When resume fires, the system restores task context:
 | Set `last_resumed_at` to now | De-duplication guard for this gap |
 | Append to `progress_notes`: `[timestamp] Resumed (gap: Xm)` | Internal audit trail |
 | Reset check-in count to 0 | Fresh check-in cycle after break |
-| Set new check-in timer (based on remaining estimate) | Proactive follow-up without carrying over stale timers |
+| Set new check-in due time (based on remaining estimate) | Proactive follow-up without carrying over stale timers |
 | Remind user of `steps_completed` and last progress note | Help user regain context (4+ hour gaps only) |
 
 ### De-duplication Guards
@@ -929,7 +923,7 @@ The reward system scales celebrations based on achievement significance:
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection — instead, the reminder daemon delivers them proactively at the specified time.
+Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection — instead, the durable `reminder-check` cron job delivers them proactively at the specified time.
 
 ```mermaid
 flowchart TD
@@ -938,10 +932,11 @@ flowchart TD
     Parse --> Save[Save to Notion with is_reminder=true]
 
     Save --> Wait[Task waits in Notion]
-    Wait --> Daemon[reminder-daemon.sh polls every 5 min]
-    Daemon --> Due{remind_at <= now?}
+    Wait --> Cron[reminder-check cron runs every 5 min]
+    Cron --> Due{remind_at <= now?}
     Due -->|No| Wait
-    Due -->|Yes| Late{>15 min past due?}
+    Due -->|Yes| Signal[check-reminders.sh writes .reminder-signal]
+    Signal --> Late{>15 min past due?}
 
     Late -->|No| Send[Deliver reminder]
     Late -->|Yes| SendMissed[Deliver with apology]
@@ -957,7 +952,7 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | Reminder daemon delivers at remind_at |
+| Selection | User requests → AI suggests | `reminder-check` cron surfaces `.reminder-signal` at `remind_at` |
 | Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |

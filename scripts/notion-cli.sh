@@ -127,19 +127,37 @@ print(json.dumps({
     # Args: page_id new_status
     PAGE_ID="$2"
     NEW_STATUS="$3"
+    # shellcheck disable=SC2034  # retained for backward compatibility
     EXTRA="${4:-}"
 
-    PROPS=$(python3 -c "
-import json, sys
-props = {'Status': {'select': {'name': sys.argv[1]}}}
-if sys.argv[2] == 'completed_at':
-    from datetime import datetime, timezone
-    props['Completed At'] = {'date': {'start': datetime.now(timezone.utc).isoformat()}}
-if sys.argv[2] == 'started_at':
-    from datetime import datetime, timezone
-    props['Started At'] = {'date': {'start': datetime.now(timezone.utc).isoformat()}}
+    PAGE_JSON=$(curl "${CURL_ARGS[@]}" "$API/pages/$PAGE_ID" "${HEADERS[@]}")
+
+    PROPS=$(python3 - "$NEW_STATUS" "$PAGE_JSON" <<'PYTHON'
+import json
+import sys
+from datetime import datetime, timezone
+
+new_status = sys.argv[1]
+page = json.loads(sys.argv[2])
+
+props = {'Status': {'select': {'name': new_status}}}
+now = datetime.now(timezone.utc).isoformat()
+
+if new_status == 'Completed':
+    props['Completed At'] = {'date': {'start': now}}
+elif new_status == 'In Progress':
+    started_at = None
+    started_prop = page.get('properties', {}).get('Started At')
+    if isinstance(started_prop, dict):
+        date_value = started_prop.get('date')
+        if isinstance(date_value, dict):
+            started_at = date_value.get('start')
+    if not started_at:
+        props['Started At'] = {'date': {'start': now}}
+
 print(json.dumps({'properties': props}))
-" "$NEW_STATUS" "$EXTRA")
+PYTHON
+)
 
     curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
     ;;

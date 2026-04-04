@@ -10,6 +10,7 @@ An AI-powered task manager where users never directly view their task list. The 
 ## Documentation
 
 - [Architecture](architecture.md) - System architecture, components, and data flow
+- [OpenClaw Integration](openclaw-integration.md) - How the repo maps onto the OpenClaw runtime
 - [AI Prompts](ai-prompts.md) - AI interaction patterns and prompts
 - [Notion Schema](notion-schema.md) - Database schema and data model
 - [Task Lifecycle](task-lifecycle.md) - Task states and transitions

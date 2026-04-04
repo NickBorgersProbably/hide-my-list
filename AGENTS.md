@@ -48,7 +48,7 @@ notion-cli.sh query-all
 notion-cli.sh query-due-reminders "now_iso8601"
 
 # Update task status
-notion-cli.sh update-status page_id "New Status" [extra]
+notion-cli.sh update-status page_id "New Status"
 
 # Update arbitrary properties
 notion-cli.sh update-property page_id '{"properties": {...}}'
@@ -57,11 +57,12 @@ notion-cli.sh update-property page_id '{"properties": {...}}'
 notion-cli.sh get-page page_id
 ```
 
+`Completed At` and `Started At` timestamps populate automatically when statuses move to `Completed` or `In Progress`.
+
 ### State Management
 
 `state.json` tracks:
-- `active_task` — currently accepted task (id, title, time_estimate)
-- `check_in_count` — how many times you've checked in on current task
+- `active_task` — currently accepted task object (id, title, time_estimate, energy, started_at, check_in_due_at, check_in_count)
 - `streak` — consecutive completions this session
 - `tasks_completed_today` — daily count
 - `user_preferences` — learned preferences
@@ -148,7 +149,7 @@ Log significant interactions, preference learning, and any issues.
 ## Review Pipeline
 
 PRs are reviewed by a multi-agent Codex pipeline:
-1. Design Review — validates intent fulfillment and design quality
+1. Design Review — validates intent fulfillment and design quality, and runs a docs-as-spec consistency check whenever spec-critical files change
 2. Security & Infrastructure Review — script safety, credential handling, workflow permissions
 3. Psych Research Review — validates against ADHD clinical research
 4. Prompt Engineering Review — validates prompt clarity, constraints, and cross-prompt consistency
