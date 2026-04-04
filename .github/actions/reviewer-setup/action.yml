@@ -30,12 +30,33 @@ outputs:
   verified:
     description: 'Whether PR Tests passed for the current PR head (true/false)'
     value: ${{ steps.verify-tests.outputs.verified }}
+  exists:
+    description: 'Whether the PR branch still exists on the remote (true/false)'
+    value: ${{ steps.check-branch.outputs.exists }}
 
 runs:
   using: 'composite'
   steps:
+    - name: Check if PR branch still exists
+      id: check-branch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+      run: |
+        # URL-encode the branch name for the API call (handles slashes, etc.)
+        ENCODED_BRANCH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${{ inputs.head_ref }}', safe=''))")
+        HTTP_STATUS=$(gh api "repos/${{ inputs.repository }}/branches/${ENCODED_BRANCH}" --silent -i 2>&1 | head -1 | awk '{print $2}')
+        if [ "$HTTP_STATUS" = "200" ]; then
+          echo "Branch '${{ inputs.head_ref }}' exists"
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "Branch '${{ inputs.head_ref }}' does not exist (HTTP $HTTP_STATUS) - PR was likely merged and branch deleted"
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Verify PR Tests passed on current commit
       id: verify-tests
+      if: steps.check-branch.outputs.exists == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
@@ -93,34 +114,39 @@ runs:
         echo "verified=false" >> $GITHUB_OUTPUT
 
     - name: Checkout PR branch
-      if: steps.verify-tests.outputs.verified == 'true'
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.head_ref }}
-        repository: ${{ inputs.head_repo }}
-        fetch-depth: 0
-        token: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+      if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
+      shell: bash
+      env:
+        CHECKOUT_TOKEN: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+      run: |
+        # Use git directly instead of actions/checkout to avoid composite action
+        # post-cleanup bug ("Index was out of range") with conditional uses: steps.
+        git clone --no-checkout "https://x-access-token:${CHECKOUT_TOKEN}@github.com/${{ inputs.head_repo }}.git" .
+        git fetch origin "${{ inputs.head_ref }}"
+        git checkout "${{ inputs.head_ref }}"
 
     - name: Pull latest changes
-      if: steps.verify-tests.outputs.verified == 'true'
+      if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
       shell: bash
       run: git pull origin ${{ inputs.head_ref }} || true
 
     - name: Create directories for devcontainer mounts
-      if: steps.verify-tests.outputs.verified == 'true'
+      if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
       shell: bash
       run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
     - name: Log in to GHCR
-      if: steps.verify-tests.outputs.verified == 'true'
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ inputs.github_token }}
+      if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
+      shell: bash
+      env:
+        GHCR_TOKEN: ${{ inputs.github_token }}
+      run: |
+        # Use docker login directly instead of docker/login-action to avoid
+        # composite action post-cleanup bug with conditional uses: steps.
+        echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
     - name: Log out of GHCR
-      if: steps.verify-tests.outputs.verified == 'true'
+      if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
       shell: bash
       run: |
         # Ensure cached GHCR credentials are cleared on persistent runners.

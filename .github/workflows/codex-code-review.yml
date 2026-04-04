@@ -674,7 +674,7 @@ jobs:
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Design review in devcontainer
-        if: steps.setup.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true' && steps.setup.outputs.exists == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -825,7 +825,7 @@ jobs:
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Security review in devcontainer
-        if: steps.setup.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true' && steps.setup.outputs.exists == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -927,7 +927,7 @@ jobs:
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Psych research review in devcontainer
-        if: steps.setup.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true' && steps.setup.outputs.exists == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1093,7 +1093,7 @@ jobs:
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Docs review in devcontainer
-        if: steps.setup.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true' && steps.setup.outputs.exists == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1219,7 +1219,7 @@ jobs:
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Prompt engineering review in devcontainer
-        if: steps.setup.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true' && steps.setup.outputs.exists == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1333,6 +1333,7 @@ jobs:
     runs-on: [self-hosted, homelab]
     outputs:
       decision: ${{ steps.parse-decision.outputs.decision }}
+      branch_exists: ${{ steps.setup.outputs.exists }}
     permissions:
       contents: write
       pull-requests: write
@@ -1357,7 +1358,7 @@ jobs:
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Make merge decision in devcontainer
-        if: steps.setup.outputs.verified == 'true'
+        if: steps.setup.outputs.verified == 'true' && steps.setup.outputs.exists == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1440,6 +1441,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
+          if [ "${{ steps.setup.outputs.exists }}" = "false" ]; then
+            echo "PR branch no longer exists - PR was likely merged and branch deleted"
+            echo "decision=SKIPPED" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           if [ "${{ steps.setup.outputs.verified }}" != "true" ]; then
             echo "Reviewer setup could not verify PR Tests for the current head - defaulting to NO-GO"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
@@ -1488,6 +1495,8 @@ jobs:
 
       - name: Check review results
         id: check-results
+        env:
+          BRANCH_EXISTS: ${{ needs.merge-decision.outputs.branch_exists }}
         run: |
           check_result() {
             local result=$1
@@ -1495,6 +1504,14 @@ jobs:
           }
 
           failed=false
+
+          # If the PR branch was deleted (merged), skip gracefully
+          if [ "$BRANCH_EXISTS" = "false" ]; then
+            echo "PR branch no longer exists - PR was likely merged and branch deleted"
+            echo "Skipping reviews gracefully"
+            echo "branch_missing=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           # PR reopen only resets the label — the real reviews come from
           # the workflow_run trigger once PR Tests complete.  Exit with
@@ -1637,6 +1654,7 @@ jobs:
 
       - name: Create commit status for reviews
         if: |
+          steps.check-results.outputs.branch_missing != 'true' &&
           needs.get-context.outputs.pr_number != '' &&
           (needs.get-context.outputs.tests_passed == 'true' || steps.check-results.outputs.skipped_with_success == 'true')
         env:
@@ -1666,6 +1684,7 @@ jobs:
 
       - name: Add agent-reviews-passed label
         if: |
+          steps.check-results.outputs.branch_missing != 'true' &&
           steps.check-results.outputs.should_label == 'true' &&
           needs.get-context.outputs.pr_number != ''
         env:
@@ -1687,7 +1706,7 @@ jobs:
           echo "To re-run reviews: close and reopen the PR."
 
       - name: Notify agent webhook
-        if: always() && needs.get-context.outputs.pr_number != ''
+        if: always() && steps.check-results.outputs.branch_missing != 'true' && needs.get-context.outputs.pr_number != ''
         continue-on-error: true
         run: |
           # Signal the OpenClaw agent that reviews are complete
