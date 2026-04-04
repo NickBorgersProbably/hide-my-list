@@ -71,7 +71,7 @@ If prompt injection occurs, the entire OpenClaw host is considered compromised -
 
 ### Network isolation
 
-Each OpenClaw instance runs on a dedicated KVM virtual machine on the home network, not a personal laptop or shared system. Each instance has its own VLAN (200/201/202), and the router blocks access to internal IP ranges from the OpenClaw VLANs.
+Each OpenClaw instance runs on a dedicated KVM virtual machine on the home network, not a personal laptop or shared system. Each instance has its own VLAN, and the router blocks access to internal IP ranges from the OpenClaw VLANs.
 
 The agent's conversational interface is reachable through OpenClaw's channels without Tailscale. Administrative interfaces (SSH, control UI) require Tailscale overlay network access with device posture checks.
 
