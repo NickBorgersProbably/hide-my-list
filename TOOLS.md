@@ -14,13 +14,16 @@
 - Completed At, Started At, Is Reminder, Remind At, Reminder Status
 
 ### Status Values
-- pending, in_progress, completed, has_subtasks
+- Pending, In Progress, Completed, Has Subtasks
 
 ### Work Type Values
-- focus, creative, social, independent
+- Focus, Creative, Social, Independent
 
 ### Energy Values
-- high, medium, low
+- High, Medium, Low
+
+### Reminder Status Values
+- pending, sent, missed
 
 ## State File
 
