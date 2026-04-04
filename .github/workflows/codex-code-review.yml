@@ -1381,7 +1381,8 @@ jobs:
               --dangerously-bypass-approvals-and-sandbox \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
 
-            You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
+            You have personal responsibility to decide whether the automated review gate for this PR is GO or NO-GO.
+            This workflow does not submit GitHub approving reviews. Do not treat missing human approval or unmet branch protection approval requirements as blocking for your decision.
 
             **REVIEW STATUS:**
             - Design Review: ${DESIGN_REVIEW_RESULT}
@@ -1408,9 +1409,9 @@ jobs:
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
             - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
 
-            **IF NO-GO:** Explain what must be fixed before the PR can merge.
+            **IF NO-GO:** Explain what must be fixed before the automated review gate can pass.
 
-            **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then approve.
+            **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then report GO.
 
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
@@ -1419,7 +1420,7 @@ jobs:
 
             **Decision: [GO | NO-GO]**
 
-            [If GO: \"Ready for merge to main and production deployment.\"]
+            [If GO: \"Automated review gate passed. Merge may proceed once any separate branch protection requirements are satisfied.\"]
             [If NO-GO: List specific blockers that must be resolved.]
 
             [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
@@ -1617,7 +1618,7 @@ jobs:
             exit 1
           fi
 
-          echo "All agent reviews completed and merge decision is GO - PR is ready for merge"
+          echo "All agent reviews completed and merge decision is GO - automated review gate passed"
           echo ""
           echo "Review Results:"
           echo "  Tests Passed: ${{ needs.get-context.outputs.tests_passed }}"
