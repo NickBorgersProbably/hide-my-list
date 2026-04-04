@@ -463,7 +463,7 @@ Boolean flag indicating this task is a time-specific reminder rather than a norm
 
 ### RemindAt (date)
 
-The wall-clock time at which the reminder should fire. Stored as a full ISO 8601 timestamp with timezone offset so the reminder daemon can compare against the current time.
+The wall-clock time at which the reminder should fire. Stored as a full ISO 8601 timestamp with timezone offset so the scheduled reminder check can compare against the current time.
 
 ```
 Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
@@ -471,7 +471,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
 
-**Used by:** The `check-reminders.sh` script (invoked by `reminder-daemon.sh`), which queries for pending reminders where `remind_at` is within the current check window.
+**Used by:** The `check-reminders.sh` script (invoked by the `reminder-check` durable cron job), which queries for pending reminders and writes `.reminder-signal` when `remind_at` is due.
 
 ---
 

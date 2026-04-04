@@ -70,7 +70,7 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| reminder-check | Every 5 min | Poll Notion for due reminders, deliver to user |
+| reminder-check | Every 5 min | Poll Notion for due reminders, write `.reminder-signal`, deliver to user |
 | pipeline-monitor | Every 2 min | Check GitHub for PR/CI status changes |
 | heartbeat (built-in) | Every 30 min | System health, cron re-registration |
 
