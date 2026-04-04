@@ -82,13 +82,84 @@ jobs:
               ;;
           esac
 
+  preflight:
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      is_pr: ${{ steps.pr-context.outputs.is_pr }}
+      pr_number: ${{ steps.pr-context.outputs.pr_number }}
+      pr_head_ref: ${{ steps.pr-context.outputs.pr_head_ref }}
+      should_run: ${{ steps.pr-context.outputs.should_run }}
+      skip_reason: ${{ steps.pr-context.outputs.skip_reason }}
+      checkout_ref: ${{ steps.pr-context.outputs.checkout_ref }}
+    steps:
+      - name: Get PR context
+        id: pr-context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Determine whether this run targets an active PR and which ref is safe to check out.
+          IS_PR="false"
+          PR_HEAD_REF=""
+          PR_NUMBER=""
+          SHOULD_RUN="true"
+          SKIP_REASON=""
+          CHECKOUT_REF="${{ github.event.repository.default_branch }}"
+
+          if [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
+            IS_PR="true"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            IS_PR="true"
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          elif [ "${{ github.event_name }}" = "issue_comment" ]; then
+            # Check if the issue is actually a PR
+            if [ -n "${{ github.event.issue.pull_request }}" ]; then
+              IS_PR="true"
+              PR_NUMBER="${{ github.event.issue.number }}"
+            fi
+          fi
+
+          if [ "$IS_PR" = "true" ]; then
+            PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER})
+            PR_STATE=$(printf '%s' "$PR_JSON" | jq -r '.state')
+            PR_MERGED_AT=$(printf '%s' "$PR_JSON" | jq -r '.merged_at // empty')
+            PR_HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.head.ref // empty')
+
+            if [ "$PR_STATE" != "open" ] || [ -n "$PR_MERGED_AT" ]; then
+              SHOULD_RUN="false"
+              SKIP_REASON="PR #${PR_NUMBER} is not active (state=${PR_STATE}, merged_at=${PR_MERGED_AT:-not-merged})"
+            elif [ -z "$PR_HEAD_REF" ]; then
+              SHOULD_RUN="false"
+              SKIP_REASON="PR #${PR_NUMBER} does not have a head branch ref"
+            else
+              HEAD_EXISTS=$(gh api "repos/${{ github.repository }}/git/matching-refs/heads/${PR_HEAD_REF}" --jq 'length > 0')
+              if [ "$HEAD_EXISTS" = "true" ]; then
+                CHECKOUT_REF="$PR_HEAD_REF"
+              else
+                SHOULD_RUN="false"
+                SKIP_REASON="PR #${PR_NUMBER} head branch '${PR_HEAD_REF}' no longer exists on origin"
+              fi
+            fi
+          fi
+
+          echo "is_pr=$IS_PR" >> $GITHUB_OUTPUT
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_head_ref=$PR_HEAD_REF" >> $GITHUB_OUTPUT
+          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
+          echo "skip_reason=$SKIP_REASON" >> $GITHUB_OUTPUT
+          echo "checkout_ref=$CHECKOUT_REF" >> $GITHUB_OUTPUT
+          echo "Detected: IS_PR=$IS_PR, PR_NUMBER=$PR_NUMBER, PR_HEAD_REF=$PR_HEAD_REF, SHOULD_RUN=$SHOULD_RUN, CHECKOUT_REF=$CHECKOUT_REF"
+
   # Build and cache devcontainer image first
   # Only build when a downstream job (codex or resolve-issue) will actually run.
   # Without this gate, every PR review comment triggers a wasted devcontainer build.
   build-devcontainer:
-    needs: authorize
+    needs: [authorize, preflight]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
+      needs.preflight.outputs.should_run == 'true' &&
       (
         (github.event_name == 'issues') ||
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
@@ -123,9 +194,10 @@ jobs:
           push: always
 
   codex:
-    needs: [authorize, build-devcontainer]
+    needs: [authorize, preflight, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
+      needs.preflight.outputs.should_run == 'true' &&
       ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
@@ -154,45 +226,12 @@ jobs:
             echo "Note: GitHub API does not support reactions on PR reviews"
           fi
 
-      - name: Get PR context
-        id: pr-context
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Determine if this is a PR comment and get PR details
-          IS_PR="false"
-          PR_HEAD_REF=""
-          PR_NUMBER=""
-
-          if [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
-            IS_PR="true"
-            PR_NUMBER="${{ github.event.pull_request.number }}"
-            PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
-          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
-            IS_PR="true"
-            PR_NUMBER="${{ github.event.pull_request.number }}"
-            PR_HEAD_REF="${{ github.event.pull_request.head.ref }}"
-          elif [ "${{ github.event_name }}" = "issue_comment" ]; then
-            # Check if the issue is actually a PR
-            if [ -n "${{ github.event.issue.pull_request }}" ]; then
-              IS_PR="true"
-              PR_NUMBER="${{ github.event.issue.number }}"
-              # Fetch PR details to get head ref
-              PR_HEAD_REF=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.head.ref')
-            fi
-          fi
-
-          echo "is_pr=$IS_PR" >> $GITHUB_OUTPUT
-          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "pr_head_ref=$PR_HEAD_REF" >> $GITHUB_OUTPUT
-          echo "Detected: IS_PR=$IS_PR, PR_NUMBER=$PR_NUMBER, PR_HEAD_REF=$PR_HEAD_REF"
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
-          ref: ${{ steps.pr-context.outputs.is_pr == 'true' && steps.pr-context.outputs.pr_head_ref || github.ref }}
+          ref: ${{ needs.preflight.outputs.checkout_ref }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -215,8 +254,8 @@ jobs:
             REVIEW_ID=${{ github.event.review.id }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
-            IS_PR=${{ steps.pr-context.outputs.is_pr }}
-            PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
+            IS_PR=${{ needs.preflight.outputs.is_pr }}
+            PR_HEAD_REF=${{ needs.preflight.outputs.pr_head_ref }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -307,7 +346,7 @@ jobs:
 
       - name: Upload Codex conversation log
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.preflight.outputs.should_run == 'true'
         continue-on-error: true
         with:
           name: codex-conversation-log
