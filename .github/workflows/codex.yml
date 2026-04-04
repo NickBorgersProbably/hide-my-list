@@ -1,4 +1,4 @@
-name: Claude Code
+name: Codex Agent
 
 on:
   issue_comment:
@@ -10,13 +10,13 @@ on:
   pull_request_review:
     types: [submitted]
 
-# SECURITY NOTE: This workflow grants Claude Code access to secrets and write permissions.
+# SECURITY NOTE: This workflow grants the Codex agent access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
-# Only repository collaborators, members, and owners can trigger Claude.
+# Only repository collaborators, members, and owners can trigger Codex.
 
 # Prevent duplicate runs for the same issue/PR. New runs cancel in-progress ones.
 concurrency:
-  group: claude-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  group: codex-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -24,7 +24,7 @@ env:
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
 
 jobs:
-  # Security gate: Check if the actor is authorized to trigger Claude
+  # Security gate: Check if the actor is authorized to trigger Codex
   # This prevents prompt injection attacks from untrusted external users
   authorize:
     runs-on: ubuntu-latest
@@ -76,14 +76,14 @@ jobs:
               ;;
             *)
               echo "Not authorized: $ACTOR is a $AUTHOR_ASSOC"
-              echo "External users cannot trigger Claude Code workflows."
+              echo "External users cannot trigger Codex workflows."
               echo "This is a security measure to prevent prompt injection attacks."
               echo "authorized=false" >> $GITHUB_OUTPUT
               ;;
           esac
 
   # Build and cache devcontainer image first
-  # Only build when a downstream job (claude or resolve-issue) will actually run.
+  # Only build when a downstream job (codex or resolve-issue) will actually run.
   # Without this gate, every PR review comment triggers a wasted devcontainer build.
   build-devcontainer:
     needs: authorize
@@ -91,9 +91,9 @@ jobs:
       needs.authorize.outputs.authorized == 'true' &&
       (
         (github.event_name == 'issues') ||
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex'))
       )
     runs-on: [self-hosted, homelab]
     permissions:
@@ -122,14 +122,14 @@ jobs:
           platform: linux/amd64
           push: always
 
-  claude:
+  codex:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))))
+      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex'))))
     runs-on: [self-hosted, homelab]
     permissions:
       contents: write
@@ -355,7 +355,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Create the label if it doesn't exist (ignore error if it does)
-          gh label create "codex-started" --color "7057ff" --description "Claude Code is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
+          gh label create "codex-started" --color "7057ff" --description "Codex is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
           # Add the label to the issue
           gh issue edit ${{ github.event.issue.number }} --add-label "codex-started" --repo ${{ github.repository }}
 

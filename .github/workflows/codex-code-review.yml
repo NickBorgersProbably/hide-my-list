@@ -1,17 +1,17 @@
-name: Claude Code Review
+name: Codex Code Review
 
 # Dynamic run name shows PR number for easy identification in the Actions UI
-# Format: "Claude Code Review (PR #123)" or "Claude Code Review (branch-name)"
+# Format: "Codex Code Review (PR #123)" or "Codex Code Review (branch-name)"
 run-name: >-
-  ${{ github.event_name == 'workflow_dispatch' && format('Claude Code Review (PR #{0})', inputs.pr_number) ||
-      github.event_name == 'pull_request' && format('Claude Code Review (PR #{0})', github.event.pull_request.number) ||
-      format('Claude Code Review ({0})', github.event.workflow_run.head_branch) }}
+  ${{ github.event_name == 'workflow_dispatch' && format('Codex Code Review (PR #{0})', inputs.pr_number) ||
+      github.event_name == 'pull_request' && format('Codex Code Review (PR #{0})', github.event.pull_request.number) ||
+      format('Codex Code Review ({0})', github.event.workflow_run.head_branch) }}
 
-# SECURITY NOTE: This workflow grants Claude Code access to secrets and write permissions.
+# SECURITY NOTE: This workflow grants the Codex agent access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection and code execution from untrusted users.
-# - Only PRs from repository collaborators, members, and owners trigger Claude reviews
+# - Only PRs from repository collaborators, members, and owners trigger Codex reviews
 # - The devcontainer is NEVER rebuilt from PR branches to prevent malicious Dockerfile injection
-# - External PRs (from forks) are blocked from triggering Claude
+# - External PRs (from forks) are blocked from triggering Codex
 
 on:
   workflow_run:
@@ -49,7 +49,7 @@ on:
 # Uses branch name for concurrency group
 # cancel-in-progress: false ensures we complete the first review rather than restarting
 concurrency:
-  group: claude-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+  group: codex-review-${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 env:
@@ -243,7 +243,7 @@ jobs:
             echo "already_passed=false" >> $GITHUB_OUTPUT
           fi
 
-      # SECURITY: Check if PR author is authorized to trigger Claude reviews
+      # SECURITY: Check if PR author is authorized to trigger Codex reviews
       # This prevents prompt injection and code execution from external/untrusted users
       - name: Check PR author authorization
         if: steps.get-pr.outputs.pr_number != ''
@@ -281,16 +281,16 @@ jobs:
               ;;
             *)
               echo "Not authorized: $AUTHOR_LOGIN is a $AUTHOR_ASSOC"
-              echo "External users cannot trigger Claude Code Review workflows."
+              echo "External users cannot trigger Codex Code Review workflows."
               echo "This is a security measure to prevent prompt injection attacks."
               echo "authorized=false" >> $GITHUB_OUTPUT
 
               # Post a comment explaining why the review was skipped
-              gh pr comment $PR_NUMBER --body "## Claude Code Review Skipped
+              gh pr comment $PR_NUMBER --body "## Codex Code Review Skipped
 
           This PR was opened by an external contributor ($AUTHOR_LOGIN with association: $AUTHOR_ASSOC).
 
-          For security reasons, Claude Code reviews are only enabled for repository collaborators, members, and owners. This prevents potential prompt injection attacks through PR descriptions or issue content.
+          For security reasons, Codex Code reviews are only enabled for repository collaborators, members, and owners. This prevents potential prompt injection attacks through PR descriptions or issue content.
 
           A repository maintainer will review this PR manually.
 
@@ -417,7 +417,7 @@ jobs:
           # Create the label if it doesn't exist
           gh label create "codex-fix-attempt-$NEXT_ATTEMPT" \
             --color "ff9500" \
-            --description "Claude fix attempt $NEXT_ATTEMPT" \
+            --description "Codex fix attempt $NEXT_ATTEMPT" \
             --repo ${{ github.repository }} 2>/dev/null || true
 
           # Add the label to the PR
@@ -435,8 +435,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Claude to fix test failures
-        id: claude-fix
+      - name: Run Codex to fix test failures
+        id: codex-fix
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -590,8 +590,8 @@ jobs:
                 -f context="All Required Tests"
               echo "Commit status created successfully"
 
-              echo "Triggering Claude Code Review..."
-              gh workflow run "Claude Code Review" \
+              echo "Triggering Codex Code Review..."
+              gh workflow run "Codex Code Review" \
                 --ref "main" \
                 --repo ${{ github.repository }} \
                 -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
@@ -599,17 +599,17 @@ jobs:
                 -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
                 -f tests_passed="true" \
                 -f run_id="$RUN_ID"
-              echo "Claude Code Review workflow triggered successfully"
+              echo "Codex Code Review workflow triggered successfully"
             else
               echo "Tests still failing after fix attempt"
 
-              # Trigger another Claude Code Review run to retry the fix
+              # Trigger another Codex Code Review run to retry the fix
               # This is necessary because workflow_run events don't fire for
               # workflow_dispatch-triggered runs, so we must manually trigger
               NEXT_ATTEMPT=$((FIX_ATTEMPTS + 1))
               if [ "$NEXT_ATTEMPT" -lt 3 ]; then
                 echo "Triggering fix attempt $((NEXT_ATTEMPT + 1))/3..."
-                gh workflow run "Claude Code Review" \
+                gh workflow run "Codex Code Review" \
                   --ref "main" \
                   --repo ${{ github.repository }} \
                   -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
@@ -623,12 +623,12 @@ jobs:
                 COMMENT_BODY="## Automated Fix Failed"
                 COMMENT_BODY="$COMMENT_BODY"$'\n\n'"All 3 automated fix attempts were unsuccessful. Human intervention is required."
                 COMMENT_BODY="$COMMENT_BODY"$'\n\n'"**Recent Test Run:** https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
-                COMMENT_BODY="$COMMENT_BODY"$'\n\n'"Generated by Claude Code Review workflow"
+                COMMENT_BODY="$COMMENT_BODY"$'\n\n'"Generated by Codex Code Review workflow"
                 gh pr comment ${{ needs.get-context.outputs.pr_number }} --body "$COMMENT_BODY"
               fi
             fi
           else
-            echo "No new commits - Claude may have aborted or found no fix needed"
+            echo "No new commits - Codex may have aborted or found no fix needed"
           fi
 
       - name: Upload fix attempt output
@@ -1533,8 +1533,8 @@ jobs:
           # SECURITY: Check if author was authorized
           AUTHOR_AUTHORIZED="${{ needs.get-context.outputs.author_authorized }}"
           if [ "$AUTHOR_AUTHORIZED" != "true" ]; then
-            echo "PR author was not authorized to trigger Claude reviews"
-            echo "External contributors cannot trigger Claude Code Review workflows."
+            echo "PR author was not authorized to trigger Codex reviews"
+            echo "External contributors cannot trigger Codex Code Review workflows."
             echo "This is a security measure to prevent prompt injection attacks."
             echo "A repository maintainer will need to review this PR manually."
             echo "unauthorized=true" >> $GITHUB_OUTPUT
