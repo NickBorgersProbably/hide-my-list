@@ -224,12 +224,10 @@ jobs:
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Codex in devcontainer
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          platform: linux/amd64
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -238,7 +236,7 @@ jobs:
             REPO=${{ github.repository }}
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             # Build the prompt based on whether this is a PR or issue comment
@@ -370,18 +368,17 @@ jobs:
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Resolve issue in devcontainer
         if: steps.check-existing.outputs.skip != 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 60m codex exec \
