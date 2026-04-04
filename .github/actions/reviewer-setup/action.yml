@@ -106,6 +106,16 @@ runs:
       shell: bash
       run: git pull origin ${{ inputs.head_ref }} || true
 
+    - name: Checkout trusted Codex config from main
+      if: steps.verify-tests.outputs.verified == 'true'
+      uses: actions/checkout@v4
+      with:
+        ref: main
+        fetch-depth: 1
+        sparse-checkout: |
+          .devcontainer/configure-codex.sh
+        path: .workflow-trusted
+
     - name: Create directories for devcontainer mounts
       if: steps.verify-tests.outputs.verified == 'true'
       shell: bash

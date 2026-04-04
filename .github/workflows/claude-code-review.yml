@@ -55,6 +55,7 @@ concurrency:
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+  TRUSTED_CODEX_CONFIG_PATH: .workflow-trusted/.devcontainer/configure-codex.sh
 
 jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
@@ -359,6 +360,15 @@ jobs:
       - name: Create directories for devcontainer mounts
         run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
+      - name: Checkout trusted Codex config from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: |
+            .devcontainer/configure-codex.sh
+          path: .workflow-trusted
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -464,10 +474,10 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
-            source .devcontainer/configure-codex.sh
+            source "${TRUSTED_CODEX_CONFIG_PATH}"
 
             # Run Codex to fix test failures
-            timeout 30m codex exec \
+            timeout 30m codex_with_trusted_config exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
@@ -716,9 +726,9 @@ jobs:
               SPEC_CHECK_DIRECTIVE="If a future diff touches spec-critical files, run this checklist and block the PR until contradictions are resolved."
             fi
 
-            source .devcontainer/configure-codex.sh
+            source "${TRUSTED_CODEX_CONFIG_PATH}"
 
-            timeout 30m codex exec \
+            timeout 30m codex_with_trusted_config exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
@@ -837,9 +847,9 @@ jobs:
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
           runCmd: |
-            source .devcontainer/configure-codex.sh
+            source "${TRUSTED_CODEX_CONFIG_PATH}"
 
-            timeout 30m codex exec \
+            timeout 30m codex_with_trusted_config exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a SECURITY and INFRASTRUCTURE specialist reviewing PR #${PR_NUMBER}.
@@ -949,9 +959,9 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
-            source .devcontainer/configure-codex.sh
+            source "${TRUSTED_CODEX_CONFIG_PATH}"
 
-            timeout 30m codex exec \
+            timeout 30m codex_with_trusted_config exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a PSYCHOLOGICAL RESEARCH EVIDENCE reviewer for PR #${PR_NUMBER} in ${REPO}.
@@ -1107,9 +1117,9 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
           runCmd: |
-            source .devcontainer/configure-codex.sh
+            source "${TRUSTED_CODEX_CONFIG_PATH}"
 
-            timeout 30m codex exec \
+            timeout 30m codex_with_trusted_config exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DOCUMENTATION CONSISTENCY reviewer for PR #${PR_NUMBER} in ${REPO}.
@@ -1233,9 +1243,9 @@ jobs:
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
           runCmd: |
-            source .devcontainer/configure-codex.sh
+            source "${TRUSTED_CODEX_CONFIG_PATH}"
 
-            timeout 30m codex exec \
+            timeout 30m codex_with_trusted_config exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a PROMPT ENGINEERING reviewer for PR #${PR_NUMBER} in ${REPO}.
@@ -1374,9 +1384,9 @@ jobs:
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             PROMPT_REVIEW_RESULT=${{ needs.prompt-review.result }}
           runCmd: |
-            source .devcontainer/configure-codex.sh
+            source "${TRUSTED_CODEX_CONFIG_PATH}"
 
-            timeout 30m codex exec \
+            timeout 30m codex_with_trusted_config exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.

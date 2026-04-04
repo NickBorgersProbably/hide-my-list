@@ -64,6 +64,7 @@
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
 | `GITHUB_PAT` | No | GitHub personal access token for higher rate limits |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
+| `CODEX_SUPPORTED_MODELS` | No | Space-separated allowlist for workflow/local Codex model validation (defaults to `gpt-5.4`) |
 
 Advanced overrides for self-hosted LiteLLM setups are also supported:
 
@@ -73,6 +74,8 @@ Advanced overrides for self-hosted LiteLLM setups are also supported:
 - `CODEX_MODEL_ENV_KEY` (defaults to `OPENAI_API_KEY`)
 
 Set these before running the devcontainer bootstrap if your environment differs from the default proxy.
+
+GitHub review workflows always load the trusted Codex bootstrap script from `main` and force those settings onto `codex exec`, so PR branches cannot change the review model or provider mid-run.
 
 ## Cron Jobs
 
