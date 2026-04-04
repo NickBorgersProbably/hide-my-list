@@ -70,6 +70,7 @@ if [[ "$RUN_ONCE" == false ]]; then
     fi
     echo "$$" > "$PID_FILE"
     trap 'rm -f "$PID_FILE"' EXIT
+    trap 'rm -f "$PID_FILE"; exit 0' SIGTERM SIGINT
 fi
 
 if [[ ! -x "$CHECK_SCRIPT" ]]; then
