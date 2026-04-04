@@ -138,73 +138,18 @@ jobs:
           printf 'request_text_b64=%s\n' "$(printf '%s' "$REQUEST_TEXT" | base64 -w0)" >> "$GITHUB_OUTPUT"
           printf 'issue_title_b64=%s\n' "$(printf '%s' "${ISSUE_TITLE:-}" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
-  # Build and cache devcontainer image first
-  # Only build when a downstream job (codex or resolve-issue) will actually run.
-  # Without this gate, every PR review comment triggers a wasted devcontainer build.
-  build-devcontainer:
-    needs: [authorize, detect_codex_invocation]
-    if: |
-      needs.authorize.outputs.authorized == 'true' &&
-      (
-        (github.event_name == 'issues') ||
-        needs.detect_codex_invocation.outputs.codex_requested == 'true'
-      )
-    runs-on: [self-hosted, homelab]
-    permissions:
-      contents: read
-      packages: write
-
+  preflight:
+    needs: authorize
+    if: needs.authorize.outputs.authorized == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      is_pr: ${{ steps.pr-context.outputs.is_pr }}
+      pr_number: ${{ steps.pr-context.outputs.pr_number }}
+      pr_head_ref: ${{ steps.pr-context.outputs.pr_head_ref }}
+      should_run: ${{ steps.pr-context.outputs.should_run }}
+      skip_reason: ${{ steps.pr-context.outputs.skip_reason }}
+      checkout_ref: ${{ steps.pr-context.outputs.checkout_ref }}
     steps:
-      # SECURITY: Checkout main branch, NOT the PR branch
-      - name: Checkout main branch (security measure)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          platform: linux/amd64
-          push: always
-
-  codex:
-    needs: [authorize, detect_codex_invocation, build-devcontainer]
-    if: |
-      needs.authorize.outputs.authorized == 'true' &&
-      needs.detect_codex_invocation.outputs.codex_requested == 'true'
-    runs-on: [self-hosted, homelab]
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      actions: read
-      packages: read
-
-    steps:
-      - name: Add eyes reaction to acknowledge comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "${{ github.event_name }}" = "issue_comment" ]; then
-            gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
-              -f content='eyes' || echo "Warning: reaction failed"
-          elif [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
-            gh api repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}/reactions \
-              -f content='eyes' || echo "Warning: reaction failed"
-          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
-            echo "Note: GitHub API does not support reactions on PR reviews"
-          fi
-
       - name: Get PR context
         id: pr-context
         env:
@@ -263,21 +208,83 @@ jobs:
           echo "checkout_ref=$CHECKOUT_REF" >> $GITHUB_OUTPUT
           echo "Detected: IS_PR=$IS_PR, PR_NUMBER=$PR_NUMBER, PR_HEAD_REF=$PR_HEAD_REF, SHOULD_RUN=$SHOULD_RUN, CHECKOUT_REF=$CHECKOUT_REF"
 
-      - name: Skip inactive PR invocation
-        if: steps.pr-context.outputs.should_run != 'true'
+  # Build and cache devcontainer image first
+  # Only build when a downstream job (codex or resolve-issue) will actually run.
+  # Without this gate, every PR review comment triggers a wasted devcontainer build.
+  build-devcontainer:
+    needs: [authorize, detect_codex_invocation, preflight]
+    if: |
+      needs.authorize.outputs.authorized == 'true' &&
+      needs.preflight.outputs.should_run == 'true' &&
+      (
+        (github.event_name == 'issues') ||
+        needs.detect_codex_invocation.outputs.codex_requested == 'true'
+      )
+    runs-on: [self-hosted, homelab]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # SECURITY: Checkout main branch, NOT the PR branch
+      - name: Checkout main branch (security measure)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          platform: linux/amd64
+          push: always
+
+  codex:
+    needs: [authorize, detect_codex_invocation, preflight, build-devcontainer]
+    if: |
+      needs.authorize.outputs.authorized == 'true' &&
+      needs.preflight.outputs.should_run == 'true' &&
+      needs.detect_codex_invocation.outputs.codex_requested == 'true'
+    runs-on: [self-hosted, homelab]
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+      packages: read
+
+    steps:
+      - name: Add eyes reaction to acknowledge comment
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Skipping Codex run: ${{ steps.pr-context.outputs.skip_reason }}"
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+              -f content='eyes' || echo "Warning: reaction failed"
+          elif [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
+            gh api repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}/reactions \
+              -f content='eyes' || echo "Warning: reaction failed"
+          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            echo "Note: GitHub API does not support reactions on PR reviews"
+          fi
 
       - name: Checkout repository
-        if: steps.pr-context.outputs.should_run == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
-          ref: ${{ steps.pr-context.outputs.checkout_ref }}
+          ref: ${{ needs.preflight.outputs.checkout_ref }}
 
       - name: Log in to GHCR
-        if: steps.pr-context.outputs.should_run == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -286,7 +293,6 @@ jobs:
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Codex in devcontainer
-        if: steps.pr-context.outputs.should_run == 'true'
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -302,8 +308,8 @@ jobs:
             REVIEW_ID=${{ github.event.review.id }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
-            IS_PR=${{ steps.pr-context.outputs.is_pr }}
-            PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
+            IS_PR=${{ needs.preflight.outputs.is_pr }}
+            PR_HEAD_REF=${{ needs.preflight.outputs.pr_head_ref }}
           runCmd: |
             source .devcontainer/configure-codex.sh
             COMMENT_BODY=$(printf '%s' "$COMMENT_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -395,7 +401,7 @@ jobs:
 
       - name: Upload Codex conversation log
         uses: actions/upload-artifact@v4
-        if: always() && steps.pr-context.outputs.should_run == 'true'
+        if: always() && needs.preflight.outputs.should_run == 'true'
         continue-on-error: true
         with:
           name: codex-conversation-log
