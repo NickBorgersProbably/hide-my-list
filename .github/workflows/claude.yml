@@ -119,6 +119,7 @@ jobs:
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          platform: linux/amd64
           push: always
 
   claude:
@@ -227,6 +228,7 @@ jobs:
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          platform: linux/amd64
           push: never
           env: |
             OPENAI_API_KEY=fake-key
