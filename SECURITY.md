@@ -75,15 +75,13 @@ Each OpenClaw instance runs on a dedicated KVM virtual machine on the home netwo
 
 The agent's conversational interface is reachable through OpenClaw's channels without Tailscale. Administrative interfaces (SSH, control UI) require Tailscale overlay network access with device posture checks.
 
-On the host, UFW defaults to deny-all inbound with explicit allows for SSH and WireGuard only. Outbound is unrestricted at the host level — host-level services like Tailscale require unrestricted egress to function. OpenClaw runs in a rootless Podman container with host networking; outbound HTTP/HTTPS from the container is routed through a forward proxy via the container's proxy environment variables.
-
-On high-security instances, iptables `uid-owner` rules provide kernel-level egress enforcement for the container user. These rules are inserted before UFW chains (at OUTPUT position 1) and restrict the container user to DNS, the Squid proxy (port 3128), and HTTPS to the Tailscale subnet only. Direct internet HTTPS is blocked — even if the container process unsets its proxy environment variables, the kernel drops the traffic.
+On the host, UFW defaults to deny-all inbound with explicit allows for SSH and WireGuard only. Outbound is unrestricted at the host level — host-level services like Tailscale require unrestricted egress to function. OpenClaw runs in a Podman container; outbound HTTP/HTTPS from the container is routed through a forward proxy via the container's proxy environment variables. On high-security instances, kernel-level egress rules enforce this independently of the container's environment — even if the process unsets its proxy variables, direct internet traffic is dropped.
 
 ### Forward proxy
 
 A Squid proxy enforces a domain allowlist. If the agent (or anything else on the host) tries to reach a domain that isn't explicitly allowed, the connection is denied. This provides mitigation against prompt injection because the agent will not go consuming arbitrary web content.
 
-**Caveat:** OpenClaw has code execution capability and could attempt to reach destinations outside the proxy. On high-security instances, kernel-level iptables rules (see [Network isolation](#network-isolation)) enforce egress independently of the container's environment — modifying or unsetting proxy variables does not bypass the restriction. On the exposed instance, egress controls rely on the proxy environment variables and are not kernel-enforced.
+**Caveat:** OpenClaw has code execution capability and could attempt to reach destinations outside the proxy. On high-security instances, kernel-level egress rules (see [Network isolation](#network-isolation)) enforce this independently of the container's environment — modifying or unsetting proxy variables does not bypass the restriction.
 
 The proxy also blocks connections to private network ranges (RFC 1918, loopback, link-local, and the overlay subnet itself) to prevent DNS rebinding attacks. Caching is disabled, `forwarded_for` headers are stripped, and the version string is suppressed.
 
@@ -104,7 +102,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 |--------|-------------|------------|
 | Prompt injection via user message | Agent is [BC] for direct interaction — channels are authenticated/paired, only the owner can send messages | Low risk; owner is the only input source |
 | Prompt injection via GitHub content | Becomes [ABC] when processing GitHub content — PR/issue bodies from external contributors are an injection vector | Blast radius limited to Notion operations the token permits; proxy limits exfiltration destinations |
-| Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; VLAN segmentation blocks internal network access at the router level; kernel-level iptables rules on high-security instances enforce egress independently of the container |
+| Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; VLAN segmentation blocks internal network access at the router level; kernel-level egress rules enforce restrictions independently of the container |
 | Malicious webhook payload | Webhook is [A]-only — data discarded, no credentials or external access | Connection limits and hard timeout |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked from all self-hosted runner workflows; devcontainer built only from main; self-hosted runners isolated by VLAN segmentation |
 | Credential exfiltration via prompt injection | The agent has credentials in its runtime context and could be prompted to reveal them | Proxy allowlist limits where credentials could be sent; admin surfaces behind Tailscale; model alignment is a speed bump, not a guarantee |
