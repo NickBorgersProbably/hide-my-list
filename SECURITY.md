@@ -28,9 +28,9 @@ One feature which makes OpenClaw interesting is the fact it can change itself, a
 
 GitHub has been chosen as the tool for facilitating this, and that means we need access for OpenClaw to open PRs and pull changes.
 
-### Pipeline callback + cron monitor — [A] only
+### Webhook — [A] only
 
-The GitHub review pipeline uses two notification paths. The steady-state path is the `pipeline-monitor` cron, which polls GitHub every 2 minutes via `scripts/check-github-status.sh`. For faster feedback after reviews complete, `.github/workflows/codex-code-review.yml` can also hit `AGENT_WEBHOOK_URL` when an optional external wake-up endpoint is configured via the GitHub Actions repository variable `vars.AGENT_WEBHOOK_URL`. That callback remains **[A]** only: the endpoint lives outside OpenClaw, is expected to discard request data (`exec 0</dev/null`), and writes a self-generated Unix timestamp to a local signal file. It has no access to credentials **[B]** and makes no external calls **[C]**.
+The former webhook listener (`scripts/webhook-signal.sh`, now replaced by cron-based pipeline monitoring) received CI/CD notifications from the network **[A]**, but that was all it did. It immediately discarded all request data (`exec 0</dev/null`) and wrote a self-generated Unix timestamp to a signal file. It had no access to credentials **[B]** and made no external calls **[C]**. There was little to exploit because nothing was read.
 
 ### Reminder delivery flow — [BC] configuration
 
@@ -103,7 +103,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 | Prompt injection via user message | Agent is [BC] for direct interaction — channels are authenticated/paired, only the owner can send messages | Low risk; owner is the only input source |
 | Prompt injection via GitHub content | Becomes [ABC] when processing GitHub content — PR/issue bodies from external contributors are an injection vector | Blast radius limited to Notion operations the token permits; proxy limits exfiltration destinations |
 | Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; VLAN segmentation blocks internal network access at the router level; kernel-level egress rules enforce restrictions independently of the container environment |
-| Malicious pipeline callback payload | Callback endpoint is [A]-only — data discarded, no credentials or external access; cron polling remains available as fallback | Connection limits and hard timeout |
+| Malicious webhook payload | Webhook is [A]-only — data discarded, no credentials or external access | Connection limits and hard timeout |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked from all self-hosted runner workflows; devcontainer built only from main; self-hosted runners isolated by VLAN segmentation |
 | Credential exfiltration via prompt injection | The agent has credentials in its runtime context and could be prompted to reveal them | Proxy allowlist limits where credentials could be sent; admin surfaces behind Tailscale; model alignment is a speed bump, not a guarantee |
 | Unauthorized admin access | Admin interfaces require Tailscale authentication and at least OpenClaw pairing for authentication | Firewall allows only SSH and WireGuard inbound |

@@ -1,6 +1,6 @@
 # Cron Job: pipeline-monitor
 
-Replaces `scripts/monitor-pipeline.sh`. Runs every 2 minutes via OpenClaw's durable cron and serves as the fallback path when the lightweight GitHub callback signal is disabled or missed.
+Replaces `scripts/monitor-pipeline.sh` and `scripts/webhook-signal.sh`. Runs every 2 minutes via OpenClaw's durable cron.
 
 ## Registration
 
@@ -20,21 +20,9 @@ summarize the changes briefly. Focus on actionable items: new review comments th
 responses, failed CI that needs fixing, or PRs that are ready to merge.
 ```
 
-## Fast-Path Callback
+## RemoteTrigger (optional)
 
-GitHub Actions currently supports an optional fast-path callback through `AGENT_WEBHOOK_URL`, configured as the repository variable `vars.AGENT_WEBHOOK_URL`:
-
-```
-Workflow step:
-  name: Notify agent webhook
-  behavior: Send a best-effort request to AGENT_WEBHOOK_URL after reviews complete
-```
-
-That callback is intentionally minimal: the listener ignores request data and only wakes the agent up sooner. The cron job remains the source of truth for eventual delivery if the callback fails.
-
-## RemoteTrigger (future option)
-
-OpenClaw `RemoteTrigger` could replace the current lightweight callback in the future:
+For on-demand notifications from GitHub Actions (replaces the socat webhook):
 
 ```
 RemoteTrigger:
@@ -43,9 +31,10 @@ RemoteTrigger:
            and report any actionable changes."
 ```
 
+The GitHub Actions workflow can call the RemoteTrigger API endpoint instead of the old socat webhook.
+
 ## Notes
 
 - Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers if missing.
 - The workhorse script `check-github-status.sh` is unchanged.
-- The callback path is optional acceleration, not the only notification mechanism.
-- The old always-on webhook-only approach was fragile in containers; the cron monitor now provides the reliable baseline.
+- The old webhook approach (`webhook-signal.sh`) used socat to listen on a port, which was fragile in containers and added attack surface. The RemoteTrigger approach uses OpenClaw's native API.

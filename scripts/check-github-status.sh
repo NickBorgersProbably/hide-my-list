@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # check-github-status.sh — Check GitHub for PR reviews, workflow failures, and issues
-# Called by the agent from the pipeline-monitor cron, and sometimes immediately
-# after the lightweight workflow callback fires
+# Called by the agent when the webhook signal fires
 # Outputs structured status for the agent to process
 #
 # SECURITY: This script only reads from GitHub's public API.
-# No callback request data is processed.
+# No webhook request data is processed.
 
 set -euo pipefail
 

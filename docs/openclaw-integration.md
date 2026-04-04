@@ -43,6 +43,18 @@ Every 30 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.m
 
 **What changed:** The heartbeat used to babysit bash daemons (checking PID files, restarting dead processes). With cron replacing daemons, it now just verifies cron registrations — a much cleaner responsibility.
 
+## Managed Content Boundary
+
+The repo-level "GitHub-only for managed content" rule is intentionally narrower than "disable OpenClaw features." It applies to normal user-requested changes to tracked product files such as prompts, docs, scripts, and design artifacts.
+
+OpenClaw runtime features still operate normally:
+- Bootstrap files are injected into session context by OpenClaw's bootstrap flow and hooks.
+- Heartbeat and durable cron still run on their normal schedules.
+- Cron registrations and task records live in OpenClaw-owned runtime state outside this repo checkout.
+- Messaging, session lifecycle, and hooks remain platform responsibilities.
+
+The one repo-mutating runtime exception is dirty-pull recovery in `HEARTBEAT.md` and `setup/cron/pull-main.md`: preserve the local diff in a GitHub issue, then reset the workspace to match remote so the GitHub-reviewed branch stays the source of truth. That exception exists to reduce merge conflicts and recover safely, not to bypass the GitHub process.
+
 ## Cron (Durable Scheduled Jobs)
 
 OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `durable: true`, jobs persist to disk and survive gateway restarts.
@@ -62,7 +74,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers. This is a platform constraint we work around rather than a feature we chose.
 
-**Pipeline notifications today:** We do not currently use `RemoteTrigger`. Instead, the `pipeline-monitor` cron handles routine polling, and the GitHub review workflow can optionally ping `AGENT_WEBHOOK_URL` for a faster "reviews finished" signal. That URL is an external minimal wake-up endpoint outside OpenClaw, configured through GitHub Actions repo variable `vars.AGENT_WEBHOOK_URL`; it is not `RemoteTrigger` and not a general inbound OpenClaw control surface. The cron job is still the fallback path if that callback is disabled or missed.
+**What we don't use:** `RemoteTrigger` (API-triggered agent sessions). This could replace the GitHub webhook for on-demand PR notifications, but we haven't implemented it yet. The cron-based pipeline monitor handles the common case.
 
 ## Messaging Channels
 
