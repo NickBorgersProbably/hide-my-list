@@ -45,6 +45,7 @@ runs:
       run: |
         # Compare PR Tests against the current PR head so reviewers never run on stale code.
         HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        export HEAD_SHA
         echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
         echo "Checking PR Tests status for commit $HEAD_SHA"
 
