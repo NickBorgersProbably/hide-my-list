@@ -20,8 +20,11 @@ it and deliver each reminder to the user:
 - On-time reminders: casual delivery ("Hey, time to [task]")
 - Missed reminders (>15 min late): note the delay but don't shame ("This was due a bit
   ago — [task]")
-After delivery, update each reminder's status in Notion via:
-  scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}}}}'
+After delivery, read each reminder's status from .reminder-signal and update Notion accordingly:
+  If status is "sent":
+    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}}}}'
+  If status is "missed":
+    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}}}}'
 Delete .reminder-signal after all reminders are delivered.
 ```
 
