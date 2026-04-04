@@ -8,6 +8,10 @@ inputs:
   head_ref:
     description: 'PR branch name'
     required: true
+  head_sha:
+    description: 'Immutable PR head commit SHA'
+    required: false
+    default: ''
   head_repo:
     description: 'PR repository (owner/repo)'
     required: true
@@ -39,9 +43,10 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
+        INPUT_HEAD_SHA: ${{ inputs.head_sha }}
       run: |
         # Compare PR Tests against the current PR head so reviewers never run on stale code.
-        export HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        export HEAD_SHA="${INPUT_HEAD_SHA:-$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')}"
         echo "Checking PR Tests status for commit $HEAD_SHA"
 
         get_run_json() {
@@ -96,15 +101,20 @@ runs:
       if: steps.verify-tests.outputs.verified == 'true'
       uses: actions/checkout@v4
       with:
-        ref: ${{ inputs.head_ref }}
+        ref: ${{ inputs.head_sha != '' && inputs.head_sha || inputs.head_ref }}
         repository: ${{ inputs.head_repo }}
         fetch-depth: 0
         token: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
 
-    - name: Pull latest changes
+    - name: Confirm checked out commit
       if: steps.verify-tests.outputs.verified == 'true'
       shell: bash
-      run: git pull origin ${{ inputs.head_ref }} || true
+      run: |
+        echo "Checked out commit: $(git rev-parse HEAD)"
+        if [ -n "${{ inputs.head_sha }}" ] && [ "$(git rev-parse HEAD)" != "${{ inputs.head_sha }}" ]; then
+          echo "Expected checkout to match verified PR head SHA"
+          exit 1
+        fi
 
     - name: Create directories for devcontainer mounts
       if: steps.verify-tests.outputs.verified == 'true'

@@ -68,6 +68,7 @@ jobs:
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
       pr_body_b64: ${{ steps.get-pr.outputs.pr_body_b64 }}
       head_ref: ${{ steps.get-pr.outputs.head_ref }}
+      head_sha: ${{ steps.get-pr.outputs.head_sha }}
       head_repo: ${{ steps.get-pr.outputs.head_repo }}
       # Draft PR status - used to skip auto-fix pipeline for TDD workflows
       is_draft: ${{ steps.get-pr.outputs.is_draft }}
@@ -153,11 +154,13 @@ jobs:
               const prBodyB64 = Buffer.from(pr.body || '').toString('base64');
               core.setOutput('pr_body_b64', prBodyB64);
               core.setOutput('head_ref', pr.head.ref);
+              core.setOutput('head_sha', pr.head.sha);
               core.setOutput('head_repo', pr.head.repo.full_name);
               core.setOutput('is_draft', pr.draft ? 'true' : 'false');
             } else {
               console.log('No open PR found for this workflow run');
               core.setOutput('pr_number', '');
+              core.setOutput('head_sha', '');
               core.setOutput('is_draft', 'false');
             }
 
@@ -668,6 +671,7 @@ jobs:
         with:
           pr_number: ${{ needs.get-context.outputs.pr_number }}
           head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_sha: ${{ needs.get-context.outputs.head_sha }}
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -819,6 +823,7 @@ jobs:
         with:
           pr_number: ${{ needs.get-context.outputs.pr_number }}
           head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_sha: ${{ needs.get-context.outputs.head_sha }}
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -921,6 +926,7 @@ jobs:
         with:
           pr_number: ${{ needs.get-context.outputs.pr_number }}
           head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_sha: ${{ needs.get-context.outputs.head_sha }}
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -1087,6 +1093,7 @@ jobs:
         with:
           pr_number: ${{ needs.get-context.outputs.pr_number }}
           head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_sha: ${{ needs.get-context.outputs.head_sha }}
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -1213,6 +1220,7 @@ jobs:
         with:
           pr_number: ${{ needs.get-context.outputs.pr_number }}
           head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_sha: ${{ needs.get-context.outputs.head_sha }}
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -1350,6 +1358,7 @@ jobs:
         with:
           pr_number: ${{ needs.get-context.outputs.pr_number }}
           head_ref: ${{ needs.get-context.outputs.head_ref }}
+          head_sha: ${{ needs.get-context.outputs.head_sha }}
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
