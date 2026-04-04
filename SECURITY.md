@@ -24,7 +24,7 @@ The caveat is **GitHub content**. The agent can reach GitHub through the proxy a
 
 #### Why the GitHub tradeoff?
 
-One feature which makes OpenClaw interesting is the fact it can change itself, and does so over time based on user feedback and its own memory. `hide-my-list` seeks to take advantage of this while also retaining external review of the behaviors [including the psych-review](https://github.com/NickBorgersProbably/hide-my-list/blob/main/.github/workflows/claude-code-review.yml#L1072-L1161). A belief held by the authors is that review from a second (or more) perspective(s) improves the quality of the output - so an OpenClaw instance alone with a single user-serving perspective should NOT be left in control of something like this. Instead, the OpenClaw instance is expected to take user feedback and craft Pull Requests against this repository so they can be more rigorously reviewed. After review, changes, and merge they get picked up as part of the system prompts.
+One feature which makes OpenClaw interesting is the fact it can change itself, and does so over time based on user feedback and its own memory. `hide-my-list` seeks to take advantage of this while also retaining external review of the behaviors [including the psych-review](https://github.com/NickBorgersProbably/hide-my-list/blob/main/.github/workflows/codex-code-review.yml#L1072-L1161). A belief held by the authors is that review from a second (or more) perspective(s) improves the quality of the output - so an OpenClaw instance alone with a single user-serving perspective should NOT be left in control of something like this. Instead, the OpenClaw instance is expected to take user feedback and craft Pull Requests against this repository so they can be more rigorously reviewed. After review, changes, and merge they get picked up as part of the system prompts.
 
 GitHub has been chosen as the tool for facilitating this, and that means we need access for OpenClaw to open PRs and pull changes.
 
@@ -41,7 +41,7 @@ The reminder daemon ([`scripts/reminder-daemon.sh`](scripts/reminder-daemon.sh) 
 PR review agents process untrusted code **[A]** and write PR comments **[C]**, but have no access to infrastructure secrets or Notion credentials **[B]**. Workflows use only repo-scoped GitHub token permissions (contents/pull-requests/issues write for posting reviews); no infrastructure secrets or Notion credentials are available. This is a safe [AC] configuration — even if a malicious PR manipulated a review agent, there's no sensitive data to exfiltrate.
 
 Additional CI/CD controls:
-- Fork PRs are blocked from triggering workflows on self-hosted runners (all workflows check `github.event.pull_request.head.repo.full_name == github.repository`; Claude Code reviews additionally require the author to be a collaborator/member/owner)
+- Fork PRs are blocked from triggering workflows on self-hosted runners (all workflows check `github.event.pull_request.head.repo.full_name == github.repository`; Codex Code Review workflows additionally require the author to be a collaborator/member/owner)
 - The devcontainer image is built only from the main branch, never from PR branches
 - Review agents run on self-hosted homelab runners with no infrastructure credentials; runners are isolated by the same VLAN segmentation and proxy controls as the main agent host
 - Security gate jobs (`authorize`, `get-context`, `check-failure`, `get-pr-context`) remain on `ubuntu-latest` to process untrusted input before dispatching to self-hosted runners
