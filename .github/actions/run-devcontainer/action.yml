@@ -1,0 +1,84 @@
+name: Run Devcontainer Command
+description: Execute a shell command inside the prebuilt devcontainer image using docker run
+
+inputs:
+  image:
+    description: Container image to run
+    required: true
+  run_cmd:
+    description: Shell command (multi-line allowed) to execute inside the container
+    required: true
+  env:
+    description: Optional newline-separated KEY=VALUE pairs passed into the container
+    required: false
+    default: ''
+  workdir:
+    description: Workspace-relative directory to execute in
+    required: false
+    default: '.'
+  pull:
+    description: Set to false to skip docker pull before running
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - id: prepare-script
+      name: Prepare container script
+      shell: bash
+      env:
+        RUN_COMMAND: ${{ inputs.run_cmd }}
+        WORKDIR: ${{ inputs.workdir }}
+      run: |
+        set -euo pipefail
+        SCRIPT_FILE="$(mktemp "${RUNNER_TEMP}/devcontainer-run-XXXXXX.sh")"
+        {
+          echo '#!/bin/bash'
+          echo 'set -euo pipefail'
+          printf 'cd "/workspace/%s"\n' "${WORKDIR}"
+          printf '%s\n' "${RUN_COMMAND}"
+        } >"${SCRIPT_FILE}"
+        chmod +x "${SCRIPT_FILE}"
+        echo "script=${SCRIPT_FILE}" >> "${GITHUB_OUTPUT}"
+
+    - id: run
+      name: Run inside devcontainer image
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        ENV_INPUT: ${{ inputs.env }}
+        SCRIPT_FILE: ${{ steps.prepare-script.outputs.script }}
+        PULL: ${{ inputs.pull }}
+      run: |
+        set -euo pipefail
+
+        if [[ "${PULL,,}" != "false" ]]; then
+          docker pull "${IMAGE}"
+        fi
+
+        declare -a ENV_ARGS
+        ENV_ARGS+=(--env "HOME=/home/vscode")
+        ENV_ARGS+=(--env "TERM=${TERM:-xterm-256color}")
+        while IFS= read -r line; do
+          line="${line%%#*}"
+          line="$(echo "${line}" | xargs || true)"
+          if [[ -z "${line}" ]]; then
+            continue
+          fi
+          ENV_ARGS+=(--env "${line}")
+        done <<< "${ENV_INPUT}"
+
+        mkdir -p "$HOME/.config/gh" "$HOME/.claude" "$HOME/.codex"
+
+        docker run --rm --init \
+          --user vscode \
+          --workdir /workspace \
+          --volume "${GITHUB_WORKSPACE}:/workspace" \
+          --volume "${SCRIPT_FILE}:/tmp/devcontainer-run.sh:ro" \
+          --volume "$HOME/.config/gh:/home/vscode/.config/gh" \
+          --volume "$HOME/.claude:/home/vscode/.claude" \
+          --volume "$HOME/.codex:/home/vscode/.codex" \
+          "${ENV_ARGS[@]}" \
+          "${IMAGE}" \
+          bash -lc 'set -euo pipefail; /tmp/devcontainer-run.sh'
