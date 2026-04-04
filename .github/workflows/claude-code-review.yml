@@ -320,8 +320,11 @@ jobs:
             if [[ "$file" == scripts/* ]] || [[ "$file" == docs/* ]] || [[ "$file" == design/* ]] || [[ "$file" == *.md ]]; then
               CONFIG_ONLY="false"
             fi
-            # docs_only: true when all changed files are *.md, docs/*, or design/*
-            if [[ "$file" != *.md ]] && [[ "$file" != docs/* ]] && [[ "$file" != design/* ]]; then
+            # docs_only: true when all changed files are inert documentation
+            # In this agentic system, most .md files ARE the application (prompts,
+            # cron jobs, agent identity, behavior specs). Only design/* (research
+            # principles) and README.md files are truly non-behavioral.
+            if [[ "$file" != design/* ]] && [[ "$(basename "$file")" != "README.md" ]]; then
               DOCS_ONLY="false"
             fi
           done <<< "$FILES"
