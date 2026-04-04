@@ -94,17 +94,32 @@ runs:
 
     - name: Checkout PR branch
       if: steps.verify-tests.outputs.verified == 'true'
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.head_ref }}
-        repository: ${{ inputs.head_repo }}
-        fetch-depth: 0
-        token: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
-
-    - name: Pull latest changes
-      if: steps.verify-tests.outputs.verified == 'true'
       shell: bash
-      run: git pull origin ${{ inputs.head_ref }} || true
+      env:
+        CHECKOUT_TOKEN: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+        HEAD_REF: ${{ inputs.head_ref }}
+        HEAD_REPO: ${{ inputs.head_repo }}
+      run: |
+        set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        ASKPASS_SCRIPT=$(mktemp)
+        trap 'rm -f "$ASKPASS_SCRIPT"' EXIT
+        cat > "$ASKPASS_SCRIPT" <<'EOF'
+        #!/bin/sh
+        case "$1" in
+          *Username*) printf '%s\n' "x-access-token" ;;
+          *Password*) printf '%s\n' "$CHECKOUT_TOKEN" ;;
+        esac
+        EOF
+        chmod 700 "$ASKPASS_SCRIPT"
+
+        GIT_ASKPASS="$ASKPASS_SCRIPT" \
+        GIT_TERMINAL_PROMPT=0 \
+          git fetch --no-tags --prune "https://github.com/${HEAD_REPO}.git" \
+            "+refs/heads/${HEAD_REF}:refs/remotes/review-source/${HEAD_REF}"
+        git checkout --force -B "$HEAD_REF" "refs/remotes/review-source/${HEAD_REF}"
 
     - name: Create directories for devcontainer mounts
       if: steps.verify-tests.outputs.verified == 'true'
@@ -113,11 +128,15 @@ runs:
 
     - name: Log in to GHCR
       if: steps.verify-tests.outputs.verified == 'true'
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ inputs.github_token }}
+      shell: bash
+      env:
+        GHCR_PASSWORD: ${{ inputs.github_token }}
+        GHCR_USERNAME: ${{ github.actor }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$GHCR_PASSWORD" | docker login ghcr.io \
+          --username "$GHCR_USERNAME" \
+          --password-stdin
 
     - name: Log out of GHCR
       if: steps.verify-tests.outputs.verified == 'true'
