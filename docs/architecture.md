@@ -256,7 +256,7 @@ scripts/reminder-daemon.sh --interval 120  # custom interval (seconds)
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw) | Strong reasoning, structured output, conversation memory |
 | Messaging | OpenClaw Surfaces | Multi-channel by default (web, Signal, Telegram, Discord) |
-| CI/CD | GitHub Actions | Multi-agent review pipeline with full internet for research |
+| CI/CD | GitHub Actions | Multi-agent review pipeline with Codex CLI and full internet for research |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | reminder-daemon.sh + check-reminders.sh | Local polling every 5 min without GitHub cron |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
