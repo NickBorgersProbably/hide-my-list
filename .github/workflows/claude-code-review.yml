@@ -75,6 +75,9 @@ jobs:
       # For pull_request (reopen), tests haven't run yet so tests_passed is false
       tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || github.event.workflow_run.conclusion == 'success' }}
       run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event_name == 'pull_request' && github.run_id || github.event.workflow_run.id }}
+      # Workflow run ID for the PR Tests execution that validated this PR head.
+      # Reopen-triggered pull_request runs do not have a completed PR Tests run yet.
+      pr_tests_run_id: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
       triggering_sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
       issue_number: ${{ steps.get-issue.outputs.issue_number }}
@@ -665,6 +668,7 @@ jobs:
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
+          pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Design review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -788,6 +792,7 @@ jobs:
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
+          pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Security review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -889,6 +894,7 @@ jobs:
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
+          pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Psych research review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1054,6 +1060,7 @@ jobs:
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
+          pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Docs review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1179,6 +1186,7 @@ jobs:
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
+          pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Prompt engineering review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1316,6 +1324,7 @@ jobs:
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
           checkout_token: ${{ secrets.WORKFLOW_PAT }}
+          pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1393,11 +1402,17 @@ jobs:
 
       - name: Parse merge decision from PR comments
         id: parse-decision
-        if: always() && steps.setup.outputs.verified == 'true'
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
+          if [ "${{ steps.setup.outputs.verified }}" != "true" ]; then
+            echo "Reviewer setup could not verify PR Tests for the current head - defaulting to NO-GO"
+            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           # Fetch the most recent "Merge Decision" comment from the PR
           COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
             --jq '[.[] | select(.body | contains("## Merge Decision"))] | last')
