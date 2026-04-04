@@ -30,6 +30,9 @@ outputs:
   verified:
     description: 'Whether PR Tests passed for the current PR head (true/false)'
     value: ${{ steps.verify-tests.outputs.verified }}
+  exists:
+    description: 'Whether the PR branch still exists (true/false)'
+    value: ${{ steps.check-branch.outputs.exists }}
 
 runs:
   using: 'composite'
@@ -40,14 +43,31 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
+        set -euo pipefail
+
         # If the PR was already merged and the branch deleted, the checkout will fail.
         # Detect this early and skip the review gracefully instead of erroring out.
-        HTTP_STATUS=$(gh api repos/${{ inputs.repository }}/branches/${{ inputs.head_ref }} --silent -i 2>&1 | head -1 | awk '{print $2}')
+
+        # URL-encode the branch name so feature/foo resolves correctly.
+        ENCODED_REF=$(printf '%s' "${{ inputs.head_ref }}" | jq -sRr @uri)
+        API_PATH="repos/${{ inputs.repository }}/branches/${ENCODED_REF}"
+
+        # gh api exits non-zero on 404; capture output without aborting the step.
+        set +e
+        RESPONSE=$(gh api "$API_PATH" -i 2>&1)
+        STATUS=$?
+        set -euo pipefail
+
+        HTTP_STATUS=$(printf '%s\n' "$RESPONSE" | head -n 1 | awk '{print $2}')
+
         if [ "$HTTP_STATUS" = "404" ]; then
           echo "Branch '${{ inputs.head_ref }}' no longer exists (likely merged and deleted). Skipping review."
           echo "exists=false" >> $GITHUB_OUTPUT
+        elif [ "$STATUS" -ne 0 ] || [ -z "$HTTP_STATUS" ]; then
+          printf 'Failed to check branch status (HTTP %s). Full response:%s\n' "${HTTP_STATUS:-unknown}" "\n$RESPONSE" >&2
+          exit 1
         else
-          echo "Branch '${{ inputs.head_ref }}' exists, proceeding with review."
+          echo "Branch '${{ inputs.head_ref }}' exists (HTTP $HTTP_STATUS). Proceeding with review."
           echo "exists=true" >> $GITHUB_OUTPUT
         fi
 
