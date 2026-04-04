@@ -264,6 +264,9 @@ jobs:
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             COMMENT_BODY_B64=${{ needs.detect_codex_invocation.outputs.request_text_b64 }}
+            EVENT_NAME=${{ github.event_name }}
+            COMMENT_ID=${{ github.event.comment.id }}
+            REVIEW_ID=${{ github.event.review.id }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
@@ -271,6 +274,29 @@ jobs:
           runCmd: |
             source .devcontainer/configure-codex.sh
             COMMENT_BODY=$(printf '%s' "$COMMENT_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+            fetch_event_body() {
+              case "$EVENT_NAME" in
+                issue_comment)
+                  gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" --jq '.body // ""'
+                  ;;
+                pull_request_review_comment)
+                  gh api "repos/${REPO}/pulls/comments/${COMMENT_ID}" --jq '.body // ""'
+                  ;;
+                pull_request_review)
+                  gh api "repos/${REPO}/pulls/${ISSUE_NUMBER}/reviews/${REVIEW_ID}" --jq '.body // ""'
+                  ;;
+                issues)
+                  gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body // ""'
+                  ;;
+                *)
+                  echo "Unsupported event type: ${EVENT_NAME}" >&2
+                  return 1
+                  ;;
+              esac
+            }
+
+            COMMENT_BODY="$(fetch_event_body)"
 
             # Build the prompt based on whether this is a PR or issue comment
             # Instead of fetching all context inline, instruct Codex to read it via gh CLI.
