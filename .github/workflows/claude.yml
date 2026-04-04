@@ -87,8 +87,11 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout repository
+      # SECURITY: Checkout main branch, NOT the PR branch
+      - name: Checkout main branch (security measure)
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -205,45 +208,25 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      - name: Run Claude in devcontainer
+      - name: Run Codex in devcontainer
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             COMMENT_BODY=${{ steps.comment.outputs.body }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
-            CLAUDE_CONFIG_DIR=/tmp/.claude-session
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
-            # Debug: verify auth token propagation
-            echo "CLAUDE_CODE_OAUTH_TOKEN is set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo 'YES (length: '${#CLAUDE_CODE_OAUTH_TOKEN}')' || echo 'NO')"
-
-            # Fail fast if auth token is missing
-            if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-              echo "ERROR: CLAUDE_CODE_OAUTH_TOKEN is empty inside container."
-              exit 1
-            fi
-
-            # Ensure Claude onboarding is complete
-            if [ ! -f ~/.claude.json ]; then
-              echo '{"hasCompletedOnboarding": true}' > ~/.claude.json
-              echo "Created ~/.claude.json"
-            fi
-
-            # Run Claude Code inside the devcontainer with full tool access
-            # Use < /dev/null to prevent hanging on TTY input
-            # Use tee to capture output for artifact upload
-            # Use --verbose and --output-format stream-json for complete conversation logs
-            mkdir -p "${CLAUDE_CONFIG_DIR}"
+            source .devcontainer/configure-codex.sh
 
             # Build the prompt based on whether this is a PR or issue comment
-            # Instead of fetching all context inline, instruct Claude to read it via gh CLI.
+            # Instead of fetching all context inline, instruct Codex to read it via gh CLI.
             # This avoids pagination limits, prompt size bloat, and comment duplication.
             if [ "$IS_PR" = "true" ]; then
               PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
@@ -299,32 +282,19 @@ jobs:
             Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
             fi
 
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 400 \
-              "$PROMPT" < /dev/null 2>&1 | tee /tmp/claude-conversation.jsonl
+            codex exec \
+              --json \
+              --dangerously-bypass-approvals-and-sandbox \
+              "$PROMPT" < /dev/null 2>&1 | tee /tmp/codex-conversation.jsonl
 
-      - name: Upload Claude conversation log
+      - name: Upload Codex conversation log
         uses: actions/upload-artifact@v4
         if: always()
         continue-on-error: true
         with:
-          name: claude-conversation-log
-          path: /tmp/claude-conversation.jsonl
+          name: codex-conversation-log
+          path: /tmp/codex-conversation.jsonl
           retention-days: 7
-
-      - name: Upload Claude session data
-        uses: actions/upload-artifact@v4
-        if: always()
-        continue-on-error: true
-        with:
-          name: claude-session-data
-          path: /tmp/.claude-session/
-          retention-days: 7
-          if-no-files-found: ignore
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
@@ -363,15 +333,15 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Label issue as claude-started
+      - name: Label issue as codex-started
         if: steps.check-existing.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Create the label if it doesn't exist (ignore error if it does)
-          gh label create "claude-started" --color "7057ff" --description "Claude Code is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
+          gh label create "codex-started" --color "7057ff" --description "Claude Code is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
           # Add the label to the issue
-          gh issue edit ${{ github.event.issue.number }} --add-label "claude-started" --repo ${{ github.repository }}
+          gh issue edit ${{ github.event.issue.number }} --add-label "codex-started" --repo ${{ github.repository }}
 
       - name: Log in to GHCR
         if: steps.check-existing.outputs.skip != 'true'
@@ -390,34 +360,17 @@ jobs:
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: never
           env: |
-            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
-            CLAUDE_CONFIG_DIR=/tmp/.claude-session
           runCmd: |
-            echo "CLAUDE_CODE_OAUTH_TOKEN is set: $([ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && echo 'YES (length: '${#CLAUDE_CODE_OAUTH_TOKEN}')' || echo 'NO')"
-            if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-              echo "ERROR: CLAUDE_CODE_OAUTH_TOKEN is empty inside container."
-              exit 1
-            fi
+            source .devcontainer/configure-codex.sh
 
-            if [ ! -f ~/.claude.json ]; then
-              echo '{"hasCompletedOnboarding": true}' > ~/.claude.json
-            fi
-
-            # Use < /dev/null to prevent hanging on TTY input
-            # Use tee to capture output for artifact upload
-            # Use --verbose and --output-format stream-json for complete conversation logs
-            mkdir -p "${CLAUDE_CONFIG_DIR}"
-
-            claude --print \
-              --verbose \
-              --output-format stream-json \
-              --model opus \
-              --dangerously-skip-permissions \
-              --max-turns 600 \
+            codex exec \
+              --json \
+              --dangerously-bypass-approvals-and-sandbox \
               "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER} in ${REPO}.
 
             ISSUE TITLE: ${ISSUE_TITLE}
@@ -439,7 +392,7 @@ jobs:
             - Reference docs/architecture.md for system design context
             - Never use \`git push --no-verify\`
 
-            BRANCH NAMING: Use \`claude/issue-${ISSUE_NUMBER}\` as the branch name.
+            BRANCH NAMING: Use \`codex/issue-${ISSUE_NUMBER}\` as the branch name.
 
             PR CREATION:
             gh pr create --title '<brief description of what this PR accomplishes>' \\
@@ -452,8 +405,8 @@ jobs:
             ## Test Plan
             <how to verify the fix>
 
-            Generated with Claude Code' \\
-              --head claude/issue-${ISSUE_NUMBER}
+            Generated with Codex' \\
+              --head codex/issue-${ISSUE_NUMBER}
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:
@@ -467,13 +420,3 @@ jobs:
           name: resolve-issue-conversation-log
           path: /tmp/resolve-issue-conversation.jsonl
           retention-days: 7
-
-      - name: Upload Claude session data
-        uses: actions/upload-artifact@v4
-        if: always()
-        continue-on-error: true
-        with:
-          name: resolve-issue-session-data
-          path: /tmp/.claude-session/
-          retention-days: 7
-          if-no-files-found: ignore

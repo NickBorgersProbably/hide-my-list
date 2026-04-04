@@ -4,6 +4,9 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+echo "=== Setting up devcontainer ==="
 
 # Configure tmux to use xterm-256color so CLI tools (e.g. Claude Code) render correctly
 cat > "$HOME/.tmux.conf" << 'TMUXEOF'
@@ -61,3 +64,39 @@ json.dump(host, open(sys.argv[2], 'w'), indent=2)
 else
   echo "Warning: No Claude config found; skipping config merge."
 fi
+
+# Helper to read pinned versions from the Dockerfile (single source of truth)
+DEVCONTAINER_DOCKERFILE="$SCRIPT_DIR/Dockerfile"
+get_arg_version() {
+    local arg_name=$1
+    local value
+    value=$(grep -oP "ARG ${arg_name}=\\K[^[:space:]]+" "$DEVCONTAINER_DOCKERFILE" | tail -n 1 || true)
+    if [ -z "$value" ]; then
+        echo "Failed to read ${arg_name} from ${DEVCONTAINER_DOCKERFILE}" >&2
+        exit 1
+    fi
+    printf '%s\n' "$value"
+}
+
+echo "Installing AI coding assistants..."
+export PATH="$HOME/.local/bin:$PATH"
+
+CODEX_CLI_VERSION="$(get_arg_version CODEX_CLI_VERSION)"
+
+# Install/update Codex via official installer
+install_codex() {
+    echo "Installing Codex CLI ${CODEX_CLI_VERSION}..."
+    curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
+        | sh -s -- "${CODEX_CLI_VERSION}"
+}
+
+CURRENT_CODEX_VERSION="$(codex --version 2>/dev/null | awk '{print $2}' || true)"
+if [ "$CURRENT_CODEX_VERSION" != "$CODEX_CLI_VERSION" ]; then
+    install_codex
+else
+    echo "Codex CLI already at ${CURRENT_CODEX_VERSION}, skipping install."
+fi
+
+bash "$SCRIPT_DIR/configure-codex.sh"
+
+echo "=== Devcontainer setup complete ==="

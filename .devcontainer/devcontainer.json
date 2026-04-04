@@ -15,6 +15,7 @@
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
   "mounts": [],
   "remoteEnv": {
+    "OPENAI_API_KEY": "fake-key",
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8"
   },
