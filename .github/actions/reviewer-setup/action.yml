@@ -49,26 +49,34 @@ runs:
         # Detect this early and skip the review gracefully instead of erroring out.
 
         # URL-encode the branch name so feature/foo resolves correctly.
-        ENCODED_REF=$(printf '%s' "${{ inputs.head_ref }}" | jq -sRr @uri)
+        ENCODED_REF=$(HEAD_REF="${{ inputs.head_ref }}" python3 - <<'PY'
+import os
+from urllib.parse import quote
+
+ref = os.environ["HEAD_REF"]
+print(quote(ref, safe=''))
+PY
+)
         API_PATH="repos/${{ inputs.repository }}/branches/${ENCODED_REF}"
 
-        # gh api exits non-zero on 404; capture output without aborting the step.
-        set +e
-        RESPONSE=$(gh api "$API_PATH" -i 2>&1)
-        STATUS=$?
-        set -euo pipefail
+        echo "Checking branch status via $API_PATH"
 
-        HTTP_STATUS=$(printf '%s\n' "$RESPONSE" | head -n 1 | awk '{print $2}')
-
-        if [ "$HTTP_STATUS" = "404" ]; then
-          echo "Branch '${{ inputs.head_ref }}' no longer exists (likely merged and deleted). Skipping review."
-          echo "exists=false" >> $GITHUB_OUTPUT
-        elif [ "$STATUS" -ne 0 ] || [ -z "$HTTP_STATUS" ]; then
-          printf 'Failed to check branch status (HTTP %s). Full response:%s\n' "${HTTP_STATUS:-unknown}" "\n$RESPONSE" >&2
-          exit 1
+        if RESPONSE=$(gh api "$API_PATH" -i 2>&1); then
+          HTTP_STATUS=$(printf '%s\n' "$RESPONSE" | head -n 1 | awk '{print $2}')
+          echo "Branch '${{ inputs.head_ref }}' exists (HTTP ${HTTP_STATUS:-unknown}). Proceeding with review."
+          echo "exists=true" >>"$GITHUB_OUTPUT"
         else
-          echo "Branch '${{ inputs.head_ref }}' exists (HTTP $HTTP_STATUS). Proceeding with review."
-          echo "exists=true" >> $GITHUB_OUTPUT
+          EXIT_CODE=$?
+          HTTP_STATUS=$(printf '%s\n' "$RESPONSE" | head -n 1 | awk '{print $2}')
+
+          if [ "$HTTP_STATUS" = "404" ]; then
+            echo "Branch '${{ inputs.head_ref }}' no longer exists (likely merged and deleted). Skipping review."
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+          else
+            printf 'Failed to check branch status (exit %s, HTTP %s). Full response:%s\n' \
+              "$EXIT_CODE" "${HTTP_STATUS:-unknown}" "\n$RESPONSE" >&2
+            exit "$EXIT_CODE"
+          fi
         fi
 
     - name: Verify PR Tests passed on current commit
