@@ -30,17 +30,30 @@ fi
 
 mkdir -p "$HOME/.codex"
 
-# Configure Codex CLI to use the self-hosted LiteLLM proxy (no-auth).
-# OPENAI_API_KEY is set to a placeholder in devcontainer.json because
-# the LiteLLM proxy doesn't require authentication.
-cat > "$HOME/.codex/config.toml" <<'EOF'
-model = "gpt-5-codex"
-model_provider = "litellm"
+# Allow the Codex model configuration to be overridden for different LiteLLM
+# backends without requiring code changes. These defaults reflect the current
+# shared LiteLLM proxy deployment used in CI.
+CODEX_MODEL_DEFAULT="gpt-5.4"
+CODEX_MODEL_PROVIDER_DEFAULT="litellm"
+CODEX_MODEL_PROVIDER_NAME_DEFAULT="LiteLLM"
+CODEX_MODEL_BASE_URL_DEFAULT="https://llm.featherback-mermaid.ts.net/v1"
+CODEX_MODEL_ENV_KEY_DEFAULT="OPENAI_API_KEY"
 
-[model_providers.litellm]
-name = "LiteLLM"
-base_url = "https://llm.featherback-mermaid.ts.net/v1"
-env_key = "OPENAI_API_KEY"
+CODEX_MODEL="${CODEX_MODEL:-$CODEX_MODEL_DEFAULT}"
+CODEX_MODEL_PROVIDER="${CODEX_MODEL_PROVIDER:-$CODEX_MODEL_PROVIDER_DEFAULT}"
+CODEX_MODEL_PROVIDER_NAME="${CODEX_MODEL_PROVIDER_NAME:-$CODEX_MODEL_PROVIDER_NAME_DEFAULT}"
+CODEX_MODEL_BASE_URL="${CODEX_MODEL_BASE_URL:-$CODEX_MODEL_BASE_URL_DEFAULT}"
+CODEX_MODEL_ENV_KEY="${CODEX_MODEL_ENV_KEY:-$CODEX_MODEL_ENV_KEY_DEFAULT}"
+
+# Write Codex CLI configuration with the selected provider.
+cat > "$HOME/.codex/config.toml" <<EOF
+model = "${CODEX_MODEL}"
+model_provider = "${CODEX_MODEL_PROVIDER}"
+
+[model_providers.${CODEX_MODEL_PROVIDER}]
+name = "${CODEX_MODEL_PROVIDER_NAME}"
+base_url = "${CODEX_MODEL_BASE_URL}"
+env_key = "${CODEX_MODEL_ENV_KEY}"
 EOF
 
 echo "Codex configured for LiteLLM proxy."
