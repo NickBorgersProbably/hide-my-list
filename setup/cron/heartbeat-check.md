@@ -15,7 +15,7 @@ The heartbeat is not a cron job we create — it's a built-in OpenClaw feature c
 
 Every 30 minutes, OpenClaw runs the agent with `HEARTBEAT.md` as context. The agent performs the checks defined in `HEARTBEAT.md`:
 
-1. Check for pending reminder signals
+1. Check for stranded `.reminder-signal` reminder handoffs
 2. Verify cron jobs are registered (re-register if expired)
 3. Test Notion connectivity
 4. Verify environment is intact

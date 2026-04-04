@@ -2,16 +2,17 @@
 
 ## Checks (in order)
 
-### 1. Reminder Signal
+### 1. Stranded Reminder Signal
 - Check `.reminder-signal`
-- If exists: read it, send each reminder to the user, update Notion status to "sent", delete the signal file
+- This file is the reminder handoff written by `scripts/check-reminders.sh`
+- If it still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, update Notion status to `sent` or `missed` based on the file, then delete the signal file
 
 ### 2. Cron Job Health
 Verify that durable cron jobs are registered. If any are missing, re-register them.
 
 | Job | Schedule | Action |
 |-----|----------|--------|
-| reminder-check | `*/5 * * * *` | Run `scripts/check-reminders.sh`, deliver due reminders, update Notion |
+| reminder-check | `*/5 * * * *` | Run `scripts/check-reminders.sh`; if it writes `.reminder-signal`, read it, deliver reminders, update Notion, delete the file |
 | pipeline-monitor | `*/2 * * * *` | Run `scripts/check-github-status.sh`, report actionable changes |
 
 To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule and prompt from `setup/cron/`.

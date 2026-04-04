@@ -30,11 +30,11 @@ GitHub has been chosen as the tool for facilitating this, and that means we need
 
 ### Webhook — [A] only
 
-The webhook listener ([`scripts/webhook-signal.sh`](scripts/webhook-signal.sh)) receives CI/CD notifications from the network **[A]**, but that's all it does. It immediately discards all request data (`exec 0</dev/null`) and writes a self-generated Unix timestamp to a signal file. It has no access to credentials **[B]** and makes no external calls **[C]**. There's nothing to exploit because nothing is read.
+The former webhook listener (`scripts/webhook-signal.sh`, now replaced by cron-based pipeline monitoring) received CI/CD notifications from the network **[A]**, but that was all it did. It immediately discarded all request data (`exec 0</dev/null`) and wrote a self-generated Unix timestamp to a signal file. It had no access to credentials **[B]** and made no external calls **[C]**. There was little to exploit because nothing was read.
 
-### Reminder daemon — [BC] configuration
+### Reminder delivery flow — [BC] configuration
 
-The reminder daemon ([`scripts/reminder-daemon.sh`](scripts/reminder-daemon.sh) + [`scripts/check-reminders.sh`](scripts/check-reminders.sh)) sources `.env` credentials **[B]** and queries Notion plus writes a local signal file **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
+The reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus the OpenClaw `reminder-check` cron prompt) sources `.env` credentials **[B]**, queries Notion, and writes a local signal file **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
 
 ### CI/CD review agents — [AC] configuration
 

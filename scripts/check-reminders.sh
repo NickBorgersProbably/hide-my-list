@@ -11,9 +11,11 @@
 # delivery, so stale signal entries are cleared automatically once the agent
 # updates Notion.
 #
-# Designed to run via reminder-daemon.sh (default: every 5 minutes).
-# The agent checks for the signal file and delivers reminders to the user
-# through the active messaging surface.
+# Designed to run via the durable `reminder-check` cron prompt (every 5
+# minutes). The script writes a handoff file, and the agent session that ran it
+# reads that file to deliver reminders through the active messaging surface.
+# Heartbeat can also recover a stranded handoff file if a prior delivery did
+# not complete.
 #
 # SECURITY PROPERTIES:
 #   - Uses the same .env credential loading as notion-cli.sh

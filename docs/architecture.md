@@ -217,7 +217,7 @@ sequenceDiagram
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. A durable cron job (`reminder-check`) runs every 5 minutes via OpenClaw's native scheduling.
 3. The cron job triggers the agent to run `scripts/check-reminders.sh`, which queries Notion for pending reminders where `remind_at <= now`.
-4. If due reminders are found, the agent delivers them directly to the user via the active messaging channel and marks them as `sent` in Notion.
+4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent session reads that file, delivers the reminders, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
 5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 6. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
