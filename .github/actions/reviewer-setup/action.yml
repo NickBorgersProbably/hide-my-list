@@ -32,7 +32,7 @@ outputs:
     value: ${{ steps.verify-tests.outputs.verified }}
   exists:
     description: 'Whether the PR branch still exists on the remote (true/false)'
-    value: ${{ steps.check-branch.outputs.exists }}
+    value: ${{ steps.final-branch-state.outputs.exists }}
 
 runs:
   using: 'composite'
@@ -137,24 +137,113 @@ runs:
         echo "verified=false" >> $GITHUB_OUTPUT
 
     - name: Checkout PR branch
+      id: checkout-branch
       if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
       shell: bash
       env:
+        GH_TOKEN: ${{ inputs.github_token }}
         CHECKOUT_TOKEN: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
         HEAD_REF: ${{ inputs.head_ref }}
         HEAD_REPO: ${{ inputs.head_repo }}
       run: |
+        branch_exists() {
+          local encoded_branch response gh_exit http_status
+
+          encoded_branch=$(python3 - <<'PY'
+        import os
+        import urllib.parse
+        print(urllib.parse.quote(os.environ["HEAD_REF"], safe=""))
+        PY
+          )
+
+          set +e
+          response=$(gh api "repos/${HEAD_REPO}/branches/${encoded_branch}" --silent --include 2>&1)
+          gh_exit=$?
+          set -e
+          http_status=$(printf '%s\n' "$response" | awk 'toupper($1) ~ /^HTTP/ {print $2; exit}')
+
+          case "$http_status" in
+            200)
+              return 0
+              ;;
+            404)
+              return 1
+              ;;
+            *)
+              echo "Failed to verify branch '${HEAD_REF}' in '${HEAD_REPO}' immediately before checkout (gh exit ${gh_exit}, HTTP ${http_status:-unknown})"
+              printf '%s\n' "$response"
+              exit 1
+              ;;
+          esac
+        }
+
+        if ! branch_exists; then
+          echo "Branch '${HEAD_REF}' disappeared before checkout; treating it as deleted"
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        ASKPASS_SCRIPT=$(git rev-parse --git-path reviewer-askpass.sh)
+        cat > "$ASKPASS_SCRIPT" <<'EOF'
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        token="${REVIEWER_SETUP_TOKEN:-${GH_TOKEN:-}}"
+        if [ -z "$token" ]; then
+          echo "Missing git credential token for reviewer setup" >&2
+          exit 1
+        fi
+
+        case "${1:-}" in
+          *Username*)
+            printf '%s\n' 'x-access-token'
+            ;;
+          *)
+            printf '%s\n' "$token"
+            ;;
+        esac
+        EOF
+        chmod 700 "$ASKPASS_SCRIPT"
+
+        # Keep the workspace authenticated for later pull/push operations without
+        # writing a tokenized remote URL or putting the token in argv.
+        git config --local core.askPass "$ASKPASS_SCRIPT"
+        git config --local credential.helper ""
+        git config --local credential.useHttpPath true
+        git config --local --unset-all http.https://github.com/.extraheader || true
+        {
+          echo "GIT_ASKPASS=$ASKPASS_SCRIPT"
+          echo "GIT_TERMINAL_PROMPT=0"
+          echo "REVIEWER_SETUP_TOKEN=$CHECKOUT_TOKEN"
+        } >> "$GITHUB_ENV"
+
+        FETCH_STDERR=$(mktemp)
         # Reuse the existing workspace checkout to avoid composite action
         # post-cleanup bugs while still switching to the PR head repo/ref.
-        AUTH_HEADER=$(printf 'AUTHORIZATION: basic %s' "$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')")
-        git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
-          fetch --no-tags --prune "https://github.com/${HEAD_REPO}.git" \
-          "refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+        if ! GIT_TERMINAL_PROMPT=0 \
+          REVIEWER_SETUP_TOKEN="$CHECKOUT_TOKEN" \
+          git fetch --no-tags --prune "https://github.com/${HEAD_REPO}.git" \
+            "refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}" 2>"$FETCH_STDERR"; then
+          if grep -qiE "couldn't find remote ref|remote ref does not exist|could not find remote branch" "$FETCH_STDERR"; then
+            echo "Branch '${HEAD_REF}' disappeared during fetch; treating it as deleted"
+            cat "$FETCH_STDERR"
+            rm -f "$FETCH_STDERR"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cat "$FETCH_STDERR"
+          rm -f "$FETCH_STDERR"
+          exit 1
+        fi
+        rm -f "$FETCH_STDERR"
+
         # Keep origin pointed at the PR head repo so later pull/push commands
         # behave the same way actions/checkout would for cross-repo PRs.
         git remote set-url origin "https://github.com/${HEAD_REPO}.git"
         git checkout --force -B "${HEAD_REF}" "refs/remotes/origin/${HEAD_REF}"
         git branch --set-upstream-to "origin/${HEAD_REF}" "${HEAD_REF}" || true
+        echo "exists=true" >> "$GITHUB_OUTPUT"
 
     - name: Pull latest changes
       if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
@@ -162,6 +251,23 @@ runs:
       env:
         HEAD_REF: ${{ inputs.head_ref }}
       run: git pull origin "$HEAD_REF" || true
+
+    - name: Finalize branch state
+      id: final-branch-state
+      if: always()
+      shell: bash
+      env:
+        INITIAL_EXISTS: ${{ steps.check-branch.outputs.exists }}
+        VERIFIED: ${{ steps.verify-tests.outputs.verified }}
+        CHECKOUT_EXISTS: ${{ steps.checkout-branch.outputs.exists }}
+      run: |
+        if [ "$INITIAL_EXISTS" != "true" ]; then
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        elif [ "$VERIFIED" = "true" ] && [ "$CHECKOUT_EXISTS" = "false" ]; then
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Create directories for devcontainer mounts
       if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'

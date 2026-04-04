@@ -22,7 +22,7 @@ responses, failed CI that needs fixing, or PRs that are ready to merge.
 
 ## Fast-Path Callback
 
-GitHub Actions currently supports an optional fast-path callback through `AGENT_WEBHOOK_URL`:
+GitHub Actions currently supports an optional fast-path callback through `AGENT_WEBHOOK_URL`, configured as the repository variable `vars.AGENT_WEBHOOK_URL`:
 
 ```
 Workflow step:
