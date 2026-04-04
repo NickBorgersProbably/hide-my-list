@@ -1,5 +1,5 @@
 name: 'Reviewer Setup'
-description: 'Shared setup for all Claude Code review jobs: verify tests, checkout PR, login to GHCR'
+description: 'Shared setup for all Claude Code review jobs: verify tests, switch to the PR branch, login to GHCR'
 
 inputs:
   pr_number:
@@ -92,14 +92,17 @@ runs:
         echo "Skipping review - tests must pass on the current PR head first"
         echo "verified=false" >> $GITHUB_OUTPUT
 
-    - name: Checkout PR branch
+    - name: Switch workspace to PR branch
       if: steps.verify-tests.outputs.verified == 'true'
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ inputs.head_ref }}
-        repository: ${{ inputs.head_repo }}
-        fetch-depth: 0
-        token: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+      shell: bash
+      env:
+        CHECKOUT_TOKEN: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+      run: |
+        # Avoid nested checkout post-hooks inside the composite action.
+        REMOTE_URL="https://x-access-token:${CHECKOUT_TOKEN}@github.com/${{ inputs.head_repo }}.git"
+        git remote set-url origin "$REMOTE_URL"
+        git fetch --no-tags --prune origin "${{ inputs.head_ref }}"
+        git checkout --force -B "${{ inputs.head_ref }}" FETCH_HEAD
 
     - name: Pull latest changes
       if: steps.verify-tests.outputs.verified == 'true'
@@ -113,11 +116,12 @@ runs:
 
     - name: Log in to GHCR
       if: steps.verify-tests.outputs.verified == 'true'
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ inputs.github_token }}
+      shell: bash
+      env:
+        GHCR_PASSWORD: ${{ inputs.github_token }}
+      run: |
+        # Avoid nested docker/login-action post-hooks inside the composite action.
+        printf '%s' "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
     - name: Log out of GHCR
       if: steps.verify-tests.outputs.verified == 'true'
