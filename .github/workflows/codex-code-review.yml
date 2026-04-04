@@ -805,6 +805,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with reservations | Needs revision — [reason]]'" < /dev/null 2>&1 | tee /tmp/design-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload design review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -926,6 +930,10 @@ jobs:
 
             ### Conclusion
             [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /tmp/security-review-output.jsonl
+
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
 
       - name: Upload security review output
         uses: actions/upload-artifact@v4
@@ -1114,6 +1122,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with suggestions | Blocking concerns found]'" < /dev/null 2>&1 | tee /tmp/psych-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload psych review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1258,6 +1270,10 @@ jobs:
 
             ### Conclusion
             [Approved | Updates needed (non-blocking) | Blocking contradictions found]'" < /dev/null 2>&1 | tee /tmp/docs-review-output.jsonl
+
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
 
       - name: Upload docs review output
         uses: actions/upload-artifact@v4
@@ -1414,6 +1430,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with suggestions | Blocking issues found]'" < /dev/null 2>&1 | tee /tmp/prompt-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload prompt review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1546,6 +1566,10 @@ jobs:
             [If NO-GO: List specific blockers that must be resolved.]
 
             [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
+
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
 
       - name: Upload merge decision output
         uses: actions/upload-artifact@v4
