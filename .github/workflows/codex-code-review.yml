@@ -693,7 +693,6 @@ jobs:
           REQUIRED_STARTED_LABELS=$(cat <<'EOF'
           design-review-started
           docs-review-started
-          merge-decision-started
           EOF
           )
 
@@ -894,7 +893,6 @@ jobs:
           REQUIRED_STARTED_LABELS=$(cat <<'EOF'
           design-review-started
           docs-review-started
-          merge-decision-started
           EOF
           )
 
@@ -1046,7 +1044,6 @@ jobs:
           REQUIRED_STARTED_LABELS=$(cat <<'EOF'
           design-review-started
           docs-review-started
-          merge-decision-started
           EOF
           )
 
@@ -1262,7 +1259,6 @@ jobs:
           REQUIRED_STARTED_LABELS=$(cat <<'EOF'
           design-review-started
           docs-review-started
-          merge-decision-started
           EOF
           )
 
@@ -1438,7 +1434,6 @@ jobs:
           REQUIRED_STARTED_LABELS=$(cat <<'EOF'
           design-review-started
           docs-review-started
-          merge-decision-started
           EOF
           )
 
@@ -1626,7 +1621,6 @@ jobs:
           REQUIRED_STARTED_LABELS=$(cat <<'EOF'
           design-review-started
           docs-review-started
-          merge-decision-started
           EOF
           )
 
