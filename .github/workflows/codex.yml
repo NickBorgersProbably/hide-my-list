@@ -82,18 +82,72 @@ jobs:
               ;;
           esac
 
+  detect_codex_invocation:
+    runs-on: ubuntu-latest
+    outputs:
+      codex_requested: ${{ steps.detect.outputs.codex_requested }}
+      request_text_b64: ${{ steps.detect.outputs.request_text_b64 }}
+      issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
+    steps:
+      - name: Detect explicit Codex invocation
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          set -eu
+
+          # Treat @codex as explicit only when it starts a line.
+          # This avoids triggering on incidental mentions in prose or logs.
+          explicit_invocation() {
+            printf '%s\n' "$1" | grep -Eq '^[[:space:]]*@codex([[:space:]]|$|[:punct:])'
+          }
+
+          REQUEST_TEXT=""
+          INVOCATION_TEXT=""
+
+          case "$EVENT_NAME" in
+            issue_comment|pull_request_review_comment)
+              REQUEST_TEXT="${COMMENT_BODY:-}"
+              INVOCATION_TEXT="$REQUEST_TEXT"
+              ;;
+            pull_request_review)
+              REQUEST_TEXT="${REVIEW_BODY:-}"
+              INVOCATION_TEXT="$REQUEST_TEXT"
+              ;;
+            issues)
+              REQUEST_TEXT="${ISSUE_TITLE:-}"
+              if [ -n "${ISSUE_BODY:-}" ]; then
+                REQUEST_TEXT="${REQUEST_TEXT}"$'\n\n'"${ISSUE_BODY}"
+              fi
+              INVOCATION_TEXT="$REQUEST_TEXT"
+              ;;
+            *)
+              ;;
+          esac
+
+          if explicit_invocation "$INVOCATION_TEXT"; then
+            echo "codex_requested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "codex_requested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          printf 'request_text_b64=%s\n' "$(printf '%s' "$REQUEST_TEXT" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          printf 'issue_title_b64=%s\n' "$(printf '%s' "${ISSUE_TITLE:-}" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
   # Build and cache devcontainer image first
   # Only build when a downstream job (codex or resolve-issue) will actually run.
   # Without this gate, every PR review comment triggers a wasted devcontainer build.
   build-devcontainer:
-    needs: authorize
+    needs: [authorize, detect_codex_invocation]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       (
         (github.event_name == 'issues') ||
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex'))
+        needs.detect_codex_invocation.outputs.codex_requested == 'true'
       )
     runs-on: [self-hosted, homelab]
     permissions:
@@ -123,13 +177,10 @@ jobs:
           push: always
 
   codex:
-    needs: [authorize, build-devcontainer]
+    needs: [authorize, detect_codex_invocation, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex'))))
+      needs.detect_codex_invocation.outputs.codex_requested == 'true'
     runs-on: [self-hosted, homelab]
     permissions:
       contents: write
@@ -194,27 +245,6 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
           ref: ${{ steps.pr-context.outputs.is_pr == 'true' && steps.pr-context.outputs.pr_head_ref || github.ref }}
 
-      - name: Extract comment body
-        id: comment
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          REVIEW_BODY: ${{ github.event.review.body }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
-        run: |
-          # Use environment variables to avoid shell escaping issues with special characters
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
-            echo "$COMMENT_BODY" >> $GITHUB_OUTPUT
-          elif [ "$EVENT_NAME" = "pull_request_review_comment" ]; then
-            echo "$COMMENT_BODY" >> $GITHUB_OUTPUT
-          elif [ "$EVENT_NAME" = "pull_request_review" ]; then
-            echo "$REVIEW_BODY" >> $GITHUB_OUTPUT
-          else
-            echo "$ISSUE_BODY" >> $GITHUB_OUTPUT
-          fi
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -233,13 +263,14 @@ jobs:
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
-            COMMENT_BODY=${{ steps.comment.outputs.body }}
+            COMMENT_BODY_B64=${{ needs.detect_codex_invocation.outputs.request_text_b64 }}
             ISSUE_NUMBER=${{ github.event.issue.number || github.event.pull_request.number }}
             REPO=${{ github.repository }}
             IS_PR=${{ steps.pr-context.outputs.is_pr }}
             PR_HEAD_REF=${{ steps.pr-context.outputs.pr_head_ref }}
           runCmd: |
             source .devcontainer/configure-codex.sh
+            COMMENT_BODY=$(printf '%s' "$COMMENT_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
             # Build the prompt based on whether this is a PR or issue comment
             # Instead of fetching all context inline, instruct Codex to read it via gh CLI.
@@ -314,7 +345,7 @@ jobs:
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
-    needs: [authorize, build-devcontainer]
+    needs: [authorize, detect_codex_invocation, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'reopened')
@@ -379,10 +410,11 @@ jobs:
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
-            ISSUE_TITLE=${{ github.event.issue.title }}
+            ISSUE_TITLE_B64=${{ needs.detect_codex_invocation.outputs.issue_title_b64 }}
             REPO=${{ github.repository }}
           runCmd: |
             source .devcontainer/configure-codex.sh
+            ISSUE_TITLE=$(printf '%s' "$ISSUE_TITLE_B64" | base64 -d 2>/dev/null || echo "")
 
             timeout 60m codex exec \
               --json \
