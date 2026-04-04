@@ -52,13 +52,21 @@ runs:
         print(urllib.parse.quote(os.environ["HEAD_REF"], safe=""))
         PY
         )
-        HTTP_STATUS=$(gh api "repos/${HEAD_REPO}/branches/${ENCODED_BRANCH}" --silent -i 2>&1 | head -1 | awk '{print $2}')
+        set +e
+        RESPONSE=$(gh api "repos/${HEAD_REPO}/branches/${ENCODED_BRANCH}" --silent --include 2>&1)
+        GH_EXIT=$?
+        set -e
+        HTTP_STATUS=$(printf '%s\n' "$RESPONSE" | awk 'toupper($1) ~ /^HTTP/ {print $2; exit}')
         if [ "$HTTP_STATUS" = "200" ]; then
           echo "Branch '${HEAD_REF}' exists"
-          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        elif [ "$HTTP_STATUS" = "404" ]; then
+          echo "Branch '${HEAD_REF}' does not exist (HTTP 404) - PR was likely merged and branch deleted"
+          echo "exists=false" >> "$GITHUB_OUTPUT"
         else
-          echo "Branch '${HEAD_REF}' does not exist (HTTP $HTTP_STATUS) - PR was likely merged and branch deleted"
-          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "Failed to verify branch '${HEAD_REF}' in '${HEAD_REPO}' (gh exit ${GH_EXIT}, HTTP ${HTTP_STATUS:-unknown})"
+          printf '%s\n' "$RESPONSE"
+          exit 1
         fi
 
     - name: Verify PR Tests passed on current commit
@@ -138,8 +146,10 @@ runs:
       run: |
         # Reuse the existing workspace checkout to avoid composite action
         # post-cleanup bugs while still switching to the PR head repo/ref.
-        git remote set-url origin "https://x-access-token:${CHECKOUT_TOKEN}@github.com/${HEAD_REPO}.git"
-        git fetch --no-tags --prune origin "refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+        AUTH_HEADER=$(printf 'AUTHORIZATION: basic %s' "$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')")
+        git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
+          fetch --no-tags --prune "https://github.com/${HEAD_REPO}.git" \
+          "refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
         git checkout --force -B "${HEAD_REF}" "refs/remotes/origin/${HEAD_REF}"
 
     - name: Pull latest changes
