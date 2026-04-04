@@ -139,7 +139,7 @@ These docs are not documentation about a separate system — they are the system
 - **Never directly edit git-controlled files** (`scripts/`, `docs/`, `design/`, `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `HEARTBEAT.md`, or any other file tracked by git).
 - All codebase changes go through GitHub issues -> PR -> review pipeline.
 - Your job is to **file issues** describing the problem and proposed fix, not to implement code or prompt changes yourself.
-- The only files you may write to directly are `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, and `.reminder-signal`.
+- Outside explicit operational recovery procedures in `HEARTBEAT.md` and `setup/cron/pull-main.md`, the only files you may write to directly are `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, and `.reminder-signal`.
 
 ## Memory
 

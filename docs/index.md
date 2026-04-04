@@ -12,6 +12,7 @@ An AI-powered task manager where users never directly view their task list. The 
 - [Architecture](architecture.md) - System architecture, components, and data flow
 - [AI Prompts](ai-prompts.md) - AI interaction patterns and prompts
 - [Notion Schema](notion-schema.md) - Database schema and data model
+- [OpenClaw Integration](openclaw-integration.md) - How hide-my-list maps onto the OpenClaw runtime
 - [Task Lifecycle](task-lifecycle.md) - Task states and transitions
 - [User Interactions](user-interactions.md) - User interaction patterns
 - [User Preferences](user-preferences.md) - Personalization behavior spec
