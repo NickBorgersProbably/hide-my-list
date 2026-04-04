@@ -21,46 +21,75 @@ inputs:
     description: 'Token for checkout (defaults to github_token, use WORKFLOW_PAT for merge-decision)'
     required: false
     default: ''
+  pr_tests_run_id:
+    description: 'Workflow run ID for the PR Tests execution that verified this PR head'
+    required: false
+    default: ''
 
 outputs:
   verified:
-    description: 'Whether tests passed on the current commit (true/false)'
+    description: 'Whether PR Tests passed for the current PR head (true/false)'
     value: ${{ steps.verify-tests.outputs.verified }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Verify tests passed on current commit
+    - name: Verify PR Tests passed on current commit
       id: verify-tests
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
-        # Get the current HEAD SHA of the PR
-        HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
-        echo "Checking test status for commit $HEAD_SHA"
+        # Compare PR Tests against the current PR head so reviewers never run on stale code.
+        export HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        echo "Checking PR Tests status for commit $HEAD_SHA"
 
-        # Retry loop - check run may not be visible immediately after workflow triggers
+        get_run_json() {
+          if [ -n "${{ inputs.pr_tests_run_id }}" ]; then
+            gh api repos/${{ inputs.repository }}/actions/runs/${{ inputs.pr_tests_run_id }} 2>/dev/null
+          else
+            gh api "repos/${{ inputs.repository }}/actions/workflows/pr-tests.yml/runs?branch=${{ inputs.head_ref }}&status=completed&per_page=20" \
+              --jq '[.workflow_runs[]
+                | select(.head_sha == env.HEAD_SHA)]
+                | sort_by(.run_number)
+                | last'
+          fi
+        }
+
         MAX_ATTEMPTS=40
         ATTEMPT=1
         while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-          STATUS=$(gh api repos/${{ inputs.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+          RUN_JSON=$(get_run_json || echo "")
+          RUN_NAME=$(echo "$RUN_JSON" | jq -r '.name // ""' 2>/dev/null || echo "")
+          RUN_PATH=$(echo "$RUN_JSON" | jq -r '.path // ""' 2>/dev/null || echo "")
+          RUN_STATUS=$(echo "$RUN_JSON" | jq -r '.status // ""' 2>/dev/null || echo "")
+          RUN_CONCLUSION=$(echo "$RUN_JSON" | jq -r '.conclusion // ""' 2>/dev/null || echo "")
+          RUN_HEAD_SHA=$(echo "$RUN_JSON" | jq -r '.head_sha // ""' 2>/dev/null || echo "")
+          STATUS="${RUN_STATUS:-not found}/${RUN_CONCLUSION:-not found}"
 
-          if [ "$STATUS" = "success" ]; then
-            echo "All Required Tests passed on current commit"
-            echo "verified=true" >> $GITHUB_OUTPUT
-            exit 0
+          if [ -n "$RUN_JSON" ] && [ "$RUN_JSON" != "null" ]; then
+            if [ "$RUN_NAME" != "PR Tests" ] && [ "$RUN_PATH" != ".github/workflows/pr-tests.yml" ]; then
+              STATUS="unexpected workflow ${RUN_NAME:-unknown}"
+            elif [ "$RUN_HEAD_SHA" != "$HEAD_SHA" ]; then
+              STATUS="head SHA mismatch (${RUN_HEAD_SHA:-missing})"
+            elif [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" = "success" ]; then
+              echo "PR Tests passed for current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          else
+            STATUS="not found"
           fi
 
           if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: PR Tests run not ready yet (status: $STATUS), waiting 10s..."
             sleep 10
           fi
           ATTEMPT=$((ATTEMPT + 1))
         done
 
-        echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts (status: ${STATUS:-not found})"
-        echo "Skipping review - tests must pass first"
+        echo "PR Tests did not verify the current commit after $MAX_ATTEMPTS attempts (status: $STATUS)"
+        echo "Skipping review - tests must pass on the current PR head first"
         echo "verified=false" >> $GITHUB_OUTPUT
 
     - name: Checkout PR branch
