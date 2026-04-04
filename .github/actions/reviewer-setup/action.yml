@@ -42,15 +42,22 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
+        HEAD_REF: ${{ inputs.head_ref }}
+        HEAD_REPO: ${{ inputs.head_repo }}
       run: |
         # URL-encode the branch name for the API call (handles slashes, etc.)
-        ENCODED_BRANCH=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${{ inputs.head_ref }}', safe=''))")
-        HTTP_STATUS=$(gh api "repos/${{ inputs.repository }}/branches/${ENCODED_BRANCH}" --silent -i 2>&1 | head -1 | awk '{print $2}')
+        ENCODED_BRANCH=$(python3 - <<'PY'
+        import os
+        import urllib.parse
+        print(urllib.parse.quote(os.environ["HEAD_REF"], safe=""))
+        PY
+        )
+        HTTP_STATUS=$(gh api "repos/${HEAD_REPO}/branches/${ENCODED_BRANCH}" --silent -i 2>&1 | head -1 | awk '{print $2}')
         if [ "$HTTP_STATUS" = "200" ]; then
-          echo "Branch '${{ inputs.head_ref }}' exists"
+          echo "Branch '${HEAD_REF}' exists"
           echo "exists=true" >> $GITHUB_OUTPUT
         else
-          echo "Branch '${{ inputs.head_ref }}' does not exist (HTTP $HTTP_STATUS) - PR was likely merged and branch deleted"
+          echo "Branch '${HEAD_REF}' does not exist (HTTP $HTTP_STATUS) - PR was likely merged and branch deleted"
           echo "exists=false" >> $GITHUB_OUTPUT
         fi
 
@@ -60,16 +67,24 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
+        HEAD_REF: ${{ inputs.head_ref }}
+        PR_TESTS_RUN_ID: ${{ inputs.pr_tests_run_id }}
       run: |
         # Compare PR Tests against the current PR head so reviewers never run on stale code.
         export HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        export ENCODED_HEAD_REF=$(python3 - <<'PY'
+        import os
+        import urllib.parse
+        print(urllib.parse.quote(os.environ["HEAD_REF"], safe=""))
+        PY
+        )
         echo "Checking PR Tests status for commit $HEAD_SHA"
 
         get_run_json() {
-          if [ -n "${{ inputs.pr_tests_run_id }}" ]; then
-            gh api repos/${{ inputs.repository }}/actions/runs/${{ inputs.pr_tests_run_id }} 2>/dev/null
+          if [ -n "${PR_TESTS_RUN_ID}" ]; then
+            gh api repos/${{ inputs.repository }}/actions/runs/${PR_TESTS_RUN_ID} 2>/dev/null
           else
-            gh api "repos/${{ inputs.repository }}/actions/workflows/pr-tests.yml/runs?branch=${{ inputs.head_ref }}&status=completed&per_page=20" \
+            gh api "repos/${{ inputs.repository }}/actions/workflows/pr-tests.yml/runs?branch=${ENCODED_HEAD_REF}&status=completed&per_page=20" \
               --jq '[.workflow_runs[]
                 | select(.head_sha == env.HEAD_SHA)]
                 | sort_by(.run_number)
@@ -118,17 +133,21 @@ runs:
       shell: bash
       env:
         CHECKOUT_TOKEN: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
+        HEAD_REF: ${{ inputs.head_ref }}
+        HEAD_REPO: ${{ inputs.head_repo }}
       run: |
-        # Use git directly instead of actions/checkout to avoid composite action
-        # post-cleanup bug ("Index was out of range") with conditional uses: steps.
-        git clone --no-checkout "https://x-access-token:${CHECKOUT_TOKEN}@github.com/${{ inputs.head_repo }}.git" .
-        git fetch origin "${{ inputs.head_ref }}"
-        git checkout "${{ inputs.head_ref }}"
+        # Reuse the existing workspace checkout to avoid composite action
+        # post-cleanup bugs while still switching to the PR head repo/ref.
+        git remote set-url origin "https://x-access-token:${CHECKOUT_TOKEN}@github.com/${HEAD_REPO}.git"
+        git fetch --no-tags --prune origin "refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+        git checkout --force -B "${HEAD_REF}" "refs/remotes/origin/${HEAD_REF}"
 
     - name: Pull latest changes
       if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
       shell: bash
-      run: git pull origin ${{ inputs.head_ref }} || true
+      env:
+        HEAD_REF: ${{ inputs.head_ref }}
+      run: git pull origin "$HEAD_REF" || true
 
     - name: Create directories for devcontainer mounts
       if: steps.verify-tests.outputs.verified == 'true' && steps.check-branch.outputs.exists == 'true'
