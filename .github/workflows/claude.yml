@@ -282,7 +282,7 @@ jobs:
             Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
             fi
 
-            codex exec \
+            timeout 60m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "$PROMPT" < /dev/null 2>&1 | tee /tmp/codex-conversation.jsonl
@@ -368,7 +368,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-codex.sh
 
-            codex exec \
+            timeout 60m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER} in ${REPO}.

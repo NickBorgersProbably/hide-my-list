@@ -461,7 +461,7 @@ jobs:
             source .devcontainer/configure-codex.sh
 
             # Run Codex to fix test failures
-            codex exec \
+            timeout 30m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are fixing CI test failures for PR #${PR_NUMBER} in ${REPO}.
@@ -697,7 +697,7 @@ jobs:
 
             source .devcontainer/configure-codex.sh
 
-            codex exec \
+            timeout 30m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
@@ -804,7 +804,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-codex.sh
 
-            codex exec \
+            timeout 30m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a SECURITY and INFRASTRUCTURE specialist reviewing PR #${PR_NUMBER}.
@@ -915,7 +915,7 @@ jobs:
 
             source .devcontainer/configure-codex.sh
 
-            codex exec \
+            timeout 30m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a PSYCHOLOGICAL RESEARCH EVIDENCE reviewer for PR #${PR_NUMBER} in ${REPO}.
@@ -1072,7 +1072,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-codex.sh
 
-            codex exec \
+            timeout 30m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DOCUMENTATION CONSISTENCY reviewer for PR #${PR_NUMBER} in ${REPO}.
@@ -1197,7 +1197,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-codex.sh
 
-            codex exec \
+            timeout 30m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a PROMPT ENGINEERING reviewer for PR #${PR_NUMBER} in ${REPO}.
@@ -1337,7 +1337,7 @@ jobs:
           runCmd: |
             source .devcontainer/configure-codex.sh
 
-            codex exec \
+            timeout 30m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.

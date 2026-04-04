@@ -40,7 +40,7 @@ From `docs/ai-prompts.md`:
 
 ## Review pipeline
 
-PRs are reviewed by a multi-agent Claude Code pipeline:
+PRs are reviewed by a multi-agent Codex pipeline:
 1. Design Review — validates intent fulfillment and design quality
 2. Security & Infrastructure Review — script safety, credential handling, workflow permissions
 3. Psych Research Review — validates against ADHD clinical research

@@ -305,7 +305,7 @@ flowchart TB
     end
 
     subgraph CIEnv["GitHub Actions"]
-        CI[Claude Code Reviewers]
+        CI[Codex Reviewers]
         FullNet[Full Internet Access]
     end
 

@@ -165,7 +165,7 @@ jobs:
             source .devcontainer/configure-codex.sh
 
             # Run Codex to diagnose the workflow failure
-            codex exec \
+            timeout 30m codex exec \
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a GitHub Actions diagnostician. A workflow has failed and you need to determine
