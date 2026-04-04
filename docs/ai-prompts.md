@@ -112,7 +112,7 @@ Categories:
 - REJECT: User doesn't want the suggested task (says no, not that one, something else)
 - CANNOT_FINISH: User indicates current task is too large or overwhelming (too big, can't finish, overwhelming)
 - NEED_HELP: User wants help breaking down or starting their current task (how do I start, what's next, I'm stuck, break this down)
-- CHECK_IN: System-initiated follow-up (triggered by timer, not user message)
+- CHECK_IN: System-initiated follow-up (triggered by OpenClaw scheduling, not by a user message)
 - CHAT: General conversation or questions
 
 Message: "{user_message}"
@@ -120,7 +120,7 @@ Message: "{user_message}"
 Intent:
 ```
 
-**Note:** CHECK_IN is not detected from user messages. It is triggered automatically by the client when a task check-in timer expires. The server recognizes CHECK_IN requests by a special flag in the request payload.
+**Note:** CHECK_IN is never inferred from user messages. It is a reserved system intent for an OpenClaw-driven follow-up. The default workspace does **not** auto-register a `task-check-in` cron job yet; an operator must add one before autonomous check-ins occur. Until then, only explicit runtime triggers (manual cron run, developer testing) should enter Module 6. Normal user replies like "I'm back" still go through the standard intent flow.
 
 ### Intent Detection Examples
 
@@ -967,27 +967,45 @@ sequenceDiagram
 
 ## Module 6: Check-In Handling
 
-The check-in module handles proactive follow-ups when a user may have forgotten about their active task. This is triggered by a client-side timer set to 1.25x the task's time estimate.
+The check-in module is designed for OpenClaw's durable cron job `task-check-in`, which wakes the agent to confirm progress on the active task. There is no frontend timer. Timing is tracked in `state.json` and Notion. If the cron job is not configured, skip this module.
 
 ```mermaid
-flowchart TD
-    Timer([Timer expires]) --> CheckActive{Task still in_progress?}
+sequenceDiagram
+    participant Cron as OpenClaw Cron<br/>(task-check-in)
+    participant Agent as AI Assistant
+    participant State as state.json
+    participant Notion as Notion API
 
-    CheckActive -->|No| Skip[Skip check-in]
-    CheckActive -->|Yes| SendCheckIn[Send check-in message]
-
-    SendCheckIn --> UserResponse[User responds]
-
-    UserResponse --> Done["Done / Finished"]
-    UserResponse --> StillWorking["Still working"]
-    UserResponse --> Distracted["Got distracted"]
-    UserResponse --> NeedMore["Need more time"]
-
-    Done --> Complete[Mark task completed]
-    StillWorking --> Encourage[Encourage, reset timer]
-    Distracted --> Nudge[Gentle nudge back]
-    NeedMore --> Acknowledge[Acknowledge, ask how long]
+    Cron->>Agent: Trigger task-check-in session (when configured)
+    Agent->>State: Load active_task, check_in_due_at, check_in_count
+    Agent->>Notion: Fetch active task (status, time estimate) if due
+    Agent->>Agent: Determine if check-in should fire
+    alt No active task or not due
+        Agent->>State: Clear stale check-in fields if needed
+        Agent-->>Cron: Reply CHECK_IN_SKIPPED
+    else Due for check-in
+        Agent->>Agent: Generate check-in message (this module)
+        Agent->>User: Send check-in
+        Agent->>State: Increment check_in_count, set next due time
+    end
 ```
+
+### Runtime Data
+
+When a user accepts a task:
+- Update Notion `Started At` to the current timestamp.
+- Write to `state.json.active_task`:
+  - `id`, `title`, `time_estimate`, `energy`
+  - `started_at` (ISO 8601, UTC)
+  - `check_in_due_at` = `started_at + time_estimate × 1.25`
+  - `check_in_count` = 0
+- Set `conversation_state = "active"`.
+
+**When configured:** run the `task-check-in` cron every 5 minutes. Each invocation should:
+1. Load `state.json.active_task`. If empty, exit.
+2. If the task status in Notion is no longer `In Progress`, clear active task and exit.
+3. If `now < check_in_due_at`, exit (no ping yet).
+4. Otherwise, set `conversation_state = "checking_in"` and call this module.
 
 ### Check-In Prompt
 
@@ -1037,8 +1055,8 @@ OUTPUT (JSON):
     "status": "in_progress" | "completed" | "pending",
     "note": "..." (optional note to append)
   },
-  "reset_timer": true | false,
-  "new_timer_minutes": null | number,
+  "schedule_follow_up": true | false,
+  "follow_up_minutes": null | number,
   "user_message": "..." (response to user)
 }
 ```
@@ -1061,39 +1079,63 @@ OUTPUT (JSON):
 
 ### Check-In Timing
 
-```mermaid
-flowchart LR
-    subgraph Timing["Timer Calculation"]
-        Estimate["Time Estimate"] --> Multiplier["× 1.25"]
-        Multiplier --> CheckInTime["Check-In Delay"]
-    end
+Store all timings in UTC for consistency:
 
-    subgraph Examples["Examples"]
-        E1["15 min task → 18.75 min"]
-        E2["30 min task → 37.5 min"]
-        E3["60 min task → 75 min"]
-        E4["120 min task → 150 min"]
-    end
-```
+| Event | How to calculate | Where stored |
+|-------|------------------|--------------|
+| First check-in | `started_at + (time_estimate_minutes × 1.25)` | `state.json.active_task.check_in_due_at` |
+| Second check-in | `now + (time_estimate_minutes × 0.5)` | overwrite `check_in_due_at` |
+| Third check-in | `now + (time_estimate_minutes × 0.25)` | overwrite `check_in_due_at` |
+
+Examples (45 min estimate):
+- Start at 14:00 → first check-in at 14:56 UTC
+- User still working → second at 15:23 UTC
+- Still working again → final at 15:34 UTC
 
 ### Repeated Check-Ins
 
-If the user says they're still working or need more time, the timer resets:
+Use `state.json.active_task.check_in_count` to control intensity:
 
 ```mermaid
 flowchart TD
-    CheckIn1["1st check-in at 1.25x"] --> StillWorking["User: Still working"]
-    StillWorking --> Reset1["Reset timer for 0.5x original"]
-    Reset1 --> CheckIn2["2nd check-in"]
-    CheckIn2 --> Response2{Response?}
-    Response2 -->|Still working| Reset2["Reset timer for 0.25x"]
-    Response2 -->|Done| Complete[Mark complete]
-    Response2 -->|Abandon| Return[Return to queue]
-    Reset2 --> CheckIn3["3rd check-in (final)"]
-    CheckIn3 --> Gentle["Gentle: Want to take a break?"]
+    Trigger["check_in_due_at reached"] --> Count{check_in_count}
+    Count -->|0| First["Friendly check-in"]
+    Count -->|1| Second["Brief follow-up"]
+    Count -->|2| Third["Suggest break, stop checking in"]
+    Third --> Stop[Clear check_in_due_at]
+
+    First --> Response
+    Second --> Response
+
+    Response --> Done["Done"] --> Complete[Mark completed, clear state]
+    Response --> Working["Still working"] --> NextHalf["Set next due = now + estimate×0.5"]
+    Response --> NeedTime["Need more time"] --> Custom["Set next due = now + user_time×1.25"]
+    Response --> Distracted["Distracted"] --> Decide{Continue?}
+    Response --> Abandon["Stop"] --> Return[Status → pending, clear state]
+
+    Decide -->|Yes| NextHalf
+    Decide -->|No| Return
+
+    NextHalf --> Increment[Increment check_in_count] --> DoneLoop{{Loop}}
+    Custom --> Increment --> DoneLoop
 ```
 
-After 3 check-ins without completion, the system gently suggests taking a break rather than continuing to nag.
+If `check_in_count` reaches 3 without completion, clear `check_in_due_at` and deliver the "take a break" message. Further follow-ups require the user to re-accept the task.
+
+### State Updates After Each Check-In
+
+| Scenario | Required updates |
+|----------|------------------|
+| Task completed | Update Notion status → `completed`; clear `active_task` from `state.json`; reset `conversation_state = "idle"` |
+| Still working | Increment `check_in_count`; set new `check_in_due_at`; keep `conversation_state = "active"` |
+| Needs more time | Same as still working but use user-specified duration |
+| Distracted but recommits | Increment `check_in_count`; set new due at 0.5× |
+| Distracted and stops | Return task to queue (`pending`), clear `active_task`, reset state |
+| Wants to abandon | Same as above |
+
+### Exiting Without Action
+
+If the cron fires and no check-in is due (no active task, already completed, or window not reached), respond `CHECK_IN_SKIPPED` in the session log and ensure `conversation_state` returns to `idle`. This prevents false positives and keeps the cron idempotent.
 
 ---
 

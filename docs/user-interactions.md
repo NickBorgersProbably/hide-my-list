@@ -44,7 +44,7 @@ flowchart TD
 | REJECT | "Not that one", "Something else", "I don't want to" |
 | CANNOT_FINISH | "This is too big", "I can't finish this", "Too much for one sitting" |
 | NEED_HELP | "How do I start?", "What should I do first?", "I'm stuck", "Break this down" |
-| CHECK_IN | System-initiated (timer triggered, not user message) |
+| CHECK_IN | System-initiated (runtime follow-up, not user message) |
 | CHAT | "Hello", "How does this work?", "What's in my list?" |
 
 ## Flow 1: Task Intake
@@ -624,51 +624,62 @@ AI: "Here's the full breakdown:
 
 ## Flow 7: Check-In Follow-Up
 
-When a user accepts a task, the system sets a timer for 1.25x the estimated completion time. If the timer expires before the user marks the task complete, the system proactively follows up.
+When a user accepts a task, the agent records the acceptance in Notion and stores timing metadata in `state.json`. OpenClaw's optional `task-check-in` cron job re-enters the conversation if the task runs long. If the cron job is not configured, proactive check-ins are disabled.
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant UI as Chat UI
-    participant T as Timer
     participant AI as AI Assistant
+    participant State as state.json
+    participant Cron as OpenClaw Cron<br/>(task-check-in)
     participant N as Notion
 
     U->>AI: "Sure, I'll do that"
     AI->>N: Update status → in_progress
-    AI->>U: "Great, it's yours. Let me know when done!"
-    AI->>UI: Return time_estimate (30 min)
-    UI->>T: Set timer for 37.5 min
+    AI->>State: Save active_task (id, title, estimate, started_at, check_in_due_at)
+    AI->>U: "Great, it's yours. Let me know when you're done!"
 
-    Note over T: 37.5 minutes later...
+    Note over AI,Cron: Time passes
 
-    T->>UI: Timer expired
-    UI->>AI: CHECK_IN request
-    AI->>N: Verify task still in_progress
-    N-->>AI: Yes, still in_progress
-    AI->>U: "How's the quarterly report going? Still at it?"
+    Cron->>AI: Trigger (if configured)
+    AI->>State: Load active_task + check_in_due_at
+    AI->>AI: Is check-in due?
+    alt Not due / no task
+        AI->>State: Optional cleanup
+        AI-->>Cron: CHECK_IN_SKIPPED
+    else Due and still in progress
+        AI->>N: Confirm task still in_progress
+        N-->>AI: Still active
+        AI->>U: "How's the quarterly report going? Still at it?"
+    end
 
     alt User completed
         U->>AI: "Oh yeah, finished that!"
         AI->>N: Update status → completed
-        AI->>U: "Nice! Marking that off."
-        UI->>T: Clear timer
+        AI->>State: Clear active_task, reset conversation_state
     else User still working
         U->>AI: "Still working on it"
-        AI->>U: "No rush - keep at it!"
-        UI->>T: Reset timer (15 min)
+        AI->>State: Update check_in_due_at = now + estimate×0.5
+        AI->>State: Increment check_in_count
+        AI->>U: "No rush — keep at it! I'll check back in a bit."
     else User got distracted
         U->>AI: "Ugh, got distracted"
         AI->>U: "Happens to everyone. Want to jump back in?"
+        alt User says yes
+            AI->>State: Update check_in_due_at = now + estimate×0.5
+            AI->>State: Increment check_in_count
+        else User says no
+            AI->>State: Clear active_task
+        end
     else User needs more time
         U->>AI: "Need another 20 minutes"
-        AI->>U: "No problem, I'll check back then."
-        UI->>T: Set timer (25 min)
+        AI->>U: "No problem — I'll check back then."
+        AI->>State: Set check_in_due_at = now + (20 × 1.25)
     else User wants to stop
         U->>AI: "Let me do something else"
         AI->>N: Update status → pending
-        AI->>U: "Got it - back in the queue. What next?"
-        UI->>T: Clear timer
+        AI->>State: Clear active_task
+        AI->>U: "Got it — back in the queue. What sounds good now?"
     end
 ```
 
@@ -676,38 +687,37 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Timer([Timer expires]) --> StillActive{Task still in_progress?}
+    Due["check_in_due_at reached"] --> StillActive{Task still in_progress?}
 
-    StillActive -->|No| Skip[Skip - already handled]
-    StillActive -->|Yes| CheckInCount{Check-in count?}
+    StillActive -->|No| Skip[Skip — clear active_task]
+    StillActive -->|Yes| Count{check_in_count}
 
-    CheckInCount -->|1st| Friendly["How's [task] going?"]
-    CheckInCount -->|2nd| Brief["Still working on [task]?"]
-    CheckInCount -->|3rd| Gentle["Want to take a break from [task]?<br/>No further check-ins"]
+    Count -->|0| Friendly["How's [task] going?"]
+    Count -->|1| Brief["Still working on [task]?"]
+    Count -->|2| Gentle["Want to take a break from [task]?<br/>No further check-ins"]
 
-    Friendly --> UserResponse
-    Brief --> UserResponse
-    Gentle --> UserResponse
+    Friendly --> Response
+    Brief --> Response
+    Gentle --> Response
 
-    UserResponse{User response}
-    UserResponse --> Done["Done!"]
-    UserResponse --> Working["Still working"]
-    UserResponse --> Distracted["Got distracted"]
-    UserResponse --> MoreTime["Need more time"]
-    UserResponse --> Stop2["Want to stop"]
+    Response --> Done["Done"]
+    Response --> Working["Still working"]
+    Response --> Distracted["Got distracted"]
+    Response --> MoreTime["Need more time"]
+    Response --> Stop2["Want to stop"]
 
-    Done --> Complete[Mark completed, clear timer]
-    Working --> Reset1[Reset timer 0.5x]
-    Distracted --> Nudge["Jump back in?"]
-    MoreTime --> AskDuration["How much longer?"]
-    Stop2 --> ReturnQueue[Return to pending]
+    Done --> Complete[Mark completed; clear state]
+    Working --> ResetHalf[check_in_due_at = now + estimate×0.5]
+    Distracted --> Continue{Continue task?}
+    MoreTime --> AskDuration["Ask for duration"]
+    Stop2 --> ReturnQueue[Return task to pending; clear state]
 
-    Nudge --> YesNo{User choice}
-    YesNo -->|Yes| Reset2[Reset timer 0.5x]
-    YesNo -->|No| ReturnQueue
+    Continue -->|Yes| ResetHalf
+    Continue -->|No| ReturnQueue
 
-    AskDuration --> NewTime[User provides time]
-    NewTime --> Reset3[Set timer to time × 1.25]
+    AskDuration --> Custom["check_in_due_at = now + user_time×1.25"]
+    ResetHalf --> Increment[Increment check_in_count]
+    Custom --> Increment
 ```
 
 ### Check-In Response Templates (Shame-Safe)
@@ -727,38 +737,22 @@ flowchart TD
 | User needs more time | "No problem — time estimates are just guesses anyway. About how much longer?" |
 | User wants to stop | "Totally fine — I'll keep it for later. No pressure. What sounds good instead?" |
 
-### Client-Side Timer Implementation
+### OpenClaw Scheduling
 
-The check-in mechanism uses client-side timers to work with the stateless HTTP architecture:
+There is no browser timer. Use OpenClaw infrastructure instead:
 
-```mermaid
-flowchart LR
-    subgraph Client["Frontend (app.js)"]
-        Accept[Task accepted] --> Store[Store active task]
-        Store --> SetTimer[Set setTimeout]
-        SetTimer --> Timer[Timer running]
-        Timer --> Fire[Timer fires]
-        Fire --> Send[Send CHECK_IN]
-    end
+- **Recommended cron:** `task-check-in` running every 5 minutes, durable.
+- **Session payload:** Prompt should instruct the agent to load `state.json` and evaluate `check_in_due_at`.
+- **Early exit:** If the due time has not been reached, reply `CHECK_IN_SKIPPED` for observability.
+- **State fields:** `active_task.id`, `active_task.title`, `active_task.time_estimate`, `active_task.started_at`, `active_task.check_in_due_at`, `active_task.check_in_count`.
 
-    subgraph Cleanup["Timer Cleanup"]
-        Complete[User completes] --> Clear1[clearTimeout]
-        Abandon[User abandons] --> Clear2[clearTimeout]
-        NewTask[New task accepted] --> Clear3[clearTimeout]
-    end
-```
-
-**Stored State:**
-- `activeTaskId`: Current task ID
-- `activeTaskTitle`: Task name for display
-- `checkInTimer`: setTimeout reference
-- `checkInCount`: Number of check-ins for this session
+If the cron is not configured, the agent should not attempt proactive check-ins. The rest of the flow remains valid for future deployment.
 
 ---
 
 ## Flow 8: Scheduled Reminder Delivery
 
-Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (which are timer-based and require an active session), reminders fire proactively even when the chat is idle.
+Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (which are based on active-task state and optional OpenClaw scheduling), reminders fire proactively even when the chat is idle.
 
 ```mermaid
 sequenceDiagram
@@ -931,33 +925,35 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant AI as AI
-    participant T as Timer
+    participant AI as AI Assistant
+    participant State as state.json
+    participant Cron as OpenClaw Cron
 
     U->>AI: I have an hour, feeling focused
     AI->>U: How about working on the quarterly report? ~45 min of focus work.
     U->>AI: Sure
-    AI->>U: Great, it's yours. Let me know when done!
-    AI->>T: Set timer: 56 min (45 × 1.25)
+    AI->>State: Save active_task (estimate 45, due_in 56 min, count 0)
+    AI->>U: Great — it's yours. Let me know when you're done!
 
-    Note over U,T: 56 minutes later...
+    Note over AI,Cron: 56 minutes pass
 
-    T->>AI: Timer expired
+    Cron->>AI: Trigger task-check-in
+    AI->>State: Load active_task + due time
     AI->>U: How's the quarterly report going? Still at it?
 
     U->>AI: Ugh, I got distracted reading emails
     AI->>U: Happens to everyone. Want to jump back in, or try something else?
-
     U->>AI: Yeah let me finish it
-    AI->>U: You got this! I'll check back in a bit.
-    AI->>T: Reset timer: 22 min (45 × 0.5)
+    AI->>State: Set new due = now + 22 min
+    AI->>State: Increment check_in_count
 
-    Note over U,T: 22 minutes later...
+    Note over AI,Cron: 22 minutes pass
 
-    T->>AI: Timer expired
+    Cron->>AI: Trigger task-check-in
+    AI->>State: Due again → ping
     AI->>U: Still working on the report?
 
     U->>AI: Just finished!
+    AI->>State: Clear active_task
     AI->>U: Nice work! That's a big one done. Ready for a break or another task?
-    T->>T: Timer cleared
 ```
