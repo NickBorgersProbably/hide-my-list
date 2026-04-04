@@ -23,8 +23,9 @@ cd "$ROOT_DIR"
 # --- Helpers ---
 
 # Build JSON for dirty files using a single python3 invocation.
-# Reads file list from stdin (one path per line), collects truncated diffs,
-# outputs a JSON array. All escaping handled by python3's json module.
+# Reads file list from stdin (one path per line), captures staged and
+# unstaged diffs, and outputs a JSON array. All escaping handled by
+# python3's json module.
 build_dirty_files_json() {
     python3 -c "
 import json, subprocess, sys
