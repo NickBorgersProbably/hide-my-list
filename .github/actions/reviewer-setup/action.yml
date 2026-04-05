@@ -65,13 +65,17 @@ runs:
           RETRYABLE=true
 
           if [ -n "$RUN_JSON" ] && [ "$RUN_JSON" != "null" ]; then
-            if [ "$RUN_NAME" != "PR Tests" ] || [ "$RUN_PATH" != ".github/workflows/pr-tests.yml" ]; then
-              STATUS="unexpected workflow ${RUN_NAME:-unknown} (${RUN_PATH:-missing path})"
+            if [ "$RUN_PATH" != ".github/workflows/pr-tests.yml" ]; then
+              STATUS="unexpected workflow path ${RUN_PATH:-missing path} (${RUN_NAME:-unknown})"
               RETRYABLE=false
-            elif [ "$RUN_HEAD_SHA" != "$HEAD_SHA" ]; then
+            elif [ "$RUN_NAME" != "PR Tests" ]; then
+              echo "Warning: expected workflow name 'PR Tests' but found '${RUN_NAME:-unknown}'"
+            fi
+
+            if [ "$RETRYABLE" = "true" ] && [ "$RUN_HEAD_SHA" != "$HEAD_SHA" ]; then
               STATUS="head SHA mismatch (${RUN_HEAD_SHA:-missing})"
               RETRYABLE=false
-            elif [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" = "success" ]; then
+            elif [ "$RETRYABLE" = "true" ] && [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" = "success" ]; then
               echo "PR Tests passed for current commit"
               echo "verified=true" >> $GITHUB_OUTPUT
               exit 0
