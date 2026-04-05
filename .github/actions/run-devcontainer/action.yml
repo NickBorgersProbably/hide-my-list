@@ -9,6 +9,10 @@ inputs:
   image:
     description: Devcontainer image to run (e.g. ghcr.io/org/repo-devcontainer)
     required: true
+  workspace_folder:
+    description: Repo-relative path to the workspace to open in the devcontainer
+    required: false
+    default: '.'
   run_cmd:
     description: Shell commands to execute inside the container
     required: true
@@ -35,7 +39,9 @@ runs:
       id: prepare-script
       shell: bash
       run: |
-        SCRIPT=$(mktemp "${{ github.workspace }}/.git/devcontainer-run-XXXXXX.sh")
+        set -euo pipefail
+        WORKSPACE="${{ github.workspace }}/${{ inputs.workspace_folder }}"
+        SCRIPT=$(mktemp "$WORKSPACE/.git/devcontainer-run-XXXXXX.sh")
         cat > "$SCRIPT" <<'RUNCMD'
         set -euo pipefail
         cd '${{ inputs.workdir }}'
@@ -49,7 +55,7 @@ runs:
       run: |
         set -euo pipefail
 
-        WORKSPACE="${{ github.workspace }}"
+        WORKSPACE="${{ github.workspace }}/${{ inputs.workspace_folder }}"
         SCRIPT_PATH="${{ steps.prepare-script.outputs.script }}"
         OVERRIDE_CONFIG=$(mktemp /tmp/devcontainer-override-XXXXXX.json)
         cleanup() {

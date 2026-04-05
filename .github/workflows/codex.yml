@@ -281,7 +281,15 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          ref: main
+
+      - name: Checkout target workspace
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
           ref: ${{ needs.preflight.outputs.checkout_ref }}
+          path: workspace
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -295,6 +303,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: workspace
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
@@ -425,6 +434,15 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
+          ref: main
+
+      - name: Checkout working workspace
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+          ref: main
+          path: workspace
 
       - name: Check for existing PR
         id: check-existing
@@ -466,6 +484,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: workspace
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
