@@ -6,7 +6,7 @@ on:
   pull_request_review_comment:
     types: [created]
   issues:
-    types: [opened, reopened]
+    types: [opened, reopened, unlabeled]
   pull_request_review:
     types: [submitted]
 
@@ -410,7 +410,11 @@ jobs:
     needs: [authorize, detect_codex_invocation, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'reopened')
+      github.event_name == 'issues' && (
+        github.event.action == 'opened' ||
+        github.event.action == 'reopened' ||
+        (github.event.action == 'unlabeled' && github.event.label.name == 'codex-started')
+      )
     runs-on: [self-hosted, homelab]
     permissions:
       contents: write
