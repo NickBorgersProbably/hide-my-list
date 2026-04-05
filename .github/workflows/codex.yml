@@ -283,15 +283,14 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
           ref: ${{ needs.preflight.outputs.checkout_ref }}
 
-      - name: Ensure local actions available
+      - name: Detect local run-devcontainer action
+        id: run-devcontainer-action
         shell: bash
         run: |
-          # PR branches that predate .github/actions/run-devcontainer won't have it.
-          # Fetch from main so the composite action reference resolves.
-          if [ ! -f ".github/actions/run-devcontainer/action.yml" ]; then
-            echo "PR branch missing .github/actions/run-devcontainer, fetching from main"
-            git fetch origin main
-            git checkout origin/main -- .github/actions/run-devcontainer/
+          if [ -f ".github/actions/run-devcontainer/action.yml" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Log in to GHCR
@@ -303,6 +302,7 @@ jobs:
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Codex in devcontainer
+        if: steps.run-devcontainer-action.outputs.available == 'true'
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
@@ -406,6 +406,173 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "$PROMPT" < /dev/null 2>&1 | tee /tmp/codex-conversation.jsonl
+
+      - name: Run Codex in devcontainer (inline fallback)
+        if: steps.run-devcontainer-action.outputs.available != 'true'
+        shell: bash
+        env:
+          IMAGE: ${{ env.DEVCONTAINER_IMAGE }}
+          OPENAI_API_KEY: fake-key
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          COMMENT_BODY_B64: ${{ needs.detect_codex_invocation.outputs.request_text_b64 }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          REVIEW_ID: ${{ github.event.review.id }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          IS_PR: ${{ needs.preflight.outputs.is_pr }}
+          PR_HEAD_REF: ${{ needs.preflight.outputs.pr_head_ref }}
+        run: |
+          set -euo pipefail
+
+          source .devcontainer/configure-codex.sh
+
+          COMMENT_BODY=$(printf '%s' "$COMMENT_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+          fetch_event_body() {
+            case "$EVENT_NAME" in
+              issue_comment)
+                gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" --jq '.body // ""'
+                ;;
+              pull_request_review_comment)
+                gh api "repos/${REPO}/pulls/comments/${COMMENT_ID}" --jq '.body // ""'
+                ;;
+              pull_request_review)
+                gh api "repos/${REPO}/pulls/${ISSUE_NUMBER}/reviews/${REVIEW_ID}" --jq '.body // ""'
+                ;;
+              issues)
+                gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body // ""'
+                ;;
+              *)
+                echo "Unsupported event type: ${EVENT_NAME}" >&2
+                return 1
+                ;;
+            esac
+          }
+
+          COMMENT_BODY="$(fetch_event_body)"
+
+          if [ "$IS_PR" = "true" ]; then
+            PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
+
+          The user said: ${COMMENT_BODY}
+
+          YOUR TASK: IMPLEMENT the requested changes. Do NOT just provide review comments or suggestions.
+
+          WORKFLOW:
+          1. Read the user's request carefully
+          2. If they reference another comment, fetch it: gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments
+          3. Understand what changes are needed
+          4. Implement the changes in the code
+          5. Run \`shellcheck scripts/*.sh\` and \`yamllint .github/workflows/*.yml\` to verify your changes
+          6. Commit your changes with a descriptive message
+          7. Push to the PR branch: git push origin ${PR_HEAD_REF}
+          8. Post a summary comment: gh pr comment ${ISSUE_NUMBER} --body 'YOUR_SUMMARY'
+
+          IMPORTANT RULES FOR THIS REPOSITORY:
+          - This is an OpenClaw agent project, not a compiled application
+          - Use \`shellcheck scripts/*.sh\` for shell script linting
+          - Use \`yamllint .github/workflows/*.yml\` for workflow validation
+          - Check documentation links are not broken
+          - Reference docs/architecture.md for system design context
+          - Never use \`git push --no-verify\`
+
+          You are on branch ${PR_HEAD_REF}. Make the changes, commit, and push them."
+          else
+            PROMPT="You are responding to a request in ${REPO} issue #${ISSUE_NUMBER}.
+
+          The user said: ${COMMENT_BODY}
+
+          WORKFLOW:
+          1. Read the user's request carefully
+          2. Fetch the full issue for context: gh api repos/${REPO}/issues/${ISSUE_NUMBER}
+          3. If needed, fetch issue comments: gh api repos/${REPO}/issues/${ISSUE_NUMBER}/comments
+          4. Implement the requested changes
+          5. Run \`shellcheck scripts/*.sh\` and \`yamllint .github/workflows/*.yml\` to verify your changes
+          6. Create a branch, commit your changes, and open a PR
+
+          IMPORTANT RULES FOR THIS REPOSITORY:
+          - This is an OpenClaw agent project, not a compiled application
+          - Use \`shellcheck scripts/*.sh\` for shell script linting
+          - Use \`yamllint .github/workflows/*.yml\` for workflow validation
+          - Check documentation links are not broken
+          - Reference docs/architecture.md for system design context
+          - Never use \`git push --no-verify\`
+
+          Complete the user's request. If you make changes, create a branch, commit them, and open a PR.
+          BEFORE creating a new PR, check if one already exists for this issue:
+            gh pr list --state open --search 'Resolves #${ISSUE_NUMBER} OR Fixes #${ISSUE_NUMBER} OR Closes #${ISSUE_NUMBER}'
+          If a PR already exists, push changes to that PR's branch instead of creating a new one.
+          Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
+          fi
+
+          PROMPT_B64=$(printf '%s' "$PROMPT" | base64 | tr -d '\n')
+
+          SCRIPT_PATH=$(mktemp "${GITHUB_WORKSPACE}/.git/devcontainer-run-XXXXXX.sh")
+          OVERRIDE_CONFIG=$(mktemp /tmp/devcontainer-override-XXXXXX.json)
+          cleanup() {
+            rm -f "$OVERRIDE_CONFIG" "$SCRIPT_PATH"
+          }
+          trap cleanup EXIT
+
+          cat > "$SCRIPT_PATH" <<'RUNCMD'
+          set -euo pipefail
+          cd '.'
+          PROMPT=$(printf '%s' "$PROMPT_B64" | base64 -d)
+          timeout 60m codex exec \
+            --json \
+            --dangerously-bypass-approvals-and-sandbox \
+            "$PROMPT" < /dev/null 2>&1 | tee /tmp/codex-conversation.jsonl
+          RUNCMD
+          chmod +x "$SCRIPT_PATH"
+
+          docker pull "$IMAGE"
+
+          python3 - "$GITHUB_WORKSPACE/.devcontainer/devcontainer.json" "$OVERRIDE_CONFIG" "$IMAGE" <<'PY'
+          import json
+          import sys
+
+          source_path, target_path, image = sys.argv[1:4]
+          with open(source_path, "r", encoding="utf-8") as handle:
+              config = json.load(handle)
+
+          config.pop("build", None)
+          config.pop("initializeCommand", None)
+          config["image"] = image
+
+          with open(target_path, "w", encoding="utf-8") as handle:
+              json.dump(config, handle, indent=2)
+              handle.write("\n")
+          PY
+
+          REMOTE_ENV_ARGS=(
+            --remote-env "OPENAI_API_KEY=${OPENAI_API_KEY}"
+            --remote-env "GH_TOKEN=${GH_TOKEN}"
+            --remote-env "COMMENT_BODY_B64=${COMMENT_BODY_B64}"
+            --remote-env "EVENT_NAME=${EVENT_NAME}"
+            --remote-env "COMMENT_ID=${COMMENT_ID}"
+            --remote-env "REVIEW_ID=${REVIEW_ID}"
+            --remote-env "ISSUE_NUMBER=${ISSUE_NUMBER}"
+            --remote-env "REPO=${REPO}"
+            --remote-env "IS_PR=${IS_PR}"
+            --remote-env "PR_HEAD_REF=${PR_HEAD_REF}"
+            --remote-env "PROMPT_B64=${PROMPT_B64}"
+          )
+
+          npx -y @devcontainers/cli up \
+            --workspace-folder "$GITHUB_WORKSPACE" \
+            --override-config "$OVERRIDE_CONFIG" \
+            --remove-existing-container \
+            --skip-post-attach \
+            "${REMOTE_ENV_ARGS[@]}"
+
+          SCRIPT_NAME=$(basename "$SCRIPT_PATH")
+
+          npx -y @devcontainers/cli exec \
+            --workspace-folder "$GITHUB_WORKSPACE" \
+            --override-config "$OVERRIDE_CONFIG" \
+            "${REMOTE_ENV_ARGS[@]}" \
+            bash -lc "bash '.git/$SCRIPT_NAME'"
 
       - name: Upload Codex conversation log
         uses: actions/upload-artifact@v4
