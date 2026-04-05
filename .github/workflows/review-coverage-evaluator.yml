@@ -102,7 +102,7 @@ jobs:
 
       - name: Evaluate review coverage with Codex
         # yamllint disable rule:line-length
-        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@9b30c0f3171a22cb4c76ef6bb8e58e28e46690c8
         # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}

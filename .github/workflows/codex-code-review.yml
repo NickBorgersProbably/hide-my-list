@@ -451,7 +451,7 @@ jobs:
       - name: Run Codex to fix test failures
         id: codex-fix
         # yamllint disable rule:line-length
-        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@9b30c0f3171a22cb4c76ef6bb8e58e28e46690c8
         # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
@@ -713,7 +713,7 @@ jobs:
       - name: Design review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         # yamllint disable rule:line-length
-        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@9b30c0f3171a22cb4c76ef6bb8e58e28e46690c8
         # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
@@ -889,7 +889,7 @@ jobs:
       - name: Security review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         # yamllint disable rule:line-length
-        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@9b30c0f3171a22cb4c76ef6bb8e58e28e46690c8
         # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1016,7 +1016,7 @@ jobs:
       - name: Psych research review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         # yamllint disable rule:line-length
-        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@9b30c0f3171a22cb4c76ef6bb8e58e28e46690c8
         # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1207,7 +1207,7 @@ jobs:
       - name: Docs review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         # yamllint disable rule:line-length
-        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@9b30c0f3171a22cb4c76ef6bb8e58e28e46690c8
         # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1358,7 +1358,7 @@ jobs:
       - name: Prompt engineering review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         # yamllint disable rule:line-length
-        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@9b30c0f3171a22cb4c76ef6bb8e58e28e46690c8
         # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
@@ -1521,7 +1521,7 @@ jobs:
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
         # yamllint disable rule:line-length
-        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@9b30c0f3171a22cb4c76ef6bb8e58e28e46690c8
         # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
