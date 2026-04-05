@@ -23,6 +23,10 @@ inputs:
     description: Repo-relative working directory for the command
     required: false
     default: '.'
+  workspace_folder:
+    description: Repository path relative to github.workspace to mount into the devcontainer
+    required: false
+    default: '.'
   pull:
     description: Pull the image before running (set to 'false' to skip)
     required: false
@@ -35,7 +39,9 @@ runs:
       id: prepare-script
       shell: bash
       run: |
-        SCRIPT=$(mktemp "${{ github.workspace }}/.git/devcontainer-run-XXXXXX.sh")
+        set -euo pipefail
+        WORKSPACE="${{ github.workspace }}/${{ inputs.workspace_folder }}"
+        SCRIPT=$(mktemp "$WORKSPACE/.git/devcontainer-run-XXXXXX.sh")
         cat > "$SCRIPT" <<'RUNCMD'
         set -euo pipefail
         cd '${{ inputs.workdir }}'
@@ -49,7 +55,7 @@ runs:
       run: |
         set -euo pipefail
 
-        WORKSPACE="${{ github.workspace }}"
+        WORKSPACE="${{ github.workspace }}/${{ inputs.workspace_folder }}"
         SCRIPT_PATH="${{ steps.prepare-script.outputs.script }}"
         OVERRIDE_CONFIG=$(mktemp /tmp/devcontainer-override-XXXXXX.json)
         cleanup() {
