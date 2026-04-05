@@ -22,6 +22,7 @@ flowchart TB
         Heartbeat[Heartbeat<br/>every 30m]
         ReminderCron[Reminder Cron<br/>every 5m]
         PipelineCron[Pipeline Cron<br/>every 2m]
+        PullMainCron[Pull-Main Cron<br/>every 10m]
     end
 
     subgraph Messaging["Messaging Surfaces"]
@@ -42,6 +43,7 @@ flowchart TB
     Scripts <-->|REST API| Notion
     ReminderCron -->|Trigger reminder-check| AI
     PipelineCron -->|Trigger pipeline-monitor| AI
+    PullMainCron -->|Trigger pull-main| AI
     Heartbeat -->|Health checks| AI
 ```
 
@@ -57,6 +59,8 @@ There is no standalone server. The OpenClaw agent *is* the application. It:
 5. **Breaks down tasks** into concrete, personalized sub-steps
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when the chat is idle
+
+Interactive conversations are surface-agnostic, but the current durable cron registration contract targets Signal explicitly through `SIGNAL_OWNER_NUMBER`. That means scheduled reminder/pipeline/pull notifications presently require a Signal recipient even if other OpenClaw surfaces are enabled for normal chat.
 
 ## Component Architecture
 
@@ -221,6 +225,8 @@ sequenceDiagram
 5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 6. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
+`reminder-check` does not use `best-effort-deliver`. If Signal delivery fails, the cron session should fail visibly, leave `.reminder-signal` in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
+
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
 **Cron job expiry:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 30 min) verifies the cron job is registered and re-creates it if missing. See `setup/cron/reminder-check.md` for the job definition.
@@ -232,11 +238,12 @@ sequenceDiagram
 | Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
-| Messaging | OpenClaw Surfaces | Multi-channel by default (web, Signal, Telegram, Discord) |
+| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); current cron-driven delivery targets Signal |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 5 min, heartbeat re-registers on expiry |
 | Pipeline Monitoring | OpenClaw durable cron + check-github-status.sh | Native cron every 2 min for GitHub PR/CI status |
+| Workspace Sync | OpenClaw durable cron + pull-main.sh | Native cron every 10 min keeps the workspace current and recovers dirty pulls |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
 
@@ -249,6 +256,7 @@ sequenceDiagram
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
 | `GITHUB_PAT` | GitHub personal access token (optional, for higher rate limits) |
 | `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
+| `SIGNAL_OWNER_NUMBER` | Owner's Signal number (E.164 format) for cron job delivery |
 
 ## Prerequisites
 
