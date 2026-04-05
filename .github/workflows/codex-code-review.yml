@@ -367,6 +367,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push devcontainer
+        id: build_devcontainer
         uses: devcontainers/ci@v0.3
         # continue-on-error: Post-action cleanup may fail on GHCR push
         # even when the image builds successfully. Downstream review jobs
@@ -376,6 +377,18 @@ jobs:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: always
+
+      - name: Validate devcontainer image availability
+        if: steps.build_devcontainer.outcome != 'success'
+        run: |
+          echo "Build step did not succeed (outcome: ${{ steps.build_devcontainer.outcome }})"
+          echo "Checking if the image is available in the registry..."
+          if docker manifest inspect "${{ env.DEVCONTAINER_IMAGE }}" > /dev/null 2>&1; then
+            echo "Image is available — the build likely succeeded but post-step cleanup crashed."
+          else
+            echo "Image is NOT available — the build genuinely failed."
+            exit 1
+          fi
 
   # Fix test failures - runs in a retry loop until tests pass (max 3 attempts)
   fix-test-failures:
@@ -437,11 +450,10 @@ jobs:
 
       - name: Run Codex to fix test failures
         id: codex-fix
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -456,7 +468,7 @@ jobs:
             REPO=${{ github.repository }}
             TRIGGERING_SHA=${{ needs.get-context.outputs.triggering_sha }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-          runCmd: |
+          run_cmd: |
             # Calculate actual attempt number (current + 1)
             ATTEMPT=$((ATTEMPT_NUM + 1))
 
@@ -698,11 +710,10 @@ jobs:
 
       - name: Design review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -714,7 +725,7 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -873,17 +884,16 @@ jobs:
 
       - name: Security review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \
@@ -999,11 +1009,10 @@ jobs:
 
       - name: Psych research review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1015,7 +1024,7 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -1189,11 +1198,10 @@ jobs:
 
       - name: Docs review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1201,7 +1209,7 @@ jobs:
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \
@@ -1339,11 +1347,10 @@ jobs:
 
       - name: Prompt engineering review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1351,7 +1358,7 @@ jobs:
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \
@@ -1501,11 +1508,10 @@ jobs:
 
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1516,7 +1522,7 @@ jobs:
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             PROMPT_REVIEW_RESULT=${{ needs.prompt-review.result }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \

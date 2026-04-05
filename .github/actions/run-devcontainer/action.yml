@@ -1,0 +1,104 @@
+name: Run command in devcontainer
+description: >
+  Runs a command inside a pre-built devcontainer image using the
+  devcontainer CLI directly, avoiding the devcontainers/ci post-step
+  cleanup crash while preserving the repository's devcontainer
+  lifecycle hooks.
+
+inputs:
+  image:
+    description: Devcontainer image to run (e.g. ghcr.io/org/repo-devcontainer)
+    required: true
+  run_cmd:
+    description: Shell commands to execute inside the container
+    required: true
+  env:
+    description: >
+      Newline-separated KEY=VALUE pairs forwarded as container
+      environment variables. Blank lines and lines starting with #
+      are ignored.
+    required: false
+    default: ''
+  workdir:
+    description: Repo-relative working directory for the command
+    required: false
+    default: '.'
+  pull:
+    description: Pull the image before running (set to 'false' to skip)
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare script
+      id: prepare-script
+      shell: bash
+      run: |
+        SCRIPT=$(mktemp "${{ github.workspace }}/.git/devcontainer-run-XXXXXX.sh")
+        cat > "$SCRIPT" <<'RUNCMD'
+        set -euo pipefail
+        cd '${{ inputs.workdir }}'
+        ${{ inputs.run_cmd }}
+        RUNCMD
+        chmod +x "$SCRIPT"
+        echo "script=$SCRIPT" >> "$GITHUB_OUTPUT"
+
+    - name: Run in devcontainer
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        WORKSPACE="${{ github.workspace }}"
+        SCRIPT_PATH="${{ steps.prepare-script.outputs.script }}"
+        OVERRIDE_CONFIG=$(mktemp /tmp/devcontainer-override-XXXXXX.json)
+        cleanup() {
+          rm -f "$OVERRIDE_CONFIG" "$SCRIPT_PATH"
+        }
+        trap cleanup EXIT
+
+        # Optionally pull the image
+        if [ "${{ inputs.pull }}" != "false" ]; then
+          docker pull "${{ inputs.image }}"
+        fi
+
+        python3 - "$WORKSPACE/.devcontainer/devcontainer.json" "$OVERRIDE_CONFIG" "${{ inputs.image }}" <<'PY'
+        import json
+        import sys
+
+        source_path, target_path, image = sys.argv[1:4]
+        with open(source_path, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+
+        config.pop("build", None)
+        config.pop("initializeCommand", None)
+        config["image"] = image
+
+        with open(target_path, "w", encoding="utf-8") as handle:
+            json.dump(config, handle, indent=2)
+            handle.write("\n")
+        PY
+
+        # Forward remote env vars to both lifecycle hooks and the target command.
+        REMOTE_ENV_ARGS=()
+        while IFS= read -r line; do
+          [[ -z "$line" || "$line" == \#* ]] && continue
+          REMOTE_ENV_ARGS+=( --remote-env "$line" )
+        done <<'ENVEOF'
+        ${{ inputs.env }}
+        ENVEOF
+
+        npx -y @devcontainers/cli up \
+          --workspace-folder "$WORKSPACE" \
+          --override-config "$OVERRIDE_CONFIG" \
+          --remove-existing-container \
+          --skip-post-attach \
+          "${REMOTE_ENV_ARGS[@]}"
+
+        SCRIPT_NAME=$(basename "$SCRIPT_PATH")
+
+        npx -y @devcontainers/cli exec \
+          --workspace-folder "$WORKSPACE" \
+          --override-config "$OVERRIDE_CONFIG" \
+          "${REMOTE_ENV_ARGS[@]}" \
+          bash -lc "bash './$SCRIPT_NAME'"
