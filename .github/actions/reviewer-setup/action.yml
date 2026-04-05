@@ -52,7 +52,7 @@ runs:
           fi
         }
 
-        MAX_ATTEMPTS=40
+        MAX_ATTEMPTS=10
         ATTEMPT=1
         while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
           RUN_JSON=$(get_run_json || echo "")
@@ -62,19 +62,33 @@ runs:
           RUN_CONCLUSION=$(echo "$RUN_JSON" | jq -r '.conclusion // ""' 2>/dev/null || echo "")
           RUN_HEAD_SHA=$(echo "$RUN_JSON" | jq -r '.head_sha // ""' 2>/dev/null || echo "")
           STATUS="${RUN_STATUS:-not found}/${RUN_CONCLUSION:-not found}"
+          RETRYABLE=true
 
           if [ -n "$RUN_JSON" ] && [ "$RUN_JSON" != "null" ]; then
-            if [ "$RUN_NAME" != "PR Tests" ] && [ "$RUN_PATH" != ".github/workflows/pr-tests.yml" ]; then
-              STATUS="unexpected workflow ${RUN_NAME:-unknown}"
-            elif [ "$RUN_HEAD_SHA" != "$HEAD_SHA" ]; then
+            if [ "$RUN_PATH" != ".github/workflows/pr-tests.yml" ]; then
+              STATUS="unexpected workflow path ${RUN_PATH:-missing path} (${RUN_NAME:-unknown})"
+              RETRYABLE=false
+            elif [ "$RUN_NAME" != "PR Tests" ]; then
+              echo "Warning: expected workflow name 'PR Tests' but found '${RUN_NAME:-unknown}'"
+            fi
+
+            if [ "$RETRYABLE" = "true" ] && [ "$RUN_HEAD_SHA" != "$HEAD_SHA" ]; then
               STATUS="head SHA mismatch (${RUN_HEAD_SHA:-missing})"
-            elif [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" = "success" ]; then
+              RETRYABLE=false
+            elif [ "$RETRYABLE" = "true" ] && [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" = "success" ]; then
               echo "PR Tests passed for current commit"
               echo "verified=true" >> $GITHUB_OUTPUT
               exit 0
             fi
           else
             STATUS="not found"
+          fi
+
+          if [ "$RETRYABLE" != "true" ]; then
+            echo "PR Tests cannot verify the current commit: $STATUS"
+            echo "Skipping review - a new PR Tests/code review cycle is required"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
