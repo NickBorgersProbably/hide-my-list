@@ -283,6 +283,17 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
           ref: ${{ needs.preflight.outputs.checkout_ref }}
 
+      - name: Ensure local actions available
+        shell: bash
+        run: |
+          # PR branches that predate .github/actions/run-devcontainer won't have it.
+          # Fetch from main so the composite action reference resolves.
+          if [ ! -f ".github/actions/run-devcontainer/action.yml" ]; then
+            echo "PR branch missing .github/actions/run-devcontainer, fetching from main"
+            git fetch origin main
+            git checkout origin/main -- .github/actions/run-devcontainer/
+          fi
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
