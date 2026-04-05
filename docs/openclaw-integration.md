@@ -59,12 +59,13 @@ The one repo-mutating runtime exception is dirty-pull recovery in `HEARTBEAT.md`
 
 OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `durable: true`, jobs persist to disk and survive gateway restarts.
 
-**Our usage:** Two durable cron jobs replace our former bash daemons:
+**Our usage:** Three durable cron jobs replace our former bash daemons/manual sync steps:
 
 | Job | Schedule | Replaces |
 |-----|----------|----------|
 | `reminder-check` | `*/5 * * * *` | `reminder-daemon.sh` (bash while-loop) |
 | `pipeline-monitor` | `*/2 * * * *` | `monitor-pipeline.sh` (bash while-loop) |
+| `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene / dirty-pull recovery backstop |
 
 **Why this is better than daemons:**
 - No PID files, no silent death, no orphaned processes
@@ -73,6 +74,8 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 - Cron only fires when the REPL is idle, which is actually better for ADHD — it won't interrupt the user mid-task
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers. This is a platform constraint we work around rather than a feature we chose.
+
+**Current registration contract:** The cron definitions in `setup/cron/` now carry explicit delivery options. All three jobs use `to: $SIGNAL_OWNER_NUMBER` and `timeout-seconds: 120`; `pipeline-monitor` and `pull-main` also use `best-effort-deliver: true`, while `reminder-check` intentionally does not because reminder state changes must reflect confirmed delivery.
 
 **RemoteTrigger status:** Baseline operation does not require `RemoteTrigger` (API-triggered agent sessions); the cron-based pipeline monitor handles the common case. The repo still documents `RemoteTrigger` as an optional fast-path for on-demand GitHub notifications in [`setup/cron/pipeline-monitor.md`](../setup/cron/pipeline-monitor.md), so contributors should treat it as a supported optional integration rather than a removed feature.
 
@@ -92,13 +95,13 @@ OpenClaw handles all messaging infrastructure. We don't touch it.
 }
 ```
 
-The user talks to the agent via Signal. OpenClaw handles:
+The primary deployed surface today is Signal. OpenClaw handles:
 - Message routing (inbound Signal → agent session)
 - Response delivery (agent output → Signal message)
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero. We write conversational responses; OpenClaw delivers them. The agent doesn't need to know it's talking over Signal — it just responds to text.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations can still come from any configured surface, but the current durable cron contract assumes Signal-backed outbound delivery via `SIGNAL_OWNER_NUMBER`.
 
 ## Model Routing (LiteLLM Proxy)
 

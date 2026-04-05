@@ -14,7 +14,7 @@ CronCreate:
   timeout-seconds: 120
 ```
 
-`$SIGNAL_OWNER_NUMBER` comes from `.env`. The `best-effort-deliver` flag prevents Signal delivery failures from marking the job as errored. The 120s timeout gives the LLM enough time to process the full agent context.
+`$SIGNAL_OWNER_NUMBER` comes from `.env`. Durable cron delivery currently targets Signal explicitly, even though the conversational product can run on other OpenClaw surfaces. The `best-effort-deliver` flag is appropriate here because delivery failures should not block the monitoring check itself. The 120s timeout gives the LLM enough time to process the full agent context.
 
 ## Prompt
 

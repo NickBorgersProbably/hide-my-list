@@ -9,12 +9,11 @@ CronCreate:
   schedule: "*/5 * * * *"
   durable: true
   name: "reminder-check"
-  best-effort-deliver: true
   to: $SIGNAL_OWNER_NUMBER
   timeout-seconds: 120
 ```
 
-`$SIGNAL_OWNER_NUMBER` comes from `.env`. The `best-effort-deliver` flag prevents Signal delivery failures from marking the job as errored — the important part is the script execution and Notion update, not the notification. The 120s timeout gives the LLM enough time to process the full agent context.
+`$SIGNAL_OWNER_NUMBER` comes from `.env`. Durable cron delivery currently targets Signal explicitly, even though interactive conversations can arrive from other OpenClaw surfaces. This job intentionally does not use `best-effort-deliver`: reminder status changes in Notion must only happen after confirmed delivery. The 120s timeout gives the LLM enough time to process the full agent context.
 
 ## Prompt
 
@@ -30,7 +29,8 @@ After delivery, read each reminder's status from .reminder-signal and update Not
     scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}}}}'
   If status is "missed":
     scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}}}}'
-Delete .reminder-signal after all reminders are delivered.
+Delete .reminder-signal only after every reminder was delivered and its Notion status was updated.
+If delivery fails before that point, leave .reminder-signal in place and do not mark the affected reminder as sent or missed.
 ```
 
 ## Notes

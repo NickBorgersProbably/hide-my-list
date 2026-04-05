@@ -16,7 +16,7 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 | pipeline-monitor | `*/2 * * * *` | Run `scripts/check-github-status.sh`, report actionable changes |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`, handle dirty pulls |
 
-To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. All cron jobs must include `best-effort-deliver: true`, `to: $SIGNAL_OWNER_NUMBER` (from `.env`), and `timeout-seconds: 120`.
+To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. All three jobs must include `to: $SIGNAL_OWNER_NUMBER` (from `.env`) and `timeout-seconds: 120`. `pipeline-monitor` and `pull-main` also use `best-effort-deliver: true`; `reminder-check` must not, because reminder statuses are only valid after confirmed delivery.
 
 ### 3. Notion Connectivity
 - Run `scripts/notion-cli.sh query-pending` with a short timeout
