@@ -9,7 +9,12 @@ CronCreate:
   schedule: "*/5 * * * *"
   durable: true
   name: "reminder-check"
+  best-effort-deliver: true
+  to: $SIGNAL_OWNER_NUMBER
+  timeout-seconds: 120
 ```
+
+`$SIGNAL_OWNER_NUMBER` comes from `.env`. The `best-effort-deliver` flag prevents Signal delivery failures from marking the job as errored — the important part is the script execution and Notion update, not the notification. The 120s timeout gives the LLM enough time to process the full agent context.
 
 ## Prompt
 
