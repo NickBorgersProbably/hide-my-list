@@ -101,7 +101,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Evaluate review coverage with Codex
-        uses: ./.github/actions/run-devcontainer
+        # yamllint disable rule:line-length
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           pull: 'true'

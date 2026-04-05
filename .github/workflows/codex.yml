@@ -292,7 +292,9 @@ jobs:
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Codex in devcontainer
-        uses: ./.github/actions/run-devcontainer
+        # yamllint disable rule:line-length
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           pull: 'true'
@@ -463,7 +465,9 @@ jobs:
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Resolve issue in devcontainer
         if: steps.check-existing.outputs.skip != 'true'
-        uses: ./.github/actions/run-devcontainer
+        # yamllint disable rule:line-length
+        uses: NickBorgersProbably/hide-my-list/.github/actions/run-devcontainer@main
+        # yamllint enable rule:line-length
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           pull: 'true'
