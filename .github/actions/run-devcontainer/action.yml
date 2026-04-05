@@ -101,4 +101,4 @@ runs:
           --workspace-folder "$WORKSPACE" \
           --override-config "$OVERRIDE_CONFIG" \
           "${REMOTE_ENV_ARGS[@]}" \
-          bash -lc "bash './$SCRIPT_NAME'"
+          bash -lc "bash '.git/$SCRIPT_NAME'"
