@@ -673,6 +673,29 @@ jobs:
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
+      # Keep post-actions out of the local composite action. Re-checking out the
+      # PR branch over the workspace that contains ./.github/actions/reviewer-setup
+      # can trigger runner cleanup failures on self-hosted runners.
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Design review in devcontainer
         if: steps.setup.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
@@ -782,6 +805,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with reservations | Needs revision — [reason]]'" < /dev/null 2>&1 | tee /tmp/design-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload design review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -823,6 +850,26 @@ jobs:
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
+
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Security review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -884,6 +931,10 @@ jobs:
             ### Conclusion
             [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /tmp/security-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload security review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -925,6 +976,26 @@ jobs:
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
+
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Psych research review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1051,6 +1122,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with suggestions | Blocking concerns found]'" < /dev/null 2>&1 | tee /tmp/psych-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload psych review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1091,6 +1166,26 @@ jobs:
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
+
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docs review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1176,6 +1271,10 @@ jobs:
             ### Conclusion
             [Approved | Updates needed (non-blocking) | Blocking contradictions found]'" < /dev/null 2>&1 | tee /tmp/docs-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload docs review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1217,6 +1316,26 @@ jobs:
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
+
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prompt engineering review in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1311,6 +1430,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with suggestions | Blocking issues found]'" < /dev/null 2>&1 | tee /tmp/prompt-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload prompt review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1353,8 +1476,28 @@ jobs:
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
-          checkout_token: ${{ secrets.WORKFLOW_PAT }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
+
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -1423,6 +1566,10 @@ jobs:
             [If NO-GO: List specific blockers that must be resolved.]
 
             [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
+
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
 
       - name: Upload merge decision output
         uses: actions/upload-artifact@v4
