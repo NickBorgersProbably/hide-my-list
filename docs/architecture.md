@@ -40,8 +40,8 @@ flowchart TB
     Messaging <-->|OpenClaw routing| AI
     AI <-->|CRUD operations| Scripts
     Scripts <-->|REST API| Notion
-    ReminderCron -->|Checks due reminders| Scripts
-    PipelineCron -->|Checks GitHub status| Scripts
+    ReminderCron -->|Trigger reminder-check| AI
+    PipelineCron -->|Trigger pipeline-monitor| AI
     Heartbeat -->|Health checks| AI
 ```
 

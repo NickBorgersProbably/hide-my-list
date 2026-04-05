@@ -763,11 +763,11 @@ sequenceDiagram
     participant Agent as OpenClaw Agent
     participant User
 
-    Cron->>Scr: Trigger reminder-check every 5 minutes
+    Cron->>Agent: Trigger reminder-check session
+    Agent->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
     Scr->>Signal: Write .reminder-signal
-    Cron->>Agent: Continue cron prompt
     Agent->>Signal: Read .reminder-signal
     Agent->>User: Deliver reminder
     Agent->>Notion: Update reminder_status → sent/missed
