@@ -231,7 +231,11 @@ jobs:
       needs.authorize.outputs.authorized == 'true' &&
       needs.preflight.outputs.should_run == 'true' &&
       (
-        (github.event_name == 'issues') ||
+        (github.event_name == 'issues' && (
+          github.event.action == 'opened' ||
+          github.event.action == 'reopened' ||
+          (github.event.action == 'unlabeled' && github.event.label.name == 'codex-started')
+        )) ||
         needs.detect_codex_invocation.outputs.codex_requested == 'true'
       )
     runs-on: [self-hosted, homelab]
