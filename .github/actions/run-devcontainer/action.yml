@@ -32,6 +32,12 @@ inputs:
     description: Pull the image before running (set to 'false' to skip)
     required: false
     default: 'true'
+  sanitize_mounts:
+    description: >
+      Remove devcontainer mounts from the generated override config. Enable
+      this for untrusted PR review jobs running on GitHub-hosted runners.
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -75,23 +81,26 @@ runs:
           docker pull "${{ inputs.image }}"
         fi
 
-        python3 - \
+        python3 \
+          - \
           "$WORKSPACE/.devcontainer/devcontainer.json" \
           "$OVERRIDE_CONFIG" \
-          "${{ inputs.image }}" <<'PY'
+          "${{ inputs.image }}" \
+          "${{ inputs.sanitize_mounts }}" <<'PY'
         import json
         import sys
 
-        source_path, target_path, image = sys.argv[1:4]
+        source_path, target_path, image, sanitize_mounts = sys.argv[1:5]
         with open(source_path, "r", encoding="utf-8") as handle:
             config = json.load(handle)
 
         config.pop("build", None)
         config.pop("initializeCommand", None)
-        # CI review jobs run on GitHub-hosted runners without a guaranteed SSH
-        # agent socket, so PR-provided bind mounts must not leak into the
-        # trusted override config used to launch the container.
-        config.pop("mounts", None)
+        if sanitize_mounts.lower() == "true":
+            # GitHub-hosted PR review jobs do not guarantee an SSH agent
+            # socket, so untrusted bind mounts must not flow into the trusted
+            # override config used to launch the container.
+            config.pop("mounts", None)
         config["image"] = image
 
         with open(target_path, "w", encoding="utf-8") as handle:
