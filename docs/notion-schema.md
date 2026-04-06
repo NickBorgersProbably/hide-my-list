@@ -471,7 +471,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
 
-**Used by:** The `check-reminders.sh` script, which the durable `reminder-check` cron job runs every 15 minutes before handing due reminders to the agent via `.reminder-signal`.
+**Used by:** The `check-reminders.sh` script, which the isolated `reminder-check` cron job runs every 15 minutes. If due reminders are found, the script writes the repo-root reminder handoff file (default filename: `.reminder-signal`) for delivery by the heartbeat (HEARTBEAT.md Check 1) or the main-session startup check (AGENTS.md step 5).
 
 ---
 
@@ -485,7 +485,7 @@ Tracks whether a scheduled reminder has been delivered.
 | `sent` | Successfully delivered to user | Agent confirms delivery after scheduler surfaces the reminder |
 | `missed` | Delivered after being more than 15 minutes late | Agent confirms late delivery using the scheduler's missed flag |
 
-**Note:** When a reminder is `sent`, the task's main `Status` is also updated to `completed` since the reminder action (notifying the user) is done.
+**Note:** When a reminder is `sent`, the task's main `Status` is also updated to `Completed` since the reminder action (notifying the user) is done.
 
 ---
 
@@ -871,9 +871,15 @@ Database ID: abc123...
 ### 4. Configure Environment
 
 ```bash
-export NOTION_API_KEY="secret_..."
-export NOTION_DATABASE_ID="abc123..."
+cp .env.template .env
+# Then edit .env with your real values:
+# NOTION_API_KEY="secret_..."
+# NOTION_DATABASE_ID="abc123..."
 ```
+
+For normal runtime operation, `.env` is the canonical source of truth. Exported
+shell variables are still supported as optional overrides for manual or ad hoc
+script runs.
 
 ## Sample Data
 

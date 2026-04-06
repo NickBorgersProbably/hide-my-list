@@ -6,19 +6,37 @@
 # details to a signal file for the agent to pick up.
 #
 # The script does NOT update reminder status in Notion — the agent marks
-# reminders as sent/completed after confirmed delivery. A successful Notion
-# query is treated as the source of truth for which reminders still need
-# delivery, so stale signal entries are cleared automatically once the agent
-# updates Notion.
+# reminders as sent or missed, and marks the task Completed, after confirmed
+# delivery. A successful Notion query is treated as the source of truth for
+# which reminders still need delivery, so stale signal entries are cleared
+# automatically once the agent updates Notion.
 #
 # Designed to run from the durable reminder-check cron job (15-minute cadence).
-# The script writes a handoff file, and the agent session that ran it reads that
-# file to deliver reminders through the active messaging surface.
-# Heartbeat can also recover a stranded handoff file if a prior delivery did
-# not complete.
+# The script queries Notion for reminder tasks whose Remind At time has arrived
+# and writes their details to a repo-root handoff file (default:
+# `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). This
+# script is query-only and does NOT deliver reminders or update Notion statuses
+# itself.
+#
+# Reminder delivery is handled by the delivering agent sessions:
+#   - Opportunistic main-session startup check (AGENTS.md step 5): when a user
+#     interacts, the main session checks for the handoff file and delivers any
+#     pending reminders immediately.
+#   - HEARTBEAT.md Check 1 (every 60 minutes): the heartbeat session reads
+#     stranded handoff files and delivers reminders as the idle-session backstop.
+#
+# The delivering session (heartbeat or main session) is responsible for:
+#   - Reading the handoff file payload and delivering each reminder to the user
+#   - Running `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to
+#     atomically set Notion `Status` and `Reminder Status` after confirmed
+#     delivery
+#   - Deleting the handoff file only after successful delivery and Notion
+#     updates (if delivery fails, leave the handoff file in place for retry)
 #
 # SECURITY PROPERTIES:
-#   - Uses the same .env credential loading as notion-cli.sh
+#   - Loads only REMINDER_SIGNAL_FILE into this shell; Notion creds stay scoped
+#     to notion-cli.sh
+#   - REMINDER_SIGNAL_FILE may override only the repo-root handoff filename
 #   - Signal file contains only task IDs and titles — no secrets
 #   - Missed reminders (>15 min past due) are flagged but still delivered
 
@@ -26,14 +44,18 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [ ! -f "$ROOT_DIR/.env" ]; then
-    echo "check-reminders: $ROOT_DIR/.env not found — cannot load credentials" >&2
-    exit 1
-fi
-# shellcheck source=/dev/null
-source "$ROOT_DIR/.env"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/load-env.sh" REMINDER_SIGNAL_FILE?
 
-SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
+SIGNAL_BASENAME="${REMINDER_SIGNAL_FILE:-.reminder-signal}"
+case "$SIGNAL_BASENAME" in
+    ""|"."|".."|*/*)
+        echo "check-reminders: REMINDER_SIGNAL_FILE must be a filename in the repo root" >&2
+        exit 1
+        ;;
+esac
+
+SIGNAL_FILE="$ROOT_DIR/$SIGNAL_BASENAME"
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOW_EPOCH=$(date +%s)
 # 15 minutes in seconds — reminders older than this are flagged as missed
