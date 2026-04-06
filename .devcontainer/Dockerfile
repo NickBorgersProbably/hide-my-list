@@ -16,6 +16,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     yamllint \
     && rm -rf /var/lib/apt/lists/*
 
+# Install actionlint for GitHub Actions workflow validation
+ARG ACTIONLINT_VERSION=1.7.7
+RUN set -eux; \
+    archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"; \
+    checksums="actionlint_${ACTIONLINT_VERSION}_checksums.txt"; \
+    base_url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"; \
+    tmp_dir="$(mktemp -d)"; \
+    curl -fsSL "${base_url}/${archive}" -o "${tmp_dir}/${archive}"; \
+    curl -fsSL "${base_url}/${checksums}" -o "${tmp_dir}/${checksums}"; \
+    (cd "${tmp_dir}" && grep " ${archive}$" "${checksums}" | sha256sum -c -); \
+    tar -xzf "${tmp_dir}/${archive}" -C /usr/local/bin actionlint; \
+    rm -rf "${tmp_dir}"
+
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \

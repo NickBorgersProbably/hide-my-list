@@ -50,6 +50,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       docs_files: ${{ steps.filter.outputs.docs_files }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      devcontainer: ${{ steps.filter.outputs.devcontainer }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,6 +70,11 @@ jobs:
               - 'AGENTS.md'
             workflows:
               - '.github/workflows/**'
+              - '.github/actions/**'
+              - '.github/actionlint.yaml'
+              - 'scripts/validate-workflow-refs.sh'
+            devcontainer:
+              - '.devcontainer/**'
 
   script-validation:
     name: Script Validation
@@ -173,10 +179,51 @@ jobs:
           yamllint -d "{extends: default, rules: {line-length: disable, truthy: disable, comments-indentation: disable}}" \
             .github/workflows/*.yml
 
+      - name: Install actionlint
+        run: |
+          ACTIONLINT_VERSION=1.7.7
+          ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          CHECKSUMS="actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          BASE_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "$TMP_DIR"' EXIT
+
+          curl -fsSL "${BASE_URL}/${ARCHIVE}" -o "${TMP_DIR}/${ARCHIVE}"
+          curl -fsSL "${BASE_URL}/${CHECKSUMS}" -o "${TMP_DIR}/${CHECKSUMS}"
+          (
+            cd "${TMP_DIR}"
+            grep " ${ARCHIVE}$" "${CHECKSUMS}" | sha256sum -c -
+          )
+          sudo tar -xzf "${TMP_DIR}/${ARCHIVE}" -C /usr/local/bin actionlint
+
+      - name: Run actionlint
+        run: actionlint .github/workflows/*.yml
+
+      - name: Validate cross-file workflow references
+        run: ./scripts/validate-workflow-refs.sh
+
+  devcontainer-validation:
+    name: Devcontainer Build Check
+    needs: changes
+    if: needs.changes.outputs.devcontainer == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate devcontainer configuration
+        run: npx -y @devcontainers/cli@0.85.0 build --workspace-folder .
+
   all-tests-passed:
     name: All Required Tests
     runs-on: ubuntu-latest
-    needs: [changes, script-validation, doc-validation, workflow-validation]
+    needs: [changes, script-validation, doc-validation, workflow-validation, devcontainer-validation]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
@@ -201,6 +248,10 @@ jobs:
             echo "Workflow Validation: ${{ needs.workflow-validation.result }}"
             failed=true
           fi
+          if ! check_result "${{ needs.devcontainer-validation.result }}"; then
+            echo "Devcontainer Build Check: ${{ needs.devcontainer-validation.result }}"
+            failed=true
+          fi
 
           if [ "$failed" = true ]; then
             echo ""
@@ -214,3 +265,4 @@ jobs:
           echo "  Script Validation: ${{ needs.script-validation.result }}"
           echo "  Doc Validation: ${{ needs.doc-validation.result }}"
           echo "  Workflow Validation: ${{ needs.workflow-validation.result }}"
+          echo "  Devcontainer Build Check: ${{ needs.devcontainer-validation.result }}"
