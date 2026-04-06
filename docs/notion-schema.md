@@ -450,7 +450,7 @@ See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)
 
 ### IsReminder (checkbox)
 
-Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow. They become eligible at `Remind At` and are delivered proactively by the scheduled reminder system on the next eligible `reminder-check` poll.
+Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow. They become eligible at `Remind At`; `reminder-check` writes `.reminder-signal`, and `reminder-delivery` performs the actual user-visible delivery on the next eligible delivery run.
 
 | Value | Description |
 |-------|-------------|
@@ -483,9 +483,9 @@ Tracks whether a scheduled reminder has been delivered.
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
 | `sent` | Successfully delivered to user | Agent confirms delivery after scheduler surfaces the reminder |
-| `missed` | Delivered after being more than 15 minutes late | Agent confirms late delivery using the scheduler's missed flag |
+| `missed` | Delivered after being more than 15 minutes late | Agent confirms late delivery based on actual delivery time |
 
-**Note:** When a reminder is `sent`, the task's main `Status` is also updated to `completed` since the reminder action (notifying the user) is done.
+**Note:** When a reminder is delivered, the task's main `Status` is also updated to `Completed` since the reminder action (notifying the user) is done.
 
 ---
 

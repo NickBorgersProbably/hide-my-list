@@ -772,7 +772,7 @@ sequenceDiagram
     DeliverCron->>Agent: Inject reminder-delivery agentTurn into main session
     Agent->>Signal: Read .reminder-signal
     Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Update reminder_status → sent/missed
+    Agent->>Notion: Update Status → completed and reminder_status → sent/missed
     Agent->>Signal: Delete .reminder-signal
 ```
 
@@ -782,7 +782,7 @@ sequenceDiagram
 
 The agent delivers reminders with a brief, casual tone — like a friend tapping your shoulder:
 
-**Approximate delivery (next eligible poll after the scheduled time, before the missed threshold):**
+**Approximate delivery (next eligible `reminder-delivery` run after the scheduled time, before the missed threshold):**
 > "Hey — this is your reminder to email Melanie about availability."
 
 **Missed delivery (>15 minutes past due, flagged as missed):**
@@ -797,14 +797,14 @@ During task intake, the AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 
 **Confirmation message style:**
-> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next reminder check after that."
+> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next eligible reminder-delivery run after that."
 
 The user's timezone defaults to US Central. The AI converts timezone references (PT, CT, ET) to UTC offsets at intake time.
 
 ### Reminder vs. Deadline
 
 Reminders and deadlines are different:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, on the next reminder check
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, on the next eligible reminder-delivery run
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 The key signal is notification intent: the user wants to be *told* to do something at a specific time, not just have it prioritized.

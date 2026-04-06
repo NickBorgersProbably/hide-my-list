@@ -27,14 +27,18 @@ If .reminder-signal does not exist, reply with ONLY: NO_REPLY
 
 If .reminder-signal exists:
 1. Read it and deliver each reminder to the user on the existing `main` session surface.
-2. On-time reminders: casual delivery ("Hey, time to [task]").
-3. Missed reminders (`status: "missed"`): note the delay without shame.
-4. After delivery, update Notion for each reminder:
-   If status is "sent":
-     scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}}}}'
-   If status is "missed":
-     scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}}}}'
-5. Delete .reminder-signal only after every reminder was delivered and its Notion status was updated.
+2. For each reminder, compare the current delivery time to `remind_at`. If delivery is more than 15 minutes after `remind_at`, treat it as `missed`; otherwise treat it as `sent`.
+3. On-time reminders: casual delivery ("Hey, time to [task]").
+4. Missed reminders: note the delay without shame.
+5. After delivery, update Notion for each reminder:
+   First mark the task complete so `Completed At` is populated:
+     scripts/notion-cli.sh update-status PAGE_ID "Completed"
+   Then update the reminder-specific status:
+     If status is "sent":
+       scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}}}}'
+     If status is "missed":
+       scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}}}}'
+6. Delete .reminder-signal only after every reminder was delivered, the task `Status` was set to `Completed`, and `Reminder Status` was updated.
 
 If the main session has no attached user-facing surface, reply with ONLY: NO_REPLY and leave .reminder-signal in place for the next eligible run.
 If delivery fails before that point, leave .reminder-signal in place and do not mark the affected reminder as sent or missed.

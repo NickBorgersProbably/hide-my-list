@@ -213,7 +213,7 @@ sequenceDiagram
     Script-->>Agent: Write .reminder-signal if anything is due
     DeliveryCron->>Agent: Inject reminder-delivery agentTurn into main session
     Agent->>User: If .reminder-signal exists, deliver reminder on main session surface
-    Agent->>Notion: Mark reminder as sent or missed
+    Agent->>Notion: Mark reminder as sent/missed and task completed
     Agent->>Script: Delete .reminder-signal after successful delivery
 ```
 
@@ -223,15 +223,15 @@ sequenceDiagram
 2. A durable procedural cron job (`reminder-check`) runs every 15 minutes via OpenClaw's native scheduling.
 3. That cron job injects a `systemEvent` into the main agent session, which runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
 4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal` and exits without speaking.
-5. A second durable cron job (`reminder-delivery`) runs a couple minutes later as an `agentTurn` pinned to Haiku. If `.reminder-signal` exists, it delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed` in Notion, and deletes the handoff file. If no signal file exists, it replies with `NO_REPLY` immediately.
-6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
+5. A second durable cron job (`reminder-delivery`) runs a couple minutes later as an `agentTurn` pinned to Haiku. If `.reminder-signal` exists, it delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed`, updates the main task `Status` to `Completed`, and deletes the handoff file. If no signal file exists, it replies with `NO_REPLY` immediately.
+6. Reminders more than 15 minutes past due at actual delivery time are flagged as `missed` but still delivered with a note.
 7. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
 `reminder-check` and `pull-main` use `sessionTarget: main`, `payload.kind: systemEvent`, and `delivery.mode: none` so trusted procedural cron work re-enters the user-owned session without spawning a second conversational thread. `reminder-delivery` also targets `main`, but uses `payload.kind: agentTurn`, `delivery.mode: none`, and `model: litellm/claude-haiku-4-5` so the empty-check path is cheap while actual reminder delivery still happens in the main conversation context. For reminders, outbound routing is deterministic because the delivery cron can only speak back through the surface already attached to `main`; it must not choose a different recipient or channel. `reminder-check` always stays silent. If `reminder-delivery` finds no `.reminder-signal`, or if `main` has no attached user-facing surface when the signal exists, the main agent should reply with `NO_REPLY` and leave the handoff file untouched for a later retry. If reminder delivery fails after `.reminder-signal` is written, the session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
-**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 60 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or `best-effort-deliver`), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. `pull-main` also provides an immediate fast path: after a clean pull that advances `HEAD`, it diffs that invocation's before/after commits and reapplies any changed `setup/cron/` specs right away, while staying silent unless the run needs human attention. See `setup/cron/reminder-check.md`, `setup/cron/reminder-delivery.md`, and `setup/cron/pull-main.md` for the job definitions.
+**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 60 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or `best-effort-deliver`), `model` (when pinned), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. `pull-main` also provides an immediate fast path: after a clean pull that advances `HEAD`, it diffs that invocation's before/after commits and reapplies any changed `setup/cron/` specs right away, while staying silent unless the run needs human attention. See `setup/cron/reminder-check.md`, `setup/cron/reminder-delivery.md`, and `setup/cron/pull-main.md` for the job definitions.
 
 ## Technology Choices
 

@@ -20,8 +20,8 @@
 #
 # SECURITY PROPERTIES:
 #   - Uses the same .env credential loading as notion-cli.sh
-#   - Signal file contains only task IDs and titles — no secrets
-#   - Missed reminders (>15 min past due) are flagged but still delivered
+#   - Signal file contains only task IDs, titles, and remind_at timestamps
+#   - Actual sent/missed classification happens at delivery time
 
 set -euo pipefail
 
@@ -36,9 +36,6 @@ source "$ROOT_DIR/.env"
 
 SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-NOW_EPOCH=$(date +%s)
-# 15 minutes in seconds — reminders older than this are flagged as missed
-MISSED_THRESHOLD=900
 
 echo "check-reminders: checking at $NOW_ISO"
 
@@ -101,9 +98,7 @@ from datetime import datetime, timezone
 
 data = json.load(sys.stdin)
 results = data.get('results', [])
-now_epoch = int(sys.argv[1])
-missed_threshold = int(sys.argv[2])
-signal_file = sys.argv[3]
+signal_file = sys.argv[1]
 
 new_entries = []
 for task in results:
@@ -118,24 +113,10 @@ for task in results:
     remind_at_prop = props.get('Remind At', {}).get('date') or {}
     remind_at_str = remind_at_prop.get('start', '')
 
-    # Determine if missed (>15 min past due)
-    status = 'sent'
-    if remind_at_str:
-        try:
-            remind_at_str_clean = remind_at_str.replace('Z', '+00:00')
-            remind_dt = datetime.fromisoformat(remind_at_str_clean)
-            remind_epoch = int(remind_dt.timestamp())
-            if (now_epoch - remind_epoch) > missed_threshold:
-                status = 'missed'
-        except (ValueError, OSError) as exc:
-            print(f'check-reminders: warning: could not parse Remind At '
-                  f'{remind_at_str!r} for {page_id}: {exc}', file=sys.stderr)
-
     new_entries.append({
         'page_id': page_id,
         'title': title,
         'remind_at': remind_at_str,
-        'status': status,
     })
 
 payload = json.dumps({
@@ -162,8 +143,7 @@ added = len(new_entries)
 print(f'check-reminders: wrote {added} reminder(s) to signal file')
 
 for e in new_entries:
-    flag = ' [MISSED]' if e['status'] == 'missed' else ''
-    print(f\"  - {e['title']} (due: {e['remind_at']}){flag}\")
-" "$NOW_EPOCH" "$MISSED_THRESHOLD" "$SIGNAL_FILE"
+    print(f\"  - {e['title']} (due: {e['remind_at']})\")
+" "$SIGNAL_FILE"
 
 echo "check-reminders: done"

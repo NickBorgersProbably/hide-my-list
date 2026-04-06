@@ -923,7 +923,7 @@ The reward system scales celebrations based on achievement significance:
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection — instead, a procedural `reminder-check` cron job writes the handoff file and a separate `reminder-delivery` cron job delivers the reminder proactively at the specified time.
+Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection — instead, a procedural `reminder-check` cron job writes the handoff file and a separate `reminder-delivery` cron job delivers the reminder proactively on the next eligible delivery run after the specified time.
 
 ```mermaid
 flowchart TD
@@ -956,7 +956,7 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | `reminder-check` writes `.reminder-signal`, then `reminder-delivery` surfaces it on `main` at `remind_at` |
+| Selection | User requests → AI suggests | `reminder-check` writes `.reminder-signal`, then `reminder-delivery` surfaces it on `main` on the next eligible run after `remind_at` |
 | Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
