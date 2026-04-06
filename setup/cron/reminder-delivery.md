@@ -51,13 +51,22 @@ If .reminder-signal exists, read it. It contains a JSON object with a
 4. After ALL reminders are delivered and their Notion statuses updated,
    delete .reminder-signal.
 
-If delivery fails for any reminder, leave .reminder-signal in place and
-do not mark that reminder as sent or missed.
+If delivery or the Notion update fails for any reminder:
+- Do NOT delete `.reminder-signal` blindly.
+- Rewrite `.reminder-signal` so it contains only reminders that were not fully
+  delivered and updated.
+- Any reminder already delivered and updated in Notion must be omitted from the
+  rewritten file so retries are idempotent.
+- If none of the reminders succeeded, leaving the original file in place is
+  acceptable.
 ```
 
 ## Notes
 
 - The `reminder-check` cron job (every 15 min) runs `scripts/check-reminders.sh`, which queries Notion and writes `.reminder-signal` when reminders are due. This delivery job runs 2 minutes after each check to pick up the signal file.
+- Existing installs must add `claude-haiku-4-5` to `~/.openclaw/openclaw.json`
+  before this job can be registered safely. Run `bash setup/migrate-openclaw-config.sh`
+  and restart the gateway after the migration.
 - Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers the job if missing and patches it back to this spec if the live registration drifts.
 - Cron only fires when the REPL is idle. If the user is mid-conversation, delivery queues until the conversation pauses — better for ADHD focus.
 - The signal file contains only task IDs, titles, and timestamps — no secrets. Status classification happens here at actual delivery time, not at polling time, so the user-facing framing always matches reality.

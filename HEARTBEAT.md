@@ -5,7 +5,8 @@
 ### 1. Stranded Reminder Signal
 - Check `.reminder-signal`
 - This file is the reminder handoff written by `scripts/check-reminders.sh`
-- If it still exists when heartbeat runs, treat it as undelivered reminder work: read it, classify each reminder as `sent` or `missed` by comparing the current time against the reminder's `remind_at` timestamp (more than 15 minutes late = `missed`), deliver each reminder to the user, update Notion `ReminderStatus` accordingly, then delete the signal file
+- If it still exists when heartbeat runs, treat it as undelivered reminder work: read it, classify each reminder as `sent` or `missed` by comparing the current time against the reminder's `remind_at` timestamp (more than 15 minutes late = `missed`), deliver each reminder to the user, update Notion `ReminderStatus` accordingly, and delete the signal file only after every reminder in the batch succeeds
+- If some reminders succeed but a later one fails, rewrite `.reminder-signal` so it contains only the undelivered reminders before exiting
 - Do NOT update the main task `Status` to `Completed` — reminder delivery notifies the user; task completion is a separate user action
 
 ### 2. Cron Job Health
@@ -18,6 +19,8 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; the script handles dirty-pull recovery |
 
 To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. `reminder-check` and `pull-main` inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `reminder-delivery` runs in an isolated session (no `sessionTarget`) with `payload.kind: agentTurn`, `model: litellm/claude-haiku-4-5`, `delivery.mode: best-effort-deliver`, and `timeout-seconds: 120`.
+
+Before creating or patching `reminder-delivery`, verify `~/.openclaw/openclaw.json` already defines `litellm/claude-haiku-4-5`. Run `bash setup/migrate-openclaw-config.sh --check`. If that check fails, do not register or patch `reminder-delivery` yet; instead, note that the operator must run `bash setup/migrate-openclaw-config.sh` and restart the gateway first.
 
 ### 2b. Cron Spec Drift Check
 For each registered cron job (`reminder-check`, `reminder-delivery`, `pull-main`), compare the live job's effective registration against the canonical `CronCreate` spec in `setup/cron/<name>.md`.

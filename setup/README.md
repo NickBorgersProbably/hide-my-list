@@ -44,6 +44,13 @@
    # Edit ~/.openclaw/openclaw.json — replace all {{PLACEHOLDER}} values
    ```
 
+   If you already have an existing `~/.openclaw/openclaw.json`, run the
+   additive migration instead of overwriting it:
+   ```bash
+   bash setup/migrate-openclaw-config.sh
+   # Restart the OpenClaw gateway after the migration so the new model is loaded
+   ```
+
 5. Start the gateway:
    ```bash
    openclaw gateway
@@ -94,7 +101,15 @@ cd ~/.openclaw/workspace
 git pull origin main
 ```
 
-The agent reads docs on every interaction, so changes take effect immediately. No restart needed unless `openclaw.json` changed.
+If the pulled change introduces a new pinned model (for example the Haiku-backed
+`reminder-delivery` cron), migrate the existing OpenClaw config and restart the
+gateway before expecting heartbeat or `pull-main` to register that cron:
+
+```bash
+bash setup/migrate-openclaw-config.sh
+```
+
+The agent reads docs on every interaction, so changes take effect immediately. Restart only if `openclaw.json` changed.
 
 ## Troubleshooting
 

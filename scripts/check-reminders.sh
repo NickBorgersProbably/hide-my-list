@@ -6,10 +6,9 @@
 # details to a signal file for the agent to pick up.
 #
 # The script does NOT update reminder status in Notion — the agent marks
-# reminders as sent/completed after confirmed delivery. A successful Notion
-# query is treated as the source of truth for which reminders still need
-# delivery, so stale signal entries are cleared automatically once the agent
-# updates Notion.
+# reminders as sent/missed after confirmed delivery. A successful Notion query
+# is treated as the source of truth for which reminders still need delivery, so
+# stale signal entries are cleared automatically once the agent updates Notion.
 #
 # Designed to run from the durable reminder-check cron job (15-minute cadence).
 # The script writes a handoff file (.reminder-signal) that the separate

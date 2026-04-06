@@ -961,7 +961,7 @@ flowchart TD
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery runs in an isolated cron session (not on `main`) with `best-effort-deliver`. If `.reminder-signal` does not exist, the delivery job replies `NO_REPLY` (near-zero token cost). If delivery fails, the signal file stays in place for the next run or heartbeat recovery.
+Reminder delivery runs in an isolated cron session (not on `main`) with `best-effort-deliver`. If `.reminder-signal` does not exist, the delivery job replies `NO_REPLY` (near-zero token cost). If a batch only partially succeeds, the delivery job rewrites `.reminder-signal` to keep only the undelivered reminders for the next run or heartbeat recovery.
 
 ### Timezone Handling
 

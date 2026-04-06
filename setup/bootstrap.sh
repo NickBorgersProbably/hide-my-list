@@ -108,7 +108,15 @@ echo ""
 # --- OpenClaw config ---
 
 if [ -f "$OPENCLAW_HOME/openclaw.json" ]; then
-    echo "openclaw.json already exists at $OPENCLAW_HOME/openclaw.json, skipping"
+    echo "openclaw.json already exists at $OPENCLAW_HOME/openclaw.json"
+    echo "Checking whether it already includes the Haiku reminder-delivery model..."
+    if "$ROOT_DIR/setup/migrate-openclaw-config.sh" --check > /dev/null; then
+        echo "openclaw.json already includes claude-haiku-4-5"
+    else
+        echo "Applying additive config migration for claude-haiku-4-5..."
+        "$ROOT_DIR/setup/migrate-openclaw-config.sh"
+        echo "Restart the OpenClaw gateway after this bootstrap run so the new model is loaded."
+    fi
 else
     echo "NOTE: openclaw.json template is at setup/openclaw.json.template"
     echo "Copy it to $OPENCLAW_HOME/openclaw.json and fill in the {{PLACEHOLDER}} values."

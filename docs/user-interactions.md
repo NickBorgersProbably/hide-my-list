@@ -780,7 +780,7 @@ sequenceDiagram
     end
 ```
 
-If `.reminder-signal` does not exist when `reminder-delivery` runs, it replies `NO_REPLY` (near-zero Haiku token cost). If delivery fails, the signal file stays in place for the next run or heartbeat recovery. `reminder-delivery` runs in an isolated session (no `sessionTarget: main`) with `best-effort-deliver`, which is a deliberate security boundary — the main session may contain untrusted GitHub content.
+If `.reminder-signal` does not exist when `reminder-delivery` runs, it replies `NO_REPLY` (near-zero Haiku token cost). If only some reminders in the batch are delivered successfully, the job rewrites `.reminder-signal` to keep only the undelivered reminders before exiting, so retries stay idempotent. `reminder-delivery` runs in an isolated session (no `sessionTarget: main`) with `best-effort-deliver`, which is a deliberate security boundary — the main session may contain untrusted GitHub content.
 
 ### Reminder Delivery Messages
 
@@ -790,7 +790,7 @@ The agent delivers reminders with a brief, casual tone — like a friend tapping
 > "Hey — this is your reminder to email Melanie about availability."
 
 **Missed delivery (>15 minutes past due at actual delivery time):**
-> "I'm late on this one — you had a reminder at 6pm PT to email Melanie. Want to handle it now or reschedule?"
+> "I'm late on this one — you had a reminder at 6pm PT to email Melanie. Want to handle it now?"
 
 ### Reminder Intake
 

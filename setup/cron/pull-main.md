@@ -47,6 +47,13 @@ If `setup/cron/reminder-check.md`, `setup/cron/reminder-delivery.md`, or
 - Read each changed spec file in `setup/cron/` and treat it as the canonical
   source for `schedule`, `prompt`, `sessionTarget` (if any), `payload.kind`,
   `delivery`, `model` (when pinned), and `timeout-seconds`.
+- Before creating or patching `reminder-delivery`, verify the local OpenClaw
+  config already defines `litellm/claude-haiku-4-5` by running
+  `bash setup/migrate-openclaw-config.sh --check`.
+- If that check fails, do NOT create or patch `reminder-delivery` yet. Report
+  that the operator must run `bash setup/migrate-openclaw-config.sh` and
+  restart the gateway first, then continue reapplying any other changed cron
+  specs.
 - Use CronUpdate on the matching live job ID to patch only those affected jobs.
 - Preserve the intended contract from the spec:
   - `reminder-check`: `sessionTarget: main`, `payload.kind: systemEvent`,

@@ -39,7 +39,7 @@ OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json
 
 Every 60 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks.
 
-**Our usage:** We use the heartbeat as a safety net for the cron system. Its primary job is to verify that durable cron jobs still match the canonical `CronCreate` specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. The comparison covers the full effective registration contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or equivalent `best-effort-deliver`), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. The `pull-main` cron now handles the fast path too: after a clean pull that changes files in `setup/cron/`, it immediately re-applies the affected live jobs so prompt and schedule fixes do not sit dormant until the next heartbeat window. Heartbeat still checks Notion connectivity and environment health. Production deployments should treat this as hourly infrastructure hygiene, not the mechanism that keeps reminders timely.
+**Our usage:** We use the heartbeat as a safety net for the cron system. Its primary job is to verify that durable cron jobs still match the canonical `CronCreate` specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. The comparison covers the full effective registration contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or equivalent `best-effort-deliver`), `model` for pinned jobs, and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. The `pull-main` cron now handles the fast path too: after a clean pull that changes files in `setup/cron/`, it immediately re-applies the affected live jobs so prompt and schedule fixes do not sit dormant until the next heartbeat window. For the Haiku-pinned `reminder-delivery` job, both maintenance paths first require the live `~/.openclaw/openclaw.json` to include `claude-haiku-4-5`; existing installs migrate that config with `bash setup/migrate-openclaw-config.sh` before heartbeat or `pull-main` re-registers the job. Heartbeat still checks Notion connectivity and environment health. Production deployments should treat this as hourly infrastructure hygiene, not the mechanism that keeps reminders timely.
 
 **What changed:** The heartbeat used to babysit bash daemons (checking PID files, restarting dead processes). With cron replacing daemons, it now verifies that durable cron registrations both exist and still match their specs — a much cleaner responsibility than process management.
 
@@ -125,7 +125,8 @@ OpenClaw supports multiple model providers. We route through a LiteLLM proxy on 
       "baseUrl": "https://llm.featherback-mermaid.ts.net/v1",
       "models": [
         { "id": "claude-opus-4-6", ... },
-        { "id": "claude-sonnet-4-6", ... }
+        { "id": "claude-sonnet-4-6", ... },
+        { "id": "claude-haiku-4-5", ... }
       ]
     }
   }
@@ -134,6 +135,7 @@ OpenClaw supports multiple model providers. We route through a LiteLLM proxy on 
 
 - **Primary model:** Claude Opus 4.6 (conversations, task management)
 - **Heartbeat model:** Claude Sonnet 4.6 (routine checks, cheaper)
+- **Reminder delivery model:** Claude Haiku 4.5 (isolated reminder-delivery cron)
 - **Fallback chain:** Opus → Sonnet → GPT-5.4
 
 **Our role:** We don't interact with model selection directly. The prompts in `docs/ai-prompts.md` are model-agnostic. OpenClaw picks the model based on the config.
