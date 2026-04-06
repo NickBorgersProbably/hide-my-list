@@ -2172,8 +2172,8 @@ jobs:
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
           if [ "${{ steps.setup.outputs.verified }}" != "true" ]; then
-            echo "Reviewer setup could not verify PR Tests for the current head - defaulting to NO-GO"
-            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            echo "Reviewer setup could not verify PR Tests for the current head - leaving merge decision pending"
+            echo "decision=PENDING" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -2506,7 +2506,11 @@ jobs:
             # Check the actual merge decision (GO vs NO-GO) from the agent's comment
             MERGE_DECISION="${{ needs.merge-decision.outputs.decision }}"
             echo "Merge Decision Agent Verdict: $MERGE_DECISION"
-            if [ "$MERGE_DECISION" = "NO-GO" ]; then
+            if [ "$MERGE_DECISION" = "PENDING" ]; then
+              echo "Merge decision is pending because the current PR head is not verified by PR Tests yet"
+              set_status_output "pending" "Waiting for fresh PR Tests for current PR head"
+              exit 0
+            elif [ "$MERGE_DECISION" = "NO-GO" ]; then
               echo "Merge decision agent returned NO-GO - blocking issues found"
               echo "See the 'Merge Decision' comment on the PR for details"
               MERGE_DECISION_NOGO=true
