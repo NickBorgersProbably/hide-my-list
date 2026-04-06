@@ -17,7 +17,8 @@ CronCreate:
   timeout-seconds: 120
 ```
 
-This job injects a `systemEvent` into the main agent session instead of spawning an isolated cron-specific sub-agent. Delivery is `mode: none` because hide-my-list should decide whether to speak and which channel to use. The 120s timeout gives the LLM enough time to process the full agent context.
+This job injects a `systemEvent` into the main agent session instead of spawning an isolated cron-specific sub-agent. Delivery is `mode: none` because hide-my-list should decide whether to speak at all, while keeping delivery on the conversation surface already attached to `main`. The 120s timeout gives the LLM enough time to process the full agent context.
+Because the job re-enters `sessionTarget: main`, outbound routing is deterministic: deliver reminders only through the user-facing surface already attached to that main session. Do not pick a different recipient, channel, or thread. If the main session has no attached user-facing surface, leave `.reminder-signal` in place and reply with ONLY: NO_REPLY so the next eligible run can retry.
 
 ## Prompt
 
