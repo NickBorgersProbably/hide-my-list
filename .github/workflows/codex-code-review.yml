@@ -17,9 +17,9 @@ on:
   workflow_run:
     workflows: ["PR Tests"]
     types: [completed]
-  # Reset reviews when PR is reopened (allows re-triggering full review cycle)
+  # Clear review labels on close; reset reviews on reopen (allows re-triggering full review cycle)
   pull_request:
-    types: [reopened]
+    types: [closed, reopened]
   # Allow manual triggering after workflow_dispatch-triggered PR Tests completes
   # (workflow_run events don't fire for workflow_dispatch triggers)
   workflow_dispatch:
@@ -64,6 +64,10 @@ jobs:
     # Note: We don't filter by event type here. The concurrency group prevents
     # duplicate runs for the same branch, and downstream jobs skip if no PR is found.
     # This allows reviews to run even when push happens before PR creation.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
@@ -227,7 +231,26 @@ jobs:
           PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
           EVENT_NAME="${{ github.event_name }}"
 
-          # If PR was reopened, remove review progress labels to allow re-review
+          # If PR was closed, strip all review labels so a future reopen starts clean
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ]; then
+            echo "PR was closed - removing all review progress labels"
+            for label in \
+              "agent-reviews-passed" \
+              "all-reviews-started" \
+              "design-review-started" \
+              "security-review-started" \
+              "psych-review-started" \
+              "docs-review-started" \
+              "prompt-review-started" \
+              "merge-decision-started"; do
+              gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+            done
+            # Signal already_passed=true to skip all downstream review jobs
+            echo "already_passed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # If PR was reopened, remove any remaining review labels to allow re-review
           if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "reopened" ]; then
             echo "PR was reopened - removing review progress labels to allow re-review"
             for label in \
@@ -2008,11 +2031,22 @@ jobs:
 
           failed=false
 
-          # PR reopen only resets the label — the real reviews come from
-          # the workflow_run trigger once PR Tests complete.  Exit with
+          # If reviews already passed, signal success but still create commit status.
+          # Closed PRs set reviews_already_passed=true so the required gate clears
+          # after labels are removed without kicking off downstream review jobs.
+          REVIEWS_ALREADY_PASSED="${{ needs.get-context.outputs.reviews_already_passed }}"
+          if [ "$REVIEWS_ALREADY_PASSED" = "true" ]; then
+            echo "Reviews already passed for this PR - skipping re-review"
+            echo "To re-run reviews: close and reopen the PR"
+            echo "skipped_with_success=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # PR reopen only resets the labels - the real reviews come from
+          # the workflow_run trigger once PR Tests complete. Exit with
           # failure so this run does NOT satisfy the branch-protection
           # check before actual reviews have run.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "reopened" ]; then
             echo "PR reopened — waiting for PR Tests to trigger the real review run"
             exit 1
           fi
@@ -2020,15 +2054,6 @@ jobs:
           # Check if we have a valid PR
           if [ -z "${{ needs.get-context.outputs.pr_number }}" ]; then
             echo "No PR found for this workflow run - skipping reviews"
-            exit 0
-          fi
-
-          # If reviews already passed, signal success but still create commit status
-          REVIEWS_ALREADY_PASSED="${{ needs.get-context.outputs.reviews_already_passed }}"
-          if [ "$REVIEWS_ALREADY_PASSED" = "true" ]; then
-            echo "Reviews already passed for this PR - skipping re-review"
-            echo "To re-run reviews: close and reopen the PR"
-            echo "skipped_with_success=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
