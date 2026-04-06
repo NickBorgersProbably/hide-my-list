@@ -62,6 +62,8 @@
 | `NOTION_API_KEY` | Yes | Notion integration API key |
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
+| `GITHUB_PAT` | No | Optional GitHub token for repo automation or manual `gh` usage; not required for the core runtime |
+| `REMINDER_SIGNAL_FILE` | No | Optional override for the reminder handoff path (defaults to `.reminder-signal`) |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
 
 Advanced overrides for self-hosted LiteLLM setups are also supported:

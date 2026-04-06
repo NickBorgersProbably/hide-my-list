@@ -57,10 +57,7 @@ if [ ! -f "$ENV_FILE" ]; then
     return 1
 fi
 
-while IFS= read -r -d '' name && IFS= read -r -d '' value; do
-    printf -v "$name" '%s' "$value"
-    export "${name?}"
-done < <(
+loader_output="$(
     bash -s -- "$ENV_FILE" "${missing_specs[@]}" <<'BASH'
 set -euo pipefail
 
@@ -74,6 +71,7 @@ source "$env_file"
 python3 - "$@" <<'PY'
 import os
 import re
+import shlex
 import sys
 
 valid_name = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -87,13 +85,12 @@ for spec in sys.argv[1:]:
         raise SystemExit(1)
 
     if name in os.environ:
-        sys.stdout.write(name)
-        sys.stdout.write("\0")
-        sys.stdout.write(os.environ[name])
-        sys.stdout.write("\0")
+        print(f"declare -x {name}={shlex.quote(os.environ[name])}")
     elif not optional:
         print(f"missing required env var: {name}", file=sys.stderr)
         raise SystemExit(1)
 PY
 BASH
-)
+)" || return $?
+
+eval "$loader_output"

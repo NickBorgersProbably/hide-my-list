@@ -871,9 +871,15 @@ Database ID: abc123...
 ### 4. Configure Environment
 
 ```bash
-export NOTION_API_KEY="secret_..."
-export NOTION_DATABASE_ID="abc123..."
+cp .env.template .env
+# Then edit .env with your real values:
+# NOTION_API_KEY="secret_..."
+# NOTION_DATABASE_ID="abc123..."
 ```
+
+For normal runtime operation, `.env` is the canonical source of truth. Exported
+shell variables are still supported as optional overrides for manual or ad hoc
+script runs.
 
 ## Sample Data
 
