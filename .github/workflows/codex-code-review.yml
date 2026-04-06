@@ -2057,15 +2057,30 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         if: steps.setup.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
+          ref: ${{ needs.get-context.outputs.reviewed_sha }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Reattach PR branch when available
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          HEAD_REF: ${{ needs.get-context.outputs.head_ref }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git checkout -B "$HEAD_REF" "$REVIEWED_SHA"
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF"
+            echo "Attached local branch $HEAD_REF to reviewed commit $REVIEWED_SHA"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; staying on detached reviewed SHA $REVIEWED_SHA"
+          fi
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
@@ -2321,9 +2336,17 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           STATUS_API_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin ${{ needs.get-context.outputs.head_ref }}
-          CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
+          HEAD_REF="${{ needs.get-context.outputs.head_ref }}"
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
+          CURRENT_HEAD=$(git rev-parse HEAD)
+
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git fetch origin "$HEAD_REF"
+            CURRENT_HEAD=$(git rev-parse "origin/${HEAD_REF}")
+            echo "Using remote PR branch head $CURRENT_HEAD from origin/$HEAD_REF"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; using local HEAD $CURRENT_HEAD"
+          fi
 
           echo "current_head=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
 
@@ -2336,6 +2359,12 @@ jobs:
 
           echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
+
+          if ! git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            echo "::warning::PR branch origin/$HEAD_REF no longer exists; skipping follow-up validation dispatch"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           # --- Review cycle cap enforcement (hard gate) ---
           MAX_REVIEW_CYCLES=3
