@@ -2255,11 +2255,56 @@ jobs:
 
           FOLLOWUP_BODY=$(echo "$FOLLOWUP_SECTION" | sed -n '/^\*\*Body:\*\*/,$ p' | tail -n +2)
 
-          # Create the follow-up issue
+          MARKER="<!-- codex-follow-up-issue:pr-${PR_NUMBER}:issue-${ISSUE_NUMBER} -->"
+
+          find_matching_issue() {
+            local issue_state="$1"
+            gh issue list \
+              --repo ${{ github.repository }} \
+              --state "$issue_state" \
+              --limit 200 \
+              --json number,body,updatedAt |
+              jq -r \
+                --arg marker "$MARKER" \
+                '[.[] | select((.body // "") | contains($marker))]
+                | sort_by(.updatedAt)
+                | last
+                | .number // empty'
+          }
+
+          OPEN_FOLLOWUP_ISSUE=$(find_matching_issue open)
+          CLOSED_FOLLOWUP_ISSUE=""
+
+          if [ -z "$OPEN_FOLLOWUP_ISSUE" ]; then
+            CLOSED_FOLLOWUP_ISSUE=$(find_matching_issue closed)
+          fi
+
           ISSUE_BODY="${FOLLOWUP_BODY}
 
           ---
-          _Auto-created by the review pipeline. See PR #${PR_NUMBER} and issue #${ISSUE_NUMBER}._"
+          _Auto-created by the review pipeline. See PR #${PR_NUMBER} and issue #${ISSUE_NUMBER}._
+
+          ${MARKER}"
+
+          if [ -n "$OPEN_FOLLOWUP_ISSUE" ]; then
+            gh issue edit "$OPEN_FOLLOWUP_ISSUE" \
+              --repo ${{ github.repository }} \
+              --title "$FOLLOWUP_TITLE" \
+              --body "$ISSUE_BODY"
+            echo "Reused existing open follow-up issue #${OPEN_FOLLOWUP_ISSUE} for PR #${PR_NUMBER}"
+            exit 0
+          fi
+
+          if [ -n "$CLOSED_FOLLOWUP_ISSUE" ]; then
+            gh issue reopen "$CLOSED_FOLLOWUP_ISSUE" \
+              --repo ${{ github.repository }}
+            gh issue edit "$CLOSED_FOLLOWUP_ISSUE" \
+              --repo ${{ github.repository }} \
+              --title "$FOLLOWUP_TITLE" \
+              --body "$ISSUE_BODY"
+            echo "Reopened follow-up issue #${CLOSED_FOLLOWUP_ISSUE} for PR #${PR_NUMBER}"
+            exit 0
+          fi
 
           gh issue create \
             --title "$FOLLOWUP_TITLE" \
