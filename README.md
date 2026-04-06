@@ -38,6 +38,8 @@ See [docs/openclaw-integration.md](docs/openclaw-integration.md) for how the sys
 git clone https://github.com/NickBorgersProbably/hide-my-list.git ~/.openclaw/workspace
 
 # Create .env from .env.template and fill in the values you need
+cp ~/.openclaw/workspace/.env.template ~/.openclaw/workspace/.env
+
 # Run the bootstrap script
 cd ~/.openclaw/workspace && bash setup/bootstrap.sh
 ```

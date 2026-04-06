@@ -217,11 +217,11 @@ sequenceDiagram
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. A durable cron job (`reminder-check`) runs every 15 minutes via OpenClaw's native scheduling.
 3. The cron job injects a `systemEvent` into the main agent session, which then runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
-4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent session reads that file, delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
+4. If due reminders are found, `check-reminders.sh` writes the reminder handoff file (default: `.reminder-signal`); the same cron-driven agent session reads that file, delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
 5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 6. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
-`reminder-check` and `pull-main` use `sessionTarget: main`, `payload.kind: systemEvent`, and `delivery.mode: none` so trusted cron work re-enters the user-owned session without spawning a second conversational thread. For reminders, outbound routing is deterministic because the cron run can only speak back through the surface already attached to `main`; it must not choose a different recipient or channel. If `reminder-check` finds no due reminders, or if `main` has no attached user-facing surface when `.reminder-signal` exists, the main agent should reply with `NO_REPLY` and leave the handoff file untouched for a later retry. If reminder delivery fails after `.reminder-signal` is written, the session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
+`reminder-check` and `pull-main` use `sessionTarget: main`, `payload.kind: systemEvent`, and `delivery.mode: none` so trusted cron work re-enters the user-owned session without spawning a second conversational thread. For reminders, outbound routing is deterministic because the cron run can only speak back through the surface already attached to `main`; it must not choose a different recipient or channel. If `reminder-check` finds no due reminders, or if `main` has no attached user-facing surface when the reminder handoff file exists, the main agent should reply with `NO_REPLY` and leave the handoff file untouched for a later retry. If reminder delivery fails after the reminder handoff file is written, the session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
@@ -242,7 +242,7 @@ sequenceDiagram
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
 
-## Environment Variables
+## Core Runtime Variables
 
 | Variable | Purpose |
 |----------|---------|

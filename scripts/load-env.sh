@@ -3,7 +3,7 @@
 #
 # Usage:
 #   source load-env.sh NOTION_API_KEY NOTION_DATABASE_ID
-#   source load-env.sh GITHUB_PAT?
+#   source load-env.sh OPENAI_API_KEY?
 #
 # Variables ending in ? are optional. Required variables must already exist in
 # the current environment or be present in .env. The helper only exports the
@@ -64,9 +64,64 @@ set -euo pipefail
 env_file=$1
 shift
 
+tmp_env="$(mktemp)"
+cleanup() {
+    rm -f "$tmp_env"
+}
+trap cleanup EXIT
+
+python3 - "$env_file" "$tmp_env" "$@" <<'PY'
+import pathlib
+import re
+import sys
+
+env_file = pathlib.Path(sys.argv[1])
+tmp_env = pathlib.Path(sys.argv[2])
+specs = sys.argv[3:]
+valid_name = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+assignment = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
+
+requested = []
+required = set()
+
+for spec in specs:
+    optional = spec.endswith("?")
+    name = spec[:-1] if optional else spec
+    if not valid_name.match(name):
+        print(f"invalid env var name: {name}", file=sys.stderr)
+        raise SystemExit(1)
+    requested.append(name)
+    if not optional:
+        required.add(name)
+
+matching_lines = []
+for index, line in enumerate(env_file.read_text(encoding="utf-8").splitlines(True)):
+    match = assignment.match(line)
+    if match and match.group(1) in requested:
+        matching_lines.append((index, match.group(1), line))
+
+last_index = {}
+for index, name, _line in matching_lines:
+    last_index[name] = index
+
+found = set()
+with tmp_env.open("w", encoding="utf-8") as handle:
+    for index, name, line in matching_lines:
+        if last_index[name] != index:
+            continue
+        handle.write(line if line.endswith("\n") else f"{line}\n")
+        found.add(name)
+
+missing = sorted(required - found)
+if missing:
+    for name in missing:
+        print(f"missing required env var: {name}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
 set -a
 # shellcheck source=/dev/null
-source "$env_file"
+source "$tmp_env"
 
 python3 - "$@" <<'PY'
 import os
