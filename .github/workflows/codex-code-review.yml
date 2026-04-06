@@ -53,7 +53,7 @@ on:
         required: false
         type: string
       review_cycle:
-        description: 'Current review cycle number (1-based, auto-incremented by follow-up triggers)'
+        description: 'Current automated follow-up review cycle number (0-based: 0 is initial review)'
         required: false
         type: string
         default: '0'
@@ -349,25 +349,50 @@ jobs:
           echo "Current fix attempt count: $COUNT"
           echo "count=$COUNT" >> $GITHUB_OUTPUT
 
-      - name: Resolve review cycle from trusted workflow input
+      - name: Resolve review cycle from trusted PR labels
         if: steps.get-pr.outputs.pr_number != ''
         id: count-review-cycles
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Review-cycle limits are meant to cap automated follow-up loops only.
-          # Use the workflow_dispatch input propagated by trigger-follow-up rather
-          # than free-form PR comments, which are both spoofable and broader than
-          # the loop we are trying to constrain.
-          INPUT_CYCLE="${{ github.event_name == 'workflow_dispatch' && inputs.review_cycle || '0' }}"
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+          EVENT_NAME="${{ github.event_name }}"
+          INPUT_CYCLE="${{ github.event_name == 'workflow_dispatch' && inputs.review_cycle || '' }}"
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+          LABEL_CYCLE=0
 
-          case "$INPUT_CYCLE" in
-            ''|*[!0-9]*)
-              echo "::warning::Invalid review_cycle input '$INPUT_CYCLE'; defaulting to 0"
-              CYCLE=0
-              ;;
-            *)
-              CYCLE="$INPUT_CYCLE"
-              ;;
-          esac
+          while IFS= read -r label; do
+            [ -z "$label" ] && continue
+            if [[ "$label" =~ ^codex-review-cycle-([0-9]+)$ ]]; then
+              NUM="${BASH_REMATCH[1]}"
+              if [ "$NUM" -gt "$LABEL_CYCLE" ]; then
+                LABEL_CYCLE="$NUM"
+              fi
+            fi
+          done <<< "$LABELS"
+
+          INPUT_CYCLE_PARSED=0
+          if [ -n "$INPUT_CYCLE" ]; then
+            case "$INPUT_CYCLE" in
+              ''|*[!0-9]*)
+                echo "::warning::Invalid review_cycle input '$INPUT_CYCLE'; ignoring it"
+                ;;
+              *)
+                INPUT_CYCLE_PARSED="$INPUT_CYCLE"
+                ;;
+            esac
+          fi
+
+          # Only workflow_dispatch runs are automated follow-up cycles. Fresh
+          # workflow_run and manual /review executions start a new review chain.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            CYCLE="$LABEL_CYCLE"
+            if [ "$INPUT_CYCLE_PARSED" -gt "$CYCLE" ]; then
+              CYCLE="$INPUT_CYCLE_PARSED"
+            fi
+          else
+            CYCLE=0
+          fi
 
           echo "Review cycle: $CYCLE"
           echo "cycle=$CYCLE" >> $GITHUB_OUTPUT
@@ -395,6 +420,13 @@ jobs:
               "merge-decision-started"; do
               gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
             done
+            LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+            while IFS= read -r label; do
+              [ -z "$label" ] && continue
+              if [[ "$label" =~ ^codex-review-cycle-[0-9]+$ ]]; then
+                gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+              fi
+            done <<< "$LABELS"
             # Signal already_passed=true to skip all downstream review jobs
             echo "already_passed=true" >> $GITHUB_OUTPUT
             exit 0
@@ -414,8 +446,25 @@ jobs:
               "merge-decision-started"; do
               gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
             done
+            LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+            while IFS= read -r label; do
+              [ -z "$label" ] && continue
+              if [[ "$label" =~ ^codex-review-cycle-[0-9]+$ ]]; then
+                gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+              fi
+            done <<< "$LABELS"
             echo "already_passed=false" >> $GITHUB_OUTPUT
             exit 0
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+            while IFS= read -r label; do
+              [ -z "$label" ] && continue
+              if [[ "$label" =~ ^codex-review-cycle-[0-9]+$ ]]; then
+                gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+              fi
+            done <<< "$LABELS"
           fi
 
           # Check if agent-reviews-passed label exists
@@ -1948,7 +1997,7 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: [self-hosted, homelab]
     outputs:
-      decision: ${{ steps.parse-decision.outputs.decision }}
+      decision: ${{ steps.finalize-decision.outputs.decision }}
       head_changed: ${{ steps.trigger-follow-up.outputs.head_changed }}
       follow_up_triggered: ${{ steps.trigger-follow-up.outputs.follow_up_triggered }}
       cycle_capped: ${{ steps.trigger-follow-up.outputs.cycle_capped }}
@@ -2078,9 +2127,9 @@ jobs:
             You have personal responsibility to decide whether the automated review gate for this PR is GO or NO-GO.
             This workflow does not submit GitHub approving reviews. Do not treat missing human approval or unmet branch protection approval requirements as blocking for your decision.
 
-            **REVIEW CYCLE: ${REVIEW_CYCLE} of 3 maximum**
-            $([ \"${REVIEW_CYCLE}\" -ge 2 ] 2>/dev/null && echo 'WARNING: This PR has been through multiple review cycles. If the same fundamental issues (especially scope mismatches) keep recurring, the PR likely needs to be rethought rather than patched. Prefer NO-GO over pushing more fixes that may not address root causes.' || true)
-            $([ \"${REVIEW_CYCLE}\" -ge 3 ] 2>/dev/null && echo 'CRITICAL: This is the FINAL review cycle. Do NOT push any commits or fixes. Evaluate the PR exactly as-is and make a GO/NO-GO decision. If fundamental issues remain, declare NO-GO.' || true)
+            **REVIEW CYCLE: ${REVIEW_CYCLE} of 2 follow-up cycles maximum (3 total review passes)**
+            $([ \"${REVIEW_CYCLE}\" -ge 1 ] 2>/dev/null && echo 'WARNING: This PR has already been through an automated follow-up cycle. If the same fundamental issues (especially scope mismatches) keep recurring, the PR likely needs to be rethought rather than patched. Prefer NO-GO over pushing more fixes that may not address root causes.' || true)
+            $([ \"${REVIEW_CYCLE}\" -ge 2 ] 2>/dev/null && echo 'CRITICAL: This is the FINAL review pass. Do NOT push any commits or fixes. Evaluate the PR exactly as-is and make a GO/NO-GO decision. If fundamental issues remain, declare NO-GO.' || true)
 
             **REVIEW STATUS:**
             - Design Review: ${DESIGN_REVIEW_RESULT}
@@ -2100,14 +2149,14 @@ jobs:
                - Documentation Consistency Review: \"Updates Needed\" section
                If any reviewer described specific fixes, apply them now (edit the files, commit, and push).
                You are the ONLY agent with push access.
-               **EXCEPTION: On review cycle 3+, do NOT push any commits. Evaluate as-is only.**
+               **EXCEPTION: On review cycle 2+, do NOT push any commits. Evaluate as-is only.**
             5. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
             - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
-            - FINAL CYCLE RULE: On review cycle 3+, do NOT push any commits. Evaluate the PR as-is only.
+            - FINAL CYCLE RULE: On review cycle 2+, do NOT push any commits. Evaluate the PR as-is only.
 
             **IF NO-GO:** Explain what must be fixed before the automated review gate can pass.
 
@@ -2191,7 +2240,8 @@ jobs:
         run: |
           # HARD CAP: Prevent infinite review loops
           REVIEW_CYCLE="${{ needs.get-context.outputs.review_cycle }}"
-          MAX_REVIEW_CYCLES=3
+          MAX_REVIEW_CYCLES=2
+          NEXT_REVIEW_CYCLE=$((REVIEW_CYCLE + 1))
 
           git fetch origin ${{ needs.get-context.outputs.head_ref }}
           CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
@@ -2215,10 +2265,10 @@ jobs:
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
 
           if [ "${REVIEW_CYCLE:-0}" -ge "$MAX_REVIEW_CYCLES" ]; then
-            echo "::error::Review cycle ${REVIEW_CYCLE} >= max ${MAX_REVIEW_CYCLES}, but PR head changed from $REVIEWED_SHA to $CURRENT_HEAD after the reviewed decision. Refusing to trust a stale review."
+            echo "::error::Review cycle ${REVIEW_CYCLE} >= max ${MAX_REVIEW_CYCLES}, but PR head changed from $REVIEWED_SHA to $CURRENT_HEAD after the reviewed decision. Marking this as a terminal stale review state."
             echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
             echo "cycle_capped=true" >> "$GITHUB_OUTPUT"
-            exit 1
+            exit 0
           fi
 
           echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
@@ -2289,6 +2339,14 @@ jobs:
             exit 1
           fi
 
+          gh label create "codex-review-cycle-$NEXT_REVIEW_CYCLE" \
+            --color "1d76db" \
+            --description "Automated review follow-up cycle $NEXT_REVIEW_CYCLE" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+          gh pr edit "${{ needs.get-context.outputs.pr_number }}" \
+            --add-label "codex-review-cycle-$NEXT_REVIEW_CYCLE" \
+            --repo "${{ github.repository }}"
+
           if [ "$CONCLUSION" = "success" ]; then
             echo "Tests passed after merge-decision update"
             GH_TOKEN="$STATUS_API_TOKEN" \
@@ -2308,8 +2366,8 @@ jobs:
               -f tests_passed="true" \
               -f run_id="$RUN_ID" \
               -f reviewed_sha="$CURRENT_HEAD" \
-              -f review_cycle="$((REVIEW_CYCLE + 1))"
-            echo "Triggered follow-up Codex Code Review for updated head (cycle $((REVIEW_CYCLE + 1)))"
+              -f review_cycle="$NEXT_REVIEW_CYCLE"
+            echo "Triggered follow-up Codex Code Review for updated head (cycle $NEXT_REVIEW_CYCLE)"
           else
             echo "Tests failed after merge-decision update"
             gh workflow run "Codex Code Review" \
@@ -2321,19 +2379,36 @@ jobs:
               -f tests_passed="false" \
               -f run_id="$RUN_ID" \
               -f reviewed_sha="$CURRENT_HEAD" \
-              -f review_cycle="$((REVIEW_CYCLE + 1))"
-            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head (cycle $((REVIEW_CYCLE + 1)))"
+              -f review_cycle="$NEXT_REVIEW_CYCLE"
+            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head (cycle $NEXT_REVIEW_CYCLE)"
           fi
 
           echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
+
+      - name: Finalize merge decision
+        id: finalize-decision
+        if: always()
+        run: |
+          DECISION="${{ steps.parse-decision.outputs.decision }}"
+
+          if [ -z "$DECISION" ]; then
+            DECISION="NO-GO"
+          fi
+
+          if [ "${{ steps.trigger-follow-up.outputs.cycle_capped }}" = "true" ] && \
+             [ "${{ steps.trigger-follow-up.outputs.head_changed }}" = "true" ]; then
+            echo "::warning::The reviewed merge decision became stale after a capped-cycle push. Forcing NO-GO."
+            DECISION="NO-GO"
+          fi
+
+          echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
 
       - name: Create successor issue for review-cycle-capped PR
         if: |
           always() &&
           steps.setup.outputs.verified == 'true' &&
-          steps.parse-decision.outputs.decision == 'NO-GO' &&
-          steps.trigger-follow-up.outputs.cycle_capped == 'true' &&
-          steps.trigger-follow-up.outputs.head_changed == 'false'
+          steps.finalize-decision.outputs.decision == 'NO-GO' &&
+          steps.trigger-follow-up.outputs.cycle_capped == 'true'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
@@ -2371,8 +2446,11 @@ jobs:
             echo "## Successor Issue — Reattempt after review cycle limit"
             echo ""
             echo "### Background"
-            echo "PR #${PR_NUMBER} (\"${PR_TITLE}\") went through 3+ review cycles without resolving fundamental issues."
+            echo "PR #${PR_NUMBER} (\"${PR_TITLE}\") went through 3 review passes without resolving fundamental issues."
             echo "The automated review pipeline has closed the PR and created this issue to capture learnings."
+            if [ "${{ steps.trigger-follow-up.outputs.head_changed }}" = "true" ]; then
+              echo "- The final reviewed decision became stale because the PR head changed after the reviewed SHA on the capped cycle."
+            fi
             if [ -n "$ISSUE_URL" ]; then
               echo "- Original issue: ${ISSUE_URL}"
             fi
