@@ -6,10 +6,10 @@
 # details to a signal file for the agent to pick up.
 #
 # The script does NOT update reminder status in Notion — the agent marks
-# reminders as sent/completed after confirmed delivery. A successful Notion
-# query is treated as the source of truth for which reminders still need
-# delivery, so stale signal entries are cleared automatically once the agent
-# updates Notion.
+# reminders as sent or missed, and marks the task Completed, after confirmed
+# delivery. A successful Notion query is treated as the source of truth for
+# which reminders still need delivery, so stale signal entries are cleared
+# automatically once the agent updates Notion.
 #
 # Designed to run from the durable reminder-check cron job (15-minute cadence).
 # The script writes a handoff file, and the agent session that ran it reads that
@@ -27,7 +27,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-# shellcheck source=scripts/load-env.sh
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/load-env.sh" REMINDER_SIGNAL_FILE?
 
 SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"

@@ -31,8 +31,9 @@
    Runtime scripts load only the specific variables they request from `.env`, so
    one file remains the source of truth without handing every credential to every
    script. For advanced/manual workflows, set `HIDE_MY_LIST_ENV_FILE` to point
-   helper scripts at a different env file; normal runtime setups should leave it
-   unset and keep using `~/.openclaw/workspace/.env`.
+   helper scripts that source `scripts/load-env.sh` at a different env file;
+   that includes the Notion, reminder, and GitHub-auth helpers. Normal runtime
+   setups should leave it unset and keep using `~/.openclaw/workspace/.env`.
 
 3. Run bootstrap:
    ```bash

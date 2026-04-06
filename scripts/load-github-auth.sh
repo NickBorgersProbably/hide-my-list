@@ -4,19 +4,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="$ROOT_DIR/.env"
 
 load_github_pat_from_env() {
-    if [ ! -f "$ENV_FILE" ]; then
-        return 1
-    fi
-
     (
-        set +u
-        set -a
-        # shellcheck source=/dev/null
-        . "$ENV_FILE" >/dev/null 2>&1 || exit 0
+        # load-env.sh scopes the shell to the requested key and honors
+        # HIDE_MY_LIST_ENV_FILE when operators override the env file path.
+        # shellcheck disable=SC1091
+        source "$SCRIPT_DIR/load-env.sh" GITHUB_PAT? || exit 0
         printf '%s' "${GITHUB_PAT:-}"
     )
 }
