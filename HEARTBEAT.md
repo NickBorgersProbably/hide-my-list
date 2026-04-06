@@ -9,7 +9,7 @@
   ```
 - This file is the reminder handoff written by `scripts/check-reminders.sh`
 - If `HANDOFF_FILE` still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` based on the file, then delete that handoff file
-- This is the primary guaranteed delivery path for reminders. The isolated `reminder-check` cron only writes the handoff file — it does not deliver. Delivery happens here (every 60 min) and opportunistically via the AGENTS.md startup check (on every user interaction).
+- This is the hourly reminder-delivery backstop in the current design. The isolated `reminder-check` cron only writes the handoff file — it does not deliver. Delivery happens here (every 60 min) and opportunistically via the AGENTS.md startup check (on every user interaction).
 
 ### 2. Cron Job Health
 Verify that durable cron jobs are registered. If any are missing, re-register them.
