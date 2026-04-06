@@ -9,12 +9,15 @@ CronCreate:
   schedule: "*/10 * * * *"
   durable: true
   name: "pull-main"
-  best-effort-deliver: true
-  to: $SIGNAL_OWNER_NUMBER
+  sessionTarget: main
+  payload:
+    kind: systemEvent
+  delivery:
+    mode: none
   timeout-seconds: 120
 ```
 
-`$SIGNAL_OWNER_NUMBER` comes from `.env`. Durable cron delivery currently targets Signal explicitly, even though the conversational product can run on other OpenClaw surfaces. The `best-effort-deliver` flag is appropriate here because Signal delivery failures should not block the workspace-sync attempt itself. The 120s timeout gives the LLM enough time to process the full agent context.
+This job injects a `systemEvent` into the main agent session instead of spawning an isolated cron-specific sub-agent. Delivery is `mode: none` because hide-my-list should only surface problems that matter and should do so in its normal voice. The 120s timeout gives the LLM enough time to process the full agent context.
 
 ## Prompt
 
@@ -40,6 +43,7 @@ or a merge conflict. Handle it:
 6. Briefly note what happened — do not alarm the user unless the reset also fails
 
 If .pull-dirty does not exist, the pull was clean. No action needed.
+If there is nothing to report, reply with ONLY: NO_REPLY
 ```
 
 ## Notes

@@ -9,11 +9,15 @@ CronCreate:
   schedule: "*/5 * * * *"
   durable: true
   name: "reminder-check"
-  to: $SIGNAL_OWNER_NUMBER
+  sessionTarget: main
+  payload:
+    kind: systemEvent
+  delivery:
+    mode: none
   timeout-seconds: 120
 ```
 
-`$SIGNAL_OWNER_NUMBER` comes from `.env`. Durable cron delivery currently targets Signal explicitly, even though interactive conversations can arrive from other OpenClaw surfaces. This job intentionally does not use `best-effort-deliver`: reminder status changes in Notion must only happen after confirmed delivery. The 120s timeout gives the LLM enough time to process the full agent context.
+This job injects a `systemEvent` into the main agent session instead of spawning an isolated cron-specific sub-agent. Delivery is `mode: none` because hide-my-list should decide whether to speak and which channel to use. The 120s timeout gives the LLM enough time to process the full agent context.
 
 ## Prompt
 
@@ -31,6 +35,7 @@ After delivery, read each reminder's status from .reminder-signal and update Not
     scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}}}}'
 Delete .reminder-signal only after every reminder was delivered and its Notion status was updated.
 If delivery fails before that point, leave .reminder-signal in place and do not mark the affected reminder as sent or missed.
+If there is nothing to report, reply with ONLY: NO_REPLY
 ```
 
 ## Notes

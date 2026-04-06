@@ -4,7 +4,7 @@
 
 - **OpenClaw** installed and configured (`openclaw setup`)
 - **Notion** database created with the schema from `docs/notion-schema.md`
-- **Signal** account configured for scheduled cron delivery (`SIGNAL_OWNER_NUMBER` must point at the operator/user to notify)
+- **Signal** account configured if Signal will be one of the interactive messaging surfaces
 - **LiteLLM proxy** (or direct Anthropic API access) for model routing
 
 ## Quick Start
@@ -27,7 +27,7 @@
    cat > ~/.openclaw/workspace/.env << 'EOF'
    NOTION_API_KEY=ntn_your_key_here
    NOTION_DATABASE_ID=your_database_id_here
-   SIGNAL_OWNER_NUMBER=+15551234567   # Required: Signal recipient for durable cron output
+   SIGNAL_OWNER_NUMBER=+15551234567   # Optional: only if your Signal setup needs it
    OPENAI_API_KEY=sk-your_key_here    # Optional: for reward image generation
    GITHUB_PAT=ghp_your_token_here     # Optional: for higher GitHub API rate limits
    EOF
@@ -63,7 +63,7 @@
 |----------|----------|-------------|
 | `NOTION_API_KEY` | Yes | Notion integration API key |
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
-| `SIGNAL_OWNER_NUMBER` | Yes | Signal recipient (E.164 format) used by durable cron jobs |
+| `SIGNAL_OWNER_NUMBER` | No | Optional owner Signal number (E.164 format) for Signal-specific setup |
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
 | `GITHUB_PAT` | No | GitHub personal access token for higher rate limits |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
@@ -88,7 +88,7 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
 | heartbeat (built-in) | Every 30 min | System health, cron re-registration, cron drift correction |
 
-Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift.
+Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. `reminder-check` and `pull-main` inject `systemEvent` payloads into the main agent session with `delivery: { mode: none }`; `pipeline-monitor` stays isolated so GitHub-derived content never lands in the shared user session.
 
 ## Updating
 
@@ -103,7 +103,7 @@ The agent reads docs on every interaction, so changes take effect immediately. N
 
 **Reminders not firing:**
 - Check that the reminder-check cron is registered (ask the agent to check CronList)
-- Verify `.env` has correct `NOTION_API_KEY`, `NOTION_DATABASE_ID`, and `SIGNAL_OWNER_NUMBER`
+- Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity
 
 **Agent not responding:**
