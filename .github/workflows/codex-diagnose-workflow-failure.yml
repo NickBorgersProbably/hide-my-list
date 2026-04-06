@@ -1,4 +1,3 @@
----
 name: Codex Diagnose Workflow Failure
 
 # Triggers when any workflow run completes with failure
@@ -39,9 +38,6 @@ jobs:
   # Only proceed if the workflow failed
   check-failure:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: read
     outputs:
       should_diagnose: ${{ steps.check.outputs.should_diagnose }}
       workflow_name: ${{ github.event.workflow_run.name }}
