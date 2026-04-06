@@ -19,14 +19,26 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. `reminder-check` and `pull-main` must inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main`; re-create it without `sessionTarget` (or with a dedicated non-main target) so GitHub-derived content never persists in the shared user session. Cron jobs should never deliver directly to Signal or any other channel on their own.
 
 ### 2b. Cron Spec Drift Check
-For each registered cron job (`reminder-check`, `pull-main`, `pipeline-monitor`), compare the live job's `prompt`, `schedule`, session target (if any), payload kind, delivery mode, and timeout against the canonical spec in `setup/cron/<name>.md`.
+For each registered cron job (`reminder-check`, `pull-main`, `pipeline-monitor`), compare the live job's effective registration against the canonical `CronCreate` spec in `setup/cron/<name>.md`.
 
 To check: use CronList to inspect the live registrations, then read the corresponding spec file in `setup/cron/`.
 
+At minimum, compare and correct these fields:
+- `name`
+- `durable`
+- `schedule`
+- `prompt`
+- session routing fields: canonical `sessionTarget` and any equivalent live field such as `to`
+- payload fields: canonical `payload.kind`
+- delivery behavior fields: canonical `delivery.mode` and any equivalent live field such as `best-effort-deliver`
+- `timeout-seconds`
+
+Treat equivalent field names as part of the same contract. The heartbeat should compare the effective routing and delivery behavior even if CronList or CronUpdate exposes older keys (`to`, `best-effort-deliver`) instead of the newer structured names (`sessionTarget`, `delivery.mode`).
+
 If any field differs from the spec, patch the live job to match with CronUpdate. Preserve the intended durable registration contract from the spec:
-- `reminder-check`: `schedule`, `prompt`, `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
-- `pipeline-monitor`: `schedule`, `prompt`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`; no `sessionTarget: main`
-- `pull-main`: `schedule`, `prompt`, `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
+- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
+- `pipeline-monitor`: `name`, `durable`, `schedule`, `prompt`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`; no `sessionTarget: main`
+- `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
 
 If all jobs already match their specs, do not report anything. If any jobs were corrected, briefly note which ones were patched and what drift was fixed.
 
