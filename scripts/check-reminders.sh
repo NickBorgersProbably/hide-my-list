@@ -18,7 +18,8 @@
 # not complete.
 #
 # SECURITY PROPERTIES:
-#   - Uses the same .env credential loading as notion-cli.sh
+#   - Loads only REMINDER_SIGNAL_FILE into this shell; Notion creds stay scoped
+#     to notion-cli.sh
 #   - Signal file contains only task IDs and titles — no secrets
 #   - Missed reminders (>15 min past due) are flagged but still delivered
 
@@ -26,12 +27,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [ ! -f "$ROOT_DIR/.env" ]; then
-    echo "check-reminders: $ROOT_DIR/.env not found — cannot load credentials" >&2
-    exit 1
-fi
-# shellcheck source=/dev/null
-source "$ROOT_DIR/.env"
+# shellcheck source=scripts/load-env.sh
+source "$SCRIPT_DIR/load-env.sh" REMINDER_SIGNAL_FILE?
 
 SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)

@@ -5,8 +5,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=/dev/null
-source "$SCRIPT_DIR/../.env"
+# shellcheck source=scripts/load-env.sh
+source "$SCRIPT_DIR/load-env.sh" NOTION_API_KEY NOTION_DATABASE_ID
 
 API="https://api.notion.com/v1"
 HEADERS=(

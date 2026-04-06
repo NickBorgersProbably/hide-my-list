@@ -37,7 +37,7 @@ See [docs/openclaw-integration.md](docs/openclaw-integration.md) for how the sys
 # Clone as OpenClaw workspace
 git clone https://github.com/NickBorgersProbably/hide-my-list.git ~/.openclaw/workspace
 
-# Create .env with your Notion credentials
+# Create .env from .env.template and fill in the values you need
 # Run the bootstrap script
 cd ~/.openclaw/workspace && bash setup/bootstrap.sh
 ```

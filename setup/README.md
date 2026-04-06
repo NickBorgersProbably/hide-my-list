@@ -24,12 +24,13 @@
 
 2. Create the `.env` file:
    ```bash
-   cat > ~/.openclaw/workspace/.env << 'EOF'
-   NOTION_API_KEY=ntn_your_key_here
-   NOTION_DATABASE_ID=your_database_id_here
-   OPENAI_API_KEY=sk-your_key_here    # Optional: for reward image generation
-   EOF
+   cp ~/.openclaw/workspace/.env.template ~/.openclaw/workspace/.env
+   # Then edit ~/.openclaw/workspace/.env with the values you need
    ```
+
+   Runtime scripts load only the specific variables they request from `.env`, so
+   one file remains the source of truth without handing every credential to every
+   script.
 
 3. Run bootstrap:
    ```bash
