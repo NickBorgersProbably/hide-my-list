@@ -2066,6 +2066,17 @@ jobs:
 
             **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then report GO.
 
+            **ISSUE GAP DETECTION:**
+            If the PR links to an issue but does not fully solve it (reviewers flagged gaps between
+            intent and delivery, scope mismatch, or partial implementation), include a
+            \`### Follow-Up Issue\` section in your comment with:
+            - **Title:** A concise title for the remaining work
+            - **Body:** What the PR accomplished, what remains unsolved, and specific gaps identified by reviewers.
+            Reference the original issue and this PR.
+
+            This applies to both GO and NO-GO decisions. A PR can be GO (the code it ships is correct)
+            while still leaving part of the original issue unsolved.
+
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
             Post exactly ONE comment:
@@ -2076,7 +2087,14 @@ jobs:
             [If GO: \"Automated review gate passed. Merge may proceed once any separate branch protection requirements are satisfied.\"]
             [If NO-GO: List specific blockers that must be resolved.]
 
-            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
+            [If you made fixes: \"Applied fixes: [brief description]\"]
+
+            ### Follow-Up Issue
+            [Only include this section if the PR does not fully solve the linked issue.]
+            **Title:** [concise title for remaining work]
+            **Body:**
+            [What this PR accomplished vs. what the original issue asked for.
+            Specific gaps flagged by reviewers. Reference #ISSUE and PR #${PR_NUMBER}.]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
 
       - name: Log out of GHCR
         if: always() && steps.setup.outputs.verified == 'true'
@@ -2129,6 +2147,53 @@ jobs:
             echo "$COMMENT_BODY"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
           fi
+
+      - name: Create follow-up issue for unresolved gaps
+        if: always() && steps.parse-decision.outputs.decision != '' && needs.get-context.outputs.issue_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+          ISSUE_NUMBER: ${{ needs.get-context.outputs.issue_number }}
+        run: |
+          # Fetch the merge decision comment
+          COMMENT_BODY=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
+            --jq '[.[] | select(.body | contains("## Merge Decision"))] | last | .body // empty')
+
+          if [ -z "$COMMENT_BODY" ]; then
+            echo "No merge decision comment found - skipping follow-up issue creation"
+            exit 0
+          fi
+
+          # Check if the comment contains a Follow-Up Issue section
+          if ! echo "$COMMENT_BODY" | grep -q "### Follow-Up Issue"; then
+            echo "No follow-up issue section found - PR fully addresses the linked issue"
+            exit 0
+          fi
+
+          # Extract the title and body from the Follow-Up Issue section
+          FOLLOWUP_SECTION=$(echo "$COMMENT_BODY" | sed -n '/### Follow-Up Issue/,$ p')
+
+          FOLLOWUP_TITLE=$(echo "$FOLLOWUP_SECTION" | grep '^\*\*Title:\*\*' | sed 's/\*\*Title:\*\* *//')
+
+          if [ -z "$FOLLOWUP_TITLE" ]; then
+            echo "Could not parse follow-up issue title - skipping"
+            exit 0
+          fi
+
+          FOLLOWUP_BODY=$(echo "$FOLLOWUP_SECTION" | sed -n '/^\*\*Body:\*\*/,$ p' | tail -n +2)
+
+          # Create the follow-up issue
+          ISSUE_BODY="${FOLLOWUP_BODY}
+
+          ---
+          _Auto-created by the review pipeline. See PR #${PR_NUMBER} and issue #${ISSUE_NUMBER}._"
+
+          gh issue create \
+            --title "$FOLLOWUP_TITLE" \
+            --body "$ISSUE_BODY" \
+            --repo ${{ github.repository }}
+
+          echo "Created follow-up issue for gaps identified in PR #${PR_NUMBER}"
 
       - name: Trigger follow-up validation after merge-decision push
         id: trigger-follow-up
