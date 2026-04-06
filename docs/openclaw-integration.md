@@ -64,7 +64,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 | Job | Schedule | Replaces |
 |-----|----------|----------|
 | `reminder-check` | `*/5 * * * *` | `reminder-daemon.sh` (bash while-loop) |
-| `pipeline-monitor` | `*/2 * * * *` | `monitor-pipeline.sh` (bash while-loop) |
+| `pipeline-monitor` | `0 * * * *` | `monitor-pipeline.sh` (bash while-loop) |
 | `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene / dirty-pull recovery backstop |
 
 **Why this is better than daemons:**

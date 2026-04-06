@@ -6,7 +6,7 @@ Replaces `scripts/monitor-pipeline.sh` and `scripts/webhook-signal.sh`. Runs eve
 
 ```
 CronCreate:
-  schedule: "*/2 * * * *"
+  schedule: "0 * * * *"
   durable: true
   name: "pipeline-monitor"
   payload:

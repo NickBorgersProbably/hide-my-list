@@ -13,7 +13,7 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 | Job | Schedule | Action |
 |-----|----------|--------|
 | reminder-check | `*/5 * * * *` | Run `scripts/check-reminders.sh`; if it writes `.reminder-signal`, read it, deliver reminders, update Notion, delete the file |
-| pipeline-monitor | `*/2 * * * *` | Run `scripts/check-github-status.sh`, report actionable changes |
+| pipeline-monitor | `0 * * * *` | Run `scripts/check-github-status.sh`, report actionable changes |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`, handle dirty pulls |
 
 To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. `reminder-check` and `pull-main` must inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main`; re-create it without `sessionTarget` (or with a dedicated non-main target) so GitHub-derived content never persists in the shared user session. Cron jobs should never deliver directly to Signal or any other channel on their own.
