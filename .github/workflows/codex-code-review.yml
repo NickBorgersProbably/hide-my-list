@@ -1063,6 +1063,17 @@ jobs:
             - Notion API token handling (never logged, never committed)
             - Resource exhaustion risks (unbounded loops, missing timeouts)
             - Prompt injection vectors in CI/CD pipelines
+            - If the PR touches \`.github/workflows/**\`,
+              \`.github/actions/**\`, \`.devcontainer/**\`, or other
+              CI/runtime orchestration files, also review GitHub Actions
+              runtime correctness:
+              - multi-checkout and alternate \`path:\` behavior
+              - local composite action availability after
+                checkout changes
+              - devcontainer \`workspace-folder\` / \`workdir\` alignment
+              - whether git commands run in the intended checkout
+              - whether workflow control flow can fail before
+                the actual review logic runs
 
             Run \`shellcheck scripts/*.sh\` to verify.
 
@@ -1079,7 +1090,8 @@ jobs:
             [If no issues: \"Approved - No security or infrastructure issues\" and stop here]
 
             ### Issues Found
-            [Only list security risks, credential leaks, injection vectors, etc. Reference file:line. Skip if none.]
+            [Only list actionable security, infrastructure, or CI runtime
+            correctness issues. Reference file:line. Skip if none.]
 
             ### Fixes Needed
             [Describe fixes precisely with file paths, line numbers, and exact changes. Skip section if none.]

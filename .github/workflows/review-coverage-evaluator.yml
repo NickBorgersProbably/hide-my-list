@@ -125,7 +125,9 @@ jobs:
 
             **THE EXISTING REVIEW PIPELINE (3 reviewers):**
             1. Design Review - validates PR implements issue intent, reviews design quality, checks doc consistency
-            2. Security & Infrastructure Review - script safety, credential handling, workflow permissions
+            2. Security & Infrastructure Review - script safety,
+               credential handling, workflow permissions, and GitHub
+               Actions/runtime correctness for CI orchestration changes
             3. Psych Research Review - evaluates user-facing changes against ADHD research literature
 
             **YOUR TASK:**
