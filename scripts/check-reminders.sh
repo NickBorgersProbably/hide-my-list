@@ -148,10 +148,13 @@ try:
     os.write(fd, payload.encode())
     os.fsync(fd)
     os.close(fd)
+    fd = None
     os.rename(tmp_path, signal_file)
 except BaseException:
-    os.close(fd)
-    os.unlink(tmp_path)
+    if fd is not None:
+        os.close(fd)
+    if os.path.exists(tmp_path):
+        os.unlink(tmp_path)
     raise
 
 added = len(new_entries)
