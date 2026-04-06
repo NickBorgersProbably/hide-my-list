@@ -37,6 +37,8 @@ At minimum, compare and correct these fields:
 
 If a stale `pipeline-monitor` cron is still registered, delete it with CronDelete — that job has been removed.
 
+`pull-main` now handles the fast path after clean pulls that advance `HEAD`: it immediately reapplies any changed `setup/cron/` specs from that invocation's commit range. Heartbeat remains the safety net for expired jobs, missed fast-path updates, and any residual drift.
+
 If any field differs from the spec, patch the live job to match with CronUpdate. If CronUpdate cannot safely change an identity field such as `name` or `durable`, delete and re-create the job from the spec instead of leaving drift in place. Preserve the intended durable registration contract from the spec:
 - `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: main`, no `to`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
 - `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: main`, no `to`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`

@@ -27,4 +27,5 @@ Uses a lighter model (Sonnet) since these are routine operational checks.
 ## Notes
 
 - The heartbeat is the safety net for cron job expiry and spec drift. If a cron job auto-expires after 7 days, the next heartbeat re-registers it. If a live job's effective registration drifts from the `CronCreate` block in `setup/cron/` (for example `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, an unexpected direct-delivery `to`, `payload.kind`, `best-effort-deliver`/`delivery.mode`, or `timeout-seconds`), the next heartbeat patches it back to the spec. `HEARTBEAT.md` defines the authoritative comparison contract.
+- `pull-main` provides the fast path for cron spec changes: after a clean pull that advances `HEAD`, it immediately reapplies any changed `setup/cron/` specs from that pull's commit range. Heartbeat still catches anything the fast path missed.
 - The heartbeat itself is managed by OpenClaw and does not expire.
