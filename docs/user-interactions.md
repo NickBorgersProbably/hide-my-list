@@ -770,7 +770,7 @@ sequenceDiagram
     Scr->>Signal: Write .reminder-signal
     Agent->>Signal: Read .reminder-signal
     Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Update reminder_status → sent/missed
+    Agent->>Notion: Update reminder_status → sent/missed and Status → completed
     Agent->>Signal: Delete .reminder-signal
 ```
 

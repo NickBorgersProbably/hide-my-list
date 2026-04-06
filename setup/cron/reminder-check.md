@@ -33,9 +33,9 @@ in place and reply with ONLY: NO_REPLY.
   ago — [task]")
 After delivery, read each reminder's status from .reminder-signal and update Notion accordingly:
   If status is "sent":
-    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}}}}'
+    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}},"Status":{"status":{"name":"Completed"}}}}'
   If status is "missed":
-    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}}}}'
+    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}},"Status":{"status":{"name":"Completed"}}}}'
 Delete .reminder-signal only after every reminder was delivered and its Notion status was updated.
 If delivery fails before that point, leave .reminder-signal in place and do not mark the affected reminder as sent or missed.
 If there is nothing to report, reply with ONLY: NO_REPLY

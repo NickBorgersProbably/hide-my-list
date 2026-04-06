@@ -46,14 +46,18 @@ If `setup/cron/reminder-check.md` or `setup/cron/pull-main.md` changed:
 - Use CronList first and match live jobs by `name`.
 - Read each changed spec file in `setup/cron/` and treat it as the canonical
   source for `schedule`, `prompt`, `sessionTarget` (if any), `model` (if any),
-  `payload.kind`, `delivery`, and `timeout-seconds`.
+  the absence of any direct-delivery `to`, `payload.kind`, `delivery`, and
+  `timeout-seconds`.
 - Use CronUpdate on the matching live job ID to patch only those affected jobs.
+- If the canonical spec has no `to` and the live job does, explicitly clear
+  `to` during the update instead of preserving the stale direct-delivery target.
 - Preserve the intended contract from the spec:
   - `reminder-check`: `sessionTarget: main`,
-    `payload.kind: systemEvent`,
+    no `to`, `payload.kind: systemEvent`,
     `delivery.mode: none`, `timeout-seconds: 120`
   - `pull-main`: `sessionTarget: isolated`,
-    `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`,
+    `model: litellm/claude-haiku-4-5`, no `to`,
+    `payload.kind: agentTurn`,
     `delivery.mode: none`, `timeout-seconds: 120`
 - After updating any affected live jobs, reply with ONLY: NO_REPLY.
 
