@@ -14,7 +14,7 @@ HEADERS=(
   -H "Notion-Version: 2022-06-28"
   -H "Content-Type: application/json"
 )
-CURL_ARGS=(-fsS)
+CURL_ARGS=(-fsS --connect-timeout 10 --max-time 30)
 
 case "${1:-help}" in
   create-task)

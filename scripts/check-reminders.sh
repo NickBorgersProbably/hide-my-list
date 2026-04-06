@@ -27,6 +27,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=/dev/null
+if [ ! -f "$ROOT_DIR/.env" ]; then
+    echo "check-reminders: $ROOT_DIR/.env not found — cannot load credentials" >&2
+    exit 1
+fi
 source "$ROOT_DIR/.env"
 
 SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
@@ -38,10 +42,21 @@ MISSED_THRESHOLD=900
 echo "check-reminders: checking at $NOW_ISO"
 
 # Query Notion for due reminders
-if ! RESPONSE=$("$SCRIPT_DIR/notion-cli.sh" query-due-reminders "$NOW_ISO"); then
-    echo "check-reminders: failed to query Notion for due reminders" >&2
-    exit 1
-fi
+MAX_RETRIES=1
+RETRY_DELAY=2
+RESPONSE=""
+for attempt in $(seq 0 "$MAX_RETRIES"); do
+    if RESPONSE=$("$SCRIPT_DIR/notion-cli.sh" query-due-reminders "$NOW_ISO"); then
+        break
+    fi
+    if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+        echo "check-reminders: Notion query failed (attempt $((attempt + 1))), retrying in ${RETRY_DELAY}s..." >&2
+        sleep "$RETRY_DELAY"
+    else
+        echo "check-reminders: failed to query Notion after $((MAX_RETRIES + 1)) attempts" >&2
+        exit 1
+    fi
+done
 
 # Parse and validate the response before deciding that nothing is due
 if ! RESULT_COUNT=$(echo "$RESPONSE" | python3 -c "
@@ -80,7 +95,7 @@ echo "check-reminders: found $RESULT_COUNT due reminder(s)"
 
 # Process each due reminder and replace the signal file with the current due set
 echo "$RESPONSE" | python3 -c "
-import json, sys, os
+import json, sys, os, tempfile
 from datetime import datetime, timezone
 
 data = json.load(sys.stdin)
@@ -99,8 +114,8 @@ for task in results:
     title = title_prop[0]['text']['content'] if title_prop else '(untitled)'
 
     # Extract remind_at
-    remind_at_prop = props.get('Remind At', {}).get('date', {})
-    remind_at_str = remind_at_prop.get('start', '') if remind_at_prop else ''
+    remind_at_prop = props.get('Remind At', {}).get('date') or {}
+    remind_at_str = remind_at_prop.get('start', '')
 
     # Determine if missed (>15 min past due)
     status = 'sent'
@@ -111,8 +126,9 @@ for task in results:
             remind_epoch = int(remind_dt.timestamp())
             if (now_epoch - remind_epoch) > missed_threshold:
                 status = 'missed'
-        except (ValueError, OSError):
-            pass
+        except (ValueError, OSError) as exc:
+            print(f'check-reminders: warning: could not parse Remind At '
+                  f'{remind_at_str!r} for {page_id}: {exc}', file=sys.stderr)
 
     new_entries.append({
         'page_id': page_id,
@@ -121,11 +137,22 @@ for task in results:
         'status': status,
     })
 
-with open(signal_file, 'w') as f:
-    f.write(json.dumps({
-        'checked_at': datetime.now(timezone.utc).isoformat(),
-        'reminders': new_entries,
-    }, indent=2))
+payload = json.dumps({
+    'checked_at': datetime.now(timezone.utc).isoformat(),
+    'reminders': new_entries,
+}, indent=2)
+
+signal_dir = os.path.dirname(signal_file) or '.'
+fd, tmp_path = tempfile.mkstemp(dir=signal_dir, prefix='.reminder-signal-', suffix='.tmp')
+try:
+    os.write(fd, payload.encode())
+    os.fsync(fd)
+    os.close(fd)
+    os.rename(tmp_path, signal_file)
+except BaseException:
+    os.close(fd)
+    os.unlink(tmp_path)
+    raise
 
 added = len(new_entries)
 print(f'check-reminders: wrote {added} reminder(s) to signal file')
