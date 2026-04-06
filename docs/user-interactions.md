@@ -767,14 +767,14 @@ sequenceDiagram
     Agent->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
-    Scr->>Signal: Write .reminder-signal
-    Agent->>Signal: Read .reminder-signal
+    Scr->>Signal: Write reminder handoff file
+    Agent->>Signal: Read reminder handoff file
     Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Update reminder_status → sent/missed
-    Agent->>Signal: Delete .reminder-signal
+    Agent->>Notion: Set Status=Completed and Reminder Status=sent/missed
+    Agent->>Signal: Delete reminder handoff file
 ```
 
-If no reminders are due, or if the `main` session has no attached user-facing surface when `.reminder-signal` exists, the cron-triggered run must reply with `NO_REPLY` and stay silent. In the no-surface case it also leaves `.reminder-signal` in place so the next eligible run can retry delivery. Reminder routing is deterministic: the agent speaks only through the surface already attached to `sessionTarget: main`, never by choosing a new recipient or channel.
+If no reminders are due, or if the `main` session has no attached user-facing surface when the reminder handoff file exists, the cron-triggered run must reply with `NO_REPLY` and stay silent. In the no-surface case it also leaves the handoff file in place so the next eligible run can retry delivery. Reminder routing is deterministic: the agent speaks only through the surface already attached to `sessionTarget: main`, never by choosing a new recipient or channel.
 
 ### Reminder Delivery Messages
 

@@ -71,9 +71,9 @@ stateDiagram-v2
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
 | Cannot Finish | User indicates task is too large | `in_progress` (triggers breakdown) |
 | Reminder Pending | Reminder task waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
-| Reminder Sent | Reminder delivered to user on time | `completed` (reminder_status=sent) |
-| Reminder Missed | Reminder >15 min late, delivered with apology | `completed` (reminder_status=missed) |
-| Completed | Task finished | `completed` |
+| Reminder Sent | Reminder delivered to user on time | `Completed` (reminder_status=sent) |
+| Reminder Missed | Reminder >15 min late, delivered with apology | `Completed` (reminder_status=missed) |
+| Completed | Task finished | `Completed` |
 
 ## Phase 1: Task Intake
 
@@ -935,17 +935,17 @@ flowchart TD
     Wait --> Cron[reminder-check cron runs every 15 min]
     Cron --> Due{remind_at <= now?}
     Due -->|No| Wait
-    Due -->|Yes| Signal[check-reminders.sh writes .reminder-signal]
+    Due -->|Yes| Signal[check-reminders.sh writes reminder handoff file]
     Signal --> Surface{main session has attached surface?}
-    Surface -->|No| Retry[Reply NO_REPLY and keep .reminder-signal]
+    Surface -->|No| Retry[Reply NO_REPLY and keep handoff file]
     Retry --> Wait
     Surface -->|Yes| Late{>15 min past due?}
 
     Late -->|No| Send[Deliver reminder]
     Late -->|Yes| SendMissed[Deliver with apology]
 
-    Send --> Complete[Mark completed + reminder_status=sent]
-    SendMissed --> Complete2[Mark completed + reminder_status=missed]
+    Send --> Complete[Mark Completed + reminder_status=sent]
+    SendMissed --> Complete2[Mark Completed + reminder_status=missed]
 
     Complete --> Done([Done])
     Complete2 --> Done
@@ -955,12 +955,12 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | `reminder-check` injects a `systemEvent` into `main`, then surfaces `.reminder-signal` on the first eligible poll after `remind_at` |
-| Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
+| Selection | User requests → AI suggests | `reminder-check` injects a `systemEvent` into `main`, then surfaces the reminder handoff file (default: `.reminder-signal`) on the first eligible poll after `remind_at` |
+| Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent` or `missed`) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery stays on the existing `main` session surface. If no reminder is due, or the `main` session has no attached surface when `.reminder-signal` exists, the cron run replies `NO_REPLY` and leaves the reminder pending for a later retry.
+Reminder delivery stays on the existing `main` session surface. If no reminder is due, or the `main` session has no attached surface when the reminder handoff file exists, the cron run replies `NO_REPLY` and leaves the reminder pending for a later retry.
 
 ### Timezone Handling
 
