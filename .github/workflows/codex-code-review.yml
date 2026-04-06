@@ -2257,21 +2257,6 @@ jobs:
           NEXT_CYCLE=$((CYCLE_LABEL_COUNT + 1))
           NEXT_LABEL="review-cycle-${NEXT_CYCLE}"
 
-          # Clear stale per-reviewer "started" labels from the previous cycle so the
-          # next cycle's progress visibility (and the all-reviews-started aggregator)
-          # reflects the new cycle, not leftover state.
-          for label in \
-            "all-reviews-started" \
-            "design-review-started" \
-            "security-review-started" \
-            "psych-review-started" \
-            "docs-review-started" \
-            "prompt-review-started" \
-            "merge-decision-started"; do
-            GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
-              --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
-          done
-
           echo "Triggering PR Tests workflow..."
 
           DISPATCHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -2366,6 +2351,21 @@ jobs:
             -f run_id="$RUN_ID" \
             -f reviewed_sha="$CURRENT_HEAD" \
             -f review_cycle="$NEXT_CYCLE"
+
+          # Commit to the new cycle only after both follow-up workflows are successfully dispatched.
+          # Clear stale per-reviewer "started" labels so the next cycle's progress visibility
+          # reflects the new run, not leftover state from the previous cycle.
+          for label in \
+            "all-reviews-started" \
+            "design-review-started" \
+            "security-review-started" \
+            "psych-review-started" \
+            "docs-review-started" \
+            "prompt-review-started" \
+            "merge-decision-started"; do
+            GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
+              --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+          done
 
           # Persist the next cycle only after the follow-up review run is successfully dispatched.
           GH_TOKEN="${STATUS_API_TOKEN}" gh label create "$NEXT_LABEL" \
