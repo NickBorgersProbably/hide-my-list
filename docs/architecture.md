@@ -209,7 +209,7 @@ sequenceDiagram
     Notion-->>Script: Due reminder tasks
     Script-->>Agent: Write reminder handoff file
     Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Set Status=Completed and reminder_status=sent/missed
+    Agent->>Notion: Set Status=Completed and Reminder Status=sent/missed
 ```
 
 **How it works:**

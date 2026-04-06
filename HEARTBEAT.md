@@ -4,7 +4,7 @@
 
 ### 1. Stranded Reminder Signal
 - Resolve the reminder handoff path with the same helper the scripts use, so `.env` overrides are honored:
-  `HANDOFF_FILE="$(bash -lc 'ROOT_DIR=$(pwd); source scripts/load-env.sh REMINDER_SIGNAL_FILE?; printf \"%s\\n\" \"${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}\"')"`
+  `HANDOFF_FILE="$(bash -lc 'SCRIPT_DIR=$(cd \"$(dirname scripts/check-reminders.sh)\" && pwd); ROOT_DIR=$(cd \"$SCRIPT_DIR/..\" && pwd); source \"$SCRIPT_DIR/load-env.sh\" REMINDER_SIGNAL_FILE?; printf \"%s\\n\" \"${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}\"')"`
 - This file is the reminder handoff written by `scripts/check-reminders.sh`
 - If `HANDOFF_FILE` still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, update Notion `Status` to `Completed` plus `Reminder Status` to `sent` or `missed` based on the file, then delete that handoff file
 

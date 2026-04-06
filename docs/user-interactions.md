@@ -770,7 +770,7 @@ sequenceDiagram
     Scr->>Signal: Write reminder handoff file
     Agent->>Signal: Read reminder handoff file
     Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Update reminder_status → sent/missed
+    Agent->>Notion: Set Status=Completed and Reminder Status=sent/missed
     Agent->>Signal: Delete reminder handoff file
 ```
 
