@@ -87,9 +87,11 @@ runs:
           WORKSPACE="$WORKSPACE/${{ inputs.workspace_folder }}"
         fi
         SCRIPT_PATH="${{ steps.prepare-script.outputs.script }}"
-        OVERRIDE_CONFIG=$(mktemp /tmp/devcontainer-override-XXXXXX.json)
+        OVERRIDE_DIR=$(mktemp -d /tmp/devcontainer-override-XXXXXX)
+        OVERRIDE_CONFIG="$OVERRIDE_DIR/devcontainer.json"
         cleanup() {
-          rm -f "$OVERRIDE_CONFIG" "$SCRIPT_PATH"
+          rm -rf "$OVERRIDE_DIR"
+          rm -f "$SCRIPT_PATH"
         }
         trap cleanup EXIT
 
