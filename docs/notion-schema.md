@@ -450,7 +450,7 @@ See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)
 
 ### IsReminder (checkbox)
 
-Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow. They become eligible at `Remind At` and are delivered proactively by the scheduled reminder system on the next eligible `reminder-check` poll.
+Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow. They become eligible at `Remind At`: the `reminder-check` cron job writes `.reminder-signal` when reminders are due, and the separate `reminder-delivery` cron job delivers them on its next scheduled run.
 
 | Value | Description |
 |-------|-------------|
@@ -471,7 +471,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
 
-**Used by:** The `check-reminders.sh` script, which the durable `reminder-check` cron job runs every 15 minutes before handing due reminders to the agent via `.reminder-signal`.
+**Used by:** The `check-reminders.sh` script (run by the `reminder-check` cron job every 15 minutes), which queries Notion for due reminders and writes `.reminder-signal`. The separate `reminder-delivery` cron job then picks up the signal and delivers to the user.
 
 ---
 
@@ -482,10 +482,10 @@ Tracks whether a scheduled reminder has been delivered.
 | Value | Description | Trigger |
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
-| `sent` | Successfully delivered to user | Agent confirms delivery after scheduler surfaces the reminder |
-| `missed` | Delivered after being more than 15 minutes late | Agent confirms late delivery using the scheduler's missed flag |
+| `sent` | Successfully delivered to user | `reminder-delivery` confirms delivery within 15 minutes of `remind_at` |
+| `missed` | Delivered after being more than 15 minutes late | `reminder-delivery` determines lateness at actual delivery time vs `remind_at` |
 
-**Note:** When a reminder is `sent`, the task's main `Status` is also updated to `completed` since the reminder action (notifying the user) is done.
+**Note:** Reminder delivery updates only `ReminderStatus` — it does **not** auto-complete the main task `Status`. The reminder notifies the user; task completion is a separate action the user takes. This preserves the external scaffold that ADHD users rely on.
 
 ---
 

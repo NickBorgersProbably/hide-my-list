@@ -12,15 +12,15 @@
 # updates Notion.
 #
 # Designed to run from the durable reminder-check cron job (15-minute cadence).
-# The script writes a handoff file, and the agent session that ran it reads that
-# file to deliver reminders through the active messaging surface.
+# The script writes a handoff file (.reminder-signal) that the separate
+# reminder-delivery cron job picks up for user-facing delivery.
 # Heartbeat can also recover a stranded handoff file if a prior delivery did
 # not complete.
 #
 # SECURITY PROPERTIES:
 #   - Uses the same .env credential loading as notion-cli.sh
 #   - Signal file contains only task IDs and titles — no secrets
-#   - Missed reminders (>15 min past due) are flagged but still delivered
+#   - Status classification (sent/missed) deferred to the reminder-delivery job
 
 set -euo pipefail
 
@@ -35,10 +35,6 @@ source "$ROOT_DIR/.env"
 
 SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-NOW_EPOCH=$(date +%s)
-# 15 minutes in seconds — reminders older than this are flagged as missed
-MISSED_THRESHOLD=900
-
 echo "check-reminders: checking at $NOW_ISO"
 
 # Query Notion for due reminders
@@ -96,13 +92,11 @@ echo "check-reminders: found $RESULT_COUNT due reminder(s)"
 # Process each due reminder and replace the signal file with the current due set
 echo "$RESPONSE" | python3 -c "
 import json, sys, os, tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timezone  # timezone used by checked_at
 
 data = json.load(sys.stdin)
 results = data.get('results', [])
-now_epoch = int(sys.argv[1])
-missed_threshold = int(sys.argv[2])
-signal_file = sys.argv[3]
+signal_file = sys.argv[1]
 
 new_entries = []
 for task in results:
@@ -117,24 +111,10 @@ for task in results:
     remind_at_prop = props.get('Remind At', {}).get('date') or {}
     remind_at_str = remind_at_prop.get('start', '')
 
-    # Determine if missed (>15 min past due)
-    status = 'sent'
-    if remind_at_str:
-        try:
-            remind_at_str_clean = remind_at_str.replace('Z', '+00:00')
-            remind_dt = datetime.fromisoformat(remind_at_str_clean)
-            remind_epoch = int(remind_dt.timestamp())
-            if (now_epoch - remind_epoch) > missed_threshold:
-                status = 'missed'
-        except (ValueError, OSError) as exc:
-            print(f'check-reminders: warning: could not parse Remind At '
-                  f'{remind_at_str!r} for {page_id}: {exc}', file=sys.stderr)
-
     new_entries.append({
         'page_id': page_id,
         'title': title,
         'remind_at': remind_at_str,
-        'status': status,
     })
 
 payload = json.dumps({
@@ -161,8 +141,7 @@ added = len(new_entries)
 print(f'check-reminders: wrote {added} reminder(s) to signal file')
 
 for e in new_entries:
-    flag = ' [MISSED]' if e['status'] == 'missed' else ''
-    print(f\"  - {e['title']} (due: {e['remind_at']}){flag}\")
-" "$NOW_EPOCH" "$MISSED_THRESHOLD" "$SIGNAL_FILE"
+    print(f\"  - {e['title']} (due: {e['remind_at']})\")
+" "$SIGNAL_FILE"
 
 echo "check-reminders: done"

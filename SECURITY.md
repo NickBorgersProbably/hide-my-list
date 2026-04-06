@@ -30,7 +30,13 @@ GitHub has been chosen as the tool for facilitating this, and that means we need
 
 ### Cron-driven reminder flow — [BC] configuration
 
-The reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus the OpenClaw `reminder-check` durable cron job) sources `.env` credentials **[B]**, queries Notion, and writes a `.reminder-signal` file **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
+The reminder flow is split into two cron jobs:
+
+1. **`reminder-check`** (procedural polling): Injects a `systemEvent` into `main`, runs [`scripts/check-reminders.sh`](scripts/check-reminders.sh), which sources `.env` credentials **[B]**, queries Notion, and writes a `.reminder-signal` file **[C]**. Processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. Safe **[BC]** configuration.
+
+2. **`reminder-delivery`** (agentic delivery, isolated): Runs in an **isolated cron session** (no `sessionTarget: main`), pinned to Haiku. Reads `.reminder-signal` (created by the procedural check — not untrusted), sources `.env` credentials **[B]**, delivers reminders to the user and updates Notion **[C]**. Because it runs isolated from `main`, it does not inherit any GitHub-derived content from the user's conversation history. Safe **[BC]** configuration.
+
+The isolation boundary is deliberate: the main session may contain untrusted GitHub content (PR descriptions, issue bodies), and reminder delivery has credentials and speaks to the user. Running delivery in `main` would create an **[ABC]** combination. The isolated session avoids this.
 
 ### CI/CD review agents — [AC] configuration
 

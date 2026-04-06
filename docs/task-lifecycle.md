@@ -23,10 +23,10 @@ stateDiagram-v2
     Breakdown --> Pending: Sub-tasks created (hidden)
 
     Intake --> ReminderPending: Reminder task detected
-    ReminderPending --> ReminderSent: Next eligible poll after remind_at
-    ReminderPending --> ReminderMissed: >15 min past due
-    ReminderSent --> Completed: Reminder delivered
-    ReminderMissed --> Completed: Late reminder delivered
+    ReminderPending --> ReminderSent: reminder-delivery run within 15 min of remind_at
+    ReminderPending --> ReminderMissed: reminder-delivery run >15 min after remind_at
+    ReminderSent --> ReminderSent: Delivered, awaiting user action
+    ReminderMissed --> ReminderMissed: Late-delivered, awaiting user action
 
     Pending --> Selected: User requests task
     Pending --> Pending: Time passes (urgency static)
@@ -71,8 +71,8 @@ stateDiagram-v2
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
 | Cannot Finish | User indicates task is too large | `in_progress` (triggers breakdown) |
 | Reminder Pending | Reminder task waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
-| Reminder Sent | Reminder delivered to user on time | `completed` (reminder_status=sent) |
-| Reminder Missed | Reminder >15 min late, delivered with apology | `completed` (reminder_status=missed) |
+| Reminder Sent | Reminder delivered to user on time | `pending` (reminder_status=sent) — task completion is a separate user action |
+| Reminder Missed | Reminder >15 min late, delivered with note | `pending` (reminder_status=missed) — task completion is a separate user action |
 | Completed | Task finished | `completed` |
 
 ## Phase 1: Task Intake
@@ -923,7 +923,7 @@ The reward system scales celebrations based on achievement significance:
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection. Instead, the durable `reminder-check` cron job polls for reminders that have reached `Remind At` and delivers them on the next eligible run.
+Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection. Instead, two durable cron jobs work together: `reminder-check` polls Notion and writes a signal file, and `reminder-delivery` (isolated, Haiku-pinned) picks it up and delivers to the user.
 
 ```mermaid
 flowchart TD
@@ -932,35 +932,36 @@ flowchart TD
     Parse --> Save[Save to Notion with is_reminder=true]
 
     Save --> Wait[Task waits in Notion]
-    Wait --> Cron[reminder-check cron runs every 15 min]
-    Cron --> Due{remind_at <= now?}
+    Wait --> CheckCron[reminder-check cron runs every 15 min]
+    CheckCron --> Due{remind_at <= now?}
     Due -->|No| Wait
     Due -->|Yes| Signal[check-reminders.sh writes .reminder-signal]
-    Signal --> Surface{main session has attached surface?}
-    Surface -->|No| Retry[Reply NO_REPLY and keep .reminder-signal]
-    Retry --> Wait
-    Surface -->|Yes| Late{>15 min past due?}
+    Signal --> DeliverCron[reminder-delivery cron runs offset by 2 min]
+    DeliverCron --> HasSignal{.reminder-signal exists?}
+    HasSignal -->|No| NoOp[Reply NO_REPLY]
+    HasSignal -->|Yes| Late{>15 min past remind_at at delivery time?}
 
-    Late -->|No| Send[Deliver reminder]
-    Late -->|Yes| SendMissed[Deliver with apology]
+    Late -->|No| Send[Deliver reminder via best-effort-deliver]
+    Late -->|Yes| SendMissed[Deliver with note about delay]
 
-    Send --> Complete[Mark completed + reminder_status=sent]
-    SendMissed --> Complete2[Mark completed + reminder_status=missed]
+    Send --> Update[Update ReminderStatus to sent]
+    SendMissed --> Update2[Update ReminderStatus to missed]
 
-    Complete --> Done([Done])
-    Complete2 --> Done
+    Update --> Cleanup[Delete .reminder-signal]
+    Update2 --> Cleanup
+    Cleanup --> Done([Reminder delivered — task stays pending until user completes])
 ```
 
 ### Reminder vs. Normal Task
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | `reminder-check` injects a `systemEvent` into `main`, then surfaces `.reminder-signal` on the first eligible poll after `remind_at` |
-| Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
+| Selection | User requests → AI suggests | `reminder-check` writes `.reminder-signal`; `reminder-delivery` (isolated, Haiku) delivers on the next eligible run after `remind_at` |
+| Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed (task stays pending until user completes) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery stays on the existing `main` session surface. If no reminder is due, or the `main` session has no attached surface when `.reminder-signal` exists, the cron run replies `NO_REPLY` and leaves the reminder pending for a later retry.
+Reminder delivery runs in an isolated cron session (not on `main`) with `best-effort-deliver`. If `.reminder-signal` does not exist, the delivery job replies `NO_REPLY` (near-zero token cost). If delivery fails, the signal file stays in place for the next run or heartbeat recovery.
 
 ### Timezone Handling
 

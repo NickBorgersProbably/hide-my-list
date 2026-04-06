@@ -41,15 +41,19 @@ changed in that pull:
 
   git diff "$BEFORE_HEAD" "$AFTER_HEAD" -- setup/cron/
 
-If `setup/cron/reminder-check.md` or `setup/cron/pull-main.md` changed:
+If `setup/cron/reminder-check.md`, `setup/cron/reminder-delivery.md`, or
+`setup/cron/pull-main.md` changed:
 - Use CronList first and match live jobs by `name`.
 - Read each changed spec file in `setup/cron/` and treat it as the canonical
   source for `schedule`, `prompt`, `sessionTarget` (if any), `payload.kind`,
-  `delivery`, and `timeout-seconds`.
+  `delivery`, `model` (when pinned), and `timeout-seconds`.
 - Use CronUpdate on the matching live job ID to patch only those affected jobs.
 - Preserve the intended contract from the spec:
   - `reminder-check`: `sessionTarget: main`, `payload.kind: systemEvent`,
     `delivery.mode: none`, `timeout-seconds: 120`
+  - `reminder-delivery`: no `sessionTarget` (isolated), `payload.kind: agentTurn`,
+    `model: litellm/claude-haiku-4-5`, `delivery.mode: best-effort-deliver`,
+    `timeout-seconds: 120`
   - `pull-main`: `sessionTarget: main`, `payload.kind: systemEvent`,
     `delivery.mode: none`, `timeout-seconds: 120`
 - After updating any affected live jobs, reply with ONLY: NO_REPLY.

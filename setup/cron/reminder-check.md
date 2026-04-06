@@ -1,6 +1,6 @@
 # Cron Job: reminder-check
 
-Replaces `scripts/reminder-daemon.sh`. Runs every 15 minutes via OpenClaw's durable cron.
+Procedural polling job that queries Notion for due reminders and writes a signal file. Runs every 15 minutes via OpenClaw's durable cron. This job does **not** deliver reminders — the separate `reminder-delivery` job handles that.
 
 ## Registration
 
@@ -17,32 +17,19 @@ CronCreate:
   timeout-seconds: 120
 ```
 
-This job injects a `systemEvent` into the main agent session instead of spawning an isolated cron-specific sub-agent. Delivery is `mode: none` because hide-my-list should decide whether to speak at all, while keeping delivery on the conversation surface already attached to `main`. The 120s timeout gives the LLM enough time to process the full agent context.
-Because the job re-enters `sessionTarget: main`, outbound routing is deterministic: deliver reminders only through the user-facing surface already attached to that main session. Do not pick a different recipient, channel, or thread. If the main session has no attached user-facing surface, leave `.reminder-signal` in place and reply with ONLY: NO_REPLY so the next eligible run can retry.
-Because it re-enters `main`, `reminder-check` also uses the main session's configured primary conversation model rather than selecting a separate cheap-worker model. That is intentional in the current architecture: deterministic delivery on the existing user surface matters more than isolated cron-only model savings.
+This job injects a `systemEvent` into the main agent session. Delivery is `mode: none` because the job is silent — it only runs the polling script and exits. The 120s timeout gives the script enough time to query Notion with retries.
 
 ## Prompt
 
 ```
-Run scripts/check-reminders.sh. That script writes .reminder-signal as the
-handoff file for any due reminders. If .reminder-signal exists afterward, read
-it and deliver each reminder to the user:
-- Approximate reminders (next eligible poll, before missed threshold): casual delivery ("Hey, time to [task]")
-- Missed reminders (>15 min late): note the delay but don't shame ("This was due a bit
-  ago — [task]")
-After delivery, read each reminder's status from .reminder-signal and update Notion accordingly:
-  If status is "sent":
-    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}}}}'
-  If status is "missed":
-    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}}}}'
-Delete .reminder-signal only after every reminder was delivered and its Notion status was updated.
-If delivery fails before that point, leave .reminder-signal in place and do not mark the affected reminder as sent or missed.
-If there is nothing to report, reply with ONLY: NO_REPLY
+Run scripts/check-reminders.sh. Reply with ONLY: NO_REPLY
 ```
+
+The script queries Notion for due reminders and writes `.reminder-signal` if any are found. The separate `reminder-delivery` cron job (offset by 2 minutes) picks up that signal file and handles user-facing delivery, Notion status updates, and signal cleanup.
 
 ## Notes
 
 - Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers the job if missing and patches it back to this spec if the live registration drifts.
-- For production deployments, 15-minute polling is the recommended cost/latency balance for routine reminders. Reminder delivery is the time-sensitive path; heartbeat remains the hourly safety net. For exact-time reminders such as medication, departures, or meetings, tighten the polling interval.
-- Cron only fires when the REPL is idle. If the user is mid-conversation, reminders queue and deliver when the conversation pauses. For ADHD this is better — interrupting mid-task is harmful.
-- `check-reminders.sh` only queries Notion and writes the handoff file; the cron prompt is what actually delivers the reminder.
+- This job is purely procedural: `check-reminders.sh` does all the work, and the LLM prompt is minimal (run script, say NO_REPLY). The cost-intensive reminder delivery logic lives in the separate `reminder-delivery` job, which is pinned to Haiku.
+- For production deployments, 15-minute polling is the recommended cost/latency balance for routine reminders. For exact-time reminders such as medication, departures, or meetings, tighten the polling interval.
+- Cron only fires when the REPL is idle. If the user is mid-conversation, the poll queues until the conversation pauses — better for ADHD focus.

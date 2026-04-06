@@ -752,38 +752,44 @@ If the cron is not configured, the agent should not attempt proactive check-ins.
 
 ## Flow 8: Scheduled Reminder Delivery
 
-Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (which are based on active-task state and optional OpenClaw scheduling), reminders fire proactively even when the chat is idle.
+Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (which are based on active-task state and optional OpenClaw scheduling), reminders fire proactively even when the chat is idle. Two cron jobs handle reminders: `reminder-check` (procedural polling) and `reminder-delivery` (agentic delivery, isolated, Haiku-pinned).
 
 ```mermaid
 sequenceDiagram
-    participant Cron as OpenClaw cron
+    participant CheckCron as reminder-check<br/>(systemEvent on main)
     participant Scr as check-reminders.sh
     participant Notion as Notion API
     participant Signal as Signal File
-    participant Agent as OpenClaw Agent
+    participant DeliverCron as reminder-delivery<br/>(isolated, Haiku)
     participant User
 
-    Cron->>Agent: Inject reminder-check systemEvent into main session
-    Agent->>Scr: Run check-reminders.sh
+    CheckCron->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
     Scr->>Signal: Write .reminder-signal
-    Agent->>Signal: Read .reminder-signal
-    Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Update reminder_status → sent/missed
-    Agent->>Signal: Delete .reminder-signal
+    Note over CheckCron: Always replies NO_REPLY
+
+    DeliverCron->>Signal: Check for .reminder-signal
+    alt signal exists
+        DeliverCron->>Signal: Read .reminder-signal
+        DeliverCron->>User: Deliver reminder (best-effort-deliver)
+        DeliverCron->>Notion: Update ReminderStatus → sent/missed
+        DeliverCron->>Signal: Delete .reminder-signal
+    else no signal
+        Note over DeliverCron: Replies NO_REPLY
+    end
 ```
 
-If no reminders are due, or if the `main` session has no attached user-facing surface when `.reminder-signal` exists, the cron-triggered run must reply with `NO_REPLY` and stay silent. In the no-surface case it also leaves `.reminder-signal` in place so the next eligible run can retry delivery. Reminder routing is deterministic: the agent speaks only through the surface already attached to `sessionTarget: main`, never by choosing a new recipient or channel.
+If `.reminder-signal` does not exist when `reminder-delivery` runs, it replies `NO_REPLY` (near-zero Haiku token cost). If delivery fails, the signal file stays in place for the next run or heartbeat recovery. `reminder-delivery` runs in an isolated session (no `sessionTarget: main`) with `best-effort-deliver`, which is a deliberate security boundary — the main session may contain untrusted GitHub content.
 
 ### Reminder Delivery Messages
 
 The agent delivers reminders with a brief, casual tone — like a friend tapping your shoulder:
 
-**Approximate delivery (next eligible poll after the scheduled time, before the missed threshold):**
+**On-time delivery (within 15 minutes of the scheduled time):**
 > "Hey — this is your reminder to email Melanie about availability."
 
-**Missed delivery (>15 minutes past due, flagged as missed):**
+**Missed delivery (>15 minutes past due at actual delivery time):**
 > "I'm late on this one — you had a reminder at 6pm PT to email Melanie. Want to handle it now or reschedule?"
 
 ### Reminder Intake
@@ -795,14 +801,14 @@ During task intake, the AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 
 **Confirmation message style:**
-> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next reminder check after that."
+> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next scheduled reminder run after that."
 
 The user's timezone defaults to US Central. The AI converts timezone references (PT, CT, ET) to UTC offsets at intake time.
 
 ### Reminder vs. Deadline
 
 Reminders and deadlines are different:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, on the next reminder check
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, on the next `reminder-delivery` run
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 The key signal is notification intent: the user wants to be *told* to do something at a specific time, not just have it prioritized.

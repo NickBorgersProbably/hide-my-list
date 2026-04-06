@@ -78,11 +78,12 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| reminder-check | Every 15 min | Poll Notion for due reminders, write `.reminder-signal`, deliver to user |
+| reminder-check | Every 15 min | Poll Notion for due reminders, write `.reminder-signal` (procedural, always `NO_REPLY`) |
+| reminder-delivery | Every 15 min (offset 2 min) | If `.reminder-signal` exists, deliver reminders and update Notion (isolated, Haiku-pinned) |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
 | heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction |
 
-Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs inject `systemEvent` payloads into the main agent session with `delivery: { mode: none }`.
+Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. `reminder-check` and `pull-main` inject `systemEvent` payloads into the main agent session with `delivery: { mode: none }`. `reminder-delivery` runs in an isolated session (no `sessionTarget: main`) with `model: litellm/claude-haiku-4-5` and `delivery: { mode: best-effort-deliver }` — this isolation keeps the reminder flow at [BC] in the trust model by avoiding untrusted GitHub content from the main session.
 
 Production recommendation: keep heartbeat hourly because it is only an infrastructure backstop; keep `reminder-check` at 15-minute cadence as the default cost/latency tradeoff for routine or low-stakes reminders. For exact-time reminders such as medication, departures, or meetings, use tighter polling instead of treating the 15-minute window as exact.
 
@@ -98,9 +99,10 @@ The agent reads docs on every interaction, so changes take effect immediately. N
 ## Troubleshooting
 
 **Reminders not firing:**
-- Check that the reminder-check cron is registered (ask the agent to check CronList)
+- Check that both `reminder-check` and `reminder-delivery` crons are registered (ask the agent to check CronList)
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity
+- Check if `.reminder-signal` exists — if it does, delivery may be failing
 
 **Agent not responding:**
 - Check `openclaw status` for channel health
