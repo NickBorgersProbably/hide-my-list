@@ -88,7 +88,7 @@ For production deployments, use these timings unless you have a clear reason to 
 | `reminder-delivery` | Every 15 minutes, offset +2 min | Cheap Haiku guard; only spends tokens when `.reminder-signal` exists |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps the workspace fresh |
 
-The core principle is simple: `reminder-check` is the thing that affects user-facing timeliness. Heartbeat exists to keep the runtime healthy and recover expired or drifted cron registrations, so it does not need sub-hour cadence. For routine reminders, 15-minute polling is the default production cost/latency tradeoff. For exact-time reminders such as medication, departures, or meetings, tighten the polling interval rather than treating a 15-minute window as exact.
+The core principle is simple: user-visible reminder timeliness now depends on both jobs together. `reminder-check` determines when due reminders are handed off, and the offset `reminder-delivery` run determines when the user actually sees them. Heartbeat exists to keep the runtime healthy and recover expired or drifted cron registrations, so it does not need sub-hour cadence. For routine reminders, the paired 15-minute check plus offset delivery cadence is the default production cost/latency tradeoff. For exact-time reminders such as medication, departures, or meetings, tighten the polling interval rather than treating that window as exact.
 
 ## Messaging Channels
 

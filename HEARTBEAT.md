@@ -5,7 +5,7 @@
 ### 1. Stranded Reminder Signal
 - Check `.reminder-signal`
 - This file is the reminder handoff written by `scripts/check-reminders.sh`
-- If it still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, update Notion status to `sent` or `missed` based on the file, then delete the signal file
+- If it still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, classify `sent` vs `missed` from current delivery time versus `remind_at` using the same rule as `setup/cron/reminder-delivery.md`, update Notion, then delete the signal file
 
 ### 2. Cron Job Health
 Verify that durable cron jobs are registered. If any are missing, re-register them.
@@ -32,6 +32,7 @@ At minimum, compare and correct these fields:
 - direct-delivery routing field: live `to` if present
 - payload field: canonical `payload.kind`
 - delivery behavior fields: canonical `delivery.mode` and any equivalent live field such as `best-effort-deliver`
+- `model` when the canonical spec pins one
 - `timeout-seconds`
 
 `to` is not a legacy spelling of `sessionTarget`. `sessionTarget` controls whether the cron run re-enters `main`, while `to` is direct-delivery routing for isolated jobs. For `reminder-check`, `reminder-delivery`, and `pull-main`, the canonical contract is `sessionTarget: main` with no direct-delivery target, so any populated `to` should be treated as drift and removed rather than accepted as equivalent.
