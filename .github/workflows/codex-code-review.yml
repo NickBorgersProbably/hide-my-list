@@ -2057,15 +2057,30 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         if: steps.setup.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
+          ref: ${{ needs.get-context.outputs.reviewed_sha }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Reattach PR branch when available
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          HEAD_REF: ${{ needs.get-context.outputs.head_ref }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git checkout -B "$HEAD_REF" "$REVIEWED_SHA"
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF"
+            echo "Attached local branch $HEAD_REF to reviewed commit $REVIEWED_SHA"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; staying on detached reviewed SHA $REVIEWED_SHA"
+          fi
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
@@ -2211,9 +2226,17 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           STATUS_API_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin ${{ needs.get-context.outputs.head_ref }}
-          CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
+          HEAD_REF="${{ needs.get-context.outputs.head_ref }}"
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
+          CURRENT_HEAD=$(git rev-parse HEAD)
+
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git fetch origin "$HEAD_REF"
+            CURRENT_HEAD=$(git rev-parse "origin/${HEAD_REF}")
+            echo "Using remote PR branch head $CURRENT_HEAD from origin/$HEAD_REF"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; using local HEAD $CURRENT_HEAD"
+          fi
 
           echo "current_head=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
 
@@ -2227,9 +2250,42 @@ jobs:
           echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
 
+          if ! git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            echo "::warning::PR branch origin/$HEAD_REF no longer exists; skipping follow-up validation dispatch"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # --- Review cycle cap enforcement (hard gate) ---
           MAX_REVIEW_CYCLES=3
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          STARTED_LABELS=(
+            "all-reviews-started"
+            "design-review-started"
+            "security-review-started"
+            "psych-review-started"
+            "docs-review-started"
+            "prompt-review-started"
+            "merge-decision-started"
+          )
+          STARTED_LABELS_CLEARED=false
+          NEW_CYCLE_COMMITTED=false
+          STARTED_LABEL_SNAPSHOT=""
+
+          restore_started_labels() {
+            if [ "$STARTED_LABELS_CLEARED" != "true" ] || [ "$NEW_CYCLE_COMMITTED" = "true" ]; then
+              return
+            fi
+
+            echo "Restoring prior started labels because the new cycle was not committed"
+            while IFS= read -r label; do
+              [ -n "$label" ] || continue
+              GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
+                --add-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+            done <<< "$STARTED_LABEL_SNAPSHOT"
+          }
+
+          trap restore_started_labels EXIT
 
           # Count review-cycle-* labels (authoritative, independent of get-context)
           if ! CYCLE_LABEL_COUNT=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
@@ -2256,6 +2312,34 @@ jobs:
 
           NEXT_CYCLE=$((CYCLE_LABEL_COUNT + 1))
           NEXT_LABEL="review-cycle-${NEXT_CYCLE}"
+
+          if ! STARTED_LABEL_SNAPSHOT=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
+            repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+            --jq '
+              [.[].name
+               | select(
+                   . == "all-reviews-started" or
+                   . == "design-review-started" or
+                   . == "security-review-started" or
+                   . == "psych-review-started" or
+                   . == "docs-review-started" or
+                   . == "prompt-review-started" or
+                   . == "merge-decision-started"
+                 )]
+              | .[]
+            '); then
+            echo "Failed to snapshot started labels for PR #$PR_NUMBER" >&2
+            exit 1
+          fi
+
+          # Clear stale per-reviewer "started" labels before dispatching the next cycle so
+          # the new run cannot race with this cleanup. If follow-up dispatch fails later,
+          # the EXIT trap restores the prior labels to avoid leaving the PR half-reset.
+          for label in "${STARTED_LABELS[@]}"; do
+            GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
+              --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+          done
+          STARTED_LABELS_CLEARED=true
 
           echo "Triggering PR Tests workflow..."
 
@@ -2352,21 +2436,6 @@ jobs:
             -f reviewed_sha="$CURRENT_HEAD" \
             -f review_cycle="$NEXT_CYCLE"
 
-          # Commit to the new cycle only after both follow-up workflows are successfully dispatched.
-          # Clear stale per-reviewer "started" labels so the next cycle's progress visibility
-          # reflects the new run, not leftover state from the previous cycle.
-          for label in \
-            "all-reviews-started" \
-            "design-review-started" \
-            "security-review-started" \
-            "psych-review-started" \
-            "docs-review-started" \
-            "prompt-review-started" \
-            "merge-decision-started"; do
-            GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
-              --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
-          done
-
           # Persist the next cycle only after the follow-up review run is successfully dispatched.
           GH_TOKEN="${STATUS_API_TOKEN}" gh label create "$NEXT_LABEL" \
             --color "1d76db" \
@@ -2374,6 +2443,7 @@ jobs:
             --repo ${{ github.repository }} 2>/dev/null || true
           GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" --add-label "$NEXT_LABEL" \
             --repo ${{ github.repository }}
+          NEW_CYCLE_COMMITTED=true
           echo "Added label: $NEXT_LABEL"
           echo "$FOLLOW_UP_MESSAGE (cycle $NEXT_CYCLE)"
 
