@@ -48,6 +48,10 @@ on:
         description: 'PR Tests workflow run ID'
         required: true
         type: string
+      reviewed_sha:
+        description: 'Immutable PR head SHA reviewed by this workflow run'
+        required: false
+        type: string
 
 # Prevent duplicate reviews when multiple PR Tests complete around the same time
 # Uses branch name for concurrency group
@@ -90,8 +94,10 @@ jobs:
       # reviewer-setup uses that run to verify the current PR head SHA before
       # checking out the immutable commit for each review job.
       pr_tests_run_id: ${{ github.event_name == 'issue_comment' && steps.lookup-tests.outputs.run_id || github.event_name == 'pull_request' && '' || github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
+      # Immutable SHA reviewed by this workflow run and used for status reporting.
+      reviewed_sha: ${{ steps.resolve-reviewed-sha.outputs.reviewed_sha }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
-      triggering_sha: ${{ github.event_name == 'issue_comment' && steps.lookup-tests.outputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+      triggering_sha: ${{ steps.resolve-reviewed-sha.outputs.reviewed_sha }}
       issue_number: ${{ steps.get-issue.outputs.issue_number }}
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
@@ -255,6 +261,33 @@ jobs:
               core.setOutput('pr_number', '');
               core.setOutput('is_draft', 'false');
             }
+
+      - name: Resolve reviewed SHA
+        id: resolve-reviewed-sha
+        if: steps.get-pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            REVIEWED_SHA="${{ steps.lookup-tests.outputs.head_sha }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            REVIEWED_SHA="${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REVIEWED_SHA="${{ inputs.reviewed_sha }}"
+            if [ -z "$REVIEWED_SHA" ]; then
+              REVIEWED_SHA=$(gh api repos/${{ github.repository }}/actions/runs/${{ inputs.run_id }} --jq '.head_sha')
+            fi
+          else
+            REVIEWED_SHA="${{ github.event.workflow_run.head_sha }}"
+          fi
+
+          if [ -z "$REVIEWED_SHA" ] || [ "$REVIEWED_SHA" = "null" ]; then
+            echo "Unable to determine immutable reviewed SHA" >&2
+            exit 1
+          fi
+
+          echo "reviewed_sha=$REVIEWED_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved reviewed SHA: $REVIEWED_SHA"
 
       - name: Extract linked issue from PR body
         if: steps.get-pr.outputs.pr_number != ''
@@ -456,28 +489,6 @@ jobs:
           echo "config_only=$CONFIG_ONLY" >> $GITHUB_OUTPUT
           echo "has_scripts=$HAS_SCRIPTS" >> $GITHUB_OUTPUT
           echo "docs_only=$DOCS_ONLY" >> $GITHUB_OUTPUT
-
-      - name: Create pending commit status for reviews
-        if: |
-          steps.get-pr.outputs.pr_number != '' &&
-          steps.get-pr.outputs.is_draft != 'true' &&
-          steps.check-existing-reviews.outputs.already_passed != 'true' &&
-          steps.check-author-auth.outputs.authorized == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.sha')
-
-          echo "Creating pending review status for PR #$PR_NUMBER (SHA: $HEAD_SHA)"
-
-          gh api repos/${{ github.repository }}/statuses/$HEAD_SHA \
-            -f state="pending" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            -f description="Agent reviews in progress" \
-            -f context="All Required Agent Reviews"
-
-          echo "Pending review status created successfully"
 
   # Build and cache devcontainer image
   # SECURITY: Always build from main branch, NEVER from PR branches
@@ -767,7 +778,8 @@ jobs:
                 -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
                 -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
                 -f tests_passed="true" \
-                -f run_id="$RUN_ID"
+                -f run_id="$RUN_ID" \
+                -f reviewed_sha="$CURRENT_HEAD"
               echo "Codex Code Review workflow triggered successfully"
             else
               echo "Tests still failing after fix attempt"
@@ -785,7 +797,8 @@ jobs:
                   -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
                   -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
                   -f tests_passed="false" \
-                  -f run_id="$RUN_ID"
+                  -f run_id="$RUN_ID" \
+                  -f reviewed_sha="$CURRENT_HEAD"
                 echo "Next fix attempt triggered"
               else
                 echo "Max fix attempts (3) reached - human intervention required"
@@ -2302,16 +2315,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Get the HEAD SHA of the PR branch
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.sha')
+          REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
           STATUS_STATE="${{ steps.check-results.outputs.status_state }}"
           DESCRIPTION="${{ steps.check-results.outputs.status_description }}"
 
-          echo "Creating $STATUS_STATE commit status for PR #$PR_NUMBER (SHA: $HEAD_SHA)"
+          if [ -z "$REVIEWED_SHA" ]; then
+            echo "Reviewed SHA is missing; cannot publish review status" >&2
+            exit 1
+          fi
+
+          echo "Creating $STATUS_STATE commit status for PR #$PR_NUMBER (SHA: $REVIEWED_SHA)"
 
           # Create commit status
-          gh api repos/${{ github.repository }}/statuses/$HEAD_SHA \
+          gh api repos/${{ github.repository }}/statuses/$REVIEWED_SHA \
             -f state="$STATUS_STATE" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             -f description="$DESCRIPTION" \
