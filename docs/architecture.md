@@ -241,7 +241,7 @@ sequenceDiagram
 | Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); current cron-driven delivery targets Signal |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
-| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 5 min, heartbeat re-registers on expiry |
+| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 5 min, heartbeat re-registers expired jobs and patches spec drift |
 | Pipeline Monitoring | OpenClaw durable cron + check-github-status.sh | Native cron every 2 min for GitHub PR/CI status |
 | Workspace Sync | OpenClaw durable cron + pull-main.sh | Native cron every 10 min keeps the workspace current and recovers dirty pulls |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
