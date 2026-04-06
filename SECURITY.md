@@ -30,7 +30,7 @@ GitHub has been chosen as the tool for facilitating this, and that means we need
 
 ### Cron-driven reminder flow — [BC] configuration
 
-The reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus the OpenClaw `reminder-check` durable cron job) sources `.env` credentials **[B]**, queries Notion, and writes a `.reminder-signal` file **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
+The reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus the OpenClaw `reminder-check` and `reminder-delivery` durable cron jobs) sources `.env` credentials **[B]**, queries Notion, writes a `.reminder-signal` file, and later delivers it on the paired session surface **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
 
 ### CI/CD review agents — [AC] configuration
 
@@ -84,7 +84,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 ### Inbound exposure reduction
 
 - The old `socat`-based webhook listener was removed; routine operations now rely on durable cron instead of a required inbound listener
-- Durable cron polling (`reminder-check`, `pull-main`) covers routine operation and survives agent restarts via OpenClaw's cron subsystem
+- Durable cron polling (`reminder-check`, `reminder-delivery`, `pull-main`) covers routine operation and survives agent restarts via OpenClaw's cron subsystem
 - Heartbeat re-registers cron jobs if they disappear, ensuring continuity for the cron path
 - Optional GitHub-triggered webhook notifications may still exist if an operator configures `AGENT_WEBHOOK_URL`, so inbound exposure is reduced but not universally eliminated
 

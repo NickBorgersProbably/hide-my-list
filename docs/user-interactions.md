@@ -756,25 +756,27 @@ Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (
 
 ```mermaid
 sequenceDiagram
-    participant Cron as OpenClaw cron
+    participant CheckCron as OpenClaw cron<br/>reminder-check
+    participant DeliverCron as OpenClaw cron<br/>reminder-delivery
     participant Scr as check-reminders.sh
     participant Notion as Notion API
     participant Signal as Signal File
     participant Agent as OpenClaw Agent
     participant User
 
-    Cron->>Agent: Inject reminder-check systemEvent into main session
+    CheckCron->>Agent: Inject reminder-check systemEvent into main session
     Agent->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
     Scr->>Signal: Write .reminder-signal
+    DeliverCron->>Agent: Inject reminder-delivery agentTurn into main session
     Agent->>Signal: Read .reminder-signal
     Agent->>User: Deliver reminder on main session surface
     Agent->>Notion: Update reminder_status → sent/missed
     Agent->>Signal: Delete .reminder-signal
 ```
 
-If no reminders are due, or if the `main` session has no attached user-facing surface when `.reminder-signal` exists, the cron-triggered run must reply with `NO_REPLY` and stay silent. In the no-surface case it also leaves `.reminder-signal` in place so the next eligible run can retry delivery. Reminder routing is deterministic: the agent speaks only through the surface already attached to `sessionTarget: main`, never by choosing a new recipient or channel.
+`reminder-check` should always stay silent: it only writes `.reminder-signal`. `reminder-delivery` does the cheap guard, replying `NO_REPLY` immediately when no signal file exists. If the `main` session has no attached user-facing surface when `.reminder-signal` exists, the delivery run must also reply `NO_REPLY` and leave the file in place so the next eligible run can retry. Reminder routing is deterministic: the agent speaks only through the surface already attached to `sessionTarget: main`, never by choosing a new recipient or channel.
 
 ### Reminder Delivery Messages
 

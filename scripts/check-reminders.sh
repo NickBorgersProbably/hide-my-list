@@ -6,14 +6,15 @@
 # details to a signal file for the agent to pick up.
 #
 # The script does NOT update reminder status in Notion — the agent marks
-# reminders as sent/completed after confirmed delivery. A successful Notion
+# reminders as sent/missed after confirmed delivery. A successful Notion
 # query is treated as the source of truth for which reminders still need
 # delivery, so stale signal entries are cleared automatically once the agent
 # updates Notion.
 #
 # Designed to run from the durable reminder-check cron job (15-minute cadence).
-# The script writes a handoff file, and the agent session that ran it reads that
-# file to deliver reminders through the active messaging surface.
+# The script stays purely procedural: it queries Notion, writes the handoff
+# file, and exits. A separate reminder-delivery cron job reads the handoff file
+# and speaks through the active messaging surface when there is anything due.
 # Heartbeat can also recover a stranded handoff file if a prior delivery did
 # not complete.
 #

@@ -59,22 +59,23 @@ The one repo-mutating runtime exception is dirty-pull recovery in `scripts/pull-
 
 OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `durable: true`, jobs persist to disk and survive gateway restarts.
 
-**Our usage:** Two durable cron jobs replace our former bash daemons/manual sync steps:
+**Our usage:** Three durable cron jobs replace our former bash daemons/manual sync steps:
 
 | Job | Schedule | Replaces |
 |-----|----------|----------|
-| `reminder-check` | `*/15 * * * *` | `reminder-daemon.sh` (bash while-loop) |
+| `reminder-check` | `*/15 * * * *` | The polling half of `reminder-daemon.sh` |
+| `reminder-delivery` | `2,17,32,47 * * * *` | The delivery half of `reminder-daemon.sh` |
 | `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene plus immediate re-application of changed `setup/cron/` specs after a clean pull |
 
 **Why this is better than daemons:**
 - No PID files, no silent death, no orphaned processes
 - OpenClaw manages the scheduling; failures are visible in the session
-- Reminder delivery still happens in agent context, but `scripts/check-reminders.sh` hands due reminders to the cron prompt through `.reminder-signal` instead of relying on a long-running daemon
+- `scripts/check-reminders.sh` is purely procedural now, and the separate `reminder-delivery` cron spends meaningful tokens only when `.reminder-signal` exists
 - Cron only fires when the REPL is idle, which is actually better for ADHD — it won't interrupt the user mid-task
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes, failed pull-time re-application, or stale re-registration prompts by comparing the live job against the canonical `CronCreate` block and patching any mismatched registration fields. This is a platform constraint we work around rather than a feature we chose.
 
-**Current registration contract:** `reminder-check` and `pull-main` target the shared `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `reminder-check` intentionally stays on `sessionTarget: main` instead of using an isolated cheap worker, because reminder delivery has to speak back through the already-bound user surface with deterministic routing. That means it inherits the main session's primary conversation model rather than selecting a separate cron-only model. `pull-main` uses the same shared-session access to patch changed cron jobs in place after a clean pull by comparing the before/after `HEAD` commits from that invocation, reading the canonical spec files, and calling `CronUpdate` on the affected live registrations. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
+**Current registration contract:** `reminder-check` and `pull-main` target the shared `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `reminder-delivery` also targets `main`, but uses `payload.kind: agentTurn`, `delivery.mode: none`, `model: litellm/claude-haiku-4-5`, and `timeout-seconds: 120`. `pull-main` uses that access to patch changed cron jobs in place after a clean pull by comparing the before/after `HEAD` commits from that invocation, reading the canonical spec files, and calling `CronUpdate` on the affected live registrations. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
 
 ### Production Timing Recommendation
 
@@ -84,6 +85,7 @@ For production deployments, use these timings unless you have a clear reason to 
 |-----------|---------------------|-----|
 | Heartbeat | Every 60 minutes | Infrastructure safety net only: cron expiry, spec drift, Notion/env health |
 | `reminder-check` | Every 15 minutes | User-facing reminder timeliness with acceptable cost for routine reminders on a mostly-idle job |
+| `reminder-delivery` | Every 15 minutes, offset +2 min | Cheap Haiku guard; only spends tokens when `.reminder-signal` exists |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps the workspace fresh |
 
 The core principle is simple: `reminder-check` is the thing that affects user-facing timeliness. Heartbeat exists to keep the runtime healthy and recover expired or drifted cron registrations, so it does not need sub-hour cadence. For routine reminders, 15-minute polling is the default production cost/latency tradeoff. For exact-time reminders such as medication, departures, or meetings, tighten the polling interval rather than treating a 15-minute window as exact.
@@ -132,6 +134,7 @@ OpenClaw supports multiple model providers. We route through a LiteLLM proxy on 
 
 - **Primary model:** Claude Opus 4.6 (conversations, task management)
 - **Heartbeat model:** Claude Sonnet 4.6 (routine checks, cheaper)
+- **Reminder delivery cron model:** Claude Haiku 4.5 (cheap `.reminder-signal` guard + reminder delivery)
 - **Fallback chain:** Opus → Sonnet → GPT-5.4
 
 **Our role:** We don't interact with model selection directly. The prompts in `docs/ai-prompts.md` are model-agnostic. OpenClaw picks the model based on the config.

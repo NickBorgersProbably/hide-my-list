@@ -51,6 +51,7 @@
 
 6. Register cron jobs (from within an agent session or via the control UI):
    - See `setup/cron/reminder-check.md` for the reminder polling job
+   - See `setup/cron/reminder-delivery.md` for the reminder delivery job
    - See `setup/cron/pull-main.md` for automatic workspace sync
    - The heartbeat is built-in and configured in `openclaw.json`
 
@@ -78,11 +79,12 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| reminder-check | Every 15 min | Poll Notion for due reminders, write `.reminder-signal`, deliver to user |
+| reminder-check | Every 15 min | Procedurally poll Notion for due reminders and write `.reminder-signal` |
+| reminder-delivery | Every 15 min, offset by 2 min | Cheap Haiku guard that delivers `.reminder-signal` reminders on `main` |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
 | heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction |
 
-Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs inject `systemEvent` payloads into the main agent session with `delivery: { mode: none }`.
+Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. `reminder-check` and `pull-main` are procedural `systemEvent` jobs with `delivery: { mode: none }`; `reminder-delivery` is an `agentTurn` pinned to Haiku for cheap empty runs.
 
 Production recommendation: keep heartbeat hourly because it is only an infrastructure backstop; keep `reminder-check` at 15-minute cadence as the default cost/latency tradeoff for routine or low-stakes reminders. For exact-time reminders such as medication, departures, or meetings, use tighter polling instead of treating the 15-minute window as exact.
 
@@ -99,6 +101,7 @@ The agent reads docs on every interaction, so changes take effect immediately. N
 
 **Reminders not firing:**
 - Check that the reminder-check cron is registered (ask the agent to check CronList)
+- Check that the reminder-delivery cron is also registered
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity
 
