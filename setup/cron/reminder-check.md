@@ -1,12 +1,12 @@
 # Cron Job: reminder-check
 
-Replaces `scripts/reminder-daemon.sh`. Runs every 5 minutes via OpenClaw's durable cron.
+Replaces `scripts/reminder-daemon.sh`. Runs every 15 minutes via OpenClaw's durable cron.
 
 ## Registration
 
 ```
 CronCreate:
-  schedule: "*/5 * * * *"
+  schedule: "*/15 * * * *"
   durable: true
   name: "reminder-check"
   sessionTarget: main
@@ -42,5 +42,6 @@ If there is nothing to report, reply with ONLY: NO_REPLY
 ## Notes
 
 - Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers the job if missing and patches it back to this spec if the live registration drifts.
+- For production deployments, 15-minute polling is the recommended cost/latency balance. Reminder delivery is the time-sensitive path; heartbeat remains the hourly safety net.
 - Cron only fires when the REPL is idle. If the user is mid-conversation, reminders queue and deliver when the conversation pauses. For ADHD this is better — interrupting mid-task is harmful.
 - `check-reminders.sh` only queries Notion and writes the handoff file; the cron prompt is what actually delivers the reminder.

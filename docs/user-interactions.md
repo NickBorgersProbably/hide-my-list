@@ -780,11 +780,8 @@ If no reminders are due, or if the `main` session has no attached user-facing su
 
 The agent delivers reminders with a brief, casual tone — like a friend tapping your shoulder:
 
-**On-time delivery (within 5 minutes of scheduled time):**
+**On-time delivery (before the missed threshold, typically within 15 minutes of scheduled time):**
 > "Hey — you wanted a reminder to email Melanie about availability."
-
-**Late delivery (5-15 minutes past due):**
-> "Heads up — your reminder to call the dentist was set for 3pm. Still want to do it?"
 
 **Missed delivery (>15 minutes past due, flagged as missed):**
 > "I'm late on this one — you had a reminder at 6pm PT to email Melanie. Want to handle it now or reschedule?"
