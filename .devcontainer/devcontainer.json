@@ -13,7 +13,6 @@
   "initializeCommand": "bash .devcontainer/init-host-credentials.sh",
   "postCreateCommand": "bash .devcontainer/post-create.sh && bash .githooks/install-hooks.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
-  "mounts": [],
   "remoteEnv": {
     "OPENAI_API_KEY": "fake-key",
     "TERM": "xterm-256color",
