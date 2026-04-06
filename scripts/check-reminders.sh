@@ -26,11 +26,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-# shellcheck source=/dev/null
 if [ ! -f "$ROOT_DIR/.env" ]; then
     echo "check-reminders: $ROOT_DIR/.env not found — cannot load credentials" >&2
     exit 1
 fi
+# shellcheck source=/dev/null
 source "$ROOT_DIR/.env"
 
 SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
