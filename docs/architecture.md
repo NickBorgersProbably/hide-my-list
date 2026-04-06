@@ -20,7 +20,8 @@ flowchart TB
 
     subgraph Scheduling["OpenClaw Scheduling"]
         Heartbeat[Heartbeat<br/>every 60m]
-        ReminderCron[Reminder Cron<br/>every 15m]
+        ReminderCheckCron[reminder-check<br/>every 15m]
+        ReminderDeliveryCron[reminder-delivery<br/>every 15m<br/>offset 2m]
         PullMainCron[Pull-Main Cron<br/>every 10m]
     end
 
@@ -40,7 +41,8 @@ flowchart TB
     Messaging <-->|OpenClaw routing| AI
     AI <-->|CRUD operations| Scripts
     Scripts <-->|REST API| Notion
-    ReminderCron -->|Trigger reminder-check| AI
+    ReminderCheckCron -->|systemEvent on main| AI
+    ReminderDeliveryCron -->|isolated best-effort-deliver| Messaging
     PullMainCron -->|Trigger pull-main| AI
     Heartbeat -->|Health checks| AI
 ```
@@ -58,7 +60,7 @@ There is no standalone server. The OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when the chat is idle
 
-Interactive conversations are surface-agnostic, and durable cron jobs inject `systemEvent` payloads into the main agent session for trusted reminder/sync work. All cron jobs should stay silent when there is nothing actionable.
+Interactive conversations are surface-agnostic. Trusted procedural cron jobs (`reminder-check` and `pull-main`) inject `systemEvent` payloads into the main agent session silently, while `reminder-delivery` runs in an isolated cron session and uses `best-effort-deliver` for user-visible reminder messages. All cron jobs should stay silent when there is nothing actionable.
 
 ## Component Architecture
 

@@ -58,8 +58,10 @@
 
 6. Register cron jobs (from within an agent session or via the control UI):
    - See `setup/cron/reminder-check.md` for the reminder polling job
+   - See `setup/cron/reminder-delivery.md` for the isolated reminder delivery job
    - See `setup/cron/pull-main.md` for automatic workspace sync
    - The heartbeat is built-in and configured in `openclaw.json`
+   - Reminders will not be delivered unless both reminder cron jobs are registered
 
 ## Environment Variables
 

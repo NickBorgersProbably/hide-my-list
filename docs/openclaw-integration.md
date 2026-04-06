@@ -112,7 +112,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations always use the normal main-agent routing path, and trusted reminder/sync cron work re-enters that same path. Reminder delivery is user-visible there; routine workspace-sync maintenance still ends in `NO_REPLY` unless something requires operator attention.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use the normal main-agent routing path. Silent maintenance jobs (`reminder-check` and `pull-main`) re-enter the shared `main` session with `delivery.mode: none`, while user-visible reminder delivery stays isolated and reaches the user through `best-effort-deliver` instead of the main-session path.
 
 ## Model Routing (LiteLLM Proxy)
 
