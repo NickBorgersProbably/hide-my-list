@@ -102,6 +102,7 @@ jobs:
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
+      review_cycles: ${{ steps.count-review-cycles.outputs.count }}
       reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
       # SECURITY: Authorization status - blocks external/untrusted PR authors
       author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
@@ -343,6 +344,31 @@ jobs:
           echo "Current fix attempt count: $COUNT"
           echo "count=$COUNT" >> $GITHUB_OUTPUT
 
+      - name: Count review cycles from PR labels
+        if: steps.get-pr.outputs.pr_number != ''
+        id: count-review-cycles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+
+          # Get all labels on the PR
+          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+
+          # Count codex-review-cycle-N labels (highest N = current cycle)
+          COUNT=0
+          for label in $LABELS; do
+            if [[ "$label" =~ ^codex-review-cycle-[0-9]+$ ]]; then
+              NUM=$(echo "$label" | grep -oP '\d+$')
+              if [ "$NUM" -gt "$COUNT" ]; then
+                COUNT=$NUM
+              fi
+            fi
+          done
+
+          echo "Current review cycle count: $COUNT"
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
       - name: Check if reviews already passed (or reset on /review)
         if: steps.get-pr.outputs.pr_number != ''
         id: check-existing-reviews
@@ -366,6 +392,13 @@ jobs:
               "merge-decision-started"; do
               gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
             done
+            # Also remove review cycle labels
+            LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+            for label in $LABELS; do
+              if [[ "$label" =~ ^codex-review-cycle- ]]; then
+                gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+              fi
+            done
             # Signal already_passed=true to skip all downstream review jobs
             echo "already_passed=true" >> $GITHUB_OUTPUT
             exit 0
@@ -384,6 +417,13 @@ jobs:
               "prompt-review-started" \
               "merge-decision-started"; do
               gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+            done
+            # Also remove review cycle labels so /review starts a fresh cycle count
+            LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
+            for label in $LABELS; do
+              if [[ "$label" =~ ^codex-review-cycle- ]]; then
+                gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+              fi
             done
             echo "already_passed=false" >> $GITHUB_OUTPUT
             exit 0
@@ -2029,6 +2069,7 @@ jobs:
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             PROMPT_REVIEW_RESULT=${{ needs.prompt-review.result }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycles }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -2047,22 +2088,34 @@ jobs:
             - Prompt Engineering Review: ${PROMPT_REVIEW_RESULT}
             - Documentation Consistency Review: ${DOCS_REVIEW_RESULT}
 
+            **REVIEW CYCLE:** ${REVIEW_CYCLE} (0 = first review, 1 = follow-up after fixes, 2 = final)
+
             **YOUR TASK:**
             1. Read all review feedback on this PR, including inline review comments:
                - \`gh pr view ${PR_NUMBER} --comments\`
                - \`gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments --paginate | jq -r '.[] | \"### \\(.path):\\(.line)\\n\\(.body)\\n\"'\`
             2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
             3. If there are merge conflicts AND you believe the PR should be merged, resolve them
-            4. **Apply fixes from reviewers**: Check the review comments for fixes described by reviewers:
+            4. **Apply fixes from reviewers** (WITH CONTRADICTION CHECK):
+               Check the review comments for fixes described by reviewers:
                - Security Review: \"Fixes Needed\" section
                - Documentation Consistency Review: \"Updates Needed\" section
-               If any reviewer described specific fixes, apply them now (edit the files, commit, and push).
+
+               **BEFORE applying any fix**, check if it would REVERSE a change from a previous review cycle:
+               - Run \`git log --oneline origin/main..HEAD\` to see all commits on this branch
+               - If a reviewer is asking you to undo or contradict something that a DIFFERENT reviewer requested in a prior cycle, that is a DESIGN DISAGREEMENT between reviewers — not something you can fix by oscillating
+               - In that case: DO NOT apply the fix. Post NO-GO with \"Contradictory reviewer feedback\" and list the conflicting positions so the PR author or a human reviewer can make the design call
+
+               If this is review cycle 2 (the final automated cycle): only apply trivial fixes (typos, formatting, missing doc references). For any structural or architectural change, post NO-GO and explain what needs human review.
+
+               If no contradiction: apply the fixes, commit, and push as normal.
                You are the ONLY agent with push access.
             5. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
+            - NO-GO (contradictory feedback): Two or more reviewers are requesting changes that conflict with each other. Escalate to humans instead of picking a side.
             - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
 
             **IF NO-GO:** Explain what must be fixed before the automated review gate can pass.
@@ -2135,7 +2188,7 @@ jobs:
 
       - name: Trigger follow-up validation after merge-decision push
         id: trigger-follow-up
-        if: success() && steps.setup.outputs.verified == 'true'
+        if: success() && steps.setup.outputs.verified == 'true' && needs.get-context.outputs.review_cycles < 2
         working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
@@ -2156,6 +2209,19 @@ jobs:
 
           echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
+
+          # Increment review cycle counter
+          CURRENT_CYCLES="${{ needs.get-context.outputs.review_cycles }}"
+          NEXT_CYCLE=$((CURRENT_CYCLES + 1))
+          gh label create "codex-review-cycle-$NEXT_CYCLE" \
+            --color "e4e669" \
+            --description "Codex review cycle $NEXT_CYCLE" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+          gh pr edit ${{ needs.get-context.outputs.pr_number }} \
+            --add-label "codex-review-cycle-$NEXT_CYCLE" \
+            --repo ${{ github.repository }}
+          echo "Marked as review cycle $NEXT_CYCLE"
+
           echo "Triggering PR Tests workflow..."
 
           DISPATCHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -2257,6 +2323,31 @@ jobs:
           fi
 
           echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
+
+      - name: Post max review cycles reached
+        if: |
+          success() &&
+          steps.setup.outputs.verified == 'true' &&
+          needs.get-context.outputs.review_cycles >= 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        run: |
+          # Only post if merge decision actually pushed new commits
+          git fetch origin ${{ needs.get-context.outputs.head_ref }}
+          CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
+          REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
+
+          if [ "$CURRENT_HEAD" != "$REVIEWED_SHA" ]; then
+            gh pr comment $PR_NUMBER --body "## Review Cycle Limit Reached
+
+          This PR has gone through ${{ needs.get-context.outputs.review_cycles }} review cycles with fixes applied each time. The automated review loop has been stopped to prevent infinite cycling.
+
+          **Action required:** A human reviewer should examine the remaining feedback and decide how to proceed. Use \`/review\` to reset the cycle counter and re-run automated reviews after making changes.
+
+          _This typically happens when reviewers give contradictory feedback that causes oscillating fixes._"
+          fi
 
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
@@ -2432,6 +2523,7 @@ jobs:
           echo "Review Results:"
           echo "  Tests Passed: ${{ needs.get-context.outputs.tests_passed }}"
           echo "  Fix Attempts: ${{ needs.get-context.outputs.fix_attempts }}"
+          echo "  Review Cycles: ${{ needs.get-context.outputs.review_cycles }}"
           echo "  Build Devcontainer: ${{ needs.build-devcontainer.result }}"
           echo "  Fix Test Failures: ${{ needs.fix-test-failures.result }}"
           echo "  Design Review: ${{ needs.design-review.result }}"
