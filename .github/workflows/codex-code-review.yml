@@ -17,9 +17,9 @@ on:
   workflow_run:
     workflows: ["PR Tests"]
     types: [completed]
-  # Reset reviews when PR is reopened (allows re-triggering full review cycle)
+  # Clear review labels on close; reset reviews on reopen (allows re-triggering full review cycle)
   pull_request:
-    types: [reopened]
+    types: [closed, reopened]
   # Allow manual triggering after workflow_dispatch-triggered PR Tests completes
   # (workflow_run events don't fire for workflow_dispatch triggers)
   workflow_dispatch:
@@ -227,7 +227,26 @@ jobs:
           PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
           EVENT_NAME="${{ github.event_name }}"
 
-          # If PR was reopened, remove review progress labels to allow re-review
+          # If PR was closed, strip all review labels so a future reopen starts clean
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ]; then
+            echo "PR was closed - removing all review progress labels"
+            for label in \
+              "agent-reviews-passed" \
+              "all-reviews-started" \
+              "design-review-started" \
+              "security-review-started" \
+              "psych-review-started" \
+              "docs-review-started" \
+              "prompt-review-started" \
+              "merge-decision-started"; do
+              gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+            done
+            # Signal already_passed=true to skip all downstream review jobs
+            echo "already_passed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # If PR was reopened, remove any remaining review labels to allow re-review
           if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "reopened" ]; then
             echo "PR was reopened - removing review progress labels to allow re-review"
             for label in \
