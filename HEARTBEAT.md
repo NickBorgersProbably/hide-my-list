@@ -5,7 +5,10 @@
 ### 1. Stranded Reminder Signal
 - Check `.reminder-signal`
 - This file is the reminder handoff written by `scripts/check-reminders.sh`
-- If it still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, update Notion status to `sent` or `missed` based on the file, then delete the signal file
+- If it still exists when heartbeat runs, treat it as undelivered reminder work tied to the bound `main` session surface.
+- Read the file and deliver each reminder only through the user-facing surface already attached to `main`. Do not pick a different recipient, channel, or thread.
+- If no user-facing surface is attached to `main`, leave `.reminder-signal` in place and move on without marking any reminder `sent` or `missed`.
+- Delete `.reminder-signal` only after every reminder was delivered through `main` and its Notion status was updated.
 
 ### 2. Cron Job Health
 Verify that durable cron jobs are registered. If any are missing, re-register them.
