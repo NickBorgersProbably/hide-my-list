@@ -32,12 +32,6 @@ GitHub has been chosen as the tool for facilitating this, and that means we need
 
 The reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus the OpenClaw `reminder-check` durable cron job) sources `.env` credentials **[B]**, queries Notion, and writes a `.reminder-signal` file **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
 
-### Cron-driven GitHub polling — current [ABC] configuration
-
-The pipeline monitor ([`scripts/check-github-status.sh`](scripts/check-github-status.sh) plus the OpenClaw `pipeline-monitor` durable cron job) processes GitHub content **[A]** and writes status output **[C]**. In the current implementation it also sources the shared `.env`, which places the Notion/OpenAI credentials and optional GitHub PAT in the session context **[B]** even though the script only uses GitHub directly. That means this path is currently **[ABC]**, not **[AC]**.
-
-This should only be reclassified as **[AC]** after the implementation stops loading the shared credential file or otherwise narrows the runtime credential boundary for the cron job.
-
 ### CI/CD review agents — [AC] configuration
 
 PR review agents process untrusted code **[A]** and write PR comments **[C]**, but have no access to infrastructure secrets or Notion credentials **[B]**. Workflows use only repo-scoped GitHub token permissions (contents/pull-requests/issues write for posting reviews); no infrastructure secrets or Notion credentials are available. This is a safe [AC] configuration — even if a malicious PR manipulated a review agent, there's no sensitive data to exfiltrate.
@@ -56,7 +50,7 @@ We use frontier-lab-hosted models with the expectation that their safety alignme
 
 ## Mitigations
 
-When the agent processes GitHub content it becomes [ABC], and the mitigations below are the primary constraint on what a manipulated agent could do.
+The mitigations below constrain what a manipulated agent could do.
 
 ### Limited credentials
 
@@ -90,8 +84,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 ### Inbound exposure reduction
 
 - The old `socat`-based webhook listener was removed; the primary monitoring path is now durable cron polling
-- Durable cron polling (`pipeline-monitor`, `reminder-check`) covers routine operation and survives agent restarts via OpenClaw's cron subsystem
-- Optional push-trigger paths still exist in repo docs/workflows (`RemoteTrigger` in `setup/cron/pipeline-monitor.md` and workflow notifications via `AGENT_WEBHOOK_URL`), so inbound exposure is reduced, not eliminated
+- Durable cron polling (`reminder-check`, `pull-main`) covers routine operation and survives agent restarts via OpenClaw's cron subsystem
 - Heartbeat re-registers cron jobs if they disappear, ensuring continuity for the polling path
 
 ### Configuration hardening

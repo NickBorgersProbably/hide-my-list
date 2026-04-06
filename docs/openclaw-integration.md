@@ -59,12 +59,11 @@ The one repo-mutating runtime exception is dirty-pull recovery in `HEARTBEAT.md`
 
 OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `durable: true`, jobs persist to disk and survive gateway restarts.
 
-**Our usage:** Three durable cron jobs replace our former bash daemons/manual sync steps:
+**Our usage:** Two durable cron jobs replace our former bash daemons/manual sync steps:
 
 | Job | Schedule | Replaces |
 |-----|----------|----------|
 | `reminder-check` | `*/5 * * * *` | `reminder-daemon.sh` (bash while-loop) |
-| `pipeline-monitor` | `0 * * * *` | `monitor-pipeline.sh` (bash while-loop) |
 | `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene / dirty-pull recovery backstop |
 
 **Why this is better than daemons:**
@@ -75,9 +74,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes, failed re-application, or stale re-registration prompts. This is a platform constraint we work around rather than a feature we chose.
 
-**Current registration contract:** `reminder-check` and `pull-main` target the shared `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main` so untrusted GitHub content does not persist in the user-facing session. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
-
-**RemoteTrigger status:** Baseline operation does not require `RemoteTrigger` (API-triggered agent sessions); the cron-based pipeline monitor handles the common case. The repo still documents `RemoteTrigger` as an optional fast-path for on-demand GitHub notifications in [`setup/cron/pipeline-monitor.md`](../setup/cron/pipeline-monitor.md), so contributors should treat it as a supported optional integration rather than a removed feature.
+**Current registration contract:** `reminder-check` and `pull-main` target the shared `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
 
 ## Messaging Channels
 
@@ -101,7 +98,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations always use the normal main-agent routing path, and trusted reminder/sync cron work re-enters that same path so reminders and operational notices keep hide-my-list's voice. `pipeline-monitor` remains isolated from the user-facing session.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations always use the normal main-agent routing path, and trusted reminder/sync cron work re-enters that same path so reminders and operational notices keep hide-my-list's voice.
 
 ## Model Routing (LiteLLM Proxy)
 

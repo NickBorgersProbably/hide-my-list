@@ -52,7 +52,6 @@
 
 6. Register cron jobs (from within an agent session or via the control UI):
    - See `setup/cron/reminder-check.md` for the reminder polling job
-   - See `setup/cron/pipeline-monitor.md` for GitHub monitoring
    - See `setup/cron/pull-main.md` for automatic workspace sync
    - The heartbeat is built-in and configured in `openclaw.json`
 
@@ -82,11 +81,10 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 | Job | Schedule | Purpose |
 |-----|----------|---------|
 | reminder-check | Every 5 min | Poll Notion for due reminders, write `.reminder-signal`, deliver to user |
-| pipeline-monitor | Every 2 min | Check GitHub for PR/CI status changes |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
 | heartbeat (built-in) | Every 30 min | System health, cron re-registration, cron drift correction |
 
-Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. `reminder-check` and `pull-main` inject `systemEvent` payloads into the main agent session with `delivery: { mode: none }`; `pipeline-monitor` stays isolated so GitHub-derived content never lands in the shared user session.
+Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs inject `systemEvent` payloads into the main agent session with `delivery: { mode: none }`.
 
 ## Updating
 
