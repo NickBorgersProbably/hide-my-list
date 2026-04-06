@@ -20,7 +20,7 @@ OpenClaw has a concept of "bootstrap files" — markdown files at the workspace 
 | `USER.md` | Context about the human | Per-user: name, timezone, preferences. Gitignored; created from template |
 | `MEMORY.md` | Long-term memory/lessons | Per-user: learned preferences, hard rules, system behaviors. Gitignored; created from template |
 | `TOOLS.md` | Local tool documentation | Notion property names, status values, state file reference |
-| `HEARTBEAT.md` | Periodic health check instructions | Cron job re-registration, Notion connectivity, environment checks |
+| `HEARTBEAT.md` | Periodic health check instructions | Cron job re-registration and drift correction, Notion connectivity, environment checks |
 
 OpenClaw loads these automatically via the `bootstrap-extra-files` hook. We don't need any special configuration for the agent to find them — just having them at the workspace root is enough.
 
@@ -39,9 +39,9 @@ OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json
 
 Every 30 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks.
 
-**Our usage:** We use the heartbeat as a safety net for the cron system. Its primary job is to verify that durable cron jobs haven't expired and re-register them if they have. It also checks Notion connectivity and environment health.
+**Our usage:** We use the heartbeat as a safety net for the cron system. Its primary job is to verify that durable cron jobs still match the canonical specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. It also checks Notion connectivity and environment health.
 
-**What changed:** The heartbeat used to babysit bash daemons (checking PID files, restarting dead processes). With cron replacing daemons, it now just verifies cron registrations — a much cleaner responsibility.
+**What changed:** The heartbeat used to babysit bash daemons (checking PID files, restarting dead processes). With cron replacing daemons, it now verifies that durable cron registrations both exist and still match their specs — a much cleaner responsibility than process management.
 
 ## Managed Content Boundary
 
@@ -73,7 +73,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 - Reminder delivery still happens in agent context, but `scripts/check-reminders.sh` hands due reminders to the cron prompt through `.reminder-signal` instead of relying on a long-running daemon
 - Cron only fires when the REPL is idle, which is actually better for ADHD — it won't interrupt the user mid-task
 
-**The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers. This is a platform constraint we work around rather than a feature we chose.
+**The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes, failed re-application, or stale re-registration prompts. This is a platform constraint we work around rather than a feature we chose.
 
 **Current registration contract:** `reminder-check` and `pull-main` target the shared `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main` so untrusted GitHub content does not persist in the user-facing session. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
 
@@ -101,7 +101,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations and cron-triggered work both flow through the same main-agent routing path, so reminders and operational notices keep hide-my-list's voice and stay silent when there is nothing useful to say.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations always use the normal main-agent routing path, and trusted reminder/sync cron work re-enters that same path so reminders and operational notices keep hide-my-list's voice. `pipeline-monitor` remains isolated from the user-facing session.
 
 ## Model Routing (LiteLLM Proxy)
 

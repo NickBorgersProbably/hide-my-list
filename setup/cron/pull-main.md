@@ -49,5 +49,5 @@ If there is nothing to report, reply with ONLY: NO_REPLY
 ## Notes
 
 - Clean pulls (the common case) need zero agent involvement — the script handles them directly.
-- Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers if missing.
+- Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers the job if missing and patches it back to this spec if the live registration drifts.
 - The GitHub issue preserves local changes for PR-based review before they're incorporated back into the system. This enforces the design principle that structural/prompt changes go through external review.

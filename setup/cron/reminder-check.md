@@ -41,6 +41,6 @@ If there is nothing to report, reply with ONLY: NO_REPLY
 
 ## Notes
 
-- Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers if missing.
+- Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers the job if missing and patches it back to this spec if the live registration drifts.
 - Cron only fires when the REPL is idle. If the user is mid-conversation, reminders queue and deliver when the conversation pauses. For ADHD this is better — interrupting mid-task is harmful.
 - `check-reminders.sh` only queries Notion and writes the handoff file; the cron prompt is what actually delivers the reminder.

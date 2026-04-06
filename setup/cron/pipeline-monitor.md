@@ -45,6 +45,6 @@ The GitHub Actions workflow can call the RemoteTrigger API endpoint instead of t
 
 ## Notes
 
-- Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers if missing.
+- Cron jobs auto-expire after 7 days. HEARTBEAT.md re-registers the job if missing and patches it back to this spec if the live registration drifts.
 - The workhorse script `check-github-status.sh` is unchanged.
 - The old webhook approach (`webhook-signal.sh`) used socat to listen on a port, which was fragile in containers and added attack surface. The RemoteTrigger approach uses OpenClaw's native API.
