@@ -249,6 +249,7 @@ sequenceDiagram
 | `NOTION_API_KEY` | Notion integration token |
 | `NOTION_DATABASE_ID` | Tasks database identifier |
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
+| `GITHUB_PAT` | Optional personal access token used by GitHub-maintenance scripts when `gh` is not already authenticated |
 | `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
 
 ## Prerequisites

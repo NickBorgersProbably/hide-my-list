@@ -54,8 +54,8 @@ If all jobs already match their specs, do not report anything. If any jobs were 
 
 ### 5. Dirty Pull Recovery (safety net)
 - If `.pull-dirty` exists and is older than 20 minutes, the pull-main cron may have failed to recover
-- Run `scripts/pull-main.sh --recover-only` to retry after the underlying problem is fixed (for example restoring `gh` authentication). The script creates the GitHub issue and resets the repo when recovery can proceed.
+- Run `scripts/pull-main.sh --recover-only` to retry after the underlying problem is fixed (for example restoring interactive `gh` authentication or providing token-based auth through `.env` `GITHUB_PAT`/`GH_TOKEN`). The script creates the GitHub issue and resets the repo when recovery can proceed.
 - If recovery still does not complete, note the failure for operator attention
-- Normally the pull-main cron handles recovery automatically. This check is a backstop for cases where `gh` was not authenticated or the script errored; until `gh` auth is restored, heartbeat will preserve `.pull-dirty` and surface the problem rather than clearing it
+- Normally the pull-main cron handles recovery automatically. This check is a backstop for cases where GitHub auth was unavailable or the script errored; until either interactive `gh` auth or token-based auth through `.env` `GITHUB_PAT`/`GH_TOKEN` is available again, heartbeat will preserve `.pull-dirty` and surface the problem rather than clearing it
 
 That's it. If nothing needs attention, reply HEARTBEAT_OK.

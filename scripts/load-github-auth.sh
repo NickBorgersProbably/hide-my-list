@@ -30,12 +30,10 @@ ensure_github_auth() {
         return 0
     fi
 
-    if [ -z "${GH_TOKEN:-}" ]; then
-        local github_pat=""
-        github_pat="$(load_github_pat_from_env || true)"
-        if [ -n "$github_pat" ]; then
-            export GH_TOKEN="$github_pat"
-        fi
+    local github_pat=""
+    github_pat="$(load_github_pat_from_env || true)"
+    if [ -n "$github_pat" ]; then
+        export GH_TOKEN="$github_pat"
     fi
 
     gh_can_auth
