@@ -24,6 +24,10 @@ require_command() {
     fi
 }
 
+api_encode() {
+    jq -rn --arg value "$1" '$value | @uri'
+}
+
 DELETE=false
 ALL_CLOSED_PRS=false
 REPO="${GITHUB_REPOSITORY:-}"
@@ -70,7 +74,6 @@ while [ $# -gt 0 ]; do
 done
 
 require_command gh
-require_command git
 require_command jq
 
 if [ -z "$REPO" ]; then
@@ -78,6 +81,26 @@ if [ -z "$REPO" ]; then
 fi
 
 DEFAULT_BRANCH="$(gh repo view "$REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+
+branch_exists_in_repo() {
+    local encoded_branch
+
+    encoded_branch="$(api_encode "$1")"
+    gh api "repos/$REPO/branches/$encoded_branch" >/dev/null 2>&1
+}
+
+list_same_repo_prs_for_branch() {
+    local state="$1"
+    local branch="$2"
+
+    gh pr list \
+        --repo "$REPO" \
+        --state "$state" \
+        --head "$branch" \
+        --limit 100 \
+        --json number,title,mergedAt,closedAt,url,isCrossRepository \
+        --jq '.[] | select(.isCrossRepository == false)'
+}
 
 collect_all_closed_pr_branches() {
     gh pr list \
@@ -126,13 +149,13 @@ for branch in "${BRANCHES[@]}"; do
         continue
     fi
 
-    if ! git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-        echo "SKIP  $branch: branch does not exist on origin"
+    if ! branch_exists_in_repo "$branch"; then
+        echo "SKIP  $branch: branch does not exist in $REPO"
         skipped_count=$((skipped_count + 1))
         continue
     fi
 
-    open_pr_count="$(gh pr list --repo "$REPO" --state open --head "$branch" --json number --jq 'length')"
+    open_pr_count="$(list_same_repo_prs_for_branch open "$branch" | jq -s 'length')"
     if [ "$open_pr_count" != "0" ]; then
         echo "SKIP  $branch: still has an open pull request"
         skipped_count=$((skipped_count + 1))
@@ -140,13 +163,8 @@ for branch in "${BRANCHES[@]}"; do
     fi
 
     latest_closed_pr="$(
-        gh pr list \
-            --repo "$REPO" \
-            --state closed \
-            --head "$branch" \
-            --limit 100 \
-            --json number,title,mergedAt,closedAt,url \
-            --jq 'sort_by(.closedAt // .mergedAt // "") | reverse | .[0] // empty'
+        list_same_repo_prs_for_branch closed "$branch" |
+            jq -s 'sort_by(.closedAt // .mergedAt // "") | reverse | .[0] // empty'
     )"
 
     if [ -z "$latest_closed_pr" ]; then
@@ -173,7 +191,7 @@ for branch in "${BRANCHES[@]}"; do
         continue
     fi
 
-    encoded_branch="$(jq -rn --arg value "$branch" '$value | @uri')"
+    encoded_branch="$(api_encode "$branch")"
     gh api \
         --method DELETE \
         "repos/$REPO/git/refs/heads/$encoded_branch" >/dev/null
