@@ -74,7 +74,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes, failed pull-time re-application, or stale re-registration prompts by comparing the live job against the canonical `CronCreate` block and patching any mismatched registration fields. This is a platform constraint we work around rather than a feature we chose.
 
-**Current registration contract:** `reminder-check` and `pull-main` run as isolated cron turns with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, `delivery.mode: none`, and `timeout-seconds: 120`. That keeps routine polling and sync work off the main Opus/Sonnet conversation session while still letting the cron prompt decide whether to emit any user-visible output. `pull-main` patches changed cron jobs in place after a clean pull by comparing the before/after `HEAD` commits from that invocation, reading the canonical spec files, and calling `CronUpdate` on the affected live registrations. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
+**Current registration contract:** `reminder-check` re-enters the bound `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120` so reminder delivery stays pinned to the existing user-facing surface. `pull-main` runs as an isolated cron turn with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, `delivery.mode: none`, and `timeout-seconds: 120` so routine sync work stays off the main Opus/Sonnet conversation session. `pull-main` patches changed cron jobs in place after a clean pull by comparing the before/after `HEAD` commits from that invocation, reading the canonical spec files, and calling `CronUpdate` on the affected live registrations. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
 
 ### Production Timing Recommendation
 
@@ -110,7 +110,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use the normal main-agent routing path, while trusted reminder/sync cron work runs in isolated Haiku turns. Reminder delivery is user-visible when the cron prompt emits it; routine workspace-sync maintenance still ends in `NO_REPLY` unless something requires operator attention.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use the normal main-agent routing path, reminder delivery reuses that same bound surface through `sessionTarget: main`, and routine workspace-sync maintenance runs in isolated Haiku turns that still end in `NO_REPLY` unless something requires operator attention.
 
 ## Model Routing (LiteLLM Proxy)
 
@@ -123,7 +123,8 @@ OpenClaw supports multiple model providers. We route through a LiteLLM proxy on 
       "baseUrl": "https://llm.featherback-mermaid.ts.net/v1",
       "models": [
         { "id": "claude-opus-4-6", ... },
-        { "id": "claude-sonnet-4-6", ... }
+        { "id": "claude-sonnet-4-6", ... },
+        { "id": "claude-haiku-4-5", ... }
       ]
     }
   }
@@ -132,6 +133,7 @@ OpenClaw supports multiple model providers. We route through a LiteLLM proxy on 
 
 - **Primary model:** Claude Opus 4.6 (conversations, task management)
 - **Heartbeat model:** Claude Sonnet 4.6 (routine checks, cheaper)
+- **Cron maintenance model:** Claude Haiku 4.5 (`pull-main` isolated sync turns)
 - **Fallback chain:** Opus → Sonnet → GPT-5.4
 
 **Our role:** We don't interact with model selection directly. The prompts in `docs/ai-prompts.md` are model-agnostic. OpenClaw picks the model based on the config.

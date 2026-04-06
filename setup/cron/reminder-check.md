@@ -9,23 +9,25 @@ CronCreate:
   schedule: "*/15 * * * *"
   durable: true
   name: "reminder-check"
-  sessionTarget: isolated
-  model: litellm/claude-haiku-4-5
+  sessionTarget: main
   payload:
-    kind: agentTurn
+    kind: systemEvent
   delivery:
     mode: none
   timeout-seconds: 120
 ```
 
-This job runs as an isolated `agentTurn` on `litellm/claude-haiku-4-5` instead of waking the main Opus/Sonnet conversation session for every idle cron poll. Delivery stays `mode: none` so the prompt decides whether to speak at all, and the 120s timeout still leaves enough room for the cron turn to run `scripts/check-reminders.sh`, inspect `.reminder-signal`, and finish any reminder handoff work.
+This job injects a `systemEvent` into the bound `main` session instead of spawning an isolated cron-only turn. Delivery stays `mode: none` so the prompt decides whether to speak at all, while keeping reminder output pinned to the existing user-facing surface already attached to `main`. The 120s timeout still leaves enough room to run `scripts/check-reminders.sh`, inspect `.reminder-signal`, and finish the reminder handoff.
 
 ## Prompt
 
 ```
 Run scripts/check-reminders.sh. That script writes .reminder-signal as the
 handoff file for any due reminders. If .reminder-signal exists afterward, read
-it and deliver each reminder to the user:
+it and deliver each reminder to the user through the user-facing surface already
+attached to the `main` session. Do not pick a different recipient, channel, or
+thread. If no user-facing surface is attached to `main`, leave .reminder-signal
+in place and reply with ONLY: NO_REPLY.
 - Approximate reminders (next eligible poll, before missed threshold): casual delivery ("Hey, time to [task]")
 - Missed reminders (>15 min late): note the delay but don't shame ("This was due a bit
   ago — [task]")

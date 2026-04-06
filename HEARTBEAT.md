@@ -15,7 +15,9 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 | reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh`; if it writes `.reminder-signal`, read it, deliver reminders, update Notion, delete the file |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; the script handles dirty-pull recovery |
 
-To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. Both jobs must run as isolated Haiku turns with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, `delivery.mode: none`, and `timeout-seconds: 120`.
+To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`.
+- `reminder-check` must re-enter the bound `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`.
+- `pull-main` must run as an isolated Haiku turn with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, `delivery.mode: none`, and `timeout-seconds: 120`.
 
 ### 2b. Cron Spec Drift Check
 For each registered cron job (`reminder-check`, `pull-main`), compare the live job's effective registration against the canonical `CronCreate` spec in `setup/cron/<name>.md`.
@@ -34,14 +36,14 @@ At minimum, compare and correct these fields:
 - delivery behavior fields: canonical `delivery.mode` and any equivalent live field such as `best-effort-deliver`
 - `timeout-seconds`
 
-`to` is not a legacy spelling of `sessionTarget`. `sessionTarget` controls whether the cron run re-enters an existing session or runs in isolation, while `to` is direct-delivery routing. For `reminder-check` and `pull-main`, the canonical contract is `sessionTarget: isolated` with no direct-delivery target, so any populated `to` should be treated as drift and removed rather than accepted as equivalent.
+`to` is not a legacy spelling of `sessionTarget`. `sessionTarget` controls whether the cron run re-enters an existing session or runs in isolation, while `to` is direct-delivery routing. For `reminder-check`, the canonical contract is the existing `main` session with no direct-delivery target; for `pull-main`, it is `sessionTarget: isolated` with no direct-delivery target. In both cases, any populated `to` should be treated as drift and removed rather than accepted as equivalent.
 
 If a stale `pipeline-monitor` cron is still registered, delete it with CronDelete — that job has been removed.
 
 `pull-main` now handles the fast path after clean pulls that advance `HEAD`: it immediately reapplies any changed `setup/cron/` specs from that invocation's commit range. Heartbeat remains the safety net for expired jobs, missed fast-path updates, and any residual drift.
 
 If any field differs from the spec, patch the live job to match with CronUpdate. If CronUpdate cannot safely change an identity field such as `name` or `durable`, delete and re-create the job from the spec instead of leaving drift in place. Preserve the intended durable registration contract from the spec:
-- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, no `to`, `payload.kind: agentTurn`, `delivery.mode: none`, `timeout-seconds: 120`
+- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: main`, no `model`, no `to`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
 - `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, no `to`, `payload.kind: agentTurn`, `delivery.mode: none`, `timeout-seconds: 120`
 
 If all jobs already match their specs, do not report anything. If any jobs were corrected, briefly note which ones were patched and what drift was fixed.

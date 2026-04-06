@@ -936,7 +936,10 @@ flowchart TD
     Cron --> Due{remind_at <= now?}
     Due -->|No| Wait
     Due -->|Yes| Signal[check-reminders.sh writes .reminder-signal]
-    Signal --> Late{>15 min past due?}
+    Signal --> Surface{main session has attached surface?}
+    Surface -->|No| Retry[Reply NO_REPLY and keep .reminder-signal]
+    Retry --> Wait
+    Surface -->|Yes| Late{>15 min past due?}
 
     Late -->|No| Send[Deliver reminder]
     Late -->|Yes| SendMissed[Deliver with apology]
@@ -952,12 +955,12 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | `reminder-check` runs as an isolated Haiku `agentTurn`, then processes `.reminder-signal` on the first eligible poll after `remind_at` |
+| Selection | User requests → AI suggests | `reminder-check` injects a `systemEvent` into `main`, then surfaces `.reminder-signal` on the first eligible poll after `remind_at` |
 | Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery now runs in an isolated Haiku cron turn instead of waking the main conversation session. If no reminder is due, the cron run replies `NO_REPLY`. If delivery fails after `.reminder-signal` is written, leave the reminder pending for a later retry.
+Reminder delivery stays on the existing `main` session surface. If no reminder is due, or the `main` session has no attached surface when `.reminder-signal` exists, the cron run replies `NO_REPLY` and leaves the reminder pending for a later retry.
 
 ### Timezone Handling
 
