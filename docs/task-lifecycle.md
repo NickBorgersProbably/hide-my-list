@@ -956,7 +956,7 @@ flowchart TD
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
 | Selection | User requests → AI suggests | `reminder-check` injects a `systemEvent` into `main`, then surfaces the reminder handoff file (default: `.reminder-signal`) on the first eligible poll after `remind_at` |
-| Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
+| Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent` or `missed`) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
