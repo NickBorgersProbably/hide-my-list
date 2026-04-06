@@ -39,7 +39,7 @@ OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json
 
 Every 30 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks.
 
-**Our usage:** We use the heartbeat as a safety net for the cron system. Its primary job is to verify that durable cron jobs still match the canonical specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. It also checks Notion connectivity and environment health.
+**Our usage:** We use the heartbeat as a safety net for the cron system. Its primary job is to verify that durable cron jobs still match the canonical specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. The `pull-main` cron now handles the fast path too: after a clean pull that changes files in `setup/cron/`, it immediately re-applies the affected live jobs so prompt and schedule fixes do not sit dormant until the next heartbeat window. Heartbeat still checks Notion connectivity and general environment health.
 
 **What changed:** The heartbeat used to babysit bash daemons (checking PID files, restarting dead processes). With cron replacing daemons, it now verifies that durable cron registrations both exist and still match their specs — a much cleaner responsibility than process management.
 
@@ -65,7 +65,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 |-----|----------|----------|
 | `reminder-check` | `*/5 * * * *` | `reminder-daemon.sh` (bash while-loop) |
 | `pipeline-monitor` | `*/2 * * * *` | `monitor-pipeline.sh` (bash while-loop) |
-| `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene (normal path is script-managed; heartbeat retries stale recovery signals) |
+| `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene plus immediate re-application of changed `setup/cron/` specs after a clean pull |
 
 **Why this is better than daemons:**
 - No PID files, no silent death, no orphaned processes
@@ -73,9 +73,9 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 - Reminder delivery still happens in agent context, but `scripts/check-reminders.sh` hands due reminders to the cron prompt through `.reminder-signal` instead of relying on a long-running daemon
 - Cron only fires when the REPL is idle, which is actually better for ADHD — it won't interrupt the user mid-task
 
-**The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes, failed re-application, or stale re-registration prompts. This is a platform constraint we work around rather than a feature we chose.
+**The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes, failed pull-time re-application, or stale re-registration prompts. This is a platform constraint we work around rather than a feature we chose.
 
-**Current registration contract:** `reminder-check` and `pull-main` target the shared `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main` so untrusted GitHub content does not persist in the user-facing session. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
+**Current registration contract:** `reminder-check` and `pull-main` target the shared `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main` so untrusted GitHub content does not persist in the user-facing session. `pull-main` uses that access to patch changed cron jobs in place after a clean pull by reading the canonical spec files and calling `CronUpdate` on the affected live registrations. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
 
 **RemoteTrigger status:** Baseline operation does not require `RemoteTrigger` (API-triggered agent sessions); the cron-based pipeline monitor handles the common case. The repo still documents `RemoteTrigger` as an optional fast-path for on-demand GitHub notifications in [`setup/cron/pipeline-monitor.md`](../setup/cron/pipeline-monitor.md), so contributors should treat it as a supported optional integration rather than a removed feature.
 
