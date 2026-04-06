@@ -52,6 +52,11 @@ on:
         description: 'Immutable PR head SHA reviewed by this workflow run'
         required: false
         type: string
+      review_cycle:
+        description: 'Current review cycle number (1-based, auto-incremented by follow-up triggers)'
+        required: false
+        type: string
+        default: '0'
 
 # Prevent duplicate reviews when multiple PR Tests complete around the same time
 # Uses branch name for concurrency group
@@ -102,6 +107,7 @@ jobs:
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
+      review_cycle: ${{ steps.count-review-cycles.outputs.cycle }}
       reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
       # SECURITY: Authorization status - blocks external/untrusted PR authors
       author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
@@ -342,6 +348,33 @@ jobs:
 
           echo "Current fix attempt count: $COUNT"
           echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+      - name: Count review cycles from PR comments
+        if: steps.get-pr.outputs.pr_number != ''
+        id: count-review-cycles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+
+          # Count "## Merge Decision" comments as ground truth for completed cycles
+          COMMENT_COUNT=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.body | contains("## Merge Decision"))] | length')
+
+          # Also check workflow_dispatch input (propagated by follow-up triggers)
+          INPUT_CYCLE="${{ github.event_name == 'workflow_dispatch' && inputs.review_cycle || '0' }}"
+
+          # Use the higher of the two (comment count is ground truth,
+          # input is fast path for the just-triggered cycle)
+          if [ "$INPUT_CYCLE" -gt "$COMMENT_COUNT" ] 2>/dev/null; then
+            CYCLE="$INPUT_CYCLE"
+          else
+            CYCLE="$COMMENT_COUNT"
+          fi
+
+          echo "Review cycle: $CYCLE (comments: $COMMENT_COUNT, input: $INPUT_CYCLE)"
+          echo "cycle=$CYCLE" >> $GITHUB_OUTPUT
 
       - name: Check if reviews already passed (or reset on /review)
         if: steps.get-pr.outputs.pr_number != ''
@@ -948,6 +981,7 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -979,6 +1013,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
+            Review cycle: ${REVIEW_CYCLE} (0 = first review, higher = re-review after merge-decision fixes).
 
             Review like an experienced staff engineer. Be direct and selective.
             Don't praise the design or list strengths — focus on what you'd actually flag in a review.
@@ -1169,6 +1204,7 @@ jobs:
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -1176,6 +1212,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a SECURITY and INFRASTRUCTURE specialist reviewing PR #${PR_NUMBER}.
+            Review cycle: ${REVIEW_CYCLE} (0 = first review, higher = re-review after merge-decision fixes).
 
             **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
             Do NOT list files reviewed. Do NOT explain general security concepts.
@@ -1365,6 +1402,7 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -1376,6 +1414,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a PSYCHOLOGICAL RESEARCH EVIDENCE reviewer for PR #${PR_NUMBER} in ${REPO}.
+            Review cycle: ${REVIEW_CYCLE} (0 = first review, higher = re-review after merge-decision fixes).
 
             Your role is to evaluate whether this PR's changes are grounded in evidence-based
             understanding of ADHD, executive function, motivation, and cognitive load. This project
@@ -1603,6 +1642,7 @@ jobs:
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -1610,6 +1650,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DOCUMENTATION CONSISTENCY reviewer for PR #${PR_NUMBER} in ${REPO}.
+            Review cycle: ${REVIEW_CYCLE} (0 = first review, higher = re-review after merge-decision fixes).
 
             Your job is to ensure all docs in this project remain coherent, consistent, and
             free of contradictions after this PR's changes. Don't list docs that don't need
@@ -1805,6 +1846,7 @@ jobs:
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -1812,6 +1854,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a PROMPT ENGINEERING reviewer for PR #${PR_NUMBER} in ${REPO}.
+            Review cycle: ${REVIEW_CYCLE} (0 = first review, higher = re-review after merge-decision fixes).
 
             This project is an OpenClaw agent where the prompts in docs/ ARE the application.
             Prompt quality directly determines application quality. Your job is to ensure all
@@ -1912,6 +1955,7 @@ jobs:
       decision: ${{ steps.parse-decision.outputs.decision }}
       head_changed: ${{ steps.trigger-follow-up.outputs.head_changed }}
       follow_up_triggered: ${{ steps.trigger-follow-up.outputs.follow_up_triggered }}
+      cycle_capped: ${{ steps.trigger-follow-up.outputs.cycle_capped }}
     permissions:
       contents: write
       pull-requests: write
@@ -2026,6 +2070,7 @@ jobs:
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             PROMPT_REVIEW_RESULT=${{ needs.prompt-review.result }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -2036,6 +2081,10 @@ jobs:
 
             You have personal responsibility to decide whether the automated review gate for this PR is GO or NO-GO.
             This workflow does not submit GitHub approving reviews. Do not treat missing human approval or unmet branch protection approval requirements as blocking for your decision.
+
+            **REVIEW CYCLE: ${REVIEW_CYCLE} of 3 maximum**
+            $([ \"${REVIEW_CYCLE}\" -ge 2 ] 2>/dev/null && echo 'WARNING: This PR has been through multiple review cycles. If the same fundamental issues (especially scope mismatches) keep recurring, the PR likely needs to be rethought rather than patched. Prefer NO-GO over pushing more fixes that may not address root causes.' || true)
+            $([ \"${REVIEW_CYCLE}\" -ge 3 ] 2>/dev/null && echo 'CRITICAL: This is the FINAL review cycle. Do NOT push any commits or fixes. Evaluate the PR exactly as-is and make a GO/NO-GO decision. If fundamental issues remain, declare NO-GO.' || true)
 
             **REVIEW STATUS:**
             - Design Review: ${DESIGN_REVIEW_RESULT}
@@ -2055,12 +2104,14 @@ jobs:
                - Documentation Consistency Review: \"Updates Needed\" section
                If any reviewer described specific fixes, apply them now (edit the files, commit, and push).
                You are the ONLY agent with push access.
+               **EXCEPTION: On review cycle 3+, do NOT push any commits. Evaluate as-is only.**
             5. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
             - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
+            - FINAL CYCLE RULE: On review cycle 3+, do NOT push any commits. Evaluate the PR as-is only.
 
             **IF NO-GO:** Explain what must be fixed before the automated review gate can pass.
 
@@ -2138,11 +2189,24 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           STATUS_API_TOKEN: ${{ github.token }}
         run: |
+          # HARD CAP: Prevent infinite review loops
+          REVIEW_CYCLE="${{ needs.get-context.outputs.review_cycle }}"
+          MAX_REVIEW_CYCLES=3
+
+          if [ "${REVIEW_CYCLE:-0}" -ge "$MAX_REVIEW_CYCLES" ]; then
+            echo "::warning::Review cycle ${REVIEW_CYCLE} >= max ${MAX_REVIEW_CYCLES} — will NOT trigger follow-up review"
+            echo "head_changed=false" >> "$GITHUB_OUTPUT"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            echo "cycle_capped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           git fetch origin ${{ needs.get-context.outputs.head_ref }}
           CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
 
           echo "current_head=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
+          echo "cycle_capped=false" >> "$GITHUB_OUTPUT"
 
           if [ "$CURRENT_HEAD" = "$REVIEWED_SHA" ]; then
             echo "Merge decision did not push a new commit"
@@ -2237,8 +2301,9 @@ jobs:
               -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
               -f tests_passed="true" \
               -f run_id="$RUN_ID" \
-              -f reviewed_sha="$CURRENT_HEAD"
-            echo "Triggered follow-up Codex Code Review for updated head"
+              -f reviewed_sha="$CURRENT_HEAD" \
+              -f review_cycle="$((REVIEW_CYCLE + 1))"
+            echo "Triggered follow-up Codex Code Review for updated head (cycle $((REVIEW_CYCLE + 1)))"
           else
             echo "Tests failed after merge-decision update"
             gh workflow run "Codex Code Review" \
@@ -2249,11 +2314,106 @@ jobs:
               -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
               -f tests_passed="false" \
               -f run_id="$RUN_ID" \
-              -f reviewed_sha="$CURRENT_HEAD"
-            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head"
+              -f reviewed_sha="$CURRENT_HEAD" \
+              -f review_cycle="$((REVIEW_CYCLE + 1))"
+            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head (cycle $((REVIEW_CYCLE + 1)))"
           fi
 
           echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create successor issue for review-cycle-capped PR
+        if: |
+          always() &&
+          steps.setup.outputs.verified == 'true' &&
+          steps.parse-decision.outputs.decision == 'NO-GO' &&
+          steps.trigger-follow-up.outputs.cycle_capped == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+          ISSUE_NUMBER: ${{ needs.get-context.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.get-context.outputs.issue_title }}
+        run: |
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --json title --jq '.title' --repo ${{ github.repository }})
+          PR_URL="https://github.com/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          ISSUE_URL=""
+          if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "null" ]; then
+            ISSUE_URL="https://github.com/${{ github.repository }}/issues/${ISSUE_NUMBER}"
+          fi
+
+          # Gather all review comments (Design, Security, Prompt, Docs, Merge Decision)
+          REVIEW_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.body | test("## (Design Review|Security|Prompt Engineering|Documentation Consistency|Merge Decision)"))] | .[] | "### \(.created_at)\n\(.body)\n---"' \
+            | head -c 50000 || echo "Could not retrieve review comments")
+
+          # Extract scope failure reasons specifically
+          SCOPE_FAILURES=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --jq '[.[] | select(.body | contains("Scope check: FAIL"))] | .[].body' \
+            | head -c 5000 || echo "No specific scope failures found")
+
+          # Build the successor issue title
+          SUCCESSOR_TITLE="Reattempt: ${ISSUE_TITLE:-$PR_TITLE}"
+
+          # Write issue body to a temp file to avoid heredoc indentation issues
+          BODY_FILE=$(mktemp)
+          {
+            echo "## Successor Issue — Reattempt after review cycle limit"
+            echo ""
+            echo "### Background"
+            echo "PR #${PR_NUMBER} (\"${PR_TITLE}\") went through 3+ review cycles without resolving fundamental issues."
+            echo "The automated review pipeline has closed the PR and created this issue to capture learnings."
+            if [ -n "$ISSUE_URL" ]; then
+              echo "- Original issue: ${ISSUE_URL}"
+            fi
+            echo "- Failed PR: ${PR_URL}"
+            echo ""
+            echo "### Scope failures identified"
+            echo '```'
+            echo "${SCOPE_FAILURES}"
+            echo '```'
+            echo ""
+            echo "### Recommended next steps"
+            echo "- Review the scope failures above to understand what the PR was trying to do vs what it delivered"
+            echo "- Consider splitting the work into smaller, independently-mergeable PRs"
+            echo "- Address the specific blocking concerns identified by reviewers before starting a new implementation"
+            echo "- If the original issue needs rescoping, update it before opening a new PR"
+            echo ""
+            echo "### Full review history"
+            echo "<details>"
+            echo "<summary>Click to expand all review comments</summary>"
+            echo ""
+            echo "${REVIEW_COMMENTS}"
+            echo "</details>"
+          } > "$BODY_FILE"
+
+          NEW_ISSUE_URL=$(gh issue create \
+            --title "$SUCCESSOR_TITLE" \
+            --body-file "$BODY_FILE" \
+            --repo "${{ github.repository }}")
+          rm -f "$BODY_FILE"
+
+          echo "Created successor issue: $NEW_ISSUE_URL"
+
+          # Write PR comment to a temp file
+          COMMENT_FILE=$(mktemp)
+          {
+            echo "## Review Cycle Limit Reached"
+            echo ""
+            echo "This PR went through 3 full review cycles without resolving fundamental issues (typically a scope mismatch between the PR's stated intent and its implementation)."
+            echo ""
+            echo "A successor issue has been created to capture all review learnings and reframe the approach:"
+            echo "${NEW_ISSUE_URL}"
+            echo ""
+            echo "Closing this PR. The successor issue links back here for full context."
+          } > "$COMMENT_FILE"
+
+          gh pr comment "$PR_NUMBER" --body-file "$COMMENT_FILE" --repo "${{ github.repository }}"
+          rm -f "$COMMENT_FILE"
+
+          gh pr close "$PR_NUMBER" --repo "${{ github.repository }}"
+          echo "Closed PR #${PR_NUMBER} with link to successor issue"
 
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
