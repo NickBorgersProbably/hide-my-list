@@ -5,8 +5,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=/dev/null
-source "$SCRIPT_DIR/../.env"
+# shellcheck disable=SC1091  # sourced from repo-local scripts dir
+source "$SCRIPT_DIR/load-env.sh" NOTION_API_KEY NOTION_DATABASE_ID
 
 API="https://api.notion.com/v1"
 HEADERS=(
@@ -162,10 +162,45 @@ PYTHON
     curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
     ;;
 
+  complete-reminder)
+    # Args: page_id reminder_status
+    PAGE_ID="$2"
+    REMINDER_STATUS="$3"
+
+    case "$REMINDER_STATUS" in
+      sent|missed) ;;
+      *)
+        echo "Reminder status must be 'sent' or 'missed'" >&2
+        exit 1
+        ;;
+    esac
+
+    PROPS=$(python3 - "$REMINDER_STATUS" <<'PYTHON'
+import json
+import sys
+from datetime import datetime, timezone
+
+reminder_status = sys.argv[1]
+now = datetime.now(timezone.utc).isoformat()
+
+print(json.dumps({
+    'properties': {
+        'Status': {'select': {'name': 'Completed'}},
+        'Reminder Status': {'select': {'name': reminder_status}},
+        'Completed At': {'date': {'start': now}},
+    }
+}))
+PYTHON
+)
+
+    curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
+    ;;
+
   update-property)
     # Args: page_id property_json
     PAGE_ID="$2"
     PROP_JSON="$3"
+
     curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROP_JSON"
     ;;
 
@@ -176,6 +211,6 @@ PYTHON
 
   help)
     echo "Usage: notion-cli.sh <command>"
-    echo "Commands: create-task, create-reminder, query-pending, query-all, query-due-reminders, update-status, update-property, get-page"
+    echo "Commands: create-task, create-reminder, query-pending, query-all, query-due-reminders, update-status, complete-reminder, update-property, get-page"
     ;;
 esac

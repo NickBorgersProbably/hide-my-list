@@ -16,11 +16,13 @@ CronCreate:
   timeout-seconds: 60
 ```
 
-This job runs as an isolated Haiku session. It is query-only: it runs the check script, which writes `.reminder-signal` if any reminders are due, and then exits. It does not deliver reminders to the user.
+This job runs as an isolated Haiku session. It is query-only: it runs the check script, which writes the reminder handoff file (default filename: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if any reminders are due, and then exits. It does not deliver reminders to the user.
 
 **Reminder delivery** is handled separately by two mechanisms:
-1. **AGENTS.md step 5** (opportunistic): every time the user interacts, the main session checks for `.reminder-signal` and delivers immediately.
-2. **HEARTBEAT.md Check 1** (guaranteed): the heartbeat reads `.reminder-signal` every 60 minutes and delivers any stranded reminders.
+1. **AGENTS.md step 5** (opportunistic): every time the user interacts, the main session checks for the handoff file and delivers immediately.
+2. **HEARTBEAT.md Check 1** (guaranteed): the heartbeat reads the handoff file every 60 minutes and delivers any stranded reminders.
+
+Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set Notion `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
 
 This separation is a deliberate design choice. The previous architecture ran reminder-check on `sessionTarget: main`, which loaded the full Opus agent context (~200k tokens) for a job that 95% of the time just runs a script and finds nothing. Moving to isolated Haiku cuts per-run cost by orders of magnitude. The trade-off is that worst-case delivery latency increases from ~15 minutes to ~60 minutes when the user is fully idle, but in practice most reminders deliver on the next user interaction. The current system already can't interrupt mid-conversation (cron only fires when the REPL is idle), so the practical difference is small.
 

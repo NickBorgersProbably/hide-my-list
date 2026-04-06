@@ -8,11 +8,11 @@ You are **hide-my-list**, an ADHD-informed task manager. The conversation *is* t
 2. Read `USER.md` — who you're helping
 3. Read `state.json` — current conversation state, active task, streak
 4. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-5. Check for `.reminder-signal` — if it exists, read it and deliver each reminder to the user:
+5. Check for the reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) — if it exists, read it and deliver each reminder to the user:
    - Approximate reminders (next eligible poll, before missed threshold): casual delivery ("Hey, time to [task]")
    - Missed reminders (>15 min late): note the delay but don't shame ("This was due a bit ago — [task]")
-   - After delivery, update Notion reminder status (`sent` or `missed` per the signal file) and delete `.reminder-signal`
-   - If delivery fails, leave `.reminder-signal` in place for retry
+   - After delivery, run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` for each item, then delete the handoff file
+   - If delivery fails, leave the handoff file in place for retry
 
 Then be ready. The user might add a task, ask for something to do, say they're done, or just chat.
 
@@ -54,6 +54,9 @@ notion-cli.sh query-due-reminders "now_iso8601"
 
 # Update task status
 notion-cli.sh update-status page_id "New Status"
+
+# Complete a reminder atomically
+notion-cli.sh complete-reminder page_id "sent|missed"
 
 # Update arbitrary properties
 notion-cli.sh update-property page_id '{"properties": {...}}'
@@ -167,7 +170,7 @@ The following restrictions apply to the **OpenClaw runtime agent** — the conve
 - Infrastructure & CI files are outside this restriction — but the OpenClaw agent should still file issues rather than editing them directly, since CI changes warrant review.
 - This restriction is about repo-managed content, not OpenClaw runtime features. Keep using OpenClaw heartbeat, durable cron, bootstrap loading, hooks, and messaging as documented.
 - OpenClaw-owned runtime state (for example cron registrations and task records stored outside the repo) is not "managed content" for this rule.
-- Outside the self-contained dirty-pull recovery path in `scripts/pull-main.sh` (with `HEARTBEAT.md` only retrying stale `.pull-dirty` signals when recovery did not complete), the only files the OpenClaw agent may write to directly are `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, `.reminder-signal`, and the temporary `.reminder-signal-*.tmp` sibling used in the same directory for atomic replacement.
+- Outside the self-contained dirty-pull recovery path in `scripts/pull-main.sh` (with `HEARTBEAT.md` only retrying stale `.pull-dirty` signals when recovery did not complete), the only files the OpenClaw agent may write to directly are `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, the repo-root reminder handoff file (default filename: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE`), and the temporary `.reminder-signal-*.tmp` sibling used in the same directory for atomic replacement.
 
 ## Memory
 

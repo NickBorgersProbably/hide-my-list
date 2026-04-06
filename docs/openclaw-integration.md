@@ -73,7 +73,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 **Why this is better than daemons:**
 - No PID files, no silent death, no orphaned processes
 - OpenClaw manages the scheduling; failures are visible in the session
-- `scripts/check-reminders.sh` writes `.reminder-signal` as a handoff; delivery happens through the heartbeat and main-session startup check, not through the cron job itself
+- `scripts/check-reminders.sh` writes the reminder handoff file (default: `.reminder-signal`) as a handoff; delivery happens through the heartbeat and main-session startup check, not through the cron job itself
 - Cron only fires when the REPL is idle, which is actually better for ADHD — it won't interrupt the user mid-task
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes or stale re-registration prompts by comparing the live job against the canonical `CronCreate` block and patching any mismatched registration fields. This is a platform constraint we work around rather than a feature we chose.

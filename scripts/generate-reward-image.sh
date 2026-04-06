@@ -45,12 +45,10 @@ suggest_offline_reward() {
     exit 0
 }
 
-ENV_FILE="$SCRIPT_DIR/../.env"
-if [ ! -f "$ENV_FILE" ]; then
-    suggest_offline_reward "env file not found"
+# shellcheck source=scripts/load-env.sh
+if ! source "$SCRIPT_DIR/load-env.sh" OPENAI_API_KEY?; then
+    suggest_offline_reward "env file unavailable"
 fi
-# shellcheck source=/dev/null
-source "$ENV_FILE"
 
 if [ -z "${OPENAI_API_KEY:-}" ]; then
     suggest_offline_reward "OPENAI_API_KEY not set"

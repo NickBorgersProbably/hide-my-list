@@ -207,18 +207,18 @@ sequenceDiagram
     Cron->>Script: Run check-reminders.sh
     Script->>Notion: Query reminders where remind_at <= now
     Notion-->>Script: Due reminder tasks
-    Script->>Signal: Write .reminder-signal
+    Script->>Signal: Write reminder handoff file
     Note over Cron: Cron exits (NO_REPLY)
     alt User interacts (AGENTS.md step 5)
-        Delivery->>Signal: Read .reminder-signal
+        Delivery->>Signal: Read handoff file
         Delivery->>User: Deliver reminder
-        Delivery->>Notion: Mark sent/missed
-        Delivery->>Signal: Delete .reminder-signal
+        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
-        Delivery->>Signal: Read .reminder-signal
+        Delivery->>Signal: Read handoff file
         Delivery->>User: Deliver reminder
-        Delivery->>Notion: Mark sent/missed
-        Delivery->>Signal: Delete .reminder-signal
+        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Signal: Delete handoff file
     end
 ```
 
@@ -227,14 +227,15 @@ sequenceDiagram
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. A durable cron job (`reminder-check`) runs every 15 minutes as an isolated Haiku session via OpenClaw's native scheduling.
 3. The cron job runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
-4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`. The isolated cron session then exits with `NO_REPLY` — it does not deliver reminders.
+4. If due reminders are found, `check-reminders.sh` writes the reminder handoff file in the repo root (default filename: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). The isolated cron session then exits with `NO_REPLY` — it does not deliver reminders.
 5. Reminder delivery happens through two separate mechanisms:
-   - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for `.reminder-signal` and delivers immediately.
-   - **HEARTBEAT.md Check 1** (guaranteed): the heartbeat reads `.reminder-signal` every 60 minutes and delivers any stranded reminders.
+   - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for the handoff file and delivers immediately.
+   - **HEARTBEAT.md Check 1** (guaranteed): the heartbeat reads the handoff file every 60 minutes and delivers any stranded reminders.
+   Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
 6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 7. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
-Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with `model: litellm/claude-haiku-4-5` and `payload.kind: agentTurn`. This is a deliberate design choice: the previous architecture ran both on `sessionTarget: main`, which loaded the full Opus agent context for routine script work and burned ~18M tokens per 6 hours. Isolating cron jobs cuts per-run cost by orders of magnitude. The trade-off for reminders is that delivery is deferred to the next user interaction or heartbeat cycle (up to 60 min when idle), rather than happening inline in the cron run. If reminder delivery fails after `.reminder-signal` is written, the delivering session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
+Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with `model: litellm/claude-haiku-4-5` and `payload.kind: agentTurn`. This is a deliberate design choice: the previous architecture ran both on `sessionTarget: main`, which loaded the full Opus agent context for routine script work and burned ~18M tokens per 6 hours. Isolating cron jobs cuts per-run cost by orders of magnitude. The trade-off for reminders is that delivery is deferred to the next user interaction or heartbeat cycle (up to 60 min when idle), rather than happening inline in the cron run. If reminder delivery fails after the handoff file is written, the delivering session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
@@ -255,14 +256,15 @@ Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with `model:
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
 
-## Environment Variables
+## Core Runtime Variables
 
 | Variable | Purpose |
 |----------|---------|
 | `NOTION_API_KEY` | Notion integration token |
 | `NOTION_DATABASE_ID` | Tasks database identifier |
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
-| `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
+| `GITHUB_PAT` | Optional personal access token used by GitHub-maintenance scripts when `gh` is not already authenticated |
+| `REMINDER_SIGNAL_FILE` | Repo-root reminder handoff filename (default: `.reminder-signal`) |
 
 ## Prerequisites
 
@@ -315,7 +317,7 @@ flowchart TB
 
 - **Network isolation**: Agent runs behind squid proxy with domain allowlist; kernel-level egress rules enforce this independently of the container
 - **CI separation**: GitHub Actions reviewers have no access to infrastructure or home systems
-- **Credential handling**: API keys in `.env` (gitignored), never logged or committed
+- **Credential handling**: API keys and optional `GITHUB_PAT` live in `.env` (gitignored), are never logged or committed, and runtime scripts load only the variables they need into each shell
 - **Least privilege**: PR test workflows have read-only permissions
 - **No required webhook listener**: Durable cron replaced the old socat listener for core operations, though optional GitHub-triggered webhook paths remain an extra inbound surface if configured
 

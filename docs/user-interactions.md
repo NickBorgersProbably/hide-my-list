@@ -766,22 +766,22 @@ sequenceDiagram
     Cron->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
-    Scr->>Signal: Write .reminder-signal
+    Scr->>Signal: Write reminder handoff file
     Note over Cron: Cron exits (NO_REPLY)
     alt User interacts (AGENTS.md step 5)
-        Delivery->>Signal: Read .reminder-signal
+        Delivery->>Signal: Read handoff file
         Delivery->>User: Deliver reminder
-        Delivery->>Notion: Update reminder_status → sent/missed
-        Delivery->>Signal: Delete .reminder-signal
+        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
-        Delivery->>Signal: Read .reminder-signal
+        Delivery->>Signal: Read handoff file
         Delivery->>User: Deliver reminder
-        Delivery->>Notion: Update reminder_status → sent/missed
-        Delivery->>Signal: Delete .reminder-signal
+        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Signal: Delete handoff file
     end
 ```
 
-The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). If delivery fails, `.reminder-signal` is left in place for retry.
+The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). If delivery fails, the handoff file is left in place for retry.
 
 ### Reminder Delivery Messages
 

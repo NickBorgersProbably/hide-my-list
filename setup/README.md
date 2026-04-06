@@ -24,12 +24,16 @@
 
 2. Create the `.env` file:
    ```bash
-   cat > ~/.openclaw/workspace/.env << 'EOF'
-   NOTION_API_KEY=ntn_your_key_here
-   NOTION_DATABASE_ID=your_database_id_here
-   OPENAI_API_KEY=sk-your_key_here    # Optional: for reward image generation
-   EOF
+   cp ~/.openclaw/workspace/.env.template ~/.openclaw/workspace/.env
+   # Then edit ~/.openclaw/workspace/.env with the values you need
    ```
+
+   Runtime scripts load only the specific variables they request from `.env`, so
+   one file remains the source of truth without handing every credential to every
+   script. For advanced/manual workflows, set `HIDE_MY_LIST_ENV_FILE` to point
+   helper scripts that source `scripts/load-env.sh` at a different env file;
+   that includes the Notion, reminder, and GitHub-auth helpers. Normal runtime
+   setups should leave it unset and keep using `~/.openclaw/workspace/.env`.
 
 3. Run bootstrap:
    ```bash
@@ -61,6 +65,8 @@
 | `NOTION_API_KEY` | Yes | Notion integration API key |
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
+| `GITHUB_PAT` | No | Personal access token used by repo maintenance scripts when `gh auth login` has not been run on the host |
+| `REMINDER_SIGNAL_FILE` | No | Optional reminder handoff filename in the repo root (defaults to `.reminder-signal`) |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
 
 Advanced overrides for self-hosted LiteLLM setups are also supported:
@@ -78,7 +84,7 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| reminder-check | Every 15 min | Poll Notion for due reminders, write `.reminder-signal` (delivery via heartbeat/startup check) |
+| reminder-check | Every 15 min | Poll Notion for due reminders, write the reminder handoff file (delivery via heartbeat/startup check) |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
 | heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction, stranded reminder delivery |
 
@@ -101,6 +107,7 @@ The agent reads docs on every interaction, so changes take effect immediately. N
 - Check that the reminder-check cron is registered (ask the agent to check CronList)
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity
+- If you overrode `REMINDER_SIGNAL_FILE`, verify it is just a filename and that the repo root is writable
 
 **Agent not responding:**
 - Check `openclaw status` for channel health
