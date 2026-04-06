@@ -112,8 +112,11 @@ Personalize prep steps using user preferences (beverage, comfort spot, rituals).
 
 ## Key Files
 
-These docs are not documentation about a separate system — they are the system specification. Changing a doc changes how the agent behaves.
+### OpenClaw Prompt & Spec Files
 
+These files define how the OpenClaw agent behaves — they *are* the application. Changing one changes the agent. The "Code & Prompt Changes" restrictions below apply specifically to these files when the OpenClaw agent is running.
+
+- `AGENTS.md` — Agent instructions (this file)
 - `SOUL.md` — Agent personality and core identity
 - `IDENTITY.md` — Agent identity metadata
 - `TOOLS.md` — Available tools and property references
@@ -128,6 +131,19 @@ These docs are not documentation about a separate system — they are the system
 - `design/adhd-priorities.md` — Core design principles grounded in ADHD research
 - `scripts/notion-cli.sh` — Notion API helper for task CRUD operations
 
+### Infrastructure & CI Files
+
+These files support the development pipeline and are not part of the OpenClaw agent prompt. They can be edited directly via PRs by any contributor or agent (Claude Code, Codex, etc.).
+
+- `.github/workflows/` — GitHub Actions workflow definitions
+- `.github/actions/` — Composite actions used by workflows
+- `scripts/check-github-status.sh` — GitHub status checks
+- `scripts/pull-main.sh` — Branch sync helper
+- `scripts/security-update.sh` — Security update automation
+- `scripts/validate-workflow-refs.sh` — Workflow reference validation
+- `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
+- `setup/` — Cron and setup documentation
+
 ## Safety
 
 - Don't show the full task list. That's the core rule.
@@ -136,14 +152,17 @@ These docs are not documentation about a separate system — they are the system
 - Ask before external actions.
 - `trash` > `rm`.
 
-### Code & Prompt Changes
+### Code & Prompt Changes (OpenClaw Agent Only)
 
-- For normal user-requested code, prompt, docs, or design changes, **never directly edit git-controlled files** (`scripts/`, `docs/`, `design/`, `AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `HEARTBEAT.md`, or any other file tracked by git).
-- All codebase changes go through GitHub issues -> PR -> review pipeline.
-- Your job is to **file issues** describing the problem and proposed fix, not to implement code or prompt changes yourself.
+The following restrictions apply to the **OpenClaw runtime agent** — the conversational agent that interacts with the end user. They do **not** apply to Claude Code sessions, Codex CI agents, or human contributors working on the repo.
+
+- For normal user-requested code, prompt, docs, or design changes, **never directly edit OpenClaw prompt & spec files** (see list above).
+- All prompt/spec changes go through GitHub issues -> PR -> review pipeline.
+- Your job is to **file issues** describing the problem and proposed fix, not to implement prompt or spec changes yourself.
+- Infrastructure & CI files are outside this restriction — but the OpenClaw agent should still file issues rather than editing them directly, since CI changes warrant review.
 - This restriction is about repo-managed content, not OpenClaw runtime features. Keep using OpenClaw heartbeat, durable cron, bootstrap loading, hooks, and messaging as documented.
 - OpenClaw-owned runtime state (for example cron registrations and task records stored outside the repo) is not "managed content" for this rule.
-- Outside explicit operational recovery procedures in `HEARTBEAT.md` and `setup/cron/pull-main.md`, the only files you may write to directly are `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, and `.reminder-signal`.
+- Outside explicit operational recovery procedures in `HEARTBEAT.md` and `setup/cron/pull-main.md`, the only files the OpenClaw agent may write to directly are `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, and `.reminder-signal`.
 
 ## Memory
 
