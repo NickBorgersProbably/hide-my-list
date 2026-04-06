@@ -76,14 +76,23 @@ runs:
           docker pull "${{ inputs.image }}"
         fi
 
+        # Ensure SSH_AUTH_SOCK points to a valid socket so that
+        # devcontainer mounts using ${localEnv:SSH_AUTH_SOCK} don't
+        # produce an empty bind-mount source (which Docker rejects).
+        # CI runners typically have no SSH agent; create a dummy socket.
+        # Upstream fix: https://github.com/devcontainers/cli/issues/479
+        if [ -z "${SSH_AUTH_SOCK:-}" ] || [ ! -S "${SSH_AUTH_SOCK:-}" ]; then
+          export SSH_AUTH_SOCK=/tmp/ssh-agent-dummy.sock
+          python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$SSH_AUTH_SOCK')"
+          echo "Created dummy SSH agent socket at $SSH_AUTH_SOCK"
+        fi
+
         python3 \
           - \
           "$WORKSPACE/.devcontainer/devcontainer.json" \
           "$OVERRIDE_CONFIG" \
           "${{ inputs.image }}" <<'PY'
         import json
-        import os
-        import stat
         import sys
 
         source_path, target_path, image = sys.argv[1:4]
@@ -92,33 +101,6 @@ runs:
 
         config.pop("build", None)
         config.pop("initializeCommand", None)
-
-        # Auto-detect whether the host has a usable SSH agent socket.
-        # When missing, strip the SSH bind mount to prevent Docker from
-        # rejecting an empty source path.
-        ssh_sock = os.environ.get("SSH_AUTH_SOCK", "")
-        has_ssh_agent = False
-        if ssh_sock:
-            try:
-                has_ssh_agent = stat.S_ISSOCK(os.stat(ssh_sock).st_mode)
-            except OSError:
-                has_ssh_agent = False
-
-        if not has_ssh_agent:
-            print(
-                "SSH_AUTH_SOCK is empty or not a live socket; "
-                "stripping SSH agent mount and remoteEnv from override config."
-            )
-            # Set an empty list rather than removing the key — the
-            # devcontainer CLI merges the override with the base
-            # .devcontainer/devcontainer.json, so omitting the key lets the
-            # base config's mounts pass through.
-            config["mounts"] = []
-            remote_env = config.get("remoteEnv", {})
-            remote_env.pop("SSH_AUTH_SOCK", None)
-            if not remote_env:
-                config.pop("remoteEnv", None)
-
         config["image"] = image
 
         with open(target_path, "w", encoding="utf-8") as handle:
