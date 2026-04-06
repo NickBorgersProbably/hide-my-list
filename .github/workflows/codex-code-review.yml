@@ -48,6 +48,10 @@ on:
         description: 'PR Tests workflow run ID'
         required: true
         type: string
+      reviewed_sha:
+        description: 'Immutable PR head SHA reviewed by this workflow run'
+        required: false
+        type: string
 
 # Prevent duplicate reviews when multiple PR Tests complete around the same time
 # Uses branch name for concurrency group
@@ -72,6 +76,7 @@ jobs:
       contents: read
       issues: read
       pull-requests: write
+      statuses: write
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
@@ -89,8 +94,10 @@ jobs:
       # reviewer-setup uses that run to verify the current PR head SHA before
       # checking out the immutable commit for each review job.
       pr_tests_run_id: ${{ github.event_name == 'issue_comment' && steps.lookup-tests.outputs.run_id || github.event_name == 'pull_request' && '' || github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
+      # Immutable SHA reviewed by this workflow run and used for status reporting.
+      reviewed_sha: ${{ steps.resolve-reviewed-sha.outputs.reviewed_sha }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
-      triggering_sha: ${{ github.event_name == 'issue_comment' && steps.lookup-tests.outputs.head_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+      triggering_sha: ${{ steps.resolve-reviewed-sha.outputs.reviewed_sha }}
       issue_number: ${{ steps.get-issue.outputs.issue_number }}
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
@@ -254,6 +261,33 @@ jobs:
               core.setOutput('pr_number', '');
               core.setOutput('is_draft', 'false');
             }
+
+      - name: Resolve reviewed SHA
+        id: resolve-reviewed-sha
+        if: steps.get-pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            REVIEWED_SHA="${{ steps.lookup-tests.outputs.head_sha }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            REVIEWED_SHA="${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REVIEWED_SHA="${{ inputs.reviewed_sha }}"
+            if [ -z "$REVIEWED_SHA" ]; then
+              REVIEWED_SHA=$(gh api repos/${{ github.repository }}/actions/runs/${{ inputs.run_id }} --jq '.head_sha')
+            fi
+          else
+            REVIEWED_SHA="${{ github.event.workflow_run.head_sha }}"
+          fi
+
+          if [ -z "$REVIEWED_SHA" ] || [ "$REVIEWED_SHA" = "null" ]; then
+            echo "Unable to determine immutable reviewed SHA" >&2
+            exit 1
+          fi
+
+          echo "reviewed_sha=$REVIEWED_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved reviewed SHA: $REVIEWED_SHA"
 
       - name: Extract linked issue from PR body
         if: steps.get-pr.outputs.pr_number != ''
@@ -744,7 +778,8 @@ jobs:
                 -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
                 -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
                 -f tests_passed="true" \
-                -f run_id="$RUN_ID"
+                -f run_id="$RUN_ID" \
+                -f reviewed_sha="$CURRENT_HEAD"
               echo "Codex Code Review workflow triggered successfully"
             else
               echo "Tests still failing after fix attempt"
@@ -762,7 +797,8 @@ jobs:
                   -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
                   -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
                   -f tests_passed="false" \
-                  -f run_id="$RUN_ID"
+                  -f run_id="$RUN_ID" \
+                  -f reviewed_sha="$CURRENT_HEAD"
                 echo "Next fix attempt triggered"
               else
                 echo "Max fix attempts (3) reached - human intervention required"
@@ -2107,6 +2143,17 @@ jobs:
       - name: Check review results
         id: check-results
         run: |
+          STATUS_ALREADY_SET=false
+          MERGE_DECISION_NOGO=false
+
+          set_status_output() {
+            local state=$1
+            local description=$2
+            STATUS_ALREADY_SET=true
+            echo "status_state=$state" >> "$GITHUB_OUTPUT"
+            echo "status_description=$description" >> "$GITHUB_OUTPUT"
+          }
+
           check_result() {
             local result=$1
             [[ "$result" == "success" || "$result" == "skipped" ]]
@@ -2122,6 +2169,7 @@ jobs:
             echo "Reviews already passed for this PR - skipping re-review"
             echo "To re-run reviews: comment /review on the PR"
             echo "skipped_with_success=true" >> $GITHUB_OUTPUT
+            set_status_output "success" "Agent reviews already passed (skipped re-review)"
             exit 0
           fi
 
@@ -2162,9 +2210,11 @@ jobs:
             # Check if fix-test-failures succeeded
             if ! check_result "${{ needs.fix-test-failures.result }}"; then
               echo "Fix attempt failed: ${{ needs.fix-test-failures.result }}"
+              set_status_output "failure" "Automated fix attempt failed"
               failed=true
             else
               echo "Fix attempt completed successfully - new test run should start"
+              set_status_output "pending" "Waiting for PR Tests after automated fix attempt"
               exit 0
             fi
           fi
@@ -2206,10 +2256,12 @@ jobs:
             if [ "$MERGE_DECISION" = "NO-GO" ]; then
               echo "Merge decision agent returned NO-GO - blocking issues found"
               echo "See the 'Merge Decision' comment on the PR for details"
+              MERGE_DECISION_NOGO=true
               echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
               failed=true
             elif [ -z "$MERGE_DECISION" ]; then
               echo "Could not determine merge decision - treating as NO-GO"
+              MERGE_DECISION_NOGO=true
               echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
               failed=true
             fi
@@ -2219,15 +2271,24 @@ jobs:
           if [ "$TESTS_PASSED" = "false" ] && [ "$FIX_ATTEMPTS" -ge 3 ]; then
             echo "Max fix attempts (3) reached - tests still failing"
             echo "Human intervention required"
+            set_status_output "failure" "Max fix attempts reached; manual intervention required"
             failed=true
           fi
 
           if [ "$failed" = true ]; then
+            if [ "$STATUS_ALREADY_SET" != "true" ]; then
+              if [ "$MERGE_DECISION_NOGO" = "true" ]; then
+                set_status_output "failure" "Blocking review findings require changes"
+              else
+                set_status_output "failure" "One or more required agent reviews failed"
+              fi
+            fi
             echo ""
             echo "Some checks failed"
             exit 1
           fi
 
+          set_status_output "success" "All agent reviews completed successfully"
           echo "All agent reviews completed and merge decision is GO - automated review gate passed"
           echo ""
           echo "Review Results:"
@@ -2248,27 +2309,27 @@ jobs:
 
       - name: Create commit status for reviews
         if: |
+          always() &&
           needs.get-context.outputs.pr_number != '' &&
-          (needs.get-context.outputs.tests_passed == 'true' || steps.check-results.outputs.skipped_with_success == 'true')
+          steps.check-results.outputs.status_state != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Get the HEAD SHA of the PR branch
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
-          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.sha')
+          REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
+          STATUS_STATE="${{ steps.check-results.outputs.status_state }}"
+          DESCRIPTION="${{ steps.check-results.outputs.status_description }}"
 
-          # Determine description based on whether this was a skip or full review
-          if [ "${{ steps.check-results.outputs.skipped_with_success }}" = "true" ]; then
-            DESCRIPTION="Agent reviews already passed (skipped re-review)"
-          else
-            DESCRIPTION="All agent reviews completed successfully"
+          if [ -z "$REVIEWED_SHA" ]; then
+            echo "Reviewed SHA is missing; cannot publish review status" >&2
+            exit 1
           fi
 
-          echo "Creating commit status for PR #$PR_NUMBER (SHA: $HEAD_SHA)"
+          echo "Creating $STATUS_STATE commit status for PR #$PR_NUMBER (SHA: $REVIEWED_SHA)"
 
           # Create commit status
-          gh api repos/${{ github.repository }}/statuses/$HEAD_SHA \
-            -f state="success" \
+          gh api repos/${{ github.repository }}/statuses/$REVIEWED_SHA \
+            -f state="$STATUS_STATE" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             -f description="$DESCRIPTION" \
             -f context="All Required Agent Reviews"

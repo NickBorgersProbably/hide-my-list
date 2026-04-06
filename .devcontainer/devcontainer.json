@@ -20,7 +20,8 @@
     "SSH_AUTH_SOCK": "/run/ssh-agent.sock",
     "OPENAI_API_KEY": "fake-key",
     "TERM": "xterm-256color",
-    "LANG": "en_US.UTF-8"
+    "LANG": "en_US.UTF-8",
+    "EDITOR": "nano"
   },
   "customizations": {
     "vscode": {
