@@ -6,110 +6,119 @@ set -euo pipefail
 # 2. workflow_run trigger names match actual workflow name: fields
 # 3. Composite action directories contain action.yml
 
-ERRORS=0
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-echo "=== Checking local composite action references ==="
+python3 - "$REPO_ROOT" <<'PY'
+import sys
+from pathlib import Path
 
-# Find all uses: ./.github/actions/X references in workflow files
-while IFS= read -r line; do
-  file="${line%%:*}"
-  # Extract the action path from uses: ./.github/actions/X
-  action_path=$(echo "$line" | grep -oP 'uses:\s*\K\./.github/actions/[^\s]+' || true)
-  if [ -z "$action_path" ]; then
-    continue
-  fi
+try:
+    import yaml
+except ImportError as exc:
+    print(f"ERROR: PyYAML is required to validate workflow references: {exc}")
+    sys.exit(1)
 
-  # Resolve to absolute path
-  abs_path="${REPO_ROOT}/${action_path#./}"
 
-  if [ ! -d "$abs_path" ]; then
-    echo "ERROR: ${file}: references action '${action_path}' but directory does not exist"
-    ERRORS=$((ERRORS + 1))
-  elif [ ! -f "${abs_path}/action.yml" ] && [ ! -f "${abs_path}/action.yaml" ]; then
-    echo "ERROR: ${file}: references action '${action_path}' but no action.yml found in directory"
-    ERRORS=$((ERRORS + 1))
-  fi
-done < <(grep -rn 'uses:.*\./.github/actions/' "${REPO_ROOT}/.github/workflows/" 2>/dev/null || true)
+repo_root = Path(sys.argv[1])
+workflow_dir = repo_root / ".github" / "workflows"
+workflow_files = sorted(workflow_dir.glob("*.yml")) + sorted(workflow_dir.glob("*.yaml"))
+errors = []
+workflows = []
+workflow_names = set()
 
-echo "=== Checking workflow_run trigger name consistency ==="
 
-# Build a map of actual workflow names from name: fields
-declare -A workflow_names
-while IFS= read -r wf_file; do
-  name=$(grep -m1 -oP '^name:\s*\K.*' "$wf_file" || true)
-  if [ -n "$name" ]; then
-    workflow_names["$name"]=1
-  fi
-done < <(find "${REPO_ROOT}/.github/workflows" -name '*.yml' -o -name '*.yaml')
+def load_workflow(path: Path) -> dict:
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        errors.append(f"ERROR: {path.name}: failed to parse YAML: {exc}")
+        return {}
 
-# Find all workflow_run trigger blocks and extract referenced workflow names
-for wf_file in "${REPO_ROOT}"/.github/workflows/*.yml; do
-  [ -f "$wf_file" ] || continue
-  wf_basename=$(basename "$wf_file")
+    if not isinstance(data, dict):
+        errors.append(f"ERROR: {path.name}: workflow file must parse to a top-level mapping")
+        return {}
 
-  # Extract workflow names from workflow_run.workflows arrays
-  # Handles both inline ["Name1", "Name2"] and multi-line - "Name" formats
-  in_workflow_run=false
-  in_workflows=false
-  mapfile -t workflow_lines < "$wf_file"
-  for line in "${workflow_lines[@]}"; do
-    # Detect workflow_run: block
-    if echo "$line" | grep -qP '^\s*workflow_run:'; then
-      in_workflow_run=true
-      in_workflows=false
-      continue
-    fi
+    return data
 
-    # Exit workflow_run block on next top-level key
-    if $in_workflow_run && echo "$line" | grep -qP '^\s{0,2}\S' && ! echo "$line" | grep -qP '^\s*(workflows|types|branches)'; then
-      in_workflow_run=false
-      in_workflows=false
-      continue
-    fi
 
-    if $in_workflow_run; then
-      # Detect workflows: key (inline or block)
-      if echo "$line" | grep -qP '^\s*workflows:'; then
-        in_workflows=true
-        # Check for inline format: workflows: ["Name1", "Name2"]
-        if echo "$line" | grep -qP '\['; then
-          inline_names=$(echo "$line" | grep -oP '"[^"]+"' | tr -d '"' || true)
-          if [ -n "$inline_names" ]; then
-            while IFS= read -r ref_name; do
-              if [ -z "${workflow_names[$ref_name]+x}" ]; then
-                echo "ERROR: ${wf_basename}: workflow_run references '${ref_name}' but no workflow with that name exists"
-                ERRORS=$((ERRORS + 1))
-              fi
-            done <<< "$inline_names"
-          fi
-          in_workflows=false
-        fi
+def iter_uses(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "uses" and isinstance(value, str):
+                yield value
+            yield from iter_uses(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from iter_uses(item)
+
+
+print("=== Checking local composite action references ===")
+
+for workflow_file in workflow_files:
+    data = load_workflow(workflow_file)
+    workflows.append((workflow_file, data))
+
+    name = data.get("name")
+    if isinstance(name, str) and name.strip():
+        workflow_names.add(name.strip())
+
+    for action_path in iter_uses(data):
+        if not action_path.startswith("./.github/actions/"):
+            continue
+
+        action_dir = repo_root / action_path[2:]
+        if not action_dir.is_dir():
+            errors.append(
+                f"ERROR: {workflow_file.name}: references action '{action_path}' but directory does not exist"
+            )
+            continue
+
+        if not (action_dir / "action.yml").is_file() and not (action_dir / "action.yaml").is_file():
+            errors.append(
+                f"ERROR: {workflow_file.name}: references action '{action_path}' but no action.yml found in directory"
+            )
+
+
+print("=== Checking workflow_run trigger name consistency ===")
+
+for workflow_file, data in workflows:
+    on_section = data.get("on", data.get(True))
+    if not isinstance(on_section, dict):
         continue
-      fi
 
-      # Multi-line workflow list items: - "Name"
-      if $in_workflows && echo "$line" | grep -qP '^\s+-\s'; then
-        ref_name=$(echo "$line" | grep -oP '"\K[^"]+' || true)
-        if [ -n "$ref_name" ] && [ -z "${workflow_names[$ref_name]+x}" ]; then
-          echo "ERROR: ${wf_basename}: workflow_run references '${ref_name}' but no workflow with that name exists"
-          ERRORS=$((ERRORS + 1))
-        fi
+    workflow_run = on_section.get("workflow_run")
+    if not isinstance(workflow_run, dict):
         continue
-      fi
 
-      # Exit workflows block on next key at same or higher level
-      if $in_workflows && echo "$line" | grep -qP '^\s{4}\S' && ! echo "$line" | grep -qP '^\s+-'; then
-        in_workflows=false
-      fi
-    fi
-  done
-done
+    referenced = workflow_run.get("workflows", [])
+    if isinstance(referenced, str):
+        referenced = [referenced]
+    elif not isinstance(referenced, list):
+        errors.append(
+            f"ERROR: {workflow_file.name}: workflow_run.workflows must be a string or list of strings"
+        )
+        continue
 
-echo ""
-if [ "$ERRORS" -gt 0 ]; then
-  echo "FAILED: ${ERRORS} cross-file reference error(s) found"
-  exit 1
-fi
+    for ref_name in referenced:
+        if not isinstance(ref_name, str):
+            errors.append(
+                f"ERROR: {workflow_file.name}: workflow_run.workflows contains a non-string entry"
+            )
+            continue
 
-echo "All cross-file workflow references are valid"
+        normalized = ref_name.strip()
+        if normalized and normalized not in workflow_names:
+            errors.append(
+                f"ERROR: {workflow_file.name}: workflow_run references '{normalized}' but no workflow with that name exists"
+            )
+
+
+print("")
+if errors:
+    for error in errors:
+        print(error)
+    print(f"FAILED: {len(errors)} cross-file reference error(s) found")
+    sys.exit(1)
+
+print("All cross-file workflow references are valid")
+PY

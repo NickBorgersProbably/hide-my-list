@@ -71,6 +71,8 @@ jobs:
             workflows:
               - '.github/workflows/**'
               - '.github/actions/**'
+              - '.github/actionlint.yaml'
+              - 'scripts/validate-workflow-refs.sh'
             devcontainer:
               - '.devcontainer/**'
 
@@ -180,8 +182,19 @@ jobs:
       - name: Install actionlint
         run: |
           ACTIONLINT_VERSION=1.7.7
-          curl -sL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            | sudo tar xz -C /usr/local/bin actionlint
+          ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          CHECKSUMS="actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          BASE_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "$TMP_DIR"' EXIT
+
+          curl -fsSL "${BASE_URL}/${ARCHIVE}" -o "${TMP_DIR}/${ARCHIVE}"
+          curl -fsSL "${BASE_URL}/${CHECKSUMS}" -o "${TMP_DIR}/${CHECKSUMS}"
+          (
+            cd "${TMP_DIR}"
+            grep " ${ARCHIVE}$" "${CHECKSUMS}" | sha256sum -c -
+          )
+          sudo tar -xzf "${TMP_DIR}/${ARCHIVE}" -C /usr/local/bin actionlint
 
       - name: Run actionlint
         run: actionlint .github/workflows/*.yml
@@ -205,7 +218,7 @@ jobs:
           node-version: '20'
 
       - name: Validate devcontainer configuration
-        run: npx -y @devcontainers/cli build --workspace-folder .
+        run: npx -y @devcontainers/cli@0.85.0 build --workspace-folder .
 
   all-tests-passed:
     name: All Required Tests
