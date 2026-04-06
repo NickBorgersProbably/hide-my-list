@@ -1910,12 +1910,15 @@ jobs:
     runs-on: [self-hosted, homelab]
     outputs:
       decision: ${{ steps.parse-decision.outputs.decision }}
+      head_changed: ${{ steps.trigger-follow-up.outputs.head_changed }}
     permissions:
       contents: write
       pull-requests: write
       issues: write
       id-token: write
       packages: read
+      actions: write  # Required to trigger PR Tests and Codex Code Review after push
+      statuses: write  # Required to create commit status after follow-up PR Tests pass
 
     steps:
       - name: Checkout main for composite actions
@@ -2126,6 +2129,92 @@ jobs:
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
           fi
 
+      - name: Trigger follow-up validation after merge-decision push
+        id: trigger-follow-up
+        if: success() && steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          STATUS_API_TOKEN: ${{ github.token }}
+        run: |
+          git fetch origin ${{ needs.get-context.outputs.head_ref }}
+          CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
+          REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
+
+          echo "current_head=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
+
+          if [ "$CURRENT_HEAD" = "$REVIEWED_SHA" ]; then
+            echo "Merge decision did not push a new commit"
+            echo "head_changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
+          echo "head_changed=true" >> "$GITHUB_OUTPUT"
+          echo "Triggering PR Tests workflow..."
+
+          gh workflow run "PR Tests" --ref "${{ needs.get-context.outputs.head_ref }}" --repo ${{ github.repository }}
+          echo "PR Tests workflow triggered, waiting for it to start..."
+          sleep 10
+
+          RUN_ID=$(gh run list --workflow="pr-tests.yml" --branch="${{ needs.get-context.outputs.head_ref }}" --limit=1 --json databaseId --jq '.[0].databaseId')
+          echo "Found PR Tests run: $RUN_ID"
+
+          MAX_WAIT=900
+          ELAPSED=0
+          POLL_INTERVAL=30
+
+          while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+            STATUS=$(gh run view "$RUN_ID" --json status,conclusion --jq '.status')
+            if [ "$STATUS" = "completed" ]; then
+              CONCLUSION=$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion')
+              echo "PR Tests completed with conclusion: $CONCLUSION"
+              break
+            fi
+            echo "PR Tests still running... (waited ${ELAPSED}s)"
+            sleep "$POLL_INTERVAL"
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+
+          if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+            echo "Timed out waiting for PR Tests - follow-up review cycle was not triggered automatically"
+            exit 0
+          fi
+
+          if [ "$CONCLUSION" = "success" ]; then
+            echo "Tests passed after merge-decision update"
+            GH_TOKEN="$STATUS_API_TOKEN" \
+              gh api \
+              repos/${{ github.repository }}/statuses/$CURRENT_HEAD \
+              -f state="success" \
+              -f target_url="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID" \
+              -f description="All required tests passed (after merge-decision fix)" \
+              -f context="All Required Tests"
+
+            gh workflow run "Codex Code Review" \
+              --ref "main" \
+              --repo ${{ github.repository }} \
+              -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
+              -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
+              -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
+              -f tests_passed="true" \
+              -f run_id="$RUN_ID" \
+              -f reviewed_sha="$CURRENT_HEAD"
+            echo "Triggered follow-up Codex Code Review for updated head"
+          else
+            echo "Tests failed after merge-decision update"
+            gh workflow run "Codex Code Review" \
+              --ref "main" \
+              --repo ${{ github.repository }} \
+              -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
+              -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
+              -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
+              -f tests_passed="false" \
+              -f run_id="$RUN_ID" \
+              -f reviewed_sha="$CURRENT_HEAD"
+            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head"
+          fi
+
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
     name: All Required Agent Reviews
@@ -2248,6 +2337,12 @@ jobs:
             if ! check_result "${{ needs.merge-decision.result }}"; then
               echo "Merge Decision: ${{ needs.merge-decision.result }}"
               failed=true
+            fi
+
+            if [ "${{ needs.merge-decision.outputs.head_changed }}" = "true" ]; then
+              echo "Merge decision pushed a new head commit - waiting for follow-up validation cycle"
+              set_status_output "pending" "Waiting for PR Tests after merge-decision updates"
+              exit 0
             fi
 
             # Check the actual merge decision (GO vs NO-GO) from the agent's comment
