@@ -1,3 +1,4 @@
+---
 name: Cleanup Stale PR Branches
 
 on:
