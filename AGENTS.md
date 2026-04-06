@@ -137,6 +137,8 @@ These files support the development pipeline and are not part of the OpenClaw ag
 
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
+- `scripts/check-github-status.sh` — GitHub status checks
+- `scripts/create-deduped-workflow-failure-issue.sh` — Creates or reuses the canonical deduplicated GitHub Actions failure issue for the diagnosis workflow
 - `scripts/pull-main.sh` — Branch sync helper
 - `scripts/security-update.sh` — Security update automation
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
