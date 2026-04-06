@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# pull-main.sh — Pull origin/main, signal the agent only if the pull isn't clean
+# pull-main.sh — Pull origin/main with script-managed dirty-pull recovery
 #
 # Runs on a 10-minute cron. Clean pulls happen silently. If the working tree
 # has uncommitted tracked-file changes or the pull hits a merge conflict, the
-# script writes .pull-dirty with enough context for the agent to create a
-# GitHub issue preserving the changes before resetting.
+# script creates a GitHub issue preserving the changes, then resets the repo.
+# The normal cron path never needs pull-state reasoning. HEARTBEAT only retries
+# stale recovery after operator fixes (for example restoring `gh` auth).
 #
 # SECURITY PROPERTIES:
 #   - Signal file contains diffs of tracked files only — no secrets
@@ -17,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 SIGNAL_FILE="$ROOT_DIR/.pull-dirty"
+REPO="NickBorgersProbably/hide-my-list"
 
 cd "$ROOT_DIR"
 
@@ -92,6 +94,115 @@ print(json.dumps(signal, indent=2))
 " > "$SIGNAL_FILE" 2>/dev/null || echo '{"reason":"'"$reason"'","error":"signal write failed"}' > "$SIGNAL_FILE"
 }
 
+# Recover from a dirty pull: create a GitHub issue preserving the changes, then reset.
+# Leaves .pull-dirty in place if anything fails so the HEARTBEAT backstop can retry.
+recover_dirty_pull() {
+    if [ ! -f "$SIGNAL_FILE" ]; then
+        return 0
+    fi
+
+    # Preflight: gh must be authenticated
+    if ! gh auth status &>/dev/null; then
+        echo "gh not authenticated — leaving .pull-dirty for HEARTBEAT backstop" >&2
+        return 0
+    fi
+
+    # Read the signal file
+    local signal_json
+    signal_json=$(cat "$SIGNAL_FILE")
+
+    local reason
+    reason=$(echo "$signal_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('reason','unknown'))" 2>/dev/null || echo "unknown")
+
+    # Build the issue body
+    local issue_body
+    issue_body=$(SIGNAL_JSON="$signal_json" python3 -c "
+import json, os
+
+signal = json.loads(os.environ['SIGNAL_JSON'])
+reason = signal.get('reason', 'unknown')
+head = signal.get('head_commit', 'unknown')
+remote = signal.get('remote_head', 'unknown')
+detected = signal.get('detected_at', 'unknown')
+
+body = f'''## Dirty pull detected
+
+**Reason:** {reason}
+**Detected at:** {detected}
+**Local HEAD:** {head}
+**Remote HEAD:** {remote}
+
+## Details
+
+'''
+
+if reason == 'uncommitted_tracked_changes':
+    files = signal.get('dirty_files', [])
+    for f in files:
+        body += f\"### {f['path']}\n\"
+        snippet = f.get('diff_snippet', '(no diff)')
+        body += f\"\`\`\`diff\n{snippet}\n\`\`\`\n\n\"
+
+elif reason == 'merge_conflict':
+    body += f\"**Error output:**\n\`\`\`\n{signal.get('error_output', '(none)')}\n\`\`\`\n\n\"
+    conflicts = signal.get('conflicting_files', [])
+    if conflicts:
+        body += '**Conflicting files:**\n'
+        for c in conflicts:
+            body += f'- {c}\n'
+        body += '\n'
+    commits = signal.get('local_commits', [])
+    if commits:
+        body += '**Local commits pending merge:**\n'
+        for commit in commits:
+            body += f'- {commit}\n'
+        body += '\n'
+    body += '**Local diff preserved before reset:**\n'
+    body += f\"\`\`\`diff\n{signal.get('local_diff', '(no diff captured)')}\n\`\`\`\n\n\"
+
+body += '---\n*Auto-created by pull-main.sh — local changes preserved here before reset.*'
+
+print(body)
+" 2>/dev/null) || {
+        echo "Failed to build issue body" >&2
+        return 0
+    }
+
+    # Create the GitHub issue
+    local short_reason
+    case "$reason" in
+        uncommitted_tracked_changes) short_reason="uncommitted local changes" ;;
+        merge_conflict) short_reason="merge conflict" ;;
+        *) short_reason="$reason" ;;
+    esac
+
+    if ! gh issue create \
+        --repo "$REPO" \
+        --title "Agent local changes need review: $short_reason" \
+        --body "$issue_body" 2>/dev/null; then
+        echo "Failed to create GitHub issue — leaving .pull-dirty" >&2
+        return 0
+    fi
+
+    # Reset to match remote
+    git checkout -- . 2>/dev/null || true
+    git clean -fd 2>/dev/null || true
+    if ! git pull origin main 2>/dev/null; then
+        echo "Reset pull failed — leaving .pull-dirty" >&2
+        return 0
+    fi
+
+    # Success — clean up
+    rm -f "$SIGNAL_FILE"
+}
+
+# --- Flag parsing ---
+
+if [ "${1:-}" = "--recover-only" ]; then
+    recover_dirty_pull
+    exit 0
+fi
+
 # --- Main ---
 
 # 1. Check for uncommitted changes to tracked files
@@ -100,6 +211,7 @@ dirty_all=$( { git diff --name-only; git diff --cached --name-only; } 2>/dev/nul
 if [ -n "$dirty_all" ]; then
     dirty_json=$(echo "$dirty_all" | build_dirty_files_json)
     write_signal "uncommitted_tracked_changes" "{\"dirty_files\": $dirty_json}"
+    recover_dirty_pull
     exit 0
 fi
 
@@ -115,18 +227,29 @@ fi
 # 3. Pull failed — likely a merge conflict
 # Capture conflicting files before aborting
 conflicting=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+merge_base=$(git merge-base HEAD origin/main 2>/dev/null || true)
+local_commits=""
+local_diff=""
+
+if [ -n "$merge_base" ]; then
+    local_commits=$(git log --oneline "$merge_base..HEAD" 2>/dev/null || true)
+    local_diff=$(git diff "$merge_base..HEAD" 2>/dev/null || true)
+fi
 
 # Abort the failed merge to restore a usable state
 git merge --abort 2>/dev/null || true
 
 # Build extra fields for the signal — single python3 call for both values
-extra_json=$(PULL_OUTPUT="$pull_output" CONFLICTING="$conflicting" python3 -c "
+extra_json=$(PULL_OUTPUT="$pull_output" CONFLICTING="$conflicting" LOCAL_COMMITS="$local_commits" LOCAL_DIFF="$local_diff" python3 -c "
 import json, os
 print(json.dumps({
     'error_output': os.environ['PULL_OUTPUT'],
     'conflicting_files': [f for f in os.environ['CONFLICTING'].strip().split('\n') if f],
+    'local_commits': [c for c in os.environ['LOCAL_COMMITS'].strip().split('\n') if c],
+    'local_diff': os.environ['LOCAL_DIFF'],
 }))
 " 2>/dev/null || echo '{"error_output":"(could not capture)","conflicting_files":[]}')
 
 write_signal "merge_conflict" "$extra_json"
+recover_dirty_pull
 exit 0
