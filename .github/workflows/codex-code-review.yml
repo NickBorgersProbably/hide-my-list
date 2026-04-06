@@ -1980,6 +1980,7 @@ jobs:
     runs-on: [self-hosted, homelab]
     outputs:
       decision: ${{ steps.parse-decision.outputs.decision }}
+      decision_reason: ${{ steps.parse-decision.outputs.decision_reason }}
       head_changed: ${{ steps.trigger-follow-up.outputs.head_changed }}
       follow_up_triggered: ${{ steps.trigger-follow-up.outputs.follow_up_triggered }}
     permissions:
@@ -2172,8 +2173,10 @@ jobs:
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
           if [ "${{ steps.setup.outputs.verified }}" != "true" ]; then
-            echo "Reviewer setup could not verify PR Tests for the current head - defaulting to NO-GO"
-            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            VERIFICATION_STATE="${{ steps.setup.outputs.verification_state }}"
+            echo "Reviewer setup could not verify PR Tests for the current head (state: ${VERIFICATION_STATE:-unknown})"
+            echo "decision=PENDING" >> "$GITHUB_OUTPUT"
+            echo "decision_reason=${VERIFICATION_STATE:-unverified}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -2505,8 +2508,14 @@ jobs:
 
             # Check the actual merge decision (GO vs NO-GO) from the agent's comment
             MERGE_DECISION="${{ needs.merge-decision.outputs.decision }}"
+            MERGE_DECISION_REASON="${{ needs.merge-decision.outputs.decision_reason }}"
             echo "Merge Decision Agent Verdict: $MERGE_DECISION"
-            if [ "$MERGE_DECISION" = "NO-GO" ]; then
+            if [ "$MERGE_DECISION" = "PENDING" ]; then
+              echo "Merge decision is pending until PR Tests verification matches the current head"
+              echo "Reason: ${MERGE_DECISION_REASON:-unverified}"
+              set_status_output "pending" "Waiting for a fresh PR Tests/code review cycle"
+              exit 0
+            elif [ "$MERGE_DECISION" = "NO-GO" ]; then
               echo "Merge decision agent returned NO-GO - blocking issues found"
               echo "See the 'Merge Decision' comment on the PR for details"
               MERGE_DECISION_NOGO=true

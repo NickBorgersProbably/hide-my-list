@@ -26,6 +26,9 @@ outputs:
   verified:
     description: 'Whether PR Tests passed for the current PR head (true/false)'
     value: ${{ steps.verify-tests.outputs.verified }}
+  verification_state:
+    description: 'Why verification succeeded or failed'
+    value: ${{ steps.verify-tests.outputs.verification_state }}
   head_sha:
     description: 'Current PR head SHA that was verified against PR Tests'
     value: ${{ steps.verify-tests.outputs.head_sha }}
@@ -44,6 +47,13 @@ runs:
         export HEAD_SHA
         echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
         echo "Checking PR Tests status for commit $HEAD_SHA"
+
+        set_verification_result() {
+          local verified=$1
+          local state=$2
+          echo "verified=$verified" >> "$GITHUB_OUTPUT"
+          echo "verification_state=$state" >> "$GITHUB_OUTPUT"
+        }
 
         get_run_json() {
           if [ -n "${{ inputs.pr_tests_run_id }}" ]; then
@@ -82,8 +92,13 @@ runs:
               RETRYABLE=false
             elif [ "$RETRYABLE" = "true" ] && [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" = "success" ]; then
               echo "PR Tests passed for current commit"
-              echo "verified=true" >> $GITHUB_OUTPUT
+              set_verification_result "true" "verified"
               exit 0
+            elif [ "$RETRYABLE" = "true" ] && [ "$RUN_STATUS" = "completed" ]; then
+              STATUS="completed/${RUN_CONCLUSION:-unknown}"
+              RETRYABLE=false
+            elif [ "$RETRYABLE" = "true" ] && [ "$RUN_STATUS" = "in_progress" ] && [ "$RUN_HEAD_SHA" = "$HEAD_SHA" ]; then
+              STATUS="in_progress"
             fi
           else
             STATUS="not found"
@@ -92,7 +107,20 @@ runs:
           if [ "$RETRYABLE" != "true" ]; then
             echo "PR Tests cannot verify the current commit: $STATUS"
             echo "Skipping review - a new PR Tests/code review cycle is required"
-            echo "verified=false" >> $GITHUB_OUTPUT
+            case "$STATUS" in
+              head\ SHA\ mismatch*)
+                set_verification_result "false" "head_sha_mismatch"
+                ;;
+              unexpected\ workflow\ path*)
+                set_verification_result "false" "unexpected_workflow"
+                ;;
+              completed/*)
+                set_verification_result "false" "tests_failed"
+                ;;
+              *)
+                set_verification_result "false" "unverified"
+                ;;
+            esac
             exit 0
           fi
 
@@ -105,4 +133,4 @@ runs:
 
         echo "PR Tests did not verify the current commit after $MAX_ATTEMPTS attempts (status: $STATUS)"
         echo "Skipping review - tests must pass on the current PR head first"
-        echo "verified=false" >> $GITHUB_OUTPUT
+        set_verification_result "false" "not_ready"
