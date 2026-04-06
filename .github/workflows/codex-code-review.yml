@@ -102,6 +102,8 @@ jobs:
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
+      review_cycle: ${{ steps.resolve-review-cycle.outputs.review_cycle }}
+      trusted_review_actor: ${{ steps.resolve-trusted-review-actor.outputs.login }}
       reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
       # SECURITY: Authorization status - blocks external/untrusted PR authors
       author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
@@ -342,6 +344,62 @@ jobs:
 
           echo "Current fix attempt count: $COUNT"
           echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+      - name: Resolve trusted review actor
+        if: steps.get-pr.outputs.pr_number != ''
+        id: resolve-trusted-review-actor
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          LOGIN=$(gh api user --jq '.login')
+          if [ -z "$LOGIN" ] || [ "$LOGIN" = "null" ]; then
+            echo "Unable to resolve trusted review actor login" >&2
+            exit 1
+          fi
+
+          echo "login=$LOGIN" >> "$GITHUB_OUTPUT"
+          echo "Trusted review actor: $LOGIN"
+
+      - name: Resolve review cycle from trusted PR state comments
+        if: steps.get-pr.outputs.pr_number != ''
+        id: resolve-review-cycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.get-pr.outputs.pr_number }}
+          REVIEWED_SHA: ${{ steps.resolve-reviewed-sha.outputs.reviewed_sha }}
+          TRUSTED_REVIEW_ACTOR: ${{ steps.resolve-trusted-review-actor.outputs.login }}
+        run: |
+          COMMENTS_FILE=$(mktemp)
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --slurp > "$COMMENTS_FILE"
+
+          REVIEW_CYCLE=$(jq -r \
+            --arg actor "$TRUSTED_REVIEW_ACTOR" \
+            --arg reviewed_sha "$REVIEWED_SHA" '
+              flatten
+              | map(
+                  select(
+                    .user.login == $actor and
+                    (.body | contains("<!-- codex-review-cycle-state "))
+                  )
+                )
+              | map(
+                  .body
+                  | capture("cycle=(?<cycle>[0-9]+) head_sha=(?<head>[0-9a-f]+)")?
+                )
+              | map(select(. != null and .head == $reviewed_sha) | (.cycle | tonumber))
+              | max // 0
+            ' "$COMMENTS_FILE")
+
+          rm -f "$COMMENTS_FILE"
+
+          if [ -z "$REVIEW_CYCLE" ] || [ "$REVIEW_CYCLE" = "null" ]; then
+            REVIEW_CYCLE=0
+          fi
+
+          echo "Resolved review cycle: $REVIEW_CYCLE"
+          echo "review_cycle=$REVIEW_CYCLE" >> "$GITHUB_OUTPUT"
 
       - name: Check if reviews already passed (or reset on /review)
         if: steps.get-pr.outputs.pr_number != ''
@@ -948,6 +1006,7 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -979,6 +1038,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
+            Review cycle: ${REVIEW_CYCLE} (0 = initial review, 1-2 = automated follow-up review).
 
             Review like an experienced staff engineer. Be direct and selective.
             Don't praise the design or list strengths — focus on what you'd actually flag in a review.
@@ -1169,6 +1229,7 @@ jobs:
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -1176,6 +1237,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a SECURITY and INFRASTRUCTURE specialist reviewing PR #${PR_NUMBER}.
+            Review cycle: ${REVIEW_CYCLE} (0 = initial review, 1-2 = automated follow-up review).
 
             **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
             Do NOT list files reviewed. Do NOT explain general security concepts.
@@ -1366,6 +1428,7 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -1377,6 +1440,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a PSYCHOLOGICAL RESEARCH EVIDENCE reviewer for PR #${PR_NUMBER} in ${REPO}.
+            Review cycle: ${REVIEW_CYCLE} (0 = initial review, 1-2 = automated follow-up review).
 
             Your role is to evaluate whether this PR's changes are grounded in evidence-based
             understanding of ADHD, executive function, motivation, and cognitive load. This project
@@ -1605,6 +1669,7 @@ jobs:
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -1612,6 +1677,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a DOCUMENTATION CONSISTENCY reviewer for PR #${PR_NUMBER} in ${REPO}.
+            Review cycle: ${REVIEW_CYCLE} (0 = initial review, 1-2 = automated follow-up review).
 
             Your job is to ensure all docs in this project remain coherent, consistent, and
             free of contradictions after this PR's changes. Don't list docs that don't need
@@ -1808,6 +1874,7 @@ jobs:
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -1815,6 +1882,7 @@ jobs:
               --json \
               --dangerously-bypass-approvals-and-sandbox \
               "You are a PROMPT ENGINEERING reviewer for PR #${PR_NUMBER} in ${REPO}.
+            Review cycle: ${REVIEW_CYCLE} (0 = initial review, 1-2 = automated follow-up review).
 
             This project is an OpenClaw agent where the prompts in docs/ ARE the application.
             Prompt quality directly determines application quality. Your job is to ensure all
@@ -1912,11 +1980,14 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: [self-hosted, homelab]
     outputs:
-      decision: ${{ steps.parse-decision.outputs.decision }}
+      decision: ${{ steps.finalize-decision.outputs.decision }}
+      decision_source: ${{ steps.finalize-decision.outputs.decision_source }}
       head_changed: ${{ steps.trigger-follow-up.outputs.head_changed }}
       follow_up_triggered: ${{ steps.trigger-follow-up.outputs.follow_up_triggered }}
+      cycle_capped: ${{ steps.trigger-follow-up.outputs.cycle_capped }}
+      stale_review: ${{ steps.trigger-follow-up.outputs.stale_review }}
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
       id-token: write
@@ -1998,7 +2069,7 @@ jobs:
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}
+          token: ${{ fromJSON(needs.get-context.outputs.review_cycle) >= 2 && github.token || secrets.WORKFLOW_PAT }}
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
@@ -2021,14 +2092,17 @@ jobs:
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
-            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            GH_TOKEN=${{ fromJSON(needs.get-context.outputs.review_cycle) >= 2 && github.token || secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
+            REVIEWED_SHA=${{ needs.get-context.outputs.reviewed_sha }}
             DESIGN_REVIEW_RESULT=${{ needs.design-review.result }}
             SECURITY_REVIEW_RESULT=${{ needs.security-review.result }}
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             PROMPT_REVIEW_RESULT=${{ needs.prompt-review.result }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
+            PUSH_ALLOWED=${{ fromJSON(needs.get-context.outputs.review_cycle) < 2 && 'true' || 'false' }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -2039,6 +2113,9 @@ jobs:
 
             You have personal responsibility to decide whether the automated review gate for this PR is GO or NO-GO.
             This workflow does not submit GitHub approving reviews. Do not treat missing human approval or unmet branch protection approval requirements as blocking for your decision.
+
+            **REVIEW CYCLE:** ${REVIEW_CYCLE} (0 = initial review, 1 = first automated follow-up, 2 = final automated pass)
+            **PUSHES ALLOWED IN THIS RUN:** ${PUSH_ALLOWED}
 
             **REVIEW STATUS:**
             - Design Review: ${DESIGN_REVIEW_RESULT}
@@ -2056,20 +2133,21 @@ jobs:
             4. **Apply fixes from reviewers**: Check the review comments for fixes described by reviewers:
                - Security Review: \"Fixes Needed\" section
                - Documentation Consistency Review: \"Updates Needed\" section
-               If any reviewer described specific fixes, apply them now (edit the files, commit, and push).
-               You are the ONLY agent with push access.
+               If any reviewer described specific fixes, apply them now (edit the files, commit, and push) ONLY when \`PUSHES ALLOWED IN THIS RUN\` is \`true\`.
+               If \`PUSHES ALLOWED IN THIS RUN\` is \`false\`, evaluate the PR as-is and do not push.
             5. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
             - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
+            - FINAL PASS RULE: On review cycle 2, do NOT push commits. A GO decision on the final pass must be based on the PR head exactly as reviewed.
 
             **IF NO-GO:** Explain what must be fixed before the automated review gate can pass.
 
-            **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then report GO.
+            **IF GO with fixes needed and pushes are allowed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then report GO.
 
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            BEFORE PUSHING: only when pushes are allowed, rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
             Post exactly ONE comment:
             gh pr comment ${PR_NUMBER} --body '## Merge Decision
@@ -2079,7 +2157,9 @@ jobs:
             [If GO: \"Automated review gate passed. Merge may proceed once any separate branch protection requirements are satisfied.\"]
             [If NO-GO: List specific blockers that must be resolved.]
 
-            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
+            [If you made fixes: \"Applied fixes: [brief description]\"]
+
+            <!-- codex-merge-decision reviewed_sha=${REVIEWED_SHA} review_cycle=${REVIEW_CYCLE} -->'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
 
       - name: Log out of GHCR
         if: always() && steps.setup.outputs.verified == 'true'
@@ -2100,37 +2180,65 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+          REVIEW_CYCLE: ${{ needs.get-context.outputs.review_cycle }}
+          TRUSTED_REVIEW_ACTOR: ${{ needs.get-context.outputs.trusted_review_actor }}
         run: |
           if [ "${{ steps.setup.outputs.verified }}" != "true" ]; then
-            echo "Reviewer setup could not verify PR Tests for the current head - defaulting to NO-GO"
+            echo "Reviewer setup could not verify PR Tests for the current head"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            echo "decision_source=unverified_setup" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Fetch the most recent "Merge Decision" comment from the PR
-          COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --jq '[.[] | select(.body | contains("## Merge Decision"))] | last')
+          COMMENTS_FILE=$(mktemp)
+          gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --slurp > "$COMMENTS_FILE"
+
+          COMMENTS=$(jq -c \
+            --arg actor "$TRUSTED_REVIEW_ACTOR" \
+            --arg reviewed_sha "$REVIEWED_SHA" \
+            --arg review_cycle "$REVIEW_CYCLE" '
+              flatten
+              | map(
+                  select(
+                    .user.login == $actor and
+                    (.body | contains("## Merge Decision")) and
+                    (.body | contains("<!-- codex-merge-decision reviewed_sha=\($reviewed_sha) review_cycle=\($review_cycle) -->"))
+                  )
+                )
+              | last
+            ' "$COMMENTS_FILE")
+
+          rm -f "$COMMENTS_FILE"
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
-            echo "No merge decision comment found - defaulting to NO-GO"
+            echo "No trusted merge decision comment found for reviewed SHA $REVIEWED_SHA"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            echo "decision_source=missing_comment" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           COMMENT_BODY=$(echo "$COMMENTS" | jq -r '.body')
+          COMMENT_URL=$(echo "$COMMENTS" | jq -r '.html_url')
+          echo "trusted_comment_url=$COMMENT_URL" >> "$GITHUB_OUTPUT"
 
           # Check for GO or NO-GO in the decision line
           if echo "$COMMENT_BODY" | grep -qE "Decision:.*GO" && ! echo "$COMMENT_BODY" | grep -qE "Decision:.*NO-GO"; then
             echo "Merge decision: GO"
             echo "decision=GO" >> $GITHUB_OUTPUT
+            echo "decision_source=trusted_comment" >> $GITHUB_OUTPUT
           elif echo "$COMMENT_BODY" | grep -qE "NO-GO"; then
             echo "Merge decision: NO-GO"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            echo "decision_source=trusted_comment" >> $GITHUB_OUTPUT
           else
-            echo "Could not parse decision from comment - defaulting to NO-GO"
+            echo "Could not parse decision from trusted merge decision comment"
             echo "Comment body:"
             echo "$COMMENT_BODY"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            echo "decision_source=parse_error" >> $GITHUB_OUTPUT
           fi
 
       - name: Trigger follow-up validation after merge-decision push
@@ -2141,21 +2249,41 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           STATUS_API_TOKEN: ${{ github.token }}
         run: |
+          REVIEW_CYCLE="${{ needs.get-context.outputs.review_cycle }}"
+          MAX_REVIEW_CYCLES=2
+          NEXT_REVIEW_CYCLE=$((REVIEW_CYCLE + 1))
+
           git fetch origin ${{ needs.get-context.outputs.head_ref }}
           CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
 
           echo "current_head=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
+          echo "stale_review=false" >> "$GITHUB_OUTPUT"
 
           if [ "$CURRENT_HEAD" = "$REVIEWED_SHA" ]; then
             echo "Merge decision did not push a new commit"
             echo "head_changed=false" >> "$GITHUB_OUTPUT"
             echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            if [ "${REVIEW_CYCLE:-0}" -ge "$MAX_REVIEW_CYCLES" ]; then
+              echo "cycle_capped=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "cycle_capped=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          if [ "${REVIEW_CYCLE:-0}" -ge "$MAX_REVIEW_CYCLES" ]; then
+            echo "Merge decision changed the PR head after the final automated review pass"
+            echo "head_changed=true" >> "$GITHUB_OUTPUT"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            echo "cycle_capped=true" >> "$GITHUB_OUTPUT"
+            echo "stale_review=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
+          echo "cycle_capped=false" >> "$GITHUB_OUTPUT"
           echo "Triggering PR Tests workflow..."
 
           DISPATCHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -2222,6 +2350,21 @@ jobs:
             exit 1
           fi
 
+          STATE_COMMENT_BODY="<!-- codex-review-cycle-state cycle=${NEXT_REVIEW_CYCLE} head_sha=${CURRENT_HEAD} reviewed_sha=${REVIEWED_SHA} pr_tests_run_id=${RUN_ID} -->"
+          STATE_COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${{ needs.get-context.outputs.pr_number }}/comments" \
+            -f body="$STATE_COMMENT_BODY" \
+            --jq '.id')
+
+          if [ -z "$STATE_COMMENT_ID" ] || [ "$STATE_COMMENT_ID" = "null" ]; then
+            echo "Failed to create trusted review-cycle state comment" >&2
+            exit 1
+          fi
+
+          rollback_state_comment() {
+            gh api "repos/${{ github.repository }}/issues/comments/${STATE_COMMENT_ID}" \
+              -X DELETE >/dev/null 2>&1 || true
+          }
+
           if [ "$CONCLUSION" = "success" ]; then
             echo "Tests passed after merge-decision update"
             GH_TOKEN="$STATUS_API_TOKEN" \
@@ -2240,8 +2383,11 @@ jobs:
               -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
               -f tests_passed="true" \
               -f run_id="$RUN_ID" \
-              -f reviewed_sha="$CURRENT_HEAD"
-            echo "Triggered follow-up Codex Code Review for updated head"
+              -f reviewed_sha="$CURRENT_HEAD" || {
+                rollback_state_comment
+                exit 1
+              }
+            echo "Triggered follow-up Codex Code Review for updated head (cycle $NEXT_REVIEW_CYCLE)"
           else
             echo "Tests failed after merge-decision update"
             gh workflow run "Codex Code Review" \
@@ -2252,11 +2398,128 @@ jobs:
               -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
               -f tests_passed="false" \
               -f run_id="$RUN_ID" \
-              -f reviewed_sha="$CURRENT_HEAD"
-            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head"
+              -f reviewed_sha="$CURRENT_HEAD" || {
+                rollback_state_comment
+                exit 1
+              }
+            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head (cycle $NEXT_REVIEW_CYCLE)"
           fi
 
           echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
+
+      - name: Finalize merge decision
+        id: finalize-decision
+        if: always()
+        run: |
+          DECISION="${{ steps.parse-decision.outputs.decision }}"
+          DECISION_SOURCE="${{ steps.parse-decision.outputs.decision_source }}"
+
+          if [ -z "$DECISION" ]; then
+            DECISION="NO-GO"
+          fi
+
+          if [ -z "$DECISION_SOURCE" ]; then
+            DECISION_SOURCE="missing_comment"
+          fi
+
+          if [ "${{ steps.trigger-follow-up.outputs.stale_review }}" = "true" ]; then
+            DECISION="NO-GO"
+            DECISION_SOURCE="stale_review"
+          fi
+
+          echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
+          echo "decision_source=$DECISION_SOURCE" >> "$GITHUB_OUTPUT"
+
+      - name: Create successor issue for capped trusted NO-GO
+        if: |
+          always() &&
+          steps.setup.outputs.verified == 'true' &&
+          steps.finalize-decision.outputs.decision == 'NO-GO' &&
+          steps.finalize-decision.outputs.decision_source == 'trusted_comment' &&
+          steps.trigger-follow-up.outputs.cycle_capped == 'true' &&
+          steps.trigger-follow-up.outputs.head_changed == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+          LINKED_ISSUE_NUMBER: ${{ needs.get-context.outputs.issue_number }}
+          LINKED_ISSUE_TITLE: ${{ needs.get-context.outputs.issue_title }}
+          TRUSTED_REVIEW_ACTOR: ${{ needs.get-context.outputs.trusted_review_actor }}
+        run: |
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json title --jq '.title')
+          PR_URL="https://github.com/${{ github.repository }}/pull/${PR_NUMBER}"
+
+          ISSUE_URL=""
+          if [ -n "$LINKED_ISSUE_NUMBER" ] && [ "$LINKED_ISSUE_NUMBER" != "null" ]; then
+            ISSUE_URL="https://github.com/${{ github.repository }}/issues/${LINKED_ISSUE_NUMBER}"
+          fi
+
+          REVIEW_LINKS=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --paginate \
+            --slurp \
+            --jq '
+              flatten
+              | map(
+                  select(
+                    .user.login == "'"$TRUSTED_REVIEW_ACTOR"'" and
+                    (
+                      (.body | startswith("## Design Review")) or
+                      (.body | startswith("## Security & Infrastructure Review")) or
+                      (.body | startswith("## Psychological Research Evidence Review")) or
+                      (.body | startswith("## Documentation Consistency Review")) or
+                      (.body | startswith("## Prompt Engineering Review")) or
+                      (.body | contains("<!-- codex-merge-decision reviewed_sha=${{ needs.get-context.outputs.reviewed_sha }} review_cycle=${{ needs.get-context.outputs.review_cycle }} -->"))
+                    )
+                  )
+                )
+              | .[]
+              | "- [Trusted review summary](\(.html_url))"
+            ' | head -c 12000 || echo "")
+
+          SUCCESSOR_TITLE="Reattempt: ${LINKED_ISSUE_TITLE:-$PR_TITLE}"
+          BODY_FILE=$(mktemp)
+
+          {
+            echo "## Reattempt after automated review cycle cap"
+            echo ""
+            echo "PR #${PR_NUMBER} (\"${PR_TITLE}\") reached the automated review cap with an explicit trusted NO-GO decision on the final pass."
+            echo ""
+            echo "### Links"
+            echo "- Failed PR: ${PR_URL}"
+            if [ -n "$ISSUE_URL" ]; then
+              echo "- Original issue: ${ISSUE_URL}"
+            fi
+            if [ -n "$REVIEW_LINKS" ]; then
+              echo "- Trusted review summaries:"
+              echo "${REVIEW_LINKS}"
+            fi
+            echo ""
+            echo "### Next steps"
+            echo "- Review the linked trusted summary comments and inline review comments on the PR"
+            echo "- Address the blocking issues before opening a replacement PR"
+            echo "- Split the work or narrow the scope if the same blockers keep recurring"
+          } > "$BODY_FILE"
+
+          NEW_ISSUE_URL=$(gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "$SUCCESSOR_TITLE" \
+            --body-file "$BODY_FILE")
+          rm -f "$BODY_FILE"
+
+          COMMENT_FILE=$(mktemp)
+          {
+            echo "## Review Cycle Limit Reached"
+            echo ""
+            echo "This PR hit the automated review cap with an explicit trusted NO-GO decision."
+            echo "A successor issue has been opened to carry the trusted review context forward:"
+            echo "${NEW_ISSUE_URL}"
+            echo ""
+            echo "Closing this PR so the reattempt can start from a clean scope."
+          } > "$COMMENT_FILE"
+
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body-file "$COMMENT_FILE"
+          rm -f "$COMMENT_FILE"
+
+          gh pr close "$PR_NUMBER" --repo "${{ github.repository }}"
 
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
@@ -2277,6 +2540,7 @@ jobs:
         run: |
           STATUS_ALREADY_SET=false
           MERGE_DECISION_NOGO=false
+          MERGE_DECISION_FALLBACK=false
 
           set_status_output() {
             local state=$1
@@ -2390,12 +2654,22 @@ jobs:
 
             # Check the actual merge decision (GO vs NO-GO) from the agent's comment
             MERGE_DECISION="${{ needs.merge-decision.outputs.decision }}"
+            MERGE_DECISION_SOURCE="${{ needs.merge-decision.outputs.decision_source }}"
             echo "Merge Decision Agent Verdict: $MERGE_DECISION"
-            if [ "$MERGE_DECISION" = "NO-GO" ]; then
+            echo "Merge Decision Source: $MERGE_DECISION_SOURCE"
+            if [ "$MERGE_DECISION" = "NO-GO" ] && [ "$MERGE_DECISION_SOURCE" = "trusted_comment" ]; then
               echo "Merge decision agent returned NO-GO - blocking issues found"
               echo "See the 'Merge Decision' comment on the PR for details"
               MERGE_DECISION_NOGO=true
               echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
+              failed=true
+            elif [ "$MERGE_DECISION_SOURCE" = "stale_review" ]; then
+              echo "The reviewed merge decision became stale before follow-up handling completed"
+              MERGE_DECISION_FALLBACK=true
+              failed=true
+            elif [ "$MERGE_DECISION_SOURCE" != "trusted_comment" ]; then
+              echo "Merge decision could not be validated from a trusted comment"
+              MERGE_DECISION_FALLBACK=true
               failed=true
             elif [ -z "$MERGE_DECISION" ]; then
               echo "Could not determine merge decision - treating as NO-GO"
@@ -2417,6 +2691,8 @@ jobs:
             if [ "$STATUS_ALREADY_SET" != "true" ]; then
               if [ "$MERGE_DECISION_NOGO" = "true" ]; then
                 set_status_output "failure" "Blocking review findings require changes"
+              elif [ "$MERGE_DECISION_FALLBACK" = "true" ]; then
+                set_status_output "failure" "Trusted merge decision could not be confirmed"
               else
                 set_status_output "failure" "One or more required agent reviews failed"
               fi
