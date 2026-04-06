@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# pull-main.sh — Pull origin/main, self-contained (no agent reasoning needed)
+# pull-main.sh — Pull origin/main with script-managed dirty-pull recovery
 #
 # Runs on a 10-minute cron. Clean pulls happen silently. If the working tree
 # has uncommitted tracked-file changes or the pull hits a merge conflict, the
 # script creates a GitHub issue preserving the changes, then resets the repo.
-# The agent never needs to reason about pull state — it just runs this script.
+# The normal cron path never needs pull-state reasoning. HEARTBEAT only retries
+# stale recovery after operator fixes (for example restoring `gh` auth).
 #
 # SECURITY PROPERTIES:
 #   - Signal file contains diffs of tracked files only — no secrets
@@ -113,30 +114,12 @@ recover_dirty_pull() {
     local reason
     reason=$(echo "$signal_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('reason','unknown'))" 2>/dev/null || echo "unknown")
 
-    # Gather recent memory context (last 2 days, truncated)
-    local memory_context=""
-    local today yesterday
-    today=$(date -u +%Y-%m-%d)
-    yesterday=$(date -u -d "yesterday" +%Y-%m-%d 2>/dev/null || date -u -v-1d +%Y-%m-%d 2>/dev/null || echo "")
-
-    for datefile in "$ROOT_DIR/memory/$today.md" "$ROOT_DIR/memory/$yesterday.md"; do
-        if [ -f "$datefile" ]; then
-            local content
-            content=$(head -100 "$datefile")
-            memory_context="${memory_context}### $(basename "$datefile")
-${content}
-
-"
-        fi
-    done
-
     # Build the issue body
     local issue_body
-    issue_body=$(SIGNAL_JSON="$signal_json" MEMORY_CONTEXT="$memory_context" python3 -c "
+    issue_body=$(SIGNAL_JSON="$signal_json" python3 -c "
 import json, os
 
 signal = json.loads(os.environ['SIGNAL_JSON'])
-memory = os.environ.get('MEMORY_CONTEXT', '').strip()
 reason = signal.get('reason', 'unknown')
 head = signal.get('head_commit', 'unknown')
 remote = signal.get('remote_head', 'unknown')
@@ -168,9 +151,14 @@ elif reason == 'merge_conflict':
         for c in conflicts:
             body += f'- {c}\n'
         body += '\n'
-
-if memory:
-    body += f'## Memory context\n\n{memory}\n\n'
+    commits = signal.get('local_commits', [])
+    if commits:
+        body += '**Local commits pending merge:**\n'
+        for commit in commits:
+            body += f'- {commit}\n'
+        body += '\n'
+    body += '**Local diff preserved before reset:**\n'
+    body += f\"\`\`\`diff\n{signal.get('local_diff', '(no diff captured)')}\n\`\`\`\n\n\"
 
 body += '---\n*Auto-created by pull-main.sh — local changes preserved here before reset.*'
 
@@ -239,16 +227,26 @@ fi
 # 3. Pull failed — likely a merge conflict
 # Capture conflicting files before aborting
 conflicting=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+merge_base=$(git merge-base HEAD origin/main 2>/dev/null || true)
+local_commits=""
+local_diff=""
+
+if [ -n "$merge_base" ]; then
+    local_commits=$(git log --oneline "$merge_base..HEAD" 2>/dev/null || true)
+    local_diff=$(git diff "$merge_base..HEAD" 2>/dev/null || true)
+fi
 
 # Abort the failed merge to restore a usable state
 git merge --abort 2>/dev/null || true
 
 # Build extra fields for the signal — single python3 call for both values
-extra_json=$(PULL_OUTPUT="$pull_output" CONFLICTING="$conflicting" python3 -c "
+extra_json=$(PULL_OUTPUT="$pull_output" CONFLICTING="$conflicting" LOCAL_COMMITS="$local_commits" LOCAL_DIFF="$local_diff" python3 -c "
 import json, os
 print(json.dumps({
     'error_output': os.environ['PULL_OUTPUT'],
     'conflicting_files': [f for f in os.environ['CONFLICTING'].strip().split('\n') if f],
+    'local_commits': [c for c in os.environ['LOCAL_COMMITS'].strip().split('\n') if c],
+    'local_diff': os.environ['LOCAL_DIFF'],
 }))
 " 2>/dev/null || echo '{"error_output":"(could not capture)","conflicting_files":[]}')
 

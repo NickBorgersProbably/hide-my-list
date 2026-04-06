@@ -14,7 +14,7 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 |-----|----------|--------|
 | reminder-check | `*/5 * * * *` | Run `scripts/check-reminders.sh`; if it writes `.reminder-signal`, read it, deliver reminders, update Notion, delete the file |
 | pipeline-monitor | `*/2 * * * *` | Run `scripts/check-github-status.sh`, report actionable changes |
-| pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`, handle dirty pulls |
+| pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; the script handles dirty-pull recovery |
 
 To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. `reminder-check` and `pull-main` must inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main`; re-create it without `sessionTarget` (or with a dedicated non-main target) so GitHub-derived content never persists in the shared user session. Cron jobs should never deliver directly to Signal or any other channel on their own.
 
@@ -39,8 +39,8 @@ If all jobs already match their specs, do not report anything. If any jobs were 
 
 ### 5. Dirty Pull Recovery (safety net)
 - If `.pull-dirty` exists and is older than 20 minutes, the pull-main cron may have failed to recover
-- Run `scripts/pull-main.sh --recover-only` to retry (the script creates the GitHub issue and resets the repo)
-- If that also fails, note the failure for operator attention
-- Normally the pull-main cron handles recovery automatically — this check is a backstop for cases where `gh` wasn't authenticated or the script errored
+- Run `scripts/pull-main.sh --recover-only` to retry after the underlying problem is fixed (for example restoring `gh` authentication). The script creates the GitHub issue and resets the repo when recovery can proceed.
+- If recovery still does not complete, note the failure for operator attention
+- Normally the pull-main cron handles recovery automatically. This check is a backstop for cases where `gh` was not authenticated or the script errored; until `gh` auth is restored, heartbeat will preserve `.pull-dirty` and surface the problem rather than clearing it
 
 That's it. If nothing needs attention, reply HEARTBEAT_OK.
