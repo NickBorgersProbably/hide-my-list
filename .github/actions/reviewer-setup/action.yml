@@ -26,6 +26,9 @@ outputs:
   verified:
     description: 'Whether PR Tests passed for the current PR head (true/false)'
     value: ${{ steps.verify-tests.outputs.verified }}
+  head_sha:
+    description: 'Current PR head SHA that was verified against PR Tests'
+    value: ${{ steps.verify-tests.outputs.head_sha }}
 
 runs:
   using: 'composite'
@@ -37,7 +40,9 @@ runs:
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
         # Compare PR Tests against the current PR head so reviewers never run on stale code.
-        export HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        HEAD_SHA=$(gh api repos/${{ inputs.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+        export HEAD_SHA
+        echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
         echo "Checking PR Tests status for commit $HEAD_SHA"
 
         get_run_json() {
