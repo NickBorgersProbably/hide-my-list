@@ -82,6 +82,61 @@ jobs:
               ;;
           esac
 
+  detect_codex_invocation:
+    runs-on: ubuntu-latest
+    outputs:
+      codex_requested: ${{ steps.detect.outputs.codex_requested }}
+      request_text_b64: ${{ steps.detect.outputs.request_text_b64 }}
+      issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
+    steps:
+      - name: Detect explicit Codex invocation
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          REVIEW_BODY: ${{ github.event.review.body }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          set -eu
+
+          # Treat @codex as explicit only when it starts a line.
+          # This avoids triggering on incidental mentions in prose or logs.
+          explicit_invocation() {
+            printf '%s\n' "$1" | grep -Eq '^[[:space:]]*@codex([[:space:]]|$|[[:punct:]])'
+          }
+
+          REQUEST_TEXT=""
+          INVOCATION_TEXT=""
+
+          case "$EVENT_NAME" in
+            issue_comment|pull_request_review_comment)
+              REQUEST_TEXT="${COMMENT_BODY:-}"
+              INVOCATION_TEXT="$REQUEST_TEXT"
+              ;;
+            pull_request_review)
+              REQUEST_TEXT="${REVIEW_BODY:-}"
+              INVOCATION_TEXT="$REQUEST_TEXT"
+              ;;
+            issues)
+              REQUEST_TEXT="${ISSUE_TITLE:-}"
+              if [ -n "${ISSUE_BODY:-}" ]; then
+                REQUEST_TEXT="${REQUEST_TEXT}"$'\n\n'"${ISSUE_BODY}"
+              fi
+              INVOCATION_TEXT="$REQUEST_TEXT"
+              ;;
+            *)
+              ;;
+          esac
+
+          if explicit_invocation "$INVOCATION_TEXT"; then
+            echo "codex_requested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "codex_requested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          printf 'request_text_b64=%s\n' "$(printf '%s' "$REQUEST_TEXT" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          printf 'issue_title_b64=%s\n' "$(printf '%s' "${ISSUE_TITLE:-}" | base64 -w0)" >> "$GITHUB_OUTPUT"
   preflight:
     needs: authorize
     if: needs.authorize.outputs.authorized == 'true'
@@ -156,15 +211,13 @@ jobs:
   # Only build when a downstream job (codex or resolve-issue) will actually run.
   # Without this gate, every PR review comment triggers a wasted devcontainer build.
   build-devcontainer:
-    needs: [authorize, preflight]
+    needs: [authorize, detect_codex_invocation, preflight]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       needs.preflight.outputs.should_run == 'true' &&
       (
         (github.event_name == 'issues') ||
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex'))
+        needs.detect_codex_invocation.outputs.codex_requested == 'true'
       )
     runs-on: [self-hosted, homelab]
     permissions:
@@ -194,14 +247,11 @@ jobs:
           push: always
 
   codex:
-    needs: [authorize, preflight, build-devcontainer]
+    needs: [authorize, detect_codex_invocation, preflight, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       needs.preflight.outputs.should_run == 'true' &&
-      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@codex')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@codex')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@codex')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@codex') || contains(github.event.issue.title, '@codex'))))
+      needs.detect_codex_invocation.outputs.codex_requested == 'true'
     runs-on: [self-hosted, homelab]
     permissions:
       contents: write
@@ -242,15 +292,14 @@ jobs:
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Codex in devcontainer
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          platform: linux/amd64
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            COMMENT_BODY_B64=${{ needs.detect_codex_invocation.outputs.request_text_b64 }}
             EVENT_NAME=${{ github.event_name }}
             COMMENT_ID=${{ github.event.comment.id }}
             REVIEW_ID=${{ github.event.review.id }}
@@ -258,8 +307,9 @@ jobs:
             REPO=${{ github.repository }}
             IS_PR=${{ needs.preflight.outputs.is_pr }}
             PR_HEAD_REF=${{ needs.preflight.outputs.pr_head_ref }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
+            COMMENT_BODY=$(printf '%s' "$COMMENT_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
             fetch_event_body() {
               case "$EVENT_NAME" in
@@ -357,7 +407,7 @@ jobs:
 
   # Auto-resolve new issues by opening a PR
   resolve-issue:
-    needs: [authorize, build-devcontainer]
+    needs: [authorize, detect_codex_invocation, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'reopened')
@@ -413,19 +463,19 @@ jobs:
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Resolve issue in devcontainer
         if: steps.check-existing.outputs.skip != 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             ISSUE_NUMBER=${{ github.event.issue.number }}
-            ISSUE_TITLE=${{ github.event.issue.title }}
+            ISSUE_TITLE_B64=${{ needs.detect_codex_invocation.outputs.issue_title_b64 }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
+            ISSUE_TITLE=$(printf '%s' "$ISSUE_TITLE_B64" | base64 -d 2>/dev/null || echo "")
 
             timeout 60m codex exec \
               --json \

@@ -1,5 +1,5 @@
 name: 'Reviewer Setup'
-description: 'Shared setup for all Claude Code review jobs: verify tests, checkout PR, login to GHCR'
+description: 'Shared setup for all Claude Code review jobs: verify PR Tests passed on the current PR head'
 
 inputs:
   pr_number:
@@ -17,10 +17,6 @@ inputs:
   repository:
     description: 'Repository (owner/repo) for API calls'
     required: true
-  checkout_token:
-    description: 'Token for checkout (defaults to github_token, use WORKFLOW_PAT for merge-decision)'
-    required: false
-    default: ''
   pr_tests_run_id:
     description: 'Workflow run ID for the PR Tests execution that verified this PR head'
     required: false
@@ -61,7 +57,7 @@ runs:
           fi
         }
 
-        MAX_ATTEMPTS=40
+        MAX_ATTEMPTS=10
         ATTEMPT=1
         while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
           RUN_JSON=$(get_run_json || echo "")
@@ -71,19 +67,33 @@ runs:
           RUN_CONCLUSION=$(echo "$RUN_JSON" | jq -r '.conclusion // ""' 2>/dev/null || echo "")
           RUN_HEAD_SHA=$(echo "$RUN_JSON" | jq -r '.head_sha // ""' 2>/dev/null || echo "")
           STATUS="${RUN_STATUS:-not found}/${RUN_CONCLUSION:-not found}"
+          RETRYABLE=true
 
           if [ -n "$RUN_JSON" ] && [ "$RUN_JSON" != "null" ]; then
-            if [ "$RUN_NAME" != "PR Tests" ] && [ "$RUN_PATH" != ".github/workflows/pr-tests.yml" ]; then
-              STATUS="unexpected workflow ${RUN_NAME:-unknown}"
-            elif [ "$RUN_HEAD_SHA" != "$HEAD_SHA" ]; then
+            if [ "$RUN_PATH" != ".github/workflows/pr-tests.yml" ]; then
+              STATUS="unexpected workflow path ${RUN_PATH:-missing path} (${RUN_NAME:-unknown})"
+              RETRYABLE=false
+            elif [ "$RUN_NAME" != "PR Tests" ]; then
+              echo "Warning: expected workflow name 'PR Tests' but found '${RUN_NAME:-unknown}'"
+            fi
+
+            if [ "$RETRYABLE" = "true" ] && [ "$RUN_HEAD_SHA" != "$HEAD_SHA" ]; then
               STATUS="head SHA mismatch (${RUN_HEAD_SHA:-missing})"
-            elif [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" = "success" ]; then
+              RETRYABLE=false
+            elif [ "$RETRYABLE" = "true" ] && [ "$RUN_STATUS" = "completed" ] && [ "$RUN_CONCLUSION" = "success" ]; then
               echo "PR Tests passed for current commit"
               echo "verified=true" >> $GITHUB_OUTPUT
               exit 0
             fi
           else
             STATUS="not found"
+          fi
+
+          if [ "$RETRYABLE" != "true" ]; then
+            echo "PR Tests cannot verify the current commit: $STATUS"
+            echo "Skipping review - a new PR Tests/code review cycle is required"
+            echo "verified=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
@@ -96,32 +106,3 @@ runs:
         echo "PR Tests did not verify the current commit after $MAX_ATTEMPTS attempts (status: $STATUS)"
         echo "Skipping review - tests must pass on the current PR head first"
         echo "verified=false" >> $GITHUB_OUTPUT
-
-    - name: Checkout verified PR commit
-      if: steps.verify-tests.outputs.verified == 'true'
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ steps.verify-tests.outputs.head_sha }}
-        repository: ${{ inputs.head_repo }}
-        fetch-depth: 0
-        token: ${{ inputs.checkout_token != '' && inputs.checkout_token || inputs.github_token }}
-
-    - name: Create directories for devcontainer mounts
-      if: steps.verify-tests.outputs.verified == 'true'
-      shell: bash
-      run: mkdir -p ~/.config/gh ~/.claude ~/.codex
-
-    - name: Log in to GHCR
-      if: steps.verify-tests.outputs.verified == 'true'
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ inputs.github_token }}
-
-    - name: Log out of GHCR
-      if: steps.verify-tests.outputs.verified == 'true'
-      shell: bash
-      run: |
-        # Ensure cached GHCR credentials are cleared on persistent runners.
-        docker logout ghcr.io >/dev/null 2>&1 || echo "GHCR logout skipped: no active session"
