@@ -471,7 +471,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
 
-**Used by:** The `check-reminders.sh` script, which the isolated `reminder-check` cron job runs every 15 minutes. If due reminders are found, the script writes the repo-root reminder handoff file (default filename: `.reminder-signal`) for delivery by the heartbeat (HEARTBEAT.md Check 1) or the main-session startup check (AGENTS.md step 5).
+**Used by:** The `check-reminders.sh` script, which the isolated `reminder-check` cron job runs every 15 minutes. The script returns the due reminder payload to the cron turn, which announces reminders directly via `delivery.mode: announce` and then marks them `sent` or `missed`.
 
 ---
 
@@ -482,8 +482,8 @@ Tracks whether a scheduled reminder has been delivered.
 | Value | Description | Trigger |
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
-| `sent` | Successfully delivered to user | Agent confirms delivery after scheduler surfaces the reminder |
-| `missed` | Delivered after being more than 15 minutes late | Agent confirms late delivery using the scheduler's missed flag |
+| `sent` | Successfully delivered to user | Announce-enabled reminder cron confirms delivery after sending the reminder |
+| `missed` | Delivered after being more than 15 minutes late | Announce-enabled reminder cron confirms late delivery using the scheduler's missed flag |
 
 **Note:** When a reminder is `sent`, the task's main `Status` is also updated to `Completed` since the reminder action (notifying the user) is done.
 

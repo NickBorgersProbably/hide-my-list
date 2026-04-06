@@ -935,11 +935,7 @@ flowchart TD
     Wait --> Cron[reminder-check cron runs every 15 min]
     Cron --> Due{remind_at <= now?}
     Due -->|No| Wait
-    Due -->|Yes| Signal[check-reminders.sh writes reminder handoff file]
-    Signal --> Delivery{Delivery path}
-    Delivery -->|User interacts: AGENTS.md step 5| Late{>15 min past due?}
-    Delivery -->|Heartbeat: Check 1| Late
-
+    Due -->|Yes| Late{>15 min past due?}
     Late -->|No| Send[Deliver reminder]
     Late -->|Yes| SendMissed[Deliver with apology]
 
@@ -954,12 +950,12 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | Isolated Haiku `reminder-check` writes the reminder handoff file; delivered by heartbeat (60 min) or main-session startup check (next user interaction) |
+| Selection | User requests → AI suggests | Isolated Haiku `reminder-check` announces the reminder directly on the next eligible poll |
 | Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent` or `missed`) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery is separated from the cron query. The isolated `reminder-check` cron writes the handoff file and exits. Delivery happens through the heartbeat (HEARTBEAT.md Check 1, every 60 min) or the main-session startup check (AGENTS.md step 5, on every user interaction). If delivery fails, the handoff file is left in place for retry.
+Reminder delivery happens inside the isolated `reminder-check` cron turn itself. The cron runs `check-reminders.sh`, formats any due reminders, announces them with `delivery.mode: announce`, and then marks them `sent` or `missed` in Notion. If nothing is due, it returns `NO_REPLY` and OpenClaw suppresses the output.
 
 ### Timezone Handling
 

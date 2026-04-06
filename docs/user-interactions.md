@@ -759,29 +759,21 @@ sequenceDiagram
     participant Cron as Isolated Haiku Cron
     participant Scr as check-reminders.sh
     participant Notion as Notion API
-    participant Signal as .reminder-signal
-    participant Delivery as Heartbeat / Main Session
     participant User
 
     Cron->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
-    Scr->>Signal: Write reminder handoff file
-    Note over Cron: Cron exits (NO_REPLY)
-    alt User interacts (AGENTS.md step 5)
-        Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
-        Delivery->>Signal: Delete handoff file
-    else Heartbeat runs (Check 1)
-        Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
-        Delivery->>Signal: Delete handoff file
+    Scr-->>Cron: Due reminder payload
+    alt No reminders due
+        Note over Cron: Cron exits (NO_REPLY, suppressed)
+    else Reminders due
+        Cron->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Cron->>User: Announce reminder
     end
 ```
 
-The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). If delivery fails, the handoff file is left in place for retry.
+The `reminder-check` cron runs as an isolated Haiku session with `delivery.mode: announce`. It owns the full reminder flow: query due reminders, announce them directly, and then mark them `sent` or `missed` in Notion. If nothing is due, it replies `NO_REPLY`, which OpenClaw suppresses for announce delivery.
 
 ### Reminder Delivery Messages
 
