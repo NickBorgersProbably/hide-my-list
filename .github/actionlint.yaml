@@ -1,0 +1,8 @@
+self-hosted-runner:
+  labels:
+    - homelab
+
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'shellcheck reported issue in this script: SC[0-9]+:.+'

@@ -37,7 +37,7 @@ echo "=== Checking workflow_run trigger name consistency ==="
 # Build a map of actual workflow names from name: fields
 declare -A workflow_names
 while IFS= read -r wf_file; do
-  name=$(head -1 "$wf_file" | grep -oP '^name:\s*\K.*' || true)
+  name=$(grep -m1 -oP '^name:\s*\K.*' "$wf_file" || true)
   if [ -n "$name" ]; then
     workflow_names["$name"]=1
   fi
@@ -46,12 +46,14 @@ done < <(find "${REPO_ROOT}/.github/workflows" -name '*.yml' -o -name '*.yaml')
 # Find all workflow_run trigger blocks and extract referenced workflow names
 for wf_file in "${REPO_ROOT}"/.github/workflows/*.yml; do
   [ -f "$wf_file" ] || continue
+  wf_basename=$(basename "$wf_file")
 
   # Extract workflow names from workflow_run.workflows arrays
   # Handles both inline ["Name1", "Name2"] and multi-line - "Name" formats
   in_workflow_run=false
   in_workflows=false
-  while IFS= read -r line; do
+  mapfile -t workflow_lines < "$wf_file"
+  for line in "${workflow_lines[@]}"; do
     # Detect workflow_run: block
     if echo "$line" | grep -qP '^\s*workflow_run:'; then
       in_workflow_run=true
@@ -76,7 +78,7 @@ for wf_file in "${REPO_ROOT}"/.github/workflows/*.yml; do
           if [ -n "$inline_names" ]; then
             while IFS= read -r ref_name; do
               if [ -z "${workflow_names[$ref_name]+x}" ]; then
-                echo "ERROR: $(basename "$wf_file"): workflow_run references '${ref_name}' but no workflow with that name exists"
+                echo "ERROR: ${wf_basename}: workflow_run references '${ref_name}' but no workflow with that name exists"
                 ERRORS=$((ERRORS + 1))
               fi
             done <<< "$inline_names"
@@ -90,7 +92,7 @@ for wf_file in "${REPO_ROOT}"/.github/workflows/*.yml; do
       if $in_workflows && echo "$line" | grep -qP '^\s+-\s'; then
         ref_name=$(echo "$line" | grep -oP '"\K[^"]+' || true)
         if [ -n "$ref_name" ] && [ -z "${workflow_names[$ref_name]+x}" ]; then
-          echo "ERROR: $(basename "$wf_file"): workflow_run references '${ref_name}' but no workflow with that name exists"
+          echo "ERROR: ${wf_basename}: workflow_run references '${ref_name}' but no workflow with that name exists"
           ERRORS=$((ERRORS + 1))
         fi
         continue
@@ -101,7 +103,7 @@ for wf_file in "${REPO_ROOT}"/.github/workflows/*.yml; do
         in_workflows=false
       fi
     fi
-  done < "$wf_file"
+  done
 done
 
 echo ""
