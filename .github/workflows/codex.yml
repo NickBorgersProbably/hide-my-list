@@ -101,7 +101,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       codex_requested: ${{ steps.detect.outputs.codex_requested }}
-      request_text_b64: ${{ steps.detect.outputs.request_text_b64 }}
       issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
     steps:
       - name: Detect explicit Codex invocation
@@ -150,7 +149,6 @@ jobs:
             echo "codex_requested=false" >> "$GITHUB_OUTPUT"
           fi
 
-          printf 'request_text_b64=%s\n' "$(printf '%s' "$REQUEST_TEXT" | base64 -w0)" >> "$GITHUB_OUTPUT"
           printf 'issue_title_b64=%s\n' "$(printf '%s' "${ISSUE_TITLE:-}" | base64 -w0)" >> "$GITHUB_OUTPUT"
   preflight:
     needs: authorize
@@ -318,7 +316,6 @@ jobs:
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
-            COMMENT_BODY_B64=${{ needs.detect_codex_invocation.outputs.request_text_b64 }}
             EVENT_NAME=${{ github.event_name }}
             COMMENT_ID=${{ github.event.comment.id }}
             REVIEW_ID=${{ github.event.review.id }}
@@ -328,7 +325,6 @@ jobs:
             PR_HEAD_REF=${{ needs.preflight.outputs.pr_head_ref }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
-            COMMENT_BODY=$(printf '%s' "$COMMENT_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
             fetch_event_body() {
               case "$EVENT_NAME" in
