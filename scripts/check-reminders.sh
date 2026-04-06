@@ -11,7 +11,7 @@
 # delivery, so stale signal entries are cleared automatically once the agent
 # updates Notion.
 #
-# Designed to run from the durable reminder-check cron job (five-minute cadence).
+# Designed to run from the durable reminder-check cron job (15-minute cadence).
 # The script writes a handoff file, and the agent session that ran it reads that
 # file to deliver reminders through the active messaging surface.
 # Heartbeat can also recover a stranded handoff file if a prior delivery did

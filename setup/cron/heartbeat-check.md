@@ -6,14 +6,14 @@ The heartbeat is not a cron job we create — it's a built-in OpenClaw feature c
 
 ```json
 "heartbeat": {
-  "every": "30m",
+  "every": "60m",
   "model": "litellm/claude-sonnet-4-6"
 }
 ```
 
 ## Behavior
 
-Every 30 minutes, OpenClaw runs the agent with `HEARTBEAT.md` as context. The agent performs the checks defined in `HEARTBEAT.md`:
+Every 60 minutes, OpenClaw runs the agent with `HEARTBEAT.md` as context. The agent performs the checks defined in `HEARTBEAT.md`:
 
 1. Check for stranded `.reminder-signal` reminder handoffs
 2. Verify cron jobs are registered (re-register if expired)
@@ -22,7 +22,7 @@ Every 30 minutes, OpenClaw runs the agent with `HEARTBEAT.md` as context. The ag
 5. Verify environment is intact
 6. Pull main if flagged
 
-Uses a lighter model (Sonnet) since these are routine operational checks.
+Uses a lighter model (Sonnet) since these are routine operational checks. Heartbeat is an infrastructure safety net, not the user-facing reminder clock, so hourly cadence is sufficient for production.
 
 ## Notes
 

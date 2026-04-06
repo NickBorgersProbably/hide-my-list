@@ -450,7 +450,7 @@ See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)
 
 ### IsReminder (checkbox)
 
-Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow — they are delivered proactively by the scheduled reminder system at the time specified in `Remind At`.
+Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow. They become eligible at `Remind At` and are delivered proactively by the scheduled reminder system on the next eligible `reminder-check` poll.
 
 | Value | Description |
 |-------|-------------|
@@ -463,7 +463,7 @@ Boolean flag indicating this task is a time-specific reminder rather than a norm
 
 ### RemindAt (date)
 
-The wall-clock time at which the reminder should fire. Stored as a full ISO 8601 timestamp with timezone offset so the scheduled reminder check can compare against the current time.
+The wall-clock time at which the reminder becomes due. Stored as a full ISO 8601 timestamp with timezone offset so the scheduled reminder check can compare against the current time.
 
 ```
 Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
@@ -471,7 +471,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
 
-**Used by:** The `check-reminders.sh` script, which the durable `reminder-check` cron job runs every 5 minutes before handing due reminders to the agent via `.reminder-signal`.
+**Used by:** The `check-reminders.sh` script, which the durable `reminder-check` cron job runs every 15 minutes before handing due reminders to the agent via `.reminder-signal`.
 
 ---
 
