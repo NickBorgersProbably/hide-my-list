@@ -2191,7 +2191,7 @@ jobs:
         id: parse-decision
         if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
           if [ "${{ steps.setup.outputs.verified }}" != "true" ]; then
@@ -2339,14 +2339,6 @@ jobs:
             exit 1
           fi
 
-          gh label create "codex-review-cycle-$NEXT_REVIEW_CYCLE" \
-            --color "1d76db" \
-            --description "Automated review follow-up cycle $NEXT_REVIEW_CYCLE" \
-            --repo ${{ github.repository }} 2>/dev/null || true
-          gh pr edit "${{ needs.get-context.outputs.pr_number }}" \
-            --add-label "codex-review-cycle-$NEXT_REVIEW_CYCLE" \
-            --repo "${{ github.repository }}"
-
           if [ "$CONCLUSION" = "success" ]; then
             echo "Tests passed after merge-decision update"
             GH_TOKEN="$STATUS_API_TOKEN" \
@@ -2382,6 +2374,14 @@ jobs:
               -f review_cycle="$NEXT_REVIEW_CYCLE"
             echo "Triggered follow-up Codex Code Review to handle failing tests on updated head (cycle $NEXT_REVIEW_CYCLE)"
           fi
+
+          gh label create "codex-review-cycle-$NEXT_REVIEW_CYCLE" \
+            --color "1d76db" \
+            --description "Automated review follow-up cycle $NEXT_REVIEW_CYCLE" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+          gh pr edit "${{ needs.get-context.outputs.pr_number }}" \
+            --add-label "codex-review-cycle-$NEXT_REVIEW_CYCLE" \
+            --repo "${{ github.repository }}"
 
           echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
 
