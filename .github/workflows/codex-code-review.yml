@@ -55,6 +55,7 @@ concurrency:
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+  PR_WORKSPACE_PATH: pr-head
 
 jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
@@ -411,11 +412,17 @@ jobs:
       statuses: write  # Required to create commit status after tests pass
 
     steps:
+      - name: Checkout main for local actions
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
@@ -453,6 +460,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
@@ -543,6 +551,7 @@ jobs:
 
       - name: Trigger PR Tests and reviews after fix
         if: success()
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           FIX_ATTEMPTS: ${{ needs.get-context.outputs.fix_attempts }}
@@ -671,8 +680,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -694,6 +705,7 @@ jobs:
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
 
       - name: Create directories for devcontainer mounts
@@ -713,6 +725,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
@@ -848,8 +861,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -868,6 +883,7 @@ jobs:
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
 
       - name: Create directories for devcontainer mounts
@@ -887,6 +903,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
@@ -973,8 +990,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -993,6 +1012,7 @@ jobs:
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
 
       - name: Create directories for devcontainer mounts
@@ -1012,6 +1032,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
@@ -1162,8 +1183,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -1182,6 +1205,7 @@ jobs:
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
 
       - name: Create directories for devcontainer mounts
@@ -1201,6 +1225,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
@@ -1311,8 +1336,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -1331,6 +1358,7 @@ jobs:
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
 
       - name: Create directories for devcontainer mounts
@@ -1350,6 +1378,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
@@ -1471,8 +1500,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -1491,6 +1522,7 @@ jobs:
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}
 
@@ -1511,6 +1543,7 @@ jobs:
         uses: ./.github/actions/run-devcontainer
         with:
           image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
