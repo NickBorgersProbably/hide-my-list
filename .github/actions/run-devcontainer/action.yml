@@ -72,6 +72,7 @@ runs:
 
         config.pop("build", None)
         config.pop("initializeCommand", None)
+        config.pop("mounts", None)
         config["image"] = image
 
         with open(target_path, "w", encoding="utf-8") as handle:
