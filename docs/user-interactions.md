@@ -763,18 +763,18 @@ sequenceDiagram
     participant Agent as OpenClaw Agent
     participant User
 
-    Cron->>Agent: Inject reminder-check systemEvent into main session
+    Cron->>Agent: Start isolated reminder-check agentTurn
     Agent->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
     Scr->>Signal: Write .reminder-signal
     Agent->>Signal: Read .reminder-signal
-    Agent->>User: Deliver reminder on main session surface
+    Agent->>User: Deliver reminder when .reminder-signal exists
     Agent->>Notion: Update reminder_status → sent/missed
     Agent->>Signal: Delete .reminder-signal
 ```
 
-If no reminders are due, or if the `main` session has no attached user-facing surface when `.reminder-signal` exists, the cron-triggered run must reply with `NO_REPLY` and stay silent. In the no-surface case it also leaves `.reminder-signal` in place so the next eligible run can retry delivery. Reminder routing is deterministic: the agent speaks only through the surface already attached to `sessionTarget: main`, never by choosing a new recipient or channel.
+The cron-triggered run uses an isolated Haiku `agentTurn`, not the main conversation session. If no reminders are due, it must reply with `NO_REPLY` and stay silent. If delivery fails after `.reminder-signal` is written, leave the file in place so the next eligible run can retry.
 
 ### Reminder Delivery Messages
 

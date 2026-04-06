@@ -9,15 +9,16 @@ CronCreate:
   schedule: "*/10 * * * *"
   durable: true
   name: "pull-main"
-  sessionTarget: main
+  sessionTarget: isolated
+  model: litellm/claude-haiku-4-5
   payload:
-    kind: systemEvent
+    kind: agentTurn
   delivery:
     mode: none
   timeout-seconds: 120
 ```
 
-This job injects a `systemEvent` into the main agent session. The script still handles the normal pull and recovery flow; the prompt adds a post-pull cron sync step, while heartbeat only retries stale recovery signals when needed.
+This job runs as an isolated `agentTurn` on `litellm/claude-haiku-4-5` so the routine workspace sync path stays off the main Opus/Sonnet conversation session. The script still handles the normal pull and recovery flow; the prompt adds a post-pull cron sync step, while heartbeat only retries stale recovery signals when needed.
 
 ## Prompt
 
@@ -44,13 +45,15 @@ changed in that pull:
 If `setup/cron/reminder-check.md` or `setup/cron/pull-main.md` changed:
 - Use CronList first and match live jobs by `name`.
 - Read each changed spec file in `setup/cron/` and treat it as the canonical
-  source for `schedule`, `prompt`, `sessionTarget` (if any), `payload.kind`,
-  `delivery`, and `timeout-seconds`.
+  source for `schedule`, `prompt`, `sessionTarget` (if any), `model`,
+  `payload.kind`, `delivery`, and `timeout-seconds`.
 - Use CronUpdate on the matching live job ID to patch only those affected jobs.
 - Preserve the intended contract from the spec:
-  - `reminder-check`: `sessionTarget: main`, `payload.kind: systemEvent`,
+  - `reminder-check`: `sessionTarget: isolated`,
+    `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`,
     `delivery.mode: none`, `timeout-seconds: 120`
-  - `pull-main`: `sessionTarget: main`, `payload.kind: systemEvent`,
+  - `pull-main`: `sessionTarget: isolated`,
+    `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`,
     `delivery.mode: none`, `timeout-seconds: 120`
 - After updating any affected live jobs, reply with ONLY: NO_REPLY.
 

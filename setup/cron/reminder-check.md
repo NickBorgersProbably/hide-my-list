@@ -9,17 +9,16 @@ CronCreate:
   schedule: "*/15 * * * *"
   durable: true
   name: "reminder-check"
-  sessionTarget: main
+  sessionTarget: isolated
+  model: litellm/claude-haiku-4-5
   payload:
-    kind: systemEvent
+    kind: agentTurn
   delivery:
     mode: none
   timeout-seconds: 120
 ```
 
-This job injects a `systemEvent` into the main agent session instead of spawning an isolated cron-specific sub-agent. Delivery is `mode: none` because hide-my-list should decide whether to speak at all, while keeping delivery on the conversation surface already attached to `main`. The 120s timeout gives the LLM enough time to process the full agent context.
-Because the job re-enters `sessionTarget: main`, outbound routing is deterministic: deliver reminders only through the user-facing surface already attached to that main session. Do not pick a different recipient, channel, or thread. If the main session has no attached user-facing surface, leave `.reminder-signal` in place and reply with ONLY: NO_REPLY so the next eligible run can retry.
-Because it re-enters `main`, `reminder-check` also uses the main session's configured primary conversation model rather than selecting a separate cheap-worker model. That is intentional in the current architecture: deterministic delivery on the existing user surface matters more than isolated cron-only model savings.
+This job runs as an isolated `agentTurn` on `litellm/claude-haiku-4-5` instead of waking the main Opus/Sonnet conversation session for every idle cron poll. Delivery stays `mode: none` so the prompt decides whether to speak at all, and the 120s timeout still leaves enough room for the cron turn to run `scripts/check-reminders.sh`, inspect `.reminder-signal`, and finish any reminder handoff work.
 
 ## Prompt
 

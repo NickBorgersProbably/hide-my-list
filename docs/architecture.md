@@ -58,7 +58,7 @@ There is no standalone server. The OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when the chat is idle
 
-Interactive conversations are surface-agnostic, and durable cron jobs inject `systemEvent` payloads into the main agent session for trusted reminder/sync work. All cron jobs should stay silent when there is nothing actionable.
+Interactive conversations are surface-agnostic, and durable cron jobs run as isolated Haiku `agentTurn`s for trusted reminder/sync work so routine polling does not wake the main Opus/Sonnet conversation session. All cron jobs should stay silent when there is nothing actionable.
 
 ## Component Architecture
 
@@ -203,12 +203,12 @@ sequenceDiagram
     participant Agent as OpenClaw Agent
     participant User
 
-    Cron->>Agent: Inject reminder-check systemEvent into main session
+    Cron->>Agent: Start isolated reminder-check agentTurn
     Agent->>Script: Run check-reminders.sh
     Script->>Notion: Query reminders where remind_at <= now
     Notion-->>Script: Due reminder tasks
     Script-->>Agent: Signal file with due reminders
-    Agent->>User: Deliver reminder on main session surface
+    Agent->>User: Deliver reminder when .reminder-signal exists
     Agent->>Notion: Mark reminder as sent/completed
 ```
 
@@ -216,16 +216,16 @@ sequenceDiagram
 
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. A durable cron job (`reminder-check`) runs every 15 minutes via OpenClaw's native scheduling.
-3. The cron job injects a `systemEvent` into the main agent session, which then runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
-4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent session reads that file, delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
+3. The cron job starts an isolated `agentTurn` on `litellm/claude-haiku-4-5`, which then runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
+4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent turn reads that file, delivers the reminders, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
 5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 6. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
-`reminder-check` and `pull-main` use `sessionTarget: main`, `payload.kind: systemEvent`, and `delivery.mode: none` so trusted cron work re-enters the user-owned session without spawning a second conversational thread. For reminders, outbound routing is deterministic because the cron run can only speak back through the surface already attached to `main`; it must not choose a different recipient or channel. If `reminder-check` finds no due reminders, or if `main` has no attached user-facing surface when `.reminder-signal` exists, the main agent should reply with `NO_REPLY` and leave the handoff file untouched for a later retry. If reminder delivery fails after `.reminder-signal` is written, the session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
+`reminder-check` and `pull-main` use `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, and `delivery.mode: none` so trusted cron work stays off the primary conversation session and only speaks when the prompt explicitly decides it should. If `reminder-check` finds no due reminders, the cron turn should reply with `NO_REPLY` and stay silent. If reminder delivery fails after `.reminder-signal` is written, the isolated turn should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
-**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 60 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or `best-effort-deliver`), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. `pull-main` also provides an immediate fast path: after a clean pull that advances `HEAD`, it diffs that invocation's before/after commits and reapplies any changed `setup/cron/` specs right away, while staying silent unless the run needs human attention. See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for the job definitions.
+**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 60 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), `model` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or `best-effort-deliver`), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. `pull-main` also provides an immediate fast path: after a clean pull that advances `HEAD`, it diffs that invocation's before/after commits and reapplies any changed `setup/cron/` specs right away, while staying silent unless the run needs human attention. See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for the job definitions.
 
 ## Technology Choices
 
