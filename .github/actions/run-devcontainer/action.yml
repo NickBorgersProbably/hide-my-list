@@ -32,13 +32,6 @@ inputs:
     description: Pull the image before running (set to 'false' to skip)
     required: false
     default: 'true'
-  sanitize_mounts:
-    description: >
-      Remove devcontainer mounts from the generated override config. Enable
-      this for untrusted PR review jobs running on GitHub-hosted runners.
-    required: false
-    default: 'false'
-
 runs:
   using: composite
   steps:
@@ -65,23 +58,6 @@ runs:
       run: |
         set -euo pipefail
 
-        sanitize_ssh_agent_forwarding() {
-          if [ -z "${SSH_AUTH_SOCK:-}" ]; then
-            echo \
-              "SSH_AUTH_SOCK is empty or unset; disabling SSH agent" \
-              "forwarding for devcontainer CLI."
-            unset SSH_AUTH_SOCK SSH_AGENT_PID
-            return
-          fi
-
-          if [ ! -S "$SSH_AUTH_SOCK" ]; then
-            echo \
-              "SSH_AUTH_SOCK='$SSH_AUTH_SOCK' is not a live socket;" \
-              "disabling SSH agent forwarding for devcontainer CLI."
-            unset SSH_AUTH_SOCK SSH_AGENT_PID
-          fi
-        }
-
         WORKSPACE="${{ github.workspace }}"
         if [ "${{ inputs.workspace_folder }}" != "." ]; then
           WORKSPACE="$WORKSPACE/${{ inputs.workspace_folder }}"
@@ -102,22 +78,41 @@ runs:
           - \
           "$WORKSPACE/.devcontainer/devcontainer.json" \
           "$OVERRIDE_CONFIG" \
-          "${{ inputs.image }}" \
-          "${{ inputs.sanitize_mounts }}" <<'PY'
+          "${{ inputs.image }}" <<'PY'
         import json
+        import os
+        import stat
         import sys
 
-        source_path, target_path, image, sanitize_mounts = sys.argv[1:5]
+        source_path, target_path, image = sys.argv[1:4]
         with open(source_path, "r", encoding="utf-8") as handle:
             config = json.load(handle)
 
         config.pop("build", None)
         config.pop("initializeCommand", None)
-        if sanitize_mounts.lower() == "true":
-            # GitHub-hosted PR review jobs do not guarantee an SSH agent
-            # socket, so untrusted bind mounts must not flow into the trusted
-            # override config used to launch the container.
+
+        # Auto-detect whether the host has a usable SSH agent socket.
+        # When missing, strip the SSH bind mount to prevent Docker from
+        # rejecting an empty source path.
+        ssh_sock = os.environ.get("SSH_AUTH_SOCK", "")
+        has_ssh_agent = False
+        if ssh_sock:
+            try:
+                has_ssh_agent = stat.S_ISSOCK(os.stat(ssh_sock).st_mode)
+            except OSError:
+                has_ssh_agent = False
+
+        if not has_ssh_agent:
+            print(
+                "SSH_AUTH_SOCK is empty or not a live socket; "
+                "stripping SSH agent mount and remoteEnv from override config."
+            )
             config.pop("mounts", None)
+            remote_env = config.get("remoteEnv", {})
+            remote_env.pop("SSH_AUTH_SOCK", None)
+            if not remote_env:
+                config.pop("remoteEnv", None)
+
         config["image"] = image
 
         with open(target_path, "w", encoding="utf-8") as handle:
@@ -134,10 +129,6 @@ runs:
         done <<'ENVEOF'
         ${{ inputs.env }}
         ENVEOF
-
-        # Prevent the devcontainer CLI from synthesizing an empty bind mount
-        # when a runner exports SSH_AUTH_SOCK without a usable agent socket.
-        sanitize_ssh_agent_forwarding
 
         npx -y @devcontainers/cli up \
           --workspace-folder "$WORKSPACE" \
