@@ -471,7 +471,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
 
-**Used by:** The `check-reminders.sh` script, which the durable `reminder-check` cron job runs every 15 minutes before handing due reminders to the agent via `.reminder-signal`.
+**Used by:** The `check-reminders.sh` script, which the isolated `reminder-check` cron job runs every 15 minutes. If due reminders are found, the script writes `.reminder-signal` for delivery by the heartbeat (HEARTBEAT.md Check 1) or the main-session startup check (AGENTS.md step 5).
 
 ---
 

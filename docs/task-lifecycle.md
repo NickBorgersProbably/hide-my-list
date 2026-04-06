@@ -936,10 +936,9 @@ flowchart TD
     Cron --> Due{remind_at <= now?}
     Due -->|No| Wait
     Due -->|Yes| Signal[check-reminders.sh writes .reminder-signal]
-    Signal --> Surface{main session has attached surface?}
-    Surface -->|No| Retry[Reply NO_REPLY and keep .reminder-signal]
-    Retry --> Wait
-    Surface -->|Yes| Late{>15 min past due?}
+    Signal --> Delivery{Delivery path}
+    Delivery -->|User interacts: AGENTS.md step 5| Late{>15 min past due?}
+    Delivery -->|Heartbeat: Check 1| Late
 
     Late -->|No| Send[Deliver reminder]
     Late -->|Yes| SendMissed[Deliver with apology]
@@ -955,12 +954,12 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | `reminder-check` injects a `systemEvent` into `main`, then surfaces `.reminder-signal` on the first eligible poll after `remind_at` |
+| Selection | User requests → AI suggests | Isolated Haiku `reminder-check` writes `.reminder-signal`; delivered by heartbeat (60 min) or main-session startup check (next user interaction) |
 | Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery stays on the existing `main` session surface. If no reminder is due, or the `main` session has no attached surface when `.reminder-signal` exists, the cron run replies `NO_REPLY` and leaves the reminder pending for a later retry.
+Reminder delivery is separated from the cron query. The isolated `reminder-check` cron writes `.reminder-signal` and exits. Delivery happens through the heartbeat (HEARTBEAT.md Check 1, every 60 min) or the main-session startup check (AGENTS.md step 5, on every user interaction). If delivery fails, `.reminder-signal` is left in place for retry.
 
 ### Timezone Handling
 

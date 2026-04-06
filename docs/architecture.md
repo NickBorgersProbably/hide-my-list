@@ -40,9 +40,9 @@ flowchart TB
     Messaging <-->|OpenClaw routing| AI
     AI <-->|CRUD operations| Scripts
     Scripts <-->|REST API| Notion
-    ReminderCron -->|Trigger reminder-check| AI
-    PullMainCron -->|Trigger pull-main| AI
-    Heartbeat -->|Health checks| AI
+    ReminderCron -->|Isolated Haiku: query reminders| Scripts
+    PullMainCron -->|Isolated Haiku: pull workspace| Scripts
+    Heartbeat -->|Health checks + reminder delivery| AI
 ```
 
 
@@ -58,7 +58,7 @@ There is no standalone server. The OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when the chat is idle
 
-Interactive conversations are surface-agnostic, and durable cron jobs inject `systemEvent` payloads into the main agent session for trusted reminder/sync work. All cron jobs should stay silent when there is nothing actionable.
+Interactive conversations are surface-agnostic. Durable cron jobs run as isolated Haiku sessions for cost efficiency — they execute scripts and write handoff files, but do not deliver user-facing messages. Reminder delivery reaches the user through the heartbeat (every 60 min) and the main-session startup check (AGENTS.md step 5, on every user interaction). All cron jobs should stay silent when there is nothing actionable.
 
 ## Component Architecture
 
@@ -197,35 +197,48 @@ The OpenClaw agent model is stateless between messages — there is no persisten
 
 ```mermaid
 sequenceDiagram
-    participant Cron as OpenClaw Cron<br/>(every 15 min)
+    participant Cron as Isolated Haiku Cron<br/>(every 15 min)
     participant Script as check-reminders.sh
     participant Notion as Notion API
-    participant Agent as OpenClaw Agent
+    participant Signal as .reminder-signal
+    participant Delivery as Heartbeat / Main Session
     participant User
 
-    Cron->>Agent: Inject reminder-check systemEvent into main session
-    Agent->>Script: Run check-reminders.sh
+    Cron->>Script: Run check-reminders.sh
     Script->>Notion: Query reminders where remind_at <= now
     Notion-->>Script: Due reminder tasks
-    Script-->>Agent: Signal file with due reminders
-    Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Mark reminder as sent/completed
+    Script->>Signal: Write .reminder-signal
+    Note over Cron: Cron exits (NO_REPLY)
+    alt User interacts (AGENTS.md step 5)
+        Delivery->>Signal: Read .reminder-signal
+        Delivery->>User: Deliver reminder
+        Delivery->>Notion: Mark sent/missed
+        Delivery->>Signal: Delete .reminder-signal
+    else Heartbeat runs (Check 1)
+        Delivery->>Signal: Read .reminder-signal
+        Delivery->>User: Deliver reminder
+        Delivery->>Notion: Mark sent/missed
+        Delivery->>Signal: Delete .reminder-signal
+    end
 ```
 
 **How it works:**
 
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
-2. A durable cron job (`reminder-check`) runs every 15 minutes via OpenClaw's native scheduling.
-3. The cron job injects a `systemEvent` into the main agent session, which then runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
-4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent session reads that file, delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
-5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
-6. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
+2. A durable cron job (`reminder-check`) runs every 15 minutes as an isolated Haiku session via OpenClaw's native scheduling.
+3. The cron job runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
+4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`. The isolated cron session then exits with `NO_REPLY` — it does not deliver reminders.
+5. Reminder delivery happens through two separate mechanisms:
+   - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for `.reminder-signal` and delivers immediately.
+   - **HEARTBEAT.md Check 1** (guaranteed): the heartbeat reads `.reminder-signal` every 60 minutes and delivers any stranded reminders.
+6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
+7. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
-`reminder-check` and `pull-main` use `sessionTarget: main`, `payload.kind: systemEvent`, and `delivery.mode: none` so trusted cron work re-enters the user-owned session without spawning a second conversational thread. For reminders, outbound routing is deterministic because the cron run can only speak back through the surface already attached to `main`; it must not choose a different recipient or channel. If `reminder-check` finds no due reminders, or if `main` has no attached user-facing surface when `.reminder-signal` exists, the main agent should reply with `NO_REPLY` and leave the handoff file untouched for a later retry. If reminder delivery fails after `.reminder-signal` is written, the session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
+Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with `model: litellm/claude-haiku-4-5` and `payload.kind: agentTurn`. This is a deliberate design choice: the previous architecture ran both on `sessionTarget: main`, which loaded the full Opus agent context for routine script work and burned ~18M tokens per 6 hours. Isolating cron jobs cuts per-run cost by orders of magnitude. The trade-off for reminders is that delivery is deferred to the next user interaction or heartbeat cycle (up to 60 min when idle), rather than happening inline in the cron run. If reminder delivery fails after `.reminder-signal` is written, the delivering session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
-**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 60 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or `best-effort-deliver`), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. `pull-main` also provides an immediate fast path: after a clean pull that advances `HEAD`, it diffs that invocation's before/after commits and reapplies any changed `setup/cron/` specs right away, while staying silent unless the run needs human attention. See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for the job definitions.
+**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 60 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, the absence of any direct-delivery `to`, `payload.kind`, and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for the job definitions.
 
 ## Technology Choices
 
@@ -234,10 +247,10 @@ sequenceDiagram
 | Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
-| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); trusted reminder/sync cron work reuses the main-agent delivery path |
+| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); reminder delivery via heartbeat + main-session startup check |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
-| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 15 min, heartbeat re-registers expired jobs and patches spec drift |
+| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Isolated Haiku cron every 15 min writes `.reminder-signal`; heartbeat (60 min) + startup check deliver |
 | Workspace Sync | OpenClaw durable cron + pull-main.sh | Native cron every 10 min keeps the workspace current and recovers dirty pulls |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |

@@ -756,25 +756,32 @@ Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (
 
 ```mermaid
 sequenceDiagram
-    participant Cron as OpenClaw cron
+    participant Cron as Isolated Haiku Cron
     participant Scr as check-reminders.sh
     participant Notion as Notion API
-    participant Signal as Signal File
-    participant Agent as OpenClaw Agent
+    participant Signal as .reminder-signal
+    participant Delivery as Heartbeat / Main Session
     participant User
 
-    Cron->>Agent: Inject reminder-check systemEvent into main session
-    Agent->>Scr: Run check-reminders.sh
+    Cron->>Scr: Run check-reminders.sh
     Scr->>Notion: Query due reminders (remind_at <= now)
     Notion-->>Scr: Due reminder tasks
     Scr->>Signal: Write .reminder-signal
-    Agent->>Signal: Read .reminder-signal
-    Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Update reminder_status → sent/missed
-    Agent->>Signal: Delete .reminder-signal
+    Note over Cron: Cron exits (NO_REPLY)
+    alt User interacts (AGENTS.md step 5)
+        Delivery->>Signal: Read .reminder-signal
+        Delivery->>User: Deliver reminder
+        Delivery->>Notion: Update reminder_status → sent/missed
+        Delivery->>Signal: Delete .reminder-signal
+    else Heartbeat runs (Check 1)
+        Delivery->>Signal: Read .reminder-signal
+        Delivery->>User: Deliver reminder
+        Delivery->>Notion: Update reminder_status → sent/missed
+        Delivery->>Signal: Delete .reminder-signal
+    end
 ```
 
-If no reminders are due, or if the `main` session has no attached user-facing surface when `.reminder-signal` exists, the cron-triggered run must reply with `NO_REPLY` and stay silent. In the no-surface case it also leaves `.reminder-signal` in place so the next eligible run can retry delivery. Reminder routing is deterministic: the agent speaks only through the surface already attached to `sessionTarget: main`, never by choosing a new recipient or channel.
+The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). If delivery fails, `.reminder-signal` is left in place for retry.
 
 ### Reminder Delivery Messages
 
