@@ -64,6 +64,7 @@
 | `NOTION_API_KEY` | Yes | Notion integration API key |
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
+| `GITHUB_PAT` | No | Personal access token used by repo maintenance scripts when `gh auth login` has not been run on the host |
 | `REMINDER_SIGNAL_FILE` | No | Optional override for the reminder handoff path (defaults to `.reminder-signal`) |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
 
