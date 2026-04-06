@@ -85,6 +85,7 @@ runs:
           # Place in workspace so it's visible to the Docker daemon
           # (runner may be containerized with a separate /tmp).
           export SSH_AUTH_SOCK="$WORKSPACE/.git/ssh-agent-dummy.sock"
+          rm -f "$SSH_AUTH_SOCK"
           python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$SSH_AUTH_SOCK')"
           echo "Created dummy SSH agent socket at $SSH_AUTH_SOCK"
         fi
