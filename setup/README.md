@@ -28,6 +28,7 @@
    NOTION_API_KEY=ntn_your_key_here
    NOTION_DATABASE_ID=your_database_id_here
    OPENAI_API_KEY=sk-your_key_here    # Optional: for reward image generation
+   GITHUB_PAT=github_pat_here         # Optional: for gh-based maintenance scripts
    EOF
    ```
 
@@ -61,6 +62,7 @@
 | `NOTION_API_KEY` | Yes | Notion integration API key |
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
+| `GITHUB_PAT` | No | Personal access token used by repo maintenance scripts when `gh auth login` has not been run on the host |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
 
 Advanced overrides for self-hosted LiteLLM setups are also supported:

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+# shellcheck source=./load-github-auth.sh
+source "$SCRIPT_DIR/load-github-auth.sh"
+
 usage() {
     cat <<'EOF'
 Usage:
@@ -75,6 +80,10 @@ done
 
 require_command gh
 require_command jq
+if ! ensure_github_auth; then
+    echo "ERROR: gh is not authenticated and GITHUB_PAT was not available from .env" >&2
+    exit 1
+fi
 
 if [ -z "$REPO" ]; then
     REPO="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')"

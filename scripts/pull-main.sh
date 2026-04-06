@@ -16,6 +16,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck disable=SC1091
+# shellcheck source=./load-github-auth.sh
+source "$SCRIPT_DIR/load-github-auth.sh"
 
 SIGNAL_FILE="$ROOT_DIR/.pull-dirty"
 REPO="NickBorgersProbably/hide-my-list"
@@ -101,9 +104,9 @@ recover_dirty_pull() {
         return 0
     fi
 
-    # Preflight: gh must be authenticated
-    if ! gh auth status &>/dev/null; then
-        echo "gh not authenticated — leaving .pull-dirty for HEARTBEAT backstop" >&2
+    # Preflight: gh must be authenticated either via gh auth login or GH_TOKEN
+    if ! ensure_github_auth; then
+        echo "gh not authenticated and GH_TOKEN unavailable — leaving .pull-dirty for HEARTBEAT backstop" >&2
         return 0
     fi
 
