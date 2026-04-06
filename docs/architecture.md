@@ -21,7 +21,6 @@ flowchart TB
     subgraph Scheduling["OpenClaw Scheduling"]
         Heartbeat[Heartbeat<br/>every 30m]
         ReminderCron[Reminder Cron<br/>every 5m]
-        PipelineCron[Pipeline Cron<br/>every 2m]
         PullMainCron[Pull-Main Cron<br/>every 10m]
     end
 
@@ -98,7 +97,6 @@ flowchart LR
     Breakdown --> NotionCLI
     Reward --> RewardImg
     ReminderCheck --> NotionCLI
-    GHStatus --> Review
 ```
 
 
@@ -307,6 +305,6 @@ flowchart TB
 - **CI separation**: GitHub Actions reviewers have no access to infrastructure or home systems
 - **Credential handling**: API keys in `.env` (gitignored), never logged or committed
 - **Least privilege**: PR test workflows have read-only permissions
-- **No open ports**: Cron-based monitoring replaced the socat webhook listener, eliminating inbound network exposure
+- **No required webhook listener**: Durable cron replaced the old socat listener for core operations, though optional GitHub-triggered webhook paths remain an extra inbound surface if configured
 
 For the full security architecture — including agent trust model, threat model, and prompt injection analysis — see [SECURITY.md](../SECURITY.md).
