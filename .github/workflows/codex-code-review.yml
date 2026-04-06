@@ -360,7 +360,8 @@ jobs:
           # Count "## Merge Decision" comments as ground truth for completed cycles
           COMMENT_COUNT=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
             --paginate \
-            --jq '[.[] | select(.body | contains("## Merge Decision"))] | length')
+            --slurp \
+            --jq 'flatten | map(select(.body | contains("## Merge Decision"))) | length')
 
           # Also check workflow_dispatch input (propagated by follow-up triggers)
           INPUT_CYCLE="${{ github.event_name == 'workflow_dispatch' && inputs.review_cycle || '0' }}"
@@ -2193,30 +2194,36 @@ jobs:
           REVIEW_CYCLE="${{ needs.get-context.outputs.review_cycle }}"
           MAX_REVIEW_CYCLES=3
 
-          if [ "${REVIEW_CYCLE:-0}" -ge "$MAX_REVIEW_CYCLES" ]; then
-            echo "::warning::Review cycle ${REVIEW_CYCLE} >= max ${MAX_REVIEW_CYCLES} — will NOT trigger follow-up review"
-            echo "head_changed=false" >> "$GITHUB_OUTPUT"
-            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
-            echo "cycle_capped=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           git fetch origin ${{ needs.get-context.outputs.head_ref }}
           CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
 
           echo "current_head=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
-          echo "cycle_capped=false" >> "$GITHUB_OUTPUT"
 
           if [ "$CURRENT_HEAD" = "$REVIEWED_SHA" ]; then
+            if [ "${REVIEW_CYCLE:-0}" -ge "$MAX_REVIEW_CYCLES" ]; then
+              echo "::warning::Review cycle ${REVIEW_CYCLE} >= max ${MAX_REVIEW_CYCLES} and PR head is unchanged — will NOT trigger follow-up review"
+              echo "cycle_capped=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "cycle_capped=false" >> "$GITHUB_OUTPUT"
+            fi
             echo "Merge decision did not push a new commit"
             echo "head_changed=false" >> "$GITHUB_OUTPUT"
             echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
+
+          if [ "${REVIEW_CYCLE:-0}" -ge "$MAX_REVIEW_CYCLES" ]; then
+            echo "::error::Review cycle ${REVIEW_CYCLE} >= max ${MAX_REVIEW_CYCLES}, but PR head changed from $REVIEWED_SHA to $CURRENT_HEAD after the reviewed decision. Refusing to trust a stale review."
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            echo "cycle_capped=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
+          echo "cycle_capped=false" >> "$GITHUB_OUTPUT"
           echo "Triggering PR Tests workflow..."
 
           DISPATCHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
