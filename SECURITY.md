@@ -32,12 +32,6 @@ GitHub has been chosen as the tool for facilitating this, and that means we need
 
 The reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus the OpenClaw `reminder-check` durable cron job) sources `.env` credentials **[B]**, queries Notion, and writes a `.reminder-signal` file **[C]**, but processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
 
-### Cron-driven GitHub polling — current [ABC] configuration
-
-The pipeline monitor ([`scripts/check-github-status.sh`](scripts/check-github-status.sh) plus the OpenClaw `pipeline-monitor` durable cron job) processes GitHub content **[A]** and writes status output **[C]**. In the current implementation it also sources the shared `.env`, which places the Notion/OpenAI credentials and optional GitHub PAT in the session context **[B]** even though the script only uses GitHub directly. That means this path is currently **[ABC]**, not **[AC]**.
-
-This should only be reclassified as **[AC]** after the implementation stops loading the shared credential file or otherwise narrows the runtime credential boundary for the cron job.
-
 ### CI/CD review agents — [AC] configuration
 
 PR review agents process untrusted code **[A]** and write PR comments **[C]**, but have no access to infrastructure secrets or Notion credentials **[B]**. Workflows use only repo-scoped GitHub token permissions (contents/pull-requests/issues write for posting reviews); no infrastructure secrets or Notion credentials are available. This is a safe [AC] configuration — even if a malicious PR manipulated a review agent, there's no sensitive data to exfiltrate.
@@ -56,7 +50,7 @@ We use frontier-lab-hosted models with the expectation that their safety alignme
 
 ## Mitigations
 
-When the agent processes GitHub content it becomes [ABC], and the mitigations below are the primary constraint on what a manipulated agent could do.
+The mitigations below constrain what a manipulated agent could do.
 
 ### Limited credentials
 
@@ -89,10 +83,10 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 
 ### Inbound exposure reduction
 
-- The old `socat`-based webhook listener was removed; the primary monitoring path is now durable cron polling
-- Durable cron polling (`pipeline-monitor`, `reminder-check`) covers routine operation and survives agent restarts via OpenClaw's cron subsystem
-- Optional push-trigger paths still exist in repo docs/workflows (`RemoteTrigger` in `setup/cron/pipeline-monitor.md` and workflow notifications via `AGENT_WEBHOOK_URL`), so inbound exposure is reduced, not eliminated
-- Heartbeat re-registers cron jobs if they disappear, ensuring continuity for the polling path
+- The old `socat`-based webhook listener was removed; routine operations now rely on durable cron instead of a required inbound listener
+- Durable cron polling (`reminder-check`, `pull-main`) covers routine operation and survives agent restarts via OpenClaw's cron subsystem
+- Heartbeat re-registers cron jobs if they disappear, ensuring continuity for the cron path
+- Optional GitHub-triggered webhook notifications may still exist if an operator configures `AGENT_WEBHOOK_URL`, so inbound exposure is reduced but not universally eliminated
 
 ### Configuration hardening
 
@@ -107,7 +101,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 | Prompt injection via user message | Agent is [BC] for direct interaction — channels are authenticated/paired, only the owner can send messages | Low risk; owner is the only input source |
 | Prompt injection via GitHub content | Becomes [ABC] when processing GitHub content — PR/issue bodies from external contributors are an injection vector | Blast radius limited to Notion operations the token permits; proxy limits exfiltration destinations |
 | Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; VLAN segmentation blocks internal network access at the router level; kernel-level egress rules enforce restrictions independently of the container environment |
-| Malicious webhook payload | Reduced but not eliminated — cron is the primary path, but optional push-trigger endpoints may still be configured | The old `socat` listener is gone; core operation relies on cron polling, and any configured `AGENT_WEBHOOK_URL` / `RemoteTrigger` path should be treated as an additional inbound surface |
+| Malicious webhook payload | Reduced but not eliminated — cron is the primary path, but optional workflow notifications may still post to an agent webhook | The old `socat` listener is gone; core operation relies on cron polling, and any configured `AGENT_WEBHOOK_URL` path should be treated as an additional inbound surface |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked from all self-hosted runner workflows; devcontainer built only from main; self-hosted runners isolated by VLAN segmentation |
 | Credential exfiltration via prompt injection | The agent has credentials in its runtime context and could be prompted to reveal them | Proxy allowlist limits where credentials could be sent; admin surfaces behind Tailscale; model alignment is a speed bump, not a guarantee |
 | Unauthorized admin access | Admin interfaces require Tailscale authentication and at least OpenClaw pairing for authentication | Firewall allows only SSH and WireGuard inbound |
