@@ -60,7 +60,7 @@ There is no standalone server. The OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when the chat is idle
 
-Interactive conversations are surface-agnostic, but the current durable cron registration contract targets Signal explicitly through `SIGNAL_OWNER_NUMBER`. That means scheduled reminder/pipeline/pull notifications presently require a Signal recipient even if other OpenClaw surfaces are enabled for normal chat.
+Interactive conversations are surface-agnostic, and durable cron uses two paths: trusted reminder/sync jobs inject `systemEvent` payloads into the main agent session, while the GitHub-facing pipeline monitor stays isolated from `main`. All cron jobs should stay silent when there is nothing actionable.
 
 ## Component Architecture
 
@@ -207,12 +207,12 @@ sequenceDiagram
     participant Agent as OpenClaw Agent
     participant User
 
-    Cron->>Agent: Trigger reminder-check job
+    Cron->>Agent: Inject reminder-check systemEvent into main session
     Agent->>Script: Run check-reminders.sh
     Script->>Notion: Query reminders where remind_at <= now
     Notion-->>Script: Due reminder tasks
     Script-->>Agent: Signal file with due reminders
-    Agent->>User: Deliver reminder message
+    Agent->>User: Deliver reminder on main session surface
     Agent->>Notion: Mark reminder as sent/completed
 ```
 
@@ -220,12 +220,12 @@ sequenceDiagram
 
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. A durable cron job (`reminder-check`) runs every 5 minutes via OpenClaw's native scheduling.
-3. The cron job triggers the agent to run `scripts/check-reminders.sh`, which queries Notion for pending reminders where `remind_at <= now`.
-4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent session reads that file, delivers the reminders, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
+3. The cron job injects a `systemEvent` into the main agent session, which then runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
+4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent session reads that file, delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
 5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 6. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
-`reminder-check` does not use `best-effort-deliver`. If Signal delivery fails, the cron session should fail visibly, leave `.reminder-signal` in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
+`reminder-check` and `pull-main` use `sessionTarget: main`, `payload.kind: systemEvent`, and `delivery.mode: none` so trusted cron work re-enters the user-owned session without spawning a second conversational thread. `pipeline-monitor` is the exception: it must stay in an isolated cron session because GitHub content is untrusted input. For reminders, outbound routing is deterministic because the cron run can only speak back through the surface already attached to `main`; it must not choose a different recipient or channel. If `reminder-check` finds no due reminders, or if `main` has no attached user-facing surface when `.reminder-signal` exists, the main agent should reply with `NO_REPLY` and leave the handoff file untouched for a later retry. If reminder delivery fails after `.reminder-signal` is written, the session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
@@ -238,7 +238,7 @@ sequenceDiagram
 | Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
-| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); current cron-driven delivery targets Signal |
+| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); cron-triggered work routes back through the same main-agent delivery path |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 5 min, heartbeat re-registers on expiry |
@@ -256,7 +256,6 @@ sequenceDiagram
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
 | `GITHUB_PAT` | GitHub personal access token (optional, for higher rate limits) |
 | `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
-| `SIGNAL_OWNER_NUMBER` | Owner's Signal number (E.164 format) for cron job delivery |
 
 ## Prerequisites
 

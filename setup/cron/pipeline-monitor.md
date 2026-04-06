@@ -9,12 +9,14 @@ CronCreate:
   schedule: "*/2 * * * *"
   durable: true
   name: "pipeline-monitor"
-  best-effort-deliver: true
-  to: $SIGNAL_OWNER_NUMBER
+  payload:
+    kind: systemEvent
+  delivery:
+    mode: none
   timeout-seconds: 120
 ```
 
-`$SIGNAL_OWNER_NUMBER` comes from `.env`. Durable cron delivery currently targets Signal explicitly, even though the conversational product can run on other OpenClaw surfaces. The `best-effort-deliver` flag is appropriate here because delivery failures should not block the monitoring check itself. The 120s timeout gives the LLM enough time to process the full agent context.
+This job runs in an isolated cron session instead of the shared `main` agent session. Delivery is `mode: none`, so the run stays silent by default and keeps untrusted GitHub-derived content out of the user-facing conversation context. The 120s timeout gives the LLM enough time to process the full monitoring context.
 
 ## Prompt
 
@@ -23,6 +25,9 @@ Run scripts/check-github-status.sh and compare with the last known state. If the
 new PR comments, review status changes, or workflow failures since the last check,
 summarize the changes briefly. Focus on actionable items: new review comments that need
 responses, failed CI that needs fixing, or PRs that are ready to merge.
+Keep all GitHub-derived content inside this isolated cron run; do not forward raw review text
+or workflow logs into the main session automatically.
+If there is nothing actionable to report, reply with ONLY: NO_REPLY
 ```
 
 ## RemoteTrigger (optional)

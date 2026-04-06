@@ -16,14 +16,14 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 | pipeline-monitor | `*/2 * * * *` | Run `scripts/check-github-status.sh`, report actionable changes |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`, handle dirty pulls |
 
-To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. All three jobs must include `to: $SIGNAL_OWNER_NUMBER` (from `.env`) and `timeout-seconds: 120`. `pipeline-monitor` and `pull-main` also use `best-effort-deliver: true`; `reminder-check` must not, because reminder statuses are only valid after confirmed delivery.
+To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. `reminder-check` and `pull-main` must inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main`; re-create it without `sessionTarget` (or with a dedicated non-main target) so GitHub-derived content never persists in the shared user session. Cron jobs should never deliver directly to Signal or any other channel on their own.
 
 ### 3. Notion Connectivity
 - Run `scripts/notion-cli.sh query-pending` with a short timeout
 - If it fails, note the error — don't retry aggressively
 
 ### 4. Environment Check
-- Verify `.env` exists and contains NOTION_API_KEY, NOTION_DATABASE_ID, and SIGNAL_OWNER_NUMBER
+- Verify `.env` exists and contains NOTION_API_KEY and NOTION_DATABASE_ID
 
 ### 5. Dirty Pull Recovery (safety net)
 - If `.pull-dirty` exists and is older than 20 minutes, the pull-main cron may have failed to handle it

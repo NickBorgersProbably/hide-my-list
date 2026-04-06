@@ -75,7 +75,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers. This is a platform constraint we work around rather than a feature we chose.
 
-**Current registration contract:** The cron definitions in `setup/cron/` now carry explicit delivery options. All three jobs use `to: $SIGNAL_OWNER_NUMBER` and `timeout-seconds: 120`; `pipeline-monitor` and `pull-main` also use `best-effort-deliver: true`, while `reminder-check` intentionally does not because reminder state changes must reflect confirmed delivery.
+**Current registration contract:** `reminder-check` and `pull-main` target the shared `main` session with `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main` so untrusted GitHub content does not persist in the user-facing session. The cron prompts should end with an explicit `NO_REPLY` instruction so routine checks stay silent unless there is something actionable.
 
 **RemoteTrigger status:** Baseline operation does not require `RemoteTrigger` (API-triggered agent sessions); the cron-based pipeline monitor handles the common case. The repo still documents `RemoteTrigger` as an optional fast-path for on-demand GitHub notifications in [`setup/cron/pipeline-monitor.md`](../setup/cron/pipeline-monitor.md), so contributors should treat it as a supported optional integration rather than a removed feature.
 
@@ -101,7 +101,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations can still come from any configured surface, but the current durable cron contract assumes Signal-backed outbound delivery via `SIGNAL_OWNER_NUMBER`.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations and cron-triggered work both flow through the same main-agent routing path, so reminders and operational notices keep hide-my-list's voice and stay silent when there is nothing useful to say.
 
 ## Model Routing (LiteLLM Proxy)
 
