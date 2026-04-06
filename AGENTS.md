@@ -159,7 +159,7 @@ Log significant interactions, preference learning, and any issues.
 
 PRs are reviewed by a multi-agent Codex pipeline:
 1. Design Review — validates intent fulfillment and design quality, and runs a docs-as-spec consistency check whenever spec-critical files change
-2. Security & Infrastructure Review — script safety, credential handling, workflow permissions
+2. Security & Infrastructure Review — script safety, credential handling, workflow permissions, and GitHub Actions/runtime correctness for CI orchestration changes
 3. Psych Research Review — validates against ADHD clinical research
 4. Prompt Engineering Review — validates prompt clarity, constraints, and cross-prompt consistency
 5. Documentation Consistency Review — checks docs for contradictions, stale references, and cross-doc consistency
