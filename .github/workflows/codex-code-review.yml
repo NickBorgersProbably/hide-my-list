@@ -2154,35 +2154,37 @@ jobs:
 
             **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then report GO.
 
-            **ISSUE GAP DETECTION:**
-            If the PR links to an issue but does not fully solve it (reviewers flagged gaps between
-            intent and delivery, scope mismatch, or partial implementation), include a
-            \`### Follow-Up Issue\` section in your comment with:
-            - **Title:** A concise title for the remaining work
-            - **Body:** What the PR accomplished, what remains unsolved, and specific gaps identified by reviewers.
-            Reference the original issue and this PR.
+            **STRUCTURED OUTPUT:**
+            Before posting your PR comment, write these files relative to the repo root:
+            - \`.git/merge-decision-comment.md\` with exactly the PR comment body you will post
+            - \`.git/merge-decision.json\` with a valid JSON object containing:
+              - \`decision\`: exactly \`\"GO\"\` or \`\"NO-GO\"\`
+              - \`follow_up_issue\`: \`null\` when no follow-up is needed, otherwise an object with
+                non-empty string fields \`title\` and \`body\`
 
-            This applies to both GO and NO-GO decisions. A PR can be GO (the code it ships is correct)
-            while still leaving part of the original issue unsolved.
+            If the PR links to an issue but does not fully solve it (reviewers flagged gaps between
+            intent and delivery, scope mismatch, or partial implementation), set
+            \`follow_up_issue\` in \`.git/merge-decision.json\` and also append this section to the
+            PR comment body:
+            \`### Follow-Up Issue\`
+            \`**Title:** ...\`
+            \`**Body:**\`
+            \`...\`
+            Reference the original linked issue and PR #${PR_NUMBER} in that follow-up body.
+            Do not include a placeholder follow-up section when no follow-up is needed.
 
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
             Post exactly ONE comment:
-            gh pr comment ${PR_NUMBER} --body '## Merge Decision
+            gh pr comment ${PR_NUMBER} --body-file .git/merge-decision-comment.md
+
+            The PR comment should have this structure:
+            ## Merge Decision
 
             **Decision: [GO | NO-GO]**
-
             [If GO: \"Automated review gate passed. Merge may proceed once any separate branch protection requirements are satisfied.\"]
             [If NO-GO: List specific blockers that must be resolved.]
-
-            [If you made fixes: \"Applied fixes: [brief description]\"]
-
-            ### Follow-Up Issue
-            [Only include this section if the PR does not fully solve the linked issue.]
-            **Title:** [concise title for remaining work]
-            **Body:**
-            [What this PR accomplished vs. what the original issue asked for.
-            Specific gaps flagged by reviewers. Reference #ISSUE and PR #${PR_NUMBER}.]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
+            [If you made fixes: \"Applied fixes: [brief description]\"]" < /dev/null 2>&1 | tee .git/merge-decision-output.jsonl
 
       - name: Log out of GHCR
         if: always() && steps.setup.outputs.verified == 'true'
@@ -2194,104 +2196,105 @@ jobs:
         continue-on-error: true
         with:
           name: merge-decision-output
-          path: /tmp/merge-decision-output.jsonl
+          path: |
+            ${{ env.PR_WORKSPACE_PATH }}/.git/merge-decision-output.jsonl
+            ${{ env.PR_WORKSPACE_PATH }}/.git/merge-decision-comment.md
+            ${{ env.PR_WORKSPACE_PATH }}/.git/merge-decision.json
           retention-days: 7
 
-      - name: Parse merge decision from PR comments
+      - name: Parse merge decision payload
         id: parse-decision
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
+          MERGE_DECISION_PATH="${{ env.PR_WORKSPACE_PATH }}/.git/merge-decision.json"
+
           if [ "${{ steps.setup.outputs.verified }}" != "true" ]; then
             echo "Reviewer setup could not verify PR Tests for the current head - defaulting to NO-GO"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Fetch the most recent "Merge Decision" comment from the PR
-          COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --jq '[.[] | select(.body | contains("## Merge Decision"))] | last')
-
-          if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
-            echo "No merge decision comment found - defaulting to NO-GO"
+          if [ ! -f "$MERGE_DECISION_PATH" ]; then
+            echo "Merge decision payload not found at $MERGE_DECISION_PATH - defaulting to NO-GO"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          COMMENT_BODY=$(echo "$COMMENTS" | jq -r '.body')
-
-          # Check for GO or NO-GO in the decision line
-          if echo "$COMMENT_BODY" | grep -qE "Decision:.*GO" && ! echo "$COMMENT_BODY" | grep -qE "Decision:.*NO-GO"; then
-            echo "Merge decision: GO"
-            echo "decision=GO" >> $GITHUB_OUTPUT
-          elif echo "$COMMENT_BODY" | grep -qE "NO-GO"; then
-            echo "Merge decision: NO-GO"
+          if ! jq empty "$MERGE_DECISION_PATH" >/dev/null 2>&1; then
+            echo "Merge decision payload is not valid JSON - defaulting to NO-GO"
+            cat "$MERGE_DECISION_PATH"
             echo "decision=NO-GO" >> $GITHUB_OUTPUT
-          else
-            echo "Could not parse decision from comment - defaulting to NO-GO"
-            echo "Comment body:"
-            echo "$COMMENT_BODY"
-            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            exit 0
           fi
+
+          DECISION=$(jq -r '.decision // empty' "$MERGE_DECISION_PATH")
+
+          case "$DECISION" in
+          GO|NO-GO)
+            echo "Merge decision: $DECISION"
+            echo "decision=$DECISION" >> $GITHUB_OUTPUT
+            ;;
+          *)
+            echo "Could not parse decision from payload - defaulting to NO-GO"
+            cat "$MERGE_DECISION_PATH"
+            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            ;;
+          esac
 
       - name: Create follow-up issue for unresolved gaps
         if: always() && steps.parse-decision.outputs.decision != '' && needs.get-context.outputs.issue_number != ''
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
           ISSUE_NUMBER: ${{ needs.get-context.outputs.issue_number }}
         run: |
-          # Fetch the merge decision comment
-          COMMENT_BODY=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --jq '[.[] | select(.body | contains("## Merge Decision"))] | last | .body // empty')
+          MERGE_DECISION_PATH="${{ env.PR_WORKSPACE_PATH }}/.git/merge-decision.json"
 
-          if [ -z "$COMMENT_BODY" ]; then
-            echo "No merge decision comment found - skipping follow-up issue creation"
+          if [ ! -f "$MERGE_DECISION_PATH" ]; then
+            echo "No merge decision payload found - skipping follow-up issue creation"
             exit 0
           fi
 
-          # Check if the comment contains a Follow-Up Issue section
-          if ! echo "$COMMENT_BODY" | grep -q "### Follow-Up Issue"; then
-            echo "No follow-up issue section found - PR fully addresses the linked issue"
+          if ! jq empty "$MERGE_DECISION_PATH" >/dev/null 2>&1; then
+            echo "Merge decision payload is not valid JSON - skipping follow-up issue creation"
+            cat "$MERGE_DECISION_PATH"
             exit 0
           fi
 
-          # Extract the title and body from the Follow-Up Issue section
-          FOLLOWUP_SECTION=$(echo "$COMMENT_BODY" | sed -n '/### Follow-Up Issue/,$ p')
+          FOLLOWUP_TITLE=$(jq -r '.follow_up_issue.title // empty' "$MERGE_DECISION_PATH")
+          FOLLOWUP_BODY=$(jq -r '.follow_up_issue.body // empty' "$MERGE_DECISION_PATH")
 
-          FOLLOWUP_TITLE=$(echo "$FOLLOWUP_SECTION" | grep '^\*\*Title:\*\*' | sed 's/\*\*Title:\*\* *//')
-
-          if [ -z "$FOLLOWUP_TITLE" ]; then
-            echo "Could not parse follow-up issue title - skipping"
+          if [ -z "$FOLLOWUP_TITLE" ] && [ -z "$FOLLOWUP_BODY" ]; then
+            echo "No follow-up issue payload found - PR fully addresses the linked issue"
             exit 0
           fi
 
-          FOLLOWUP_BODY=$(echo "$FOLLOWUP_SECTION" | sed -n '/^\*\*Body:\*\*/,$ p' | tail -n +2)
+          if [ -z "$FOLLOWUP_TITLE" ] || [ -z "$FOLLOWUP_BODY" ]; then
+            echo "Follow-up issue payload is incomplete - skipping"
+            exit 0
+          fi
 
           MARKER="<!-- codex-follow-up-issue:pr-${PR_NUMBER}:issue-${ISSUE_NUMBER} -->"
 
-          find_matching_issue() {
-            local issue_state="$1"
-            gh issue list \
-              --repo ${{ github.repository }} \
-              --state "$issue_state" \
-              --limit 200 \
-              --json number,body,updatedAt |
-              jq -r \
-                --arg marker "$MARKER" \
-                '[.[] | select((.body // "") | contains($marker))]
-                | sort_by(.updatedAt)
-                | last
-                | .number // empty'
-          }
+          MATCHING_ISSUE=$(gh api --paginate \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${{ github.repository }}/issues?state=all&per_page=100" |
+            jq -sr -r \
+              --arg marker "$MARKER" '
+              map(.[])
+              | map(select(has("pull_request") | not))
+              | map(select((.body // "") | contains($marker)))
+              | sort_by(.updated_at)
+              | last
+              | if . == null then empty else "\(.number)\t\(.state)" end')
 
-          OPEN_FOLLOWUP_ISSUE=$(find_matching_issue open)
-          CLOSED_FOLLOWUP_ISSUE=""
+          MATCHING_ISSUE_NUMBER=""
+          MATCHING_ISSUE_STATE=""
 
-          if [ -z "$OPEN_FOLLOWUP_ISSUE" ]; then
-            CLOSED_FOLLOWUP_ISSUE=$(find_matching_issue closed)
+          if [ -n "$MATCHING_ISSUE" ]; then
+            MATCHING_ISSUE_NUMBER=$(printf '%s' "$MATCHING_ISSUE" | cut -f1)
+            MATCHING_ISSUE_STATE=$(printf '%s' "$MATCHING_ISSUE" | cut -f2)
           fi
 
           ISSUE_BODY="${FOLLOWUP_BODY}
@@ -2301,23 +2304,23 @@ jobs:
 
           ${MARKER}"
 
-          if [ -n "$OPEN_FOLLOWUP_ISSUE" ]; then
-            gh issue edit "$OPEN_FOLLOWUP_ISSUE" \
+          if [ "$MATCHING_ISSUE_STATE" = "open" ]; then
+            gh issue edit "$MATCHING_ISSUE_NUMBER" \
               --repo ${{ github.repository }} \
               --title "$FOLLOWUP_TITLE" \
               --body "$ISSUE_BODY"
-            echo "Reused existing open follow-up issue #${OPEN_FOLLOWUP_ISSUE} for PR #${PR_NUMBER}"
+            echo "Reused existing open follow-up issue #${MATCHING_ISSUE_NUMBER} for PR #${PR_NUMBER}"
             exit 0
           fi
 
-          if [ -n "$CLOSED_FOLLOWUP_ISSUE" ]; then
-            gh issue reopen "$CLOSED_FOLLOWUP_ISSUE" \
+          if [ "$MATCHING_ISSUE_STATE" = "closed" ]; then
+            gh issue reopen "$MATCHING_ISSUE_NUMBER" \
               --repo ${{ github.repository }}
-            gh issue edit "$CLOSED_FOLLOWUP_ISSUE" \
+            gh issue edit "$MATCHING_ISSUE_NUMBER" \
               --repo ${{ github.repository }} \
               --title "$FOLLOWUP_TITLE" \
               --body "$ISSUE_BODY"
-            echo "Reopened follow-up issue #${CLOSED_FOLLOWUP_ISSUE} for PR #${PR_NUMBER}"
+            echo "Reopened follow-up issue #${MATCHING_ISSUE_NUMBER} for PR #${PR_NUMBER}"
             exit 0
           fi
 
@@ -2330,7 +2333,7 @@ jobs:
 
       - name: Trigger follow-up validation after merge-decision push
         id: trigger-follow-up
-        if: success() && steps.setup.outputs.verified == 'true'
+        if: always() && steps.setup.outputs.verified == 'true'
         working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
