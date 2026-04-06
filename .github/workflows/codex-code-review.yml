@@ -349,32 +349,27 @@ jobs:
           echo "Current fix attempt count: $COUNT"
           echo "count=$COUNT" >> $GITHUB_OUTPUT
 
-      - name: Count review cycles from PR comments
+      - name: Resolve review cycle from trusted workflow input
         if: steps.get-pr.outputs.pr_number != ''
         id: count-review-cycles
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
-
-          # Count "## Merge Decision" comments as ground truth for completed cycles
-          COMMENT_COUNT=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --paginate \
-            --slurp \
-            --jq 'flatten | map(select(.body | contains("## Merge Decision"))) | length')
-
-          # Also check workflow_dispatch input (propagated by follow-up triggers)
+          # Review-cycle limits are meant to cap automated follow-up loops only.
+          # Use the workflow_dispatch input propagated by trigger-follow-up rather
+          # than free-form PR comments, which are both spoofable and broader than
+          # the loop we are trying to constrain.
           INPUT_CYCLE="${{ github.event_name == 'workflow_dispatch' && inputs.review_cycle || '0' }}"
 
-          # Use the higher of the two (comment count is ground truth,
-          # input is fast path for the just-triggered cycle)
-          if [ "$INPUT_CYCLE" -gt "$COMMENT_COUNT" ] 2>/dev/null; then
-            CYCLE="$INPUT_CYCLE"
-          else
-            CYCLE="$COMMENT_COUNT"
-          fi
+          case "$INPUT_CYCLE" in
+            ''|*[!0-9]*)
+              echo "::warning::Invalid review_cycle input '$INPUT_CYCLE'; defaulting to 0"
+              CYCLE=0
+              ;;
+            *)
+              CYCLE="$INPUT_CYCLE"
+              ;;
+          esac
 
-          echo "Review cycle: $CYCLE (comments: $COMMENT_COUNT, input: $INPUT_CYCLE)"
+          echo "Review cycle: $CYCLE"
           echo "cycle=$CYCLE" >> $GITHUB_OUTPUT
 
       - name: Check if reviews already passed (or reset on /review)
@@ -2156,9 +2151,13 @@ jobs:
             exit 0
           fi
 
-          # Fetch the most recent "Merge Decision" comment from the PR
+          TRUSTED_LOGIN=$(gh api user --jq '.login')
+
+          # Fetch the most recent trusted "Merge Decision" comment from the PR
           COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --jq '[.[] | select(.body | contains("## Merge Decision"))] | last')
+            --paginate \
+            --slurp \
+            --jq 'flatten | map(select(.user.login == "'"$TRUSTED_LOGIN"'" and (.body | contains("## Merge Decision")))) | last')
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
             echo "No merge decision comment found - defaulting to NO-GO"
@@ -2333,7 +2332,8 @@ jobs:
           always() &&
           steps.setup.outputs.verified == 'true' &&
           steps.parse-decision.outputs.decision == 'NO-GO' &&
-          steps.trigger-follow-up.outputs.cycle_capped == 'true'
+          steps.trigger-follow-up.outputs.cycle_capped == 'true' &&
+          steps.trigger-follow-up.outputs.head_changed == 'false'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
@@ -2342,23 +2342,25 @@ jobs:
         run: |
           PR_TITLE=$(gh pr view "$PR_NUMBER" --json title --jq '.title' --repo ${{ github.repository }})
           PR_URL="https://github.com/${{ github.repository }}/pull/${PR_NUMBER}"
+          TRUSTED_LOGIN=$(gh api user --jq '.login')
 
           ISSUE_URL=""
           if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "null" ]; then
             ISSUE_URL="https://github.com/${{ github.repository }}/issues/${ISSUE_NUMBER}"
           fi
 
-          # Gather all review comments (Design, Security, Prompt, Docs, Merge Decision)
-          REVIEW_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+          # Preserve only trusted metadata/links, not raw GitHub comment bodies.
+          REVIEW_LINKS=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
             --paginate \
-            --jq '[.[] | select(.body | test("## (Design Review|Security|Prompt Engineering|Documentation Consistency|Merge Decision)"))] | .[] | "### \(.created_at)\n\(.body)\n---"' \
-            | head -c 50000 || echo "Could not retrieve review comments")
-
-          # Extract scope failure reasons specifically
-          SCOPE_FAILURES=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            --paginate \
-            --jq '[.[] | select(.body | contains("Scope check: FAIL"))] | .[].body' \
-            | head -c 5000 || echo "No specific scope failures found")
+            --slurp \
+            --jq 'flatten
+              | map(select(
+                  .user.login == "'"$TRUSTED_LOGIN"'" and
+                  (.body | test("^## (Design Review|Security & Infrastructure Review|Psychological Research Evidence Review|Documentation Consistency Review|Prompt Engineering Review|Merge Decision)$"; "m"))
+                ))
+              | .[]
+              | "- [\(.created_at) review summary](\(.html_url))"' \
+            | head -c 10000 || echo "")
 
           # Build the successor issue title
           SUCCESSOR_TITLE="Reattempt: ${ISSUE_TITLE:-$PR_TITLE}"
@@ -2376,23 +2378,19 @@ jobs:
             fi
             echo "- Failed PR: ${PR_URL}"
             echo ""
-            echo "### Scope failures identified"
-            echo '```'
-            echo "${SCOPE_FAILURES}"
-            echo '```'
+            echo "### Review artifacts"
+            echo "- PR conversation: ${PR_URL}"
+            echo "- Inline review comments and diff: ${PR_URL}/files"
+            if [ -n "$REVIEW_LINKS" ]; then
+              echo "- Trusted review summary comments:"
+              echo "${REVIEW_LINKS}"
+            fi
             echo ""
             echo "### Recommended next steps"
-            echo "- Review the scope failures above to understand what the PR was trying to do vs what it delivered"
+            echo "- Review the linked summary and inline comments to understand the blocking issues"
             echo "- Consider splitting the work into smaller, independently-mergeable PRs"
             echo "- Address the specific blocking concerns identified by reviewers before starting a new implementation"
             echo "- If the original issue needs rescoping, update it before opening a new PR"
-            echo ""
-            echo "### Full review history"
-            echo "<details>"
-            echo "<summary>Click to expand all review comments</summary>"
-            echo ""
-            echo "${REVIEW_COMMENTS}"
-            echo "</details>"
           } > "$BODY_FILE"
 
           NEW_ISSUE_URL=$(gh issue create \
