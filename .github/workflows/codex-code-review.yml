@@ -1911,6 +1911,7 @@ jobs:
     outputs:
       decision: ${{ steps.parse-decision.outputs.decision }}
       head_changed: ${{ steps.trigger-follow-up.outputs.head_changed }}
+      follow_up_triggered: ${{ steps.trigger-follow-up.outputs.follow_up_triggered }}
     permissions:
       contents: write
       pull-requests: write
@@ -2146,6 +2147,7 @@ jobs:
           if [ "$CURRENT_HEAD" = "$REVIEWED_SHA" ]; then
             echo "Merge decision did not push a new commit"
             echo "head_changed=false" >> "$GITHUB_OUTPUT"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -2153,12 +2155,48 @@ jobs:
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
           echo "Triggering PR Tests workflow..."
 
+          DISPATCHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           gh workflow run "PR Tests" --ref "${{ needs.get-context.outputs.head_ref }}" --repo ${{ github.repository }}
-          echo "PR Tests workflow triggered, waiting for it to start..."
-          sleep 10
+          echo "PR Tests workflow triggered, waiting for a matching run on $CURRENT_HEAD..."
 
-          RUN_ID=$(gh run list --workflow="pr-tests.yml" --branch="${{ needs.get-context.outputs.head_ref }}" --limit=1 --json databaseId --jq '.[0].databaseId')
-          echo "Found PR Tests run: $RUN_ID"
+          RUN_ID=""
+          RUN_LOOKUP_WAIT=120
+          RUN_LOOKUP_ELAPSED=0
+          RUN_LOOKUP_INTERVAL=10
+
+          while [ "$RUN_LOOKUP_ELAPSED" -lt "$RUN_LOOKUP_WAIT" ]; do
+            RUN_ID=$(gh run list \
+              --workflow="pr-tests.yml" \
+              --branch="${{ needs.get-context.outputs.head_ref }}" \
+              --limit=20 \
+              --json databaseId,headSha,event,createdAt \
+              --jq '
+                map(
+                  select(
+                    .headSha == "'"$CURRENT_HEAD"'" and
+                    .event == "workflow_dispatch" and
+                    .createdAt >= "'"$DISPATCHED_AT"'"
+                  )
+                )
+                | sort_by(.createdAt)
+                | last
+                | .databaseId // empty
+              ')
+
+            if [ -n "$RUN_ID" ]; then
+              echo "Found matching PR Tests run: $RUN_ID"
+              break
+            fi
+
+            echo "Waiting for matching PR Tests run... (waited ${RUN_LOOKUP_ELAPSED}s)"
+            sleep "$RUN_LOOKUP_INTERVAL"
+            RUN_LOOKUP_ELAPSED=$((RUN_LOOKUP_ELAPSED + RUN_LOOKUP_INTERVAL))
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "Failed to find a matching PR Tests run for head $CURRENT_HEAD after dispatch"
+            exit 1
+          fi
 
           MAX_WAIT=900
           ELAPSED=0
@@ -2178,7 +2216,7 @@ jobs:
 
           if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
             echo "Timed out waiting for PR Tests - follow-up review cycle was not triggered automatically"
-            exit 0
+            exit 1
           fi
 
           if [ "$CONCLUSION" = "success" ]; then
@@ -2214,6 +2252,8 @@ jobs:
               -f reviewed_sha="$CURRENT_HEAD"
             echo "Triggered follow-up Codex Code Review to handle failing tests on updated head"
           fi
+
+          echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
 
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
@@ -2339,7 +2379,7 @@ jobs:
               failed=true
             fi
 
-            if [ "${{ needs.merge-decision.outputs.head_changed }}" = "true" ]; then
+            if [ "${{ needs.merge-decision.outputs.follow_up_triggered }}" = "true" ]; then
               echo "Merge decision pushed a new head commit - waiting for follow-up validation cycle"
               set_status_output "pending" "Waiting for PR Tests after merge-decision updates"
               exit 0
