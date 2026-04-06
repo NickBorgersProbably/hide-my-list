@@ -76,20 +76,6 @@ runs:
           docker pull "${{ inputs.image }}"
         fi
 
-        # Ensure SSH_AUTH_SOCK points to a valid socket so that
-        # devcontainer mounts using ${localEnv:SSH_AUTH_SOCK} don't
-        # produce an empty bind-mount source (which Docker rejects).
-        # CI runners typically have no SSH agent; create a dummy socket.
-        # Upstream fix: https://github.com/devcontainers/cli/issues/479
-        if [ -z "${SSH_AUTH_SOCK:-}" ] || [ ! -S "${SSH_AUTH_SOCK:-}" ]; then
-          # Place in workspace so it's visible to the Docker daemon
-          # (runner may be containerized with a separate /tmp).
-          export SSH_AUTH_SOCK="$WORKSPACE/.git/ssh-agent-dummy.sock"
-          rm -f "$SSH_AUTH_SOCK"
-          python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('$SSH_AUTH_SOCK')"
-          echo "Created dummy SSH agent socket at $SSH_AUTH_SOCK"
-        fi
-
         python3 \
           - \
           "$WORKSPACE/.devcontainer/devcontainer.json" \
@@ -104,6 +90,30 @@ runs:
 
         config.pop("build", None)
         config.pop("initializeCommand", None)
+
+        mounts = config.get("mounts", [])
+        filtered_mounts = []
+        for mount in mounts:
+            if isinstance(mount, str):
+                if "SSH_AUTH_SOCK" in mount or "/run/ssh-agent.sock" in mount:
+                    continue
+            elif isinstance(mount, dict):
+                source = str(mount.get("source", ""))
+                target = str(mount.get("target", ""))
+                if "SSH_AUTH_SOCK" in source or target == "/run/ssh-agent.sock":
+                    continue
+            filtered_mounts.append(mount)
+
+        if filtered_mounts:
+            config["mounts"] = filtered_mounts
+        else:
+            config.pop("mounts", None)
+
+        remote_env = config.get("remoteEnv", {})
+        remote_env.pop("SSH_AUTH_SOCK", None)
+        if not remote_env:
+            config.pop("remoteEnv", None)
+
         config["image"] = image
 
         with open(target_path, "w", encoding="utf-8") as handle:
