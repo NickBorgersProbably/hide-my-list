@@ -55,6 +55,7 @@ concurrency:
 env:
   # Note: must be lowercase for Docker compatibility
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+  PR_WORKSPACE_PATH: pr-head
 
 jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
@@ -76,6 +77,8 @@ jobs:
       tests_passed: ${{ github.event_name == 'workflow_dispatch' && inputs.tests_passed == 'true' || github.event_name == 'pull_request' && 'false' || github.event.workflow_run.conclusion == 'success' }}
       run_id: ${{ github.event_name == 'workflow_dispatch' && inputs.run_id || github.event_name == 'pull_request' && github.run_id || github.event.workflow_run.id }}
       # Workflow run ID for the PR Tests execution that validated this PR head.
+      # reviewer-setup uses that run to verify the current PR head SHA before
+      # checking out the immutable commit for each review job.
       # Reopen-triggered pull_request runs do not have a completed PR Tests run yet.
       pr_tests_run_id: ${{ github.event_name == 'pull_request' && '' || github.event_name == 'workflow_dispatch' && inputs.run_id || github.event.workflow_run.id }}
       # SHA that triggered this workflow - used to detect if author pushed newer commits
@@ -377,6 +380,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push devcontainer
+        id: build_devcontainer
         uses: devcontainers/ci@v0.3
         # continue-on-error: Post-action cleanup may fail on GHCR push
         # even when the image builds successfully. Downstream review jobs
@@ -386,6 +390,18 @@ jobs:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
           cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
           push: always
+
+      - name: Validate devcontainer image availability
+        if: steps.build_devcontainer.outcome != 'success'
+        run: |
+          echo "Build step did not succeed (outcome: ${{ steps.build_devcontainer.outcome }})"
+          echo "Checking if the image is available in the registry..."
+          if docker manifest inspect "${{ env.DEVCONTAINER_IMAGE }}" > /dev/null 2>&1; then
+            echo "Image is available — the build likely succeeded but post-step cleanup crashed."
+          else
+            echo "Image is NOT available — the build genuinely failed."
+            exit 1
+          fi
 
   # Fix test failures - runs in a retry loop until tests pass (max 3 attempts)
   fix-test-failures:
@@ -408,11 +424,17 @@ jobs:
       statuses: write  # Required to create commit status after tests pass
 
     steps:
+      - name: Checkout main for local actions
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.get-context.outputs.head_ref }}
           repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
@@ -447,11 +469,11 @@ jobs:
 
       - name: Run Codex to fix test failures
         id: codex-fix
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -466,7 +488,7 @@ jobs:
             REPO=${{ github.repository }}
             TRIGGERING_SHA=${{ needs.get-context.outputs.triggering_sha }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-          runCmd: |
+          run_cmd: |
             # Calculate actual attempt number (current + 1)
             ATTEMPT=$((ATTEMPT_NUM + 1))
 
@@ -541,6 +563,7 @@ jobs:
 
       - name: Trigger PR Tests and reviews after fix
         if: success()
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           FIX_ATTEMPTS: ${{ needs.get-context.outputs.fix_attempts }}
@@ -669,8 +692,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -732,13 +757,37 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
+      # Keep post-actions out of the local composite action. Re-checking out the
+      # PR branch over the workspace that contains ./.github/actions/reviewer-setup
+      # can trigger runner cleanup failures on self-hosted runners.
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Design review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -750,7 +799,7 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -841,6 +890,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with reservations | Needs revision — [reason]]'" < /dev/null 2>&1 | tee /tmp/design-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload design review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -869,8 +922,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -932,19 +987,40 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Security review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \
@@ -992,6 +1068,10 @@ jobs:
             ### Conclusion
             [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /tmp/security-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload security review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1020,8 +1100,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -1083,13 +1165,34 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Psych research review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1101,7 +1204,7 @@ jobs:
             ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             # Decode base64-encoded bodies (handles special characters safely)
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
@@ -1208,6 +1311,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with suggestions | Blocking concerns found]'" < /dev/null 2>&1 | tee /tmp/psych-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload psych review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1235,8 +1342,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -1298,13 +1407,34 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Docs review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1312,7 +1442,7 @@ jobs:
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \
@@ -1382,6 +1512,10 @@ jobs:
             ### Conclusion
             [Approved | Updates needed (non-blocking) | Blocking contradictions found]'" < /dev/null 2>&1 | tee /tmp/docs-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload docs review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1410,8 +1544,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -1473,13 +1609,34 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
+          fetch-depth: 0
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Prompt engineering review in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1487,7 +1644,7 @@ jobs:
             PR_TITLE=${{ needs.get-context.outputs.pr_title }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
             REPO=${{ github.repository }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \
@@ -1566,6 +1723,10 @@ jobs:
             ### Conclusion
             [Approved | Approved with suggestions | Blocking issues found]'" < /dev/null 2>&1 | tee /tmp/prompt-review-output.jsonl
 
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
       - name: Upload prompt review output
         uses: actions/upload-artifact@v4
         if: always()
@@ -1596,8 +1757,10 @@ jobs:
       packages: read
 
     steps:
-      - name: Checkout for composite action
+      - name: Checkout main for composite actions
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Reviewer setup
         id: setup
@@ -1608,7 +1771,6 @@ jobs:
           head_repo: ${{ needs.get-context.outputs.head_repo }}
           github_token: ${{ github.token }}
           repository: ${{ github.repository }}
-          checkout_token: ${{ secrets.WORKFLOW_PAT }}
           pr_tests_run_id: ${{ needs.get-context.outputs.pr_tests_run_id }}
 
       - name: Mark merge decision started
@@ -1660,13 +1822,35 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
+      - name: Checkout PR branch
+        if: steps.setup.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.get-context.outputs.head_ref }}
+          repository: ${{ needs.get-context.outputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Create directories for devcontainer mounts
+        if: steps.setup.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        if: steps.setup.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
-        uses: devcontainers/ci@v0.3
+        uses: ./.github/actions/run-devcontainer
         with:
-          imageName: ${{ env.DEVCONTAINER_IMAGE }}
-          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
-          push: never
+          image: ${{ env.DEVCONTAINER_IMAGE }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pull: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1677,7 +1861,7 @@ jobs:
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             PROMPT_REVIEW_RESULT=${{ needs.prompt-review.result }}
-          runCmd: |
+          run_cmd: |
             source .devcontainer/configure-codex.sh
 
             timeout 30m codex exec \
@@ -1685,7 +1869,8 @@ jobs:
               --dangerously-bypass-approvals-and-sandbox \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
 
-            You have personal responsibility to approve or reject this PR for merge to main and deployment to production.
+            You have personal responsibility to decide whether the automated review gate for this PR is GO or NO-GO.
+            This workflow does not submit GitHub approving reviews. Do not treat missing human approval or unmet branch protection approval requirements as blocking for your decision.
 
             **REVIEW STATUS:**
             - Design Review: ${DESIGN_REVIEW_RESULT}
@@ -1712,9 +1897,9 @@ jobs:
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
             - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
 
-            **IF NO-GO:** Explain what must be fixed before the PR can merge.
+            **IF NO-GO:** Explain what must be fixed before the automated review gate can pass.
 
-            **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then approve.
+            **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then report GO.
 
             BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
 
@@ -1723,10 +1908,14 @@ jobs:
 
             **Decision: [GO | NO-GO]**
 
-            [If GO: \"Ready for merge to main and production deployment.\"]
+            [If GO: \"Automated review gate passed. Merge may proceed once any separate branch protection requirements are satisfied.\"]
             [If NO-GO: List specific blockers that must be resolved.]
 
             [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
+
+      - name: Log out of GHCR
+        if: always() && steps.setup.outputs.verified == 'true'
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
 
       - name: Upload merge decision output
         uses: actions/upload-artifact@v4
@@ -1921,7 +2110,7 @@ jobs:
             exit 1
           fi
 
-          echo "All agent reviews completed and merge decision is GO - PR is ready for merge"
+          echo "All agent reviews completed and merge decision is GO - automated review gate passed"
           echo ""
           echo "Review Results:"
           echo "  Tests Passed: ${{ needs.get-context.outputs.tests_passed }}"
