@@ -238,7 +238,7 @@ sequenceDiagram
 | Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
-| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); cron-triggered work routes back through the same main-agent delivery path |
+| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); trusted reminder/sync cron work reuses the main-agent delivery path while pipeline monitoring stays isolated |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 5 min, heartbeat re-registers expired jobs and patches spec drift |

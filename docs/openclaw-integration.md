@@ -101,7 +101,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations and cron-triggered work both flow through the same main-agent routing path, so reminders and operational notices keep hide-my-list's voice and stay silent when there is nothing useful to say.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations always use the normal main-agent routing path, and trusted reminder/sync cron work re-enters that same path so reminders and operational notices keep hide-my-list's voice. `pipeline-monitor` remains isolated from the user-facing session.
 
 ## Model Routing (LiteLLM Proxy)
 
