@@ -12,10 +12,26 @@
 # automatically once the agent updates Notion.
 #
 # Designed to run from the durable reminder-check cron job (15-minute cadence).
-# The script writes a handoff file, and the agent session that ran it reads that
-# file to deliver reminders through the active messaging surface.
-# Heartbeat can also recover a stranded handoff file if a prior delivery did
-# not complete.
+# The script queries Notion for reminder tasks whose Remind At time has arrived
+# and writes their details to a repo-root handoff file (default:
+# `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). This
+# script is query-only and does NOT deliver reminders or update Notion statuses
+# itself.
+#
+# Reminder delivery is handled by the delivering agent sessions:
+#   - Opportunistic main-session startup check (AGENTS.md step 5): when a user
+#     interacts, the main session checks for the handoff file and delivers any
+#     pending reminders immediately.
+#   - HEARTBEAT.md Check 1 (every 60 minutes): the heartbeat session reads
+#     stranded handoff files and delivers reminders as the idle-session backstop.
+#
+# The delivering session (heartbeat or main session) is responsible for:
+#   - Reading the handoff file payload and delivering each reminder to the user
+#   - Running `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to
+#     atomically set Notion `Status` and `Reminder Status` after confirmed
+#     delivery
+#   - Deleting the handoff file only after successful delivery and Notion
+#     updates (if delivery fails, leave the handoff file in place for retry)
 #
 # SECURITY PROPERTIES:
 #   - Loads only REMINDER_SIGNAL_FILE into this shell; Notion creds stay scoped
