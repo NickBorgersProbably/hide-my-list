@@ -932,7 +932,7 @@ flowchart TD
     Parse --> Save[Save to Notion with is_reminder=true]
 
     Save --> Wait[Task waits in Notion]
-    Wait --> Cron[reminder-check cron runs every 5 min]
+    Wait --> Cron[reminder-check cron runs every 15 min]
     Cron --> Due{remind_at <= now?}
     Due -->|No| Wait
     Due -->|Yes| Signal[check-reminders.sh writes .reminder-signal]

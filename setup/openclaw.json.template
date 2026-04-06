@@ -55,7 +55,7 @@
         "mode": "safeguard"
       },
       "heartbeat": {
-        "every": "30m",
+        "every": "60m",
         "model": "litellm/claude-sonnet-4-6"
       },
       "maxConcurrent": 4,

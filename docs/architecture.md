@@ -19,8 +19,8 @@ flowchart TB
     end
 
     subgraph Scheduling["OpenClaw Scheduling"]
-        Heartbeat[Heartbeat<br/>every 30m]
-        ReminderCron[Reminder Cron<br/>every 5m]
+        Heartbeat[Heartbeat<br/>every 60m]
+        ReminderCron[Reminder Cron<br/>every 15m]
         PullMainCron[Pull-Main Cron<br/>every 10m]
     end
 
@@ -197,7 +197,7 @@ The OpenClaw agent model is stateless between messages — there is no persisten
 
 ```mermaid
 sequenceDiagram
-    participant Cron as OpenClaw Cron<br/>(every 5 min)
+    participant Cron as OpenClaw Cron<br/>(every 15 min)
     participant Script as check-reminders.sh
     participant Notion as Notion API
     participant Agent as OpenClaw Agent
@@ -215,7 +215,7 @@ sequenceDiagram
 **How it works:**
 
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
-2. A durable cron job (`reminder-check`) runs every 5 minutes via OpenClaw's native scheduling.
+2. A durable cron job (`reminder-check`) runs every 15 minutes via OpenClaw's native scheduling.
 3. The cron job injects a `systemEvent` into the main agent session, which then runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
 4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent session reads that file, delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
 5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
@@ -225,7 +225,7 @@ sequenceDiagram
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
-**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 30 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or `best-effort-deliver`), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. `pull-main` also provides an immediate fast path: after a clean pull that advances `HEAD`, it diffs that invocation's before/after commits and reapplies any changed `setup/cron/` specs right away, while staying silent unless the run needs human attention. See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for the job definitions.
+**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 60 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or `best-effort-deliver`), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. `pull-main` also provides an immediate fast path: after a clean pull that advances `HEAD`, it diffs that invocation's before/after commits and reapplies any changed `setup/cron/` specs right away, while staying silent unless the run needs human attention. See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for the job definitions.
 
 ## Technology Choices
 
@@ -237,7 +237,7 @@ sequenceDiagram
 | Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); trusted reminder/sync cron work reuses the main-agent delivery path |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
-| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 5 min, heartbeat re-registers expired jobs and patches spec drift |
+| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Native cron every 15 min, heartbeat re-registers expired jobs and patches spec drift |
 | Workspace Sync | OpenClaw durable cron + pull-main.sh | Native cron every 10 min keeps the workspace current and recovers dirty pulls |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
