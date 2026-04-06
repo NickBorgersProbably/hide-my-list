@@ -18,6 +18,18 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 
 To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. All three jobs must include `to: $SIGNAL_OWNER_NUMBER` (from `.env`) and `timeout-seconds: 120`. `pipeline-monitor` and `pull-main` also use `best-effort-deliver: true`; `reminder-check` must not, because reminder statuses are only valid after confirmed delivery.
 
+### 2b. Cron Spec Drift Check
+For each registered cron job (`reminder-check`, `pull-main`, `pipeline-monitor`), compare the live job's `prompt`, `schedule`, `sessionTarget`, and delivery options against the canonical spec in `setup/cron/<name>.md`.
+
+To check: use CronList to inspect the live registrations, then read the corresponding spec file in `setup/cron/`.
+
+If any field differs from the spec, patch the live job to match with CronUpdate. Preserve the intended durable registration contract from the spec:
+- `reminder-check`: `schedule`, `prompt`, `to`, `timeout-seconds`; no `best-effort-deliver`
+- `pipeline-monitor`: `schedule`, `prompt`, `to`, `timeout-seconds`, `best-effort-deliver: true`
+- `pull-main`: `schedule`, `prompt`, `to`, `timeout-seconds`, `best-effort-deliver: true`
+
+If all jobs already match their specs, do not report anything. If any jobs were corrected, briefly note which ones were patched and what drift was fixed.
+
 ### 3. Notion Connectivity
 - Run `scripts/notion-cli.sh query-pending` with a short timeout
 - If it fails, note the error — don't retry aggressively

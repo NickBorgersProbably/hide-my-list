@@ -229,7 +229,7 @@ sequenceDiagram
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
-**Cron job expiry:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 30 min) verifies the cron job is registered and re-creates it if missing. See `setup/cron/reminder-check.md` for the job definition.
+**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 30 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. See `setup/cron/reminder-check.md` for the job definition.
 
 ## Technology Choices
 

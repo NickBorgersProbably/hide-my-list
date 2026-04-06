@@ -39,9 +39,9 @@ OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json
 
 Every 30 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks.
 
-**Our usage:** We use the heartbeat as a safety net for the cron system. Its primary job is to verify that durable cron jobs haven't expired and re-register them if they have. It also checks Notion connectivity and environment health.
+**Our usage:** We use the heartbeat as a safety net for the cron system. Its primary job is to verify that durable cron jobs still match the canonical specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. It also checks Notion connectivity and environment health.
 
-**What changed:** The heartbeat used to babysit bash daemons (checking PID files, restarting dead processes). With cron replacing daemons, it now just verifies cron registrations — a much cleaner responsibility.
+**What changed:** The heartbeat used to babysit bash daemons (checking PID files, restarting dead processes). With cron replacing daemons, it now verifies that durable cron registrations both exist and still match their specs — a much cleaner responsibility than process management.
 
 ## Managed Content Boundary
 
@@ -73,7 +73,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 - Reminder delivery still happens in agent context, but `scripts/check-reminders.sh` hands due reminders to the cron prompt through `.reminder-signal` instead of relying on a long-running daemon
 - Cron only fires when the REPL is idle, which is actually better for ADHD — it won't interrupt the user mid-task
 
-**The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers. This is a platform constraint we work around rather than a feature we chose.
+**The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes, failed re-application, or stale re-registration prompts. This is a platform constraint we work around rather than a feature we chose.
 
 **Current registration contract:** The cron definitions in `setup/cron/` now carry explicit delivery options. All three jobs use `to: $SIGNAL_OWNER_NUMBER` and `timeout-seconds: 120`; `pipeline-monitor` and `pull-main` also use `best-effort-deliver: true`, while `reminder-check` intentionally does not because reminder state changes must reflect confirmed delivery.
 
