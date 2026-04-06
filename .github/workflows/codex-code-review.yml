@@ -517,7 +517,9 @@ jobs:
         run: mkdir -p ~/.config/gh ~/.claude ~/.codex
 
       - name: Log in to GHCR
+        id: ghcr_login
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -525,6 +527,7 @@ jobs:
 
       - name: Build and push devcontainer
         id: build_devcontainer
+        if: steps.ghcr_login.outcome == 'success'
         uses: devcontainers/ci@v0.3
         # continue-on-error: Post-action cleanup may fail on GHCR push
         # even when the image builds successfully. Downstream review jobs
@@ -536,16 +539,29 @@ jobs:
           push: always
 
       - name: Validate devcontainer image availability
-        if: steps.build_devcontainer.outcome != 'success'
+        if: steps.ghcr_login.outcome != 'success' || steps.build_devcontainer.outcome != 'success'
         run: |
-          echo "Build step did not succeed (outcome: ${{ steps.build_devcontainer.outcome }})"
+          if [ "${{ steps.ghcr_login.outcome }}" != "success" ]; then
+            echo "GHCR login did not succeed (outcome: ${{ steps.ghcr_login.outcome }})."
+          fi
+
+          if [ "${{ steps.build_devcontainer.outcome }}" != "success" ]; then
+            echo "Build step did not succeed (outcome: ${{ steps.build_devcontainer.outcome }})."
+          fi
+
+          if docker image inspect "${{ env.DEVCONTAINER_IMAGE }}" > /dev/null 2>&1; then
+            echo "Image is already cached locally on the runner."
+            exit 0
+          fi
+
           echo "Checking if the image is available in the registry..."
           if docker manifest inspect "${{ env.DEVCONTAINER_IMAGE }}" > /dev/null 2>&1; then
-            echo "Image is available — the build likely succeeded but post-step cleanup crashed."
-          else
-            echo "Image is NOT available — the build genuinely failed."
-            exit 1
+            echo "Image is available in GHCR - the build/login failure was non-blocking."
+            exit 0
           fi
+
+          echo "Devcontainer image is unavailable locally and in GHCR."
+          exit 1
 
   # Fix test failures - runs in a retry loop until tests pass (max 3 attempts)
   fix-test-failures:
@@ -606,6 +622,7 @@ jobs:
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -925,6 +942,7 @@ jobs:
       - name: Log in to GHCR
         if: steps.setup.outputs.verified == 'true'
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1152,6 +1170,7 @@ jobs:
       - name: Log in to GHCR
         if: steps.setup.outputs.verified == 'true'
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1342,6 +1361,7 @@ jobs:
       - name: Log in to GHCR
         if: steps.setup.outputs.verified == 'true'
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1584,6 +1604,7 @@ jobs:
       - name: Log in to GHCR
         if: steps.setup.outputs.verified == 'true'
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -1786,6 +1807,7 @@ jobs:
       - name: Log in to GHCR
         if: steps.setup.outputs.verified == 'true'
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -2004,6 +2026,7 @@ jobs:
       - name: Log in to GHCR
         if: steps.setup.outputs.verified == 'true'
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

@@ -1,10 +1,9 @@
 ---
 name: Run command in devcontainer
 description: >
-  Runs a command inside a pre-built devcontainer image using the
-  devcontainer CLI directly, avoiding the devcontainers/ci post-step
-  cleanup crash while preserving the repository's devcontainer
-  lifecycle hooks.
+  Runs a command inside a pre-built devcontainer image with docker run,
+  avoiding the devcontainer CLI startup path that rebuilds feature
+  layers on the runner.
 
 inputs:
   image:
@@ -63,62 +62,125 @@ runs:
           WORKSPACE="$WORKSPACE/${{ inputs.workspace_folder }}"
         fi
         SCRIPT_PATH="${{ steps.prepare-script.outputs.script }}"
-        OVERRIDE_DIR=$(mktemp -d /tmp/devcontainer-override-XXXXXX)
-        OVERRIDE_CONFIG="$OVERRIDE_DIR/devcontainer.json"
+        METADATA_FILE=$(mktemp /tmp/devcontainer-metadata-XXXXXX.json)
+        REMOTE_ENV_FILE=$(mktemp /tmp/devcontainer-remote-env-XXXXXX)
         cleanup() {
-          rm -rf "$OVERRIDE_DIR"
+          rm -rf "${HOST_CONTAINER_HOME:-}"
+          rm -f "$METADATA_FILE"
+          rm -f "$REMOTE_ENV_FILE"
           rm -f "$SCRIPT_PATH"
         }
         trap cleanup EXIT
 
-        # Optionally pull the image
         if [ "${{ inputs.pull }}" != "false" ]; then
-          docker pull "${{ inputs.image }}"
+          if ! docker pull "${{ inputs.image }}"; then
+            echo "docker pull failed; checking for a cached local image..."
+            if docker image inspect "${{ inputs.image }}" > /dev/null 2>&1; then
+              echo "Using cached local image: ${{ inputs.image }}"
+            else
+              echo "Image is unavailable locally and could not be pulled." >&2
+              exit 1
+            fi
+          fi
         fi
 
         python3 \
           - \
           "$WORKSPACE/.devcontainer/devcontainer.json" \
-          "$OVERRIDE_CONFIG" \
-          "${{ inputs.image }}" <<'PY'
+          "$METADATA_FILE" <<'PY'
         import json
         import sys
 
-        source_path, target_path, image = sys.argv[1:4]
+        source_path, target_path = sys.argv[1:3]
         with open(source_path, "r", encoding="utf-8") as handle:
             config = json.load(handle)
 
-        config.pop("build", None)
-        config.pop("initializeCommand", None)
-
-        config["image"] = image
-
+        metadata = {
+            "remoteEnv": config.get("remoteEnv", {}),
+            "remoteUser": config.get("remoteUser", "root"),
+        }
         with open(target_path, "w", encoding="utf-8") as handle:
-            json.dump(config, handle, indent=2)
+            json.dump(metadata, handle, indent=2)
             handle.write("\n")
         PY
 
-        # Forward remote env vars to both lifecycle hooks and the target
-        # command.
-        REMOTE_ENV_ARGS=()
+        IMAGE_USER=$(python3 - "$METADATA_FILE" <<'PY'
+        import json
+        import sys
+
+        with open(sys.argv[1], "r", encoding="utf-8") as handle:
+            print(json.load(handle).get("remoteUser", "root"))
+        PY
+        )
+        if [ "$IMAGE_USER" = "root" ] || [ "$IMAGE_USER" = "0" ]; then
+          IMAGE_USER_HOME="/root"
+        else
+          IMAGE_USER_HOME="/home/$IMAGE_USER"
+        fi
+
+        WORKSPACE_UID=$(stat -c '%u' "$WORKSPACE")
+        WORKSPACE_GID=$(stat -c '%g' "$WORKSPACE")
+        CONTAINER_HOME="/tmp/codex-home"
+        HOST_CONTAINER_HOME=$(mktemp -d /tmp/devcontainer-home-XXXXXX)
+        mkdir -p "$HOST_CONTAINER_HOME/.config" "$HOST_CONTAINER_HOME/.claude" "$HOST_CONTAINER_HOME/.codex"
+        chmod 700 "$HOST_CONTAINER_HOME"
+
+        CONTAINER_WORKSPACE="/workspaces/$(basename "$WORKSPACE")"
+        CONTAINER_WORKDIR="$CONTAINER_WORKSPACE"
+        if [ "${{ inputs.workdir }}" != "." ]; then
+          CONTAINER_WORKDIR="$CONTAINER_WORKSPACE/${{ inputs.workdir }}"
+        fi
+
+        python3 - "$METADATA_FILE" > "$REMOTE_ENV_FILE" <<'PY'
+        import json
+        import sys
+
+        with open(sys.argv[1], "r", encoding="utf-8") as handle:
+            remote_env = json.load(handle).get("remoteEnv", {})
+
+        for key, value in remote_env.items():
+            print(f"{key}={value}")
+        PY
+
+        ENV_ARGS=()
         while IFS= read -r line; do
           [[ -z "$line" || "$line" == \#* ]] && continue
-          REMOTE_ENV_ARGS+=( --remote-env "$line" )
+          ENV_ARGS+=( -e "$line" )
+        done < "$REMOTE_ENV_FILE"
+
+        while IFS= read -r line; do
+          [[ -z "$line" || "$line" == \#* ]] && continue
+          ENV_ARGS+=( -e "$line" )
         done <<'ENVEOF'
         ${{ inputs.env }}
         ENVEOF
 
-        npx -y @devcontainers/cli up \
-          --workspace-folder "$WORKSPACE" \
-          --config "$OVERRIDE_CONFIG" \
-          --remove-existing-container \
-          --skip-post-attach \
-          "${REMOTE_ENV_ARGS[@]}"
+        for passthrough in CI GITHUB_ACTIONS; do
+          if [ -n "${!passthrough:-}" ]; then
+            ENV_ARGS+=( -e "$passthrough=${!passthrough}" )
+          fi
+        done
+        ENV_ARGS+=(
+          -e "HOME=$CONTAINER_HOME"
+          -e "PATH=$IMAGE_USER_HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          -e "XDG_CONFIG_HOME=$CONTAINER_HOME/.config"
+        )
+
+        VOLUME_ARGS=(
+          -v "$WORKSPACE:$CONTAINER_WORKSPACE"
+          -v "$HOST_CONTAINER_HOME:$CONTAINER_HOME"
+        )
+
+        if [ -S /var/run/docker.sock ]; then
+          VOLUME_ARGS+=( -v /var/run/docker.sock:/var/run/docker.sock )
+        fi
 
         SCRIPT_NAME=$(basename "$SCRIPT_PATH")
 
-        npx -y @devcontainers/cli exec \
-          --workspace-folder "$WORKSPACE" \
-          --config "$OVERRIDE_CONFIG" \
-          "${REMOTE_ENV_ARGS[@]}" \
-          bash -lc "bash '.git/$SCRIPT_NAME'"
+        docker run --rm --init \
+          --user "$WORKSPACE_UID:$WORKSPACE_GID" \
+          --workdir "$CONTAINER_WORKDIR" \
+          "${ENV_ARGS[@]}" \
+          "${VOLUME_ARGS[@]}" \
+          "${{ inputs.image }}" \
+          bash -lc "if [ -x .devcontainer/fix-dns-order.sh ]; then bash .devcontainer/fix-dns-order.sh || true; fi; bash '.git/$SCRIPT_NAME'"
