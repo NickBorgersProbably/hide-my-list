@@ -72,6 +72,7 @@ jobs:
       contents: read
       issues: read
       pull-requests: write
+      statuses: write
     outputs:
       pr_number: ${{ steps.get-pr.outputs.pr_number }}
       pr_title: ${{ steps.get-pr.outputs.pr_title }}
@@ -455,6 +456,28 @@ jobs:
           echo "config_only=$CONFIG_ONLY" >> $GITHUB_OUTPUT
           echo "has_scripts=$HAS_SCRIPTS" >> $GITHUB_OUTPUT
           echo "docs_only=$DOCS_ONLY" >> $GITHUB_OUTPUT
+
+      - name: Create pending commit status for reviews
+        if: |
+          steps.get-pr.outputs.pr_number != '' &&
+          steps.get-pr.outputs.is_draft != 'true' &&
+          steps.check-existing-reviews.outputs.already_passed != 'true' &&
+          steps.check-author-auth.outputs.authorized == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.sha')
+
+          echo "Creating pending review status for PR #$PR_NUMBER (SHA: $HEAD_SHA)"
+
+          gh api repos/${{ github.repository }}/statuses/$HEAD_SHA \
+            -f state="pending" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -f description="Agent reviews in progress" \
+            -f context="All Required Agent Reviews"
+
+          echo "Pending review status created successfully"
 
   # Build and cache devcontainer image
   # SECURITY: Always build from main branch, NEVER from PR branches
@@ -2107,6 +2130,17 @@ jobs:
       - name: Check review results
         id: check-results
         run: |
+          STATUS_ALREADY_SET=false
+          MERGE_DECISION_NOGO=false
+
+          set_status_output() {
+            local state=$1
+            local description=$2
+            STATUS_ALREADY_SET=true
+            echo "status_state=$state" >> "$GITHUB_OUTPUT"
+            echo "status_description=$description" >> "$GITHUB_OUTPUT"
+          }
+
           check_result() {
             local result=$1
             [[ "$result" == "success" || "$result" == "skipped" ]]
@@ -2122,6 +2156,7 @@ jobs:
             echo "Reviews already passed for this PR - skipping re-review"
             echo "To re-run reviews: comment /review on the PR"
             echo "skipped_with_success=true" >> $GITHUB_OUTPUT
+            set_status_output "success" "Agent reviews already passed (skipped re-review)"
             exit 0
           fi
 
@@ -2162,9 +2197,11 @@ jobs:
             # Check if fix-test-failures succeeded
             if ! check_result "${{ needs.fix-test-failures.result }}"; then
               echo "Fix attempt failed: ${{ needs.fix-test-failures.result }}"
+              set_status_output "failure" "Automated fix attempt failed"
               failed=true
             else
               echo "Fix attempt completed successfully - new test run should start"
+              set_status_output "pending" "Waiting for PR Tests after automated fix attempt"
               exit 0
             fi
           fi
@@ -2206,10 +2243,12 @@ jobs:
             if [ "$MERGE_DECISION" = "NO-GO" ]; then
               echo "Merge decision agent returned NO-GO - blocking issues found"
               echo "See the 'Merge Decision' comment on the PR for details"
+              MERGE_DECISION_NOGO=true
               echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
               failed=true
             elif [ -z "$MERGE_DECISION" ]; then
               echo "Could not determine merge decision - treating as NO-GO"
+              MERGE_DECISION_NOGO=true
               echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
               failed=true
             fi
@@ -2219,15 +2258,24 @@ jobs:
           if [ "$TESTS_PASSED" = "false" ] && [ "$FIX_ATTEMPTS" -ge 3 ]; then
             echo "Max fix attempts (3) reached - tests still failing"
             echo "Human intervention required"
+            set_status_output "failure" "Max fix attempts reached; manual intervention required"
             failed=true
           fi
 
           if [ "$failed" = true ]; then
+            if [ "$STATUS_ALREADY_SET" != "true" ]; then
+              if [ "$MERGE_DECISION_NOGO" = "true" ]; then
+                set_status_output "failure" "Blocking review findings require changes"
+              else
+                set_status_output "failure" "One or more required agent reviews failed"
+              fi
+            fi
             echo ""
             echo "Some checks failed"
             exit 1
           fi
 
+          set_status_output "success" "All agent reviews completed successfully"
           echo "All agent reviews completed and merge decision is GO - automated review gate passed"
           echo ""
           echo "Review Results:"
@@ -2248,27 +2296,23 @@ jobs:
 
       - name: Create commit status for reviews
         if: |
+          always() &&
           needs.get-context.outputs.pr_number != '' &&
-          (needs.get-context.outputs.tests_passed == 'true' || steps.check-results.outputs.skipped_with_success == 'true')
+          steps.check-results.outputs.status_state != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Get the HEAD SHA of the PR branch
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
           HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.sha')
+          STATUS_STATE="${{ steps.check-results.outputs.status_state }}"
+          DESCRIPTION="${{ steps.check-results.outputs.status_description }}"
 
-          # Determine description based on whether this was a skip or full review
-          if [ "${{ steps.check-results.outputs.skipped_with_success }}" = "true" ]; then
-            DESCRIPTION="Agent reviews already passed (skipped re-review)"
-          else
-            DESCRIPTION="All agent reviews completed successfully"
-          fi
-
-          echo "Creating commit status for PR #$PR_NUMBER (SHA: $HEAD_SHA)"
+          echo "Creating $STATUS_STATE commit status for PR #$PR_NUMBER (SHA: $HEAD_SHA)"
 
           # Create commit status
           gh api repos/${{ github.repository }}/statuses/$HEAD_SHA \
-            -f state="success" \
+            -f state="$STATUS_STATE" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             -f description="$DESCRIPTION" \
             -f context="All Required Agent Reviews"
