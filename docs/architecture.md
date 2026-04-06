@@ -21,7 +21,6 @@ flowchart TB
     subgraph Scheduling["OpenClaw Scheduling"]
         Heartbeat[Heartbeat<br/>every 30m]
         ReminderCron[Reminder Cron<br/>every 5m]
-        PipelineCron[Pipeline Cron<br/>every 2m]
         PullMainCron[Pull-Main Cron<br/>every 10m]
     end
 
@@ -98,7 +97,6 @@ flowchart LR
     Breakdown --> NotionCLI
     Reward --> RewardImg
     ReminderCheck --> NotionCLI
-    GHStatus --> Review
 ```
 
 
@@ -227,7 +225,7 @@ sequenceDiagram
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
-**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 30 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including schedule, prompt, routing/delivery fields (`sessionTarget` or `to`, `delivery.mode` or `best-effort-deliver`), and `timeout-seconds`. See `setup/cron/reminder-check.md` for the job definition.
+**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 30 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget` (when required), the absence of any direct-delivery `to`, `payload.kind`, delivery behavior (`delivery.mode` or `best-effort-deliver`), and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist.
 
 ## Technology Choices
 
@@ -306,6 +304,6 @@ flowchart TB
 - **CI separation**: GitHub Actions reviewers have no access to infrastructure or home systems
 - **Credential handling**: API keys in `.env` (gitignored), never logged or committed
 - **Least privilege**: PR test workflows have read-only permissions
-- **No open ports**: Cron-based monitoring replaced the socat webhook listener, eliminating inbound network exposure
+- **No required webhook listener**: Durable cron replaced the old socat listener for core operations, though optional GitHub-triggered webhook paths remain an extra inbound surface if configured
 
 For the full security architecture — including agent trust model, threat model, and prompt injection analysis — see [SECURITY.md](../SECURITY.md).

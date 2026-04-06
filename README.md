@@ -25,7 +25,7 @@ This repository is designed to be deployed directly as an OpenClaw workspace (`~
 
 - **Agent**: OpenClaw-managed conversational AI (Claude via LiteLLM proxy)
 - **Storage**: Notion database via API
-- **Scheduling**: OpenClaw durable cron jobs (reminders, pipeline monitoring)
+- **Scheduling**: OpenClaw durable cron jobs (reminders, workspace sync)
 - **Messaging**: Signal (via OpenClaw channel routing)
 - **Review Pipeline**: GitHub Actions with multi-agent Codex review
 
