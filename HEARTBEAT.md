@@ -38,12 +38,9 @@ If all jobs already match their specs, do not report anything. If any jobs were 
 - Verify `.env` exists and contains NOTION_API_KEY and NOTION_DATABASE_ID
 
 ### 5. Dirty Pull Recovery (safety net)
-- If `.pull-dirty` exists and is older than 20 minutes, the pull-main cron may have failed to handle it
-- Read `.pull-dirty` for context about what files changed and why
-- Create a GitHub issue on NickBorgersProbably/hide-my-list documenting the local changes (include the full diff so nothing is lost)
-- Check memory/ for any notes about why these changes were made — include that context in the issue
-- Reset to match remote: `git checkout -- . && git clean -fd && git pull origin main`
-- Delete `.pull-dirty`
-- Normally the pull-main cron handles this automatically — this check is a backstop
+- If `.pull-dirty` exists and is older than 20 minutes, the pull-main cron may have failed to recover
+- Run `scripts/pull-main.sh --recover-only` to retry (the script creates the GitHub issue and resets the repo)
+- If that also fails, note the failure for operator attention
+- Normally the pull-main cron handles recovery automatically — this check is a backstop for cases where `gh` wasn't authenticated or the script errored
 
 That's it. If nothing needs attention, reply HEARTBEAT_OK.

@@ -53,7 +53,7 @@ OpenClaw runtime features still operate normally:
 - Cron registrations and task records live in OpenClaw-owned runtime state outside this repo checkout.
 - Messaging, session lifecycle, and hooks remain platform responsibilities.
 
-The one repo-mutating runtime exception is dirty-pull recovery in `HEARTBEAT.md` and `setup/cron/pull-main.md`: preserve the local diff in a GitHub issue, then reset the workspace to match remote so the GitHub-reviewed branch stays the source of truth. That exception exists to reduce merge conflicts and recover safely, not to bypass the GitHub process.
+The one repo-mutating runtime exception is dirty-pull recovery in `scripts/pull-main.sh`: preserve the local diff in a GitHub issue, then reset the workspace to match remote so the GitHub-reviewed branch stays the source of truth. The script handles this entirely — the agent never reasons about it. That exception exists to reduce merge conflicts and recover safely, not to bypass the GitHub process.
 
 ## Cron (Durable Scheduled Jobs)
 
@@ -65,7 +65,7 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 |-----|----------|----------|
 | `reminder-check` | `*/5 * * * *` | `reminder-daemon.sh` (bash while-loop) |
 | `pipeline-monitor` | `*/2 * * * *` | `monitor-pipeline.sh` (bash while-loop) |
-| `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene / dirty-pull recovery backstop |
+| `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene (script is self-contained — agent just runs it, no reasoning) |
 
 **Why this is better than daemons:**
 - No PID files, no silent death, no orphaned processes
