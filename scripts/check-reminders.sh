@@ -20,6 +20,7 @@
 # SECURITY PROPERTIES:
 #   - Loads only REMINDER_SIGNAL_FILE into this shell; Notion creds stay scoped
 #     to notion-cli.sh
+#   - REMINDER_SIGNAL_FILE may override only the repo-root handoff filename
 #   - Signal file contains only task IDs and titles — no secrets
 #   - Missed reminders (>15 min past due) are flagged but still delivered
 
@@ -30,7 +31,15 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/load-env.sh" REMINDER_SIGNAL_FILE?
 
-SIGNAL_FILE="${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}"
+SIGNAL_BASENAME="${REMINDER_SIGNAL_FILE:-.reminder-signal}"
+case "$SIGNAL_BASENAME" in
+    ""|"."|".."|*/*)
+        echo "check-reminders: REMINDER_SIGNAL_FILE must be a filename in the repo root" >&2
+        exit 1
+        ;;
+esac
+
+SIGNAL_FILE="$ROOT_DIR/$SIGNAL_BASENAME"
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 NOW_EPOCH=$(date +%s)
 # 15 minutes in seconds — reminders older than this are flagged as missed

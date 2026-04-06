@@ -66,7 +66,7 @@
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
 | `GITHUB_PAT` | No | Personal access token used by repo maintenance scripts when `gh auth login` has not been run on the host |
-| `REMINDER_SIGNAL_FILE` | No | Optional override for the reminder handoff path (defaults to `.reminder-signal`) |
+| `REMINDER_SIGNAL_FILE` | No | Optional reminder handoff filename in the repo root (defaults to `.reminder-signal`) |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
 
 Advanced overrides for self-hosted LiteLLM setups are also supported:
@@ -84,7 +84,7 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| reminder-check | Every 15 min | Poll Notion for due reminders, write the reminder handoff file (defaults to `.reminder-signal`), deliver to user |
+| reminder-check | Every 15 min | Poll Notion for due reminders, write the repo-root reminder handoff file (defaults to `.reminder-signal`), deliver to user |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
 | heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction |
 
@@ -107,7 +107,7 @@ The agent reads docs on every interaction, so changes take effect immediately. N
 - Check that the reminder-check cron is registered (ask the agent to check CronList)
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity
-- If you overrode `REMINDER_SIGNAL_FILE`, verify the configured handoff path is writable
+- If you overrode `REMINDER_SIGNAL_FILE`, verify it is just a filename and that the repo root is writable
 
 **Agent not responding:**
 - Check `openclaw status` for channel health

@@ -162,53 +162,46 @@ PYTHON
     curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
     ;;
 
+  complete-reminder)
+    # Args: page_id reminder_status
+    PAGE_ID="$2"
+    REMINDER_STATUS="$3"
+
+    case "$REMINDER_STATUS" in
+      sent|missed) ;;
+      *)
+        echo "Reminder status must be 'sent' or 'missed'" >&2
+        exit 1
+        ;;
+    esac
+
+    PROPS=$(python3 - "$REMINDER_STATUS" <<'PYTHON'
+import json
+import sys
+from datetime import datetime, timezone
+
+reminder_status = sys.argv[1]
+now = datetime.now(timezone.utc).isoformat()
+
+print(json.dumps({
+    'properties': {
+        'Status': {'select': {'name': 'Completed'}},
+        'Reminder Status': {'select': {'name': reminder_status}},
+        'Completed At': {'date': {'start': now}},
+    }
+}))
+PYTHON
+)
+
+    curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROPS"
+    ;;
+
   update-property)
     # Args: page_id property_json
     PAGE_ID="$2"
     PROP_JSON="$3"
 
-    PAGE_JSON=$(curl "${CURL_ARGS[@]}" "$API/pages/$PAGE_ID" "${HEADERS[@]}")
-
-    PATCH_JSON=$(python3 - "$PROP_JSON" "$PAGE_JSON" <<'PYTHON'
-import json
-import sys
-from datetime import datetime, timezone
-
-patch = json.loads(sys.argv[1])
-page = json.loads(sys.argv[2])
-
-properties = patch.get('properties')
-if not isinstance(properties, dict):
-    print(json.dumps(patch))
-    raise SystemExit(0)
-
-status_prop = properties.get('Status')
-status_name = None
-if isinstance(status_prop, dict):
-    select_prop = status_prop.get('select')
-    if isinstance(select_prop, dict):
-        status_name = select_prop.get('name')
-
-now = datetime.now(timezone.utc).isoformat()
-
-if status_name == 'Completed' and 'Completed At' not in properties:
-    properties['Completed At'] = {'date': {'start': now}}
-elif status_name == 'In Progress' and 'Started At' not in properties:
-    started_prop = page.get('properties', {}).get('Started At')
-    started_at = None
-    if isinstance(started_prop, dict):
-        date_value = started_prop.get('date')
-        if isinstance(date_value, dict):
-            started_at = date_value.get('start')
-    if not started_at:
-        properties['Started At'] = {'date': {'start': now}}
-
-patch['properties'] = properties
-print(json.dumps(patch))
-PYTHON
-)
-
-    curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PATCH_JSON"
+    curl "${CURL_ARGS[@]}" -X PATCH "$API/pages/$PAGE_ID" "${HEADERS[@]}" -d "$PROP_JSON"
     ;;
 
   get-page)
@@ -218,6 +211,6 @@ PYTHON
 
   help)
     echo "Usage: notion-cli.sh <command>"
-    echo "Commands: create-task, create-reminder, query-pending, query-all, query-due-reminders, update-status, update-property, get-page"
+    echo "Commands: create-task, create-reminder, query-pending, query-all, query-due-reminders, update-status, complete-reminder, update-property, get-page"
     ;;
 esac

@@ -217,7 +217,7 @@ sequenceDiagram
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. A durable cron job (`reminder-check`) runs every 15 minutes via OpenClaw's native scheduling.
 3. The cron job injects a `systemEvent` into the main agent session, which then runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
-4. If due reminders are found, `check-reminders.sh` writes the reminder handoff file (default: `.reminder-signal`). The same cron-driven agent session resolves that path with `scripts/load-env.sh` so `.env` overrides are honored, reads the file, delivers the reminders on the already-bound `main` session surface, sets Notion `Status` to `Completed` plus `Reminder Status` to `sent` or `missed`, and deletes the handoff file.
+4. If due reminders are found, `check-reminders.sh` writes the reminder handoff file in the repo root (default filename: `.reminder-signal`). The same cron-driven agent session resolves that filename with `scripts/load-env.sh`, applies the same repo-root validation, reads the file, delivers the reminders on the already-bound `main` session surface, runs `scripts/notion-cli.sh complete-reminder` to set Notion `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`, then deletes the handoff file.
 5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 6. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
@@ -250,7 +250,7 @@ sequenceDiagram
 | `NOTION_DATABASE_ID` | Tasks database identifier |
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
 | `GITHUB_PAT` | Optional personal access token used by GitHub-maintenance scripts when `gh` is not already authenticated |
-| `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
+| `REMINDER_SIGNAL_FILE` | Repo-root reminder handoff filename (default: `.reminder-signal`) |
 
 ## Prerequisites
 

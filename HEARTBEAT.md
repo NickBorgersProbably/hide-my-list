@@ -3,17 +3,19 @@
 ## Checks (in order)
 
 ### 1. Stranded Reminder Signal
-- Resolve the reminder handoff path with the same helper the scripts use, so `.env` overrides are honored:
-  `HANDOFF_FILE="$(bash -lc 'SCRIPT_DIR=$(cd \"$(dirname scripts/check-reminders.sh)\" && pwd); ROOT_DIR=$(cd \"$SCRIPT_DIR/..\" && pwd); source \"$SCRIPT_DIR/load-env.sh\" REMINDER_SIGNAL_FILE?; printf \"%s\\n\" \"${REMINDER_SIGNAL_FILE:-$ROOT_DIR/.reminder-signal}\"')"`
+- Resolve the reminder handoff file with the same helper and repo-root filename validation the scripts use, so `.env` overrides are honored:
+  ```bash
+  HANDOFF_FILE="$(bash -lc 'SCRIPT_DIR=$(cd "$(dirname scripts/check-reminders.sh)" && pwd); ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd); source "$SCRIPT_DIR/load-env.sh" REMINDER_SIGNAL_FILE?; SIGNAL_BASENAME=${REMINDER_SIGNAL_FILE:-.reminder-signal}; case "$SIGNAL_BASENAME" in ""|"."|".."|*/*) echo "invalid REMINDER_SIGNAL_FILE" >&2; exit 1 ;; esac; printf "%s\n" "$ROOT_DIR/$SIGNAL_BASENAME"')"
+  ```
 - This file is the reminder handoff written by `scripts/check-reminders.sh`
-- If `HANDOFF_FILE` still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, update Notion `Status` to `Completed` plus `Reminder Status` to `sent` or `missed` based on the file, then delete that handoff file
+- If `HANDOFF_FILE` still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` based on the file, then delete that handoff file
 
 ### 2. Cron Job Health
 Verify that durable cron jobs are registered. If any are missing, re-register them.
 
 | Job | Schedule | Action |
 |-----|----------|--------|
-| reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh`; resolve `HANDOFF_FILE` with `scripts/load-env.sh` as above; if it exists, read it, deliver reminders, update Notion `Status` to `Completed` plus `Reminder Status`, then delete the file |
+| reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh`; resolve `HANDOFF_FILE` with `scripts/load-env.sh` as above; if it exists, read it, deliver reminders, run `scripts/notion-cli.sh complete-reminder`, then delete the file |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; the script handles dirty-pull recovery |
 
 To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. Both jobs must inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. Cron jobs should never deliver directly to Signal or any other channel on their own.

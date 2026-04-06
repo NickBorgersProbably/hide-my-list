@@ -71,9 +71,9 @@ stateDiagram-v2
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
 | Cannot Finish | User indicates task is too large | `in_progress` (triggers breakdown) |
 | Reminder Pending | Reminder task waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
-| Reminder Sent | Reminder delivered to user on time | `completed` (reminder_status=sent) |
-| Reminder Missed | Reminder >15 min late, delivered with apology | `completed` (reminder_status=missed) |
-| Completed | Task finished | `completed` |
+| Reminder Sent | Reminder delivered to user on time | `Completed` (reminder_status=sent) |
+| Reminder Missed | Reminder >15 min late, delivered with apology | `Completed` (reminder_status=missed) |
+| Completed | Task finished | `Completed` |
 
 ## Phase 1: Task Intake
 
@@ -944,8 +944,8 @@ flowchart TD
     Late -->|No| Send[Deliver reminder]
     Late -->|Yes| SendMissed[Deliver with apology]
 
-    Send --> Complete[Mark completed + reminder_status=sent]
-    SendMissed --> Complete2[Mark completed + reminder_status=missed]
+    Send --> Complete[Mark Completed + reminder_status=sent]
+    SendMissed --> Complete2[Mark Completed + reminder_status=missed]
 
     Complete --> Done([Done])
     Complete2 --> Done
