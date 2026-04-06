@@ -1,0 +1,83 @@
+---
+name: Cleanup Stale PR Branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Delete listed branches or discover every same-repo branch from closed PRs'
+        required: true
+        default: listed
+        type: choice
+        options:
+          - listed
+          - all-closed-prs
+      branches:
+        description: 'Comma, space, or newline separated branch names when mode=listed'
+        required: false
+        type: string
+      delete:
+        description: 'Actually delete eligible branches instead of running a dry run'
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: cleanup-stale-pr-branches-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Normalize listed branches
+        if: inputs.mode == 'listed'
+        env:
+          INPUT_BRANCHES: ${{ inputs.branches }}
+        run: |
+          set -euo pipefail
+
+          printf '%s\n' "${INPUT_BRANCHES}" |
+            tr ', ' '\n\n' |
+            sed '/^[[:space:]]*$/d' |
+            sed 's/^[[:space:]]*//; s/[[:space:]]*$//' > /tmp/cleanup-branches.txt
+
+          if [ ! -s /tmp/cleanup-branches.txt ]; then
+            echo "branches input is required when mode=listed" >&2
+            exit 1
+          fi
+
+          cat /tmp/cleanup-branches.txt
+
+      - name: Run stale branch cleanup
+        env:
+          DELETE: ${{ inputs.delete }}
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+
+          declare -a args=()
+
+          if [ "$DELETE" = "true" ]; then
+            args+=(--delete)
+          fi
+
+          if [ "$MODE" = "all-closed-prs" ]; then
+            args+=(--all-closed-prs)
+          else
+            while IFS= read -r branch; do
+              args+=("$branch")
+            done < /tmp/cleanup-branches.txt
+          fi
+
+          scripts/cleanup-stale-pr-branches.sh "${args[@]}"
