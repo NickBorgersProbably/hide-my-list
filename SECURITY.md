@@ -86,7 +86,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 - The old `socat`-based webhook listener was removed; routine operations now rely on durable cron instead of a required inbound listener
 - Durable cron polling (`reminder-check`, `pull-main`) covers routine operation and survives agent restarts via OpenClaw's cron subsystem
 - Heartbeat re-registers cron jobs if they disappear, ensuring continuity for the cron path
-- Optional GitHub-triggered webhook paths may still exist if an operator configures `AGENT_WEBHOOK_URL` / `RemoteTrigger`, so inbound exposure is reduced but not universally eliminated
+- Optional GitHub-triggered webhook notifications may still exist if an operator configures `AGENT_WEBHOOK_URL`, so inbound exposure is reduced but not universally eliminated
 
 ### Configuration hardening
 
@@ -101,7 +101,7 @@ The proxy also blocks connections to private network ranges (RFC 1918, loopback,
 | Prompt injection via user message | Agent is [BC] for direct interaction — channels are authenticated/paired, only the owner can send messages | Low risk; owner is the only input source |
 | Prompt injection via GitHub content | Becomes [ABC] when processing GitHub content — PR/issue bodies from external contributors are an injection vector | Blast radius limited to Notion operations the token permits; proxy limits exfiltration destinations |
 | Agent pivots to internal network | [ABC] — an injected prompt could attempt lateral movement | Tailscale largely prevents access to internal systems; proxy blocks private ranges; VLAN segmentation blocks internal network access at the router level; kernel-level egress rules enforce restrictions independently of the container environment |
-| Malicious webhook payload | Reduced but not eliminated — cron is the primary path, but optional push-trigger endpoints may still be configured | The old `socat` listener is gone; core operation relies on cron polling, and any configured `AGENT_WEBHOOK_URL` / `RemoteTrigger` path should be treated as an additional inbound surface |
+| Malicious webhook payload | Reduced but not eliminated — cron is the primary path, but optional workflow notifications may still post to an agent webhook | The old `socat` listener is gone; core operation relies on cron polling, and any configured `AGENT_WEBHOOK_URL` path should be treated as an additional inbound surface |
 | Malicious PR manipulates review agent | Review agents are [AC] — no access to secrets or infrastructure | Fork PRs blocked from all self-hosted runner workflows; devcontainer built only from main; self-hosted runners isolated by VLAN segmentation |
 | Credential exfiltration via prompt injection | The agent has credentials in its runtime context and could be prompted to reveal them | Proxy allowlist limits where credentials could be sent; admin surfaces behind Tailscale; model alignment is a speed bump, not a guarantee |
 | Unauthorized admin access | Admin interfaces require Tailscale authentication and at least OpenClaw pairing for authentication | Firewall allows only SSH and WireGuard inbound |
