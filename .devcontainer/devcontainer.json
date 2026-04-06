@@ -14,10 +14,10 @@
   "postCreateCommand": "bash .devcontainer/post-create.sh && bash .githooks/install-hooks.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
   "mounts": [
-    "source=${localEnv:SSH_AUTH_SOCK},target=${localEnv:SSH_AUTH_SOCK},type=bind"
+    "source=${localEnv:SSH_AUTH_SOCK},target=/run/ssh-agent.sock,type=bind"
   ],
   "remoteEnv": {
-    "SSH_AUTH_SOCK": "${localEnv:SSH_AUTH_SOCK}",
+    "SSH_AUTH_SOCK": "/run/ssh-agent.sock",
     "OPENAI_API_KEY": "fake-key",
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8"
