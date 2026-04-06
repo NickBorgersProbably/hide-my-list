@@ -207,9 +207,9 @@ sequenceDiagram
     Agent->>Script: Run check-reminders.sh
     Script->>Notion: Query reminders where remind_at <= now
     Notion-->>Script: Due reminder tasks
-    Script-->>Agent: Signal file with due reminders
+    Script-->>Agent: Write reminder handoff file
     Agent->>User: Deliver reminder on main session surface
-    Agent->>Notion: Mark reminder as sent/completed
+    Agent->>Notion: Set Status=completed and Reminder Status=sent/missed
 ```
 
 **How it works:**
@@ -217,11 +217,11 @@ sequenceDiagram
 1. During task intake, the AI detects reminder-style language (e.g., "remind me at 6pm PT to call Sarah") and sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), and `reminder_status = pending`.
 2. A durable cron job (`reminder-check`) runs every 15 minutes via OpenClaw's native scheduling.
 3. The cron job injects a `systemEvent` into the main agent session, which then runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
-4. If due reminders are found, `check-reminders.sh` writes `.reminder-signal`; the same cron-driven agent session reads that file, delivers the reminders on the already-bound `main` session surface, marks them as `sent` or `missed` in Notion, and deletes the handoff file.
+4. If due reminders are found, `check-reminders.sh` writes the configured signal file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE`). The same cron-driven agent session resolves that filename with `scripts/load-env.sh`, applies the same repo-root validation, reads the file, delivers the reminders on the already-bound `main` session surface, runs `scripts/notion-cli.sh complete-reminder` to set Notion `Status` to `completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`, then deletes the handoff file.
 5. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 6. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
-`reminder-check` and `pull-main` use `sessionTarget: main`, `payload.kind: systemEvent`, and `delivery.mode: none` so trusted cron work re-enters the user-owned session without spawning a second conversational thread. For reminders, outbound routing is deterministic because the cron run can only speak back through the surface already attached to `main`; it must not choose a different recipient or channel. If `reminder-check` finds no due reminders, or if `main` has no attached user-facing surface when `.reminder-signal` exists, the main agent should reply with `NO_REPLY` and leave the handoff file untouched for a later retry. If reminder delivery fails after `.reminder-signal` is written, the session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
+`reminder-check` and `pull-main` use `sessionTarget: main`, `payload.kind: systemEvent`, and `delivery.mode: none` so trusted cron work re-enters the user-owned session without spawning a second conversational thread. For reminders, outbound routing is deterministic because the cron run can only speak back through the surface already attached to `main`; it must not choose a different recipient or channel. If `reminder-check` finds no due reminders, or if `main` has no attached user-facing surface when the reminder handoff file exists, the main agent should reply with `NO_REPLY` and leave the handoff file untouched for a later retry. If reminder delivery fails after the reminder handoff file is written, the session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 
@@ -242,7 +242,7 @@ sequenceDiagram
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |
 
-## Environment Variables
+## Core Runtime Variables
 
 | Variable | Purpose |
 |----------|---------|
@@ -250,7 +250,7 @@ sequenceDiagram
 | `NOTION_DATABASE_ID` | Tasks database identifier |
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
 | `GITHUB_PAT` | Optional personal access token used by GitHub-maintenance scripts when `gh` is not already authenticated |
-| `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
+| `REMINDER_SIGNAL_FILE` | Repo-root reminder handoff filename (default: `.reminder-signal`) |
 
 ## Prerequisites
 
@@ -303,7 +303,7 @@ flowchart TB
 
 - **Network isolation**: Agent runs behind squid proxy with domain allowlist; kernel-level egress rules enforce this independently of the container
 - **CI separation**: GitHub Actions reviewers have no access to infrastructure or home systems
-- **Credential handling**: API keys and optional `GITHUB_PAT` in `.env` (gitignored), never logged or committed
+- **Credential handling**: API keys and optional `GITHUB_PAT` live in `.env` (gitignored), are never logged or committed, and runtime scripts load only the variables they need into each shell
 - **Least privilege**: PR test workflows have read-only permissions
 - **No required webhook listener**: Durable cron replaced the old socat listener for core operations, though optional GitHub-triggered webhook paths remain an extra inbound surface if configured
 
