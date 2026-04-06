@@ -39,8 +39,9 @@ OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json
 
 Every 60 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks.
 
-**Our usage:** The heartbeat serves one role:
-1. **Cron system safety net:** Verify that durable cron jobs still match the canonical `CronCreate` specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. The comparison covers the full effective registration contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, reminder `delivery.mode`, `payload.kind`, and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist.
+**Our usage:** The heartbeat serves two roles:
+1. **Reminder-delivery backstop:** The isolated `reminder-check` cron only writes `.reminder-signal` — it does not deliver to the user. Heartbeat Check 1 reads stranded signal files and delivers reminders every 60 minutes. (The AGENTS.md startup check provides faster opportunistic delivery when the user is active.)
+2. **Cron system safety net:** Verify that durable cron jobs still match the canonical `CronCreate` specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. The comparison covers the full effective registration contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, the absence of any direct-delivery `to`, `payload.kind`, and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist.
 
 Heartbeat also checks Notion connectivity and environment health. Production deployments should treat this as hourly infrastructure hygiene.
 
@@ -72,12 +73,12 @@ OpenClaw provides `CronCreate` for scheduling recurring agent prompts. With `dur
 **Why this is better than daemons:**
 - No PID files, no silent death, no orphaned processes
 - OpenClaw manages the scheduling; failures are visible in the session
-- `scripts/check-reminders.sh` returns the due-reminder payload; the isolated `reminder-check` cron turn delivers directly with `delivery.mode: announce` and then marks reminders completed in Notion
+- `scripts/check-reminders.sh` writes the reminder handoff file (default: `.reminder-signal`) as a handoff; delivery happens through the heartbeat and main-session startup check, not through the cron job itself
 - Cron only fires when the REPL is idle, which is actually better for ADHD — it won't interrupt the user mid-task
 
 **The 7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. The heartbeat catches this and re-registers the missing jobs. It also corrects spec drift caused by manual hotfixes or stale re-registration prompts by comparing the live job against the canonical `CronCreate` block and patching any mismatched registration fields. This is a platform constraint we work around rather than a feature we chose.
 
-**Current registration contract:** Both `reminder-check` and `pull-main` run as isolated Haiku sessions with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, and `payload.kind: agentTurn`. `pull-main` uses `timeout-seconds: 60` and never produces user-facing output. `reminder-check` uses `delivery.mode: announce` and `timeout-seconds: 120`, which lets the isolated Haiku turn own the full reminder flow without loading the full Opus session. Moving reminder delivery into the isolated cron preserves the cheap Haiku cost profile while cutting worst-case idle delivery latency down to the 15-minute poll interval (plus any delay until the REPL is idle). The prompt still uses `NO_REPLY` for the no-op path.
+**Current registration contract:** Both `reminder-check` and `pull-main` run as isolated Haiku sessions with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, and `timeout-seconds: 60`. This is a deliberate design choice that separates cheap query work from user-facing delivery. The previous architecture used `sessionTarget: main`, which loaded the full Opus agent context (~200k tokens) for routine script work. Moving to isolated Haiku cuts per-run cost by orders of magnitude. Reminder delivery is handled by the heartbeat (HEARTBEAT.md Check 1, every 60 min) and the main-session startup check (AGENTS.md step 5, on every user interaction). In the fully idle case, worst-case delivery latency is up to about 75 minutes: up to 15 minutes for `reminder-check` to write the handoff file, then up to another 60 minutes for heartbeat to deliver it if no user interaction happens first. The cron prompts end with `NO_REPLY` since they never produce user-facing output.
 
 ### Production Timing Recommendation
 
@@ -85,11 +86,11 @@ For production deployments, use these timings unless you have a clear reason to 
 
 | Mechanism | Recommended cadence | Why |
 |-----------|---------------------|-----|
-| Heartbeat | Every 60 minutes | Cron expiry, spec drift, and Notion/env health |
-| `reminder-check` | Every 15 minutes | Isolated Haiku reminder delivery; discovers due reminders and announces them directly |
+| Heartbeat | Every 60 minutes | Reminder-delivery backstop plus cron expiry, spec drift, and Notion/env health |
+| `reminder-check` | Every 15 minutes | Isolated Haiku query; writes `.reminder-signal` for heartbeat/startup delivery |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps the workspace fresh |
 
-The core principle is simple: `reminder-check` controls both discovery and delivery for reminders, while heartbeat protects the cron system itself. For routine reminders, 15-minute polling is the default production cost/latency tradeoff. Exact-time delivery is still not guaranteed because cron only fires on its schedule and only when the REPL is idle, but there is no longer an extra heartbeat delivery hop on top of that.
+The core principle is simple: `reminder-check` controls when due reminders are discovered, while heartbeat is part of the idle-user delivery path. For routine reminders, 15-minute polling plus hourly heartbeat is the default production cost/latency tradeoff. This means exact-time delivery is not guaranteed in the current deferred-delivery architecture; fully idle worst-case delivery is about 75 minutes unless the user interacts sooner.
 
 ## Messaging Channels
 
@@ -113,7 +114,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use the normal main-agent routing path. Cron jobs run as isolated Haiku sessions; `reminder-check` is the one exception that intentionally delivers through `delivery.mode: announce`.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use the normal main-agent routing path. Cron jobs run as isolated Haiku sessions (query-only, no user delivery). Reminder delivery reaches the user through the heartbeat and the main-session startup check.
 
 ## Model Routing (LiteLLM Proxy)
 
