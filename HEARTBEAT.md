@@ -13,19 +13,19 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 | Job | Schedule | Action |
 |-----|----------|--------|
 | reminder-check | `*/5 * * * *` | Run `scripts/check-reminders.sh`; if it writes `.reminder-signal`, read it, deliver reminders, update Notion, delete the file |
-| pipeline-monitor | `*/2 * * * *` | Run `scripts/check-github-status.sh`, report actionable changes |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; the script handles dirty-pull recovery |
 
-To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. `reminder-check` and `pull-main` must inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. `pipeline-monitor` must stay isolated from `main`; re-create it without `sessionTarget` (or with a dedicated non-main target) so GitHub-derived content never persists in the shared user session. Cron jobs should never deliver directly to Signal or any other channel on their own.
+To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. Both jobs must inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. Cron jobs should never deliver directly to Signal or any other channel on their own.
 
 ### 2b. Cron Spec Drift Check
-For each registered cron job (`reminder-check`, `pull-main`, `pipeline-monitor`), compare the live job's `prompt`, `schedule`, session target (if any), payload kind, delivery mode, and timeout against the canonical spec in `setup/cron/<name>.md`.
+For each registered cron job (`reminder-check`, `pull-main`), compare the live job's `prompt`, `schedule`, session target (if any), payload kind, delivery mode, and timeout against the canonical spec in `setup/cron/<name>.md`.
 
 To check: use CronList to inspect the live registrations, then read the corresponding spec file in `setup/cron/`.
 
+If a stale `pipeline-monitor` cron is still registered, delete it with CronDelete — that job has been removed.
+
 If any field differs from the spec, patch the live job to match with CronUpdate. Preserve the intended durable registration contract from the spec:
 - `reminder-check`: `schedule`, `prompt`, `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
-- `pipeline-monitor`: `schedule`, `prompt`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`; no `sessionTarget: main`
 - `pull-main`: `schedule`, `prompt`, `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
 
 If all jobs already match their specs, do not report anything. If any jobs were corrected, briefly note which ones were patched and what drift was fixed.
