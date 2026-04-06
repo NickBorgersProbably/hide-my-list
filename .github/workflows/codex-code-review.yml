@@ -78,7 +78,7 @@ jobs:
     # This allows reviews to run even when push happens before PR creation.
     permissions:
       contents: read
-      issues: read
+      issues: write
       pull-requests: write
       statuses: write
     outputs:
@@ -295,47 +295,6 @@ jobs:
           echo "reviewed_sha=$REVIEWED_SHA" >> "$GITHUB_OUTPUT"
           echo "Resolved reviewed SHA: $REVIEWED_SHA"
 
-      - name: Resolve review cycle and enforce cap
-        id: resolve-review-cycle
-        if: steps.get-pr.outputs.pr_number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          MAX_REVIEW_CYCLES=3
-          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
-
-          # Count existing review-cycle-N labels (authoritative source of truth)
-          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
-            --jq '.[].name' 2>/dev/null || echo "")
-          COUNT=0
-          for label in $LABELS; do
-            if [[ "$label" =~ ^review-cycle-[0-9]+$ ]]; then
-              COUNT=$((COUNT + 1))
-            fi
-          done
-
-          # First cycle: stamp review-cycle-1. Later cycles are stamped by trigger-follow-up.
-          if [ "$COUNT" -eq 0 ]; then
-            COUNT=1
-            gh label create "review-cycle-1" \
-              --color "1d76db" \
-              --description "Review cycle 1 started" \
-              --repo ${{ github.repository }} 2>/dev/null || true
-            gh pr edit "$PR_NUMBER" --add-label "review-cycle-1" \
-              --repo ${{ github.repository }}
-            echo "Added label: review-cycle-1"
-          fi
-
-          echo "Review cycle: $COUNT / $MAX_REVIEW_CYCLES"
-          echo "review_cycle=$COUNT" >> "$GITHUB_OUTPUT"
-
-          if [ "$COUNT" -gt "$MAX_REVIEW_CYCLES" ]; then
-            echo "::warning::Review cycle cap exceeded ($COUNT > $MAX_REVIEW_CYCLES) — skipping review jobs"
-            echo "capped=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "capped=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Extract linked issue from PR body
         if: steps.get-pr.outputs.pr_number != ''
         id: get-issue
@@ -455,6 +414,51 @@ jobs:
           else
             echo "No existing reviews found - will run full review cycle"
             echo "already_passed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Resolve review cycle and enforce cap
+        id: resolve-review-cycle
+        if: steps.get-pr.outputs.pr_number != '' && steps.check-existing-reviews.outputs.already_passed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MAX_REVIEW_CYCLES=3
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+
+          # Count existing review-cycle-N labels after any /review or close-event reset.
+          if ! LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name'); then
+            echo "Failed to read review-cycle labels for PR #$PR_NUMBER" >&2
+            exit 1
+          fi
+
+          COUNT=0
+          for label in $LABELS; do
+            if [[ "$label" =~ ^review-cycle-[0-9]+$ ]]; then
+              COUNT=$((COUNT + 1))
+            fi
+          done
+
+          # First cycle: stamp review-cycle-1. Later cycles are stamped only after a
+          # follow-up review run has actually been dispatched.
+          if [ "$COUNT" -eq 0 ]; then
+            COUNT=1
+            gh label create "review-cycle-1" \
+              --color "1d76db" \
+              --description "Review cycle 1 started" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+            gh pr edit "$PR_NUMBER" --add-label "review-cycle-1" \
+              --repo ${{ github.repository }}
+            echo "Added label: review-cycle-1"
+          fi
+
+          echo "Review cycle: $COUNT / $MAX_REVIEW_CYCLES"
+          echo "review_cycle=$COUNT" >> "$GITHUB_OUTPUT"
+
+          if [ "$COUNT" -gt "$MAX_REVIEW_CYCLES" ]; then
+            echo "::warning::Review cycle cap exceeded ($COUNT > $MAX_REVIEW_CYCLES) — skipping review jobs"
+            echo "capped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "capped=false" >> "$GITHUB_OUTPUT"
           fi
 
       # SECURITY: Check if PR author is authorized to trigger Codex reviews
@@ -2228,9 +2232,12 @@ jobs:
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
 
           # Count review-cycle-* labels (authoritative, independent of get-context)
-          CYCLE_LABEL_COUNT=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
+          if ! CYCLE_LABEL_COUNT=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
             repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
-            --jq '[.[].name | select(test("^review-cycle-[0-9]+$"))] | length' 2>/dev/null || echo "0")
+            --jq '[.[].name | select(test("^review-cycle-[0-9]+$"))] | length'); then
+            echo "Failed to read review-cycle labels for PR #$PR_NUMBER" >&2
+            exit 1
+          fi
 
           if [ "$CYCLE_LABEL_COUNT" -ge "$MAX_REVIEW_CYCLES" ]; then
             echo "::warning::Review cycle cap reached ($CYCLE_LABEL_COUNT >= $MAX_REVIEW_CYCLES). Will NOT dispatch follow-up."
@@ -2247,16 +2254,8 @@ jobs:
             exit 0
           fi
 
-          # Stamp the next cycle label before dispatching
           NEXT_CYCLE=$((CYCLE_LABEL_COUNT + 1))
           NEXT_LABEL="review-cycle-${NEXT_CYCLE}"
-          GH_TOKEN="${STATUS_API_TOKEN}" gh label create "$NEXT_LABEL" \
-            --color "1d76db" \
-            --description "Review cycle $NEXT_CYCLE started" \
-            --repo ${{ github.repository }} 2>/dev/null || true
-          GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" --add-label "$NEXT_LABEL" \
-            --repo ${{ github.repository }}
-          echo "Added label: $NEXT_LABEL"
 
           echo "Triggering PR Tests workflow..."
 
@@ -2334,31 +2333,34 @@ jobs:
               -f description="All required tests passed (after merge-decision fix)" \
               -f context="All Required Tests"
 
-            gh workflow run "Codex Code Review" \
-              --ref "main" \
-              --repo ${{ github.repository }} \
-              -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
-              -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
-              -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
-              -f tests_passed="true" \
-              -f run_id="$RUN_ID" \
-              -f reviewed_sha="$CURRENT_HEAD" \
-              -f review_cycle="$NEXT_CYCLE"
-            echo "Triggered follow-up Codex Code Review for updated head (cycle $NEXT_CYCLE)"
+            FOLLOW_UP_TESTS_PASSED=true
+            FOLLOW_UP_MESSAGE="Triggered follow-up Codex Code Review for updated head"
           else
             echo "Tests failed after merge-decision update"
-            gh workflow run "Codex Code Review" \
-              --ref "main" \
-              --repo ${{ github.repository }} \
-              -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
-              -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
-              -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
-              -f tests_passed="false" \
-              -f run_id="$RUN_ID" \
-              -f reviewed_sha="$CURRENT_HEAD" \
-              -f review_cycle="$NEXT_CYCLE"
-            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head (cycle $NEXT_CYCLE)"
+            FOLLOW_UP_TESTS_PASSED=false
+            FOLLOW_UP_MESSAGE="Triggered follow-up Codex Code Review to handle failing tests on updated head"
           fi
+
+          gh workflow run "Codex Code Review" \
+            --ref "main" \
+            --repo ${{ github.repository }} \
+            -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
+            -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
+            -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
+            -f tests_passed="$FOLLOW_UP_TESTS_PASSED" \
+            -f run_id="$RUN_ID" \
+            -f reviewed_sha="$CURRENT_HEAD" \
+            -f review_cycle="$NEXT_CYCLE"
+
+          # Persist the next cycle only after the follow-up review run is successfully dispatched.
+          GH_TOKEN="${STATUS_API_TOKEN}" gh label create "$NEXT_LABEL" \
+            --color "1d76db" \
+            --description "Review cycle $NEXT_CYCLE started" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+          GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" --add-label "$NEXT_LABEL" \
+            --repo ${{ github.repository }}
+          echo "Added label: $NEXT_LABEL"
+          echo "$FOLLOW_UP_MESSAGE (cycle $NEXT_CYCLE)"
 
           echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
 
