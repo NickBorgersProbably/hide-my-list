@@ -65,6 +65,23 @@ runs:
       run: |
         set -euo pipefail
 
+        sanitize_ssh_agent_forwarding() {
+          if [ -z "${SSH_AUTH_SOCK:-}" ]; then
+            echo \
+              "SSH_AUTH_SOCK is empty or unset; disabling SSH agent" \
+              "forwarding for devcontainer CLI."
+            unset SSH_AUTH_SOCK SSH_AGENT_PID
+            return
+          fi
+
+          if [ ! -S "$SSH_AUTH_SOCK" ]; then
+            echo \
+              "SSH_AUTH_SOCK='$SSH_AUTH_SOCK' is not a live socket;" \
+              "disabling SSH agent forwarding for devcontainer CLI."
+            unset SSH_AUTH_SOCK SSH_AGENT_PID
+          fi
+        }
+
         WORKSPACE="${{ github.workspace }}"
         if [ "${{ inputs.workspace_folder }}" != "." ]; then
           WORKSPACE="$WORKSPACE/${{ inputs.workspace_folder }}"
@@ -117,6 +134,10 @@ runs:
         done <<'ENVEOF'
         ${{ inputs.env }}
         ENVEOF
+
+        # Prevent the devcontainer CLI from synthesizing an empty bind mount
+        # when a runner exports SSH_AUTH_SOCK without a usable agent socket.
+        sanitize_ssh_agent_forwarding
 
         npx -y @devcontainers/cli up \
           --workspace-folder "$WORKSPACE" \
