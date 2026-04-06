@@ -36,11 +36,9 @@ If `HANDOFF_FILE` exists afterward, read it and deliver each reminder to the use
   ago — [task]")
 After delivery, read each reminder's status from the handoff file and update Notion accordingly:
   If status is "sent":
-    scripts/notion-cli.sh update-status PAGE_ID "Completed"
-    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"sent"}}}}'
+    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Status":{"select":{"name":"Completed"}},"Reminder Status":{"select":{"name":"sent"}}}}'
   If status is "missed":
-    scripts/notion-cli.sh update-status PAGE_ID "Completed"
-    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Reminder Status":{"select":{"name":"missed"}}}}'
+    scripts/notion-cli.sh update-property PAGE_ID '{"properties":{"Status":{"select":{"name":"Completed"}},"Reminder Status":{"select":{"name":"missed"}}}}'
 Delete `HANDOFF_FILE` only after every reminder was delivered and its Notion `Status` plus `Reminder Status` were updated.
 If delivery fails before that point, leave `HANDOFF_FILE` in place and do not mark the affected reminder as sent or missed.
 If there is nothing to report, reply with ONLY: NO_REPLY
