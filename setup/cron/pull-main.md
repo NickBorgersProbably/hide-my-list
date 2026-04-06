@@ -60,6 +60,6 @@ If no `setup/cron/` files changed, reply with ONLY: NO_REPLY.
 ## Notes
 
 - The script still handles Git-state recovery: clean pulls stay silent, and dirty pulls create a GitHub issue (preserving local changes) before resetting the repo. The cron prompt now adds a targeted silent post-pull cron reapply step when `setup/cron/` changed in the new commit range.
-- If `gh` is not authenticated, the script leaves `.pull-dirty` in place for the HEARTBEAT backstop (section 5) to retry via `scripts/pull-main.sh --recover-only` after auth is restored. Until then, heartbeat only preserves the signal and surfaces the problem for operator attention.
+- If interactive `gh` auth is missing, the script falls back to `GITHUB_PAT` from the repo `.env` by exporting `GH_TOKEN`. If neither auth path is available, it leaves `.pull-dirty` in place for the HEARTBEAT backstop (section 5) to retry via `scripts/pull-main.sh --recover-only` after auth is restored. Until then, heartbeat only preserves the signal and surfaces the problem for operator attention.
 - Cron jobs auto-expire after 7 days. HEARTBEAT.md remains the safety net: it re-registers missing jobs and patches any residual drift that was not corrected by the post-pull reapply step.
 - The GitHub issue preserves local changes for PR-based review before they're incorporated back into the system. This enforces the design principle that structural/prompt changes go through external review.

@@ -249,6 +249,7 @@ sequenceDiagram
 | `NOTION_API_KEY` | Notion integration token |
 | `NOTION_DATABASE_ID` | Tasks database identifier |
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
+| `GITHUB_PAT` | Optional personal access token used by GitHub-maintenance scripts when `gh` is not already authenticated |
 | `REMINDER_SIGNAL_FILE` | Path for reminder signal handoff (default: `.reminder-signal`) |
 
 ## Prerequisites
@@ -302,7 +303,7 @@ flowchart TB
 
 - **Network isolation**: Agent runs behind squid proxy with domain allowlist; kernel-level egress rules enforce this independently of the container
 - **CI separation**: GitHub Actions reviewers have no access to infrastructure or home systems
-- **Credential handling**: API keys in `.env` (gitignored), never logged or committed
+- **Credential handling**: API keys and optional `GITHUB_PAT` in `.env` (gitignored), never logged or committed
 - **Least privilege**: PR test workflows have read-only permissions
 - **No required webhook listener**: Durable cron replaced the old socat listener for core operations, though optional GitHub-triggered webhook paths remain an extra inbound surface if configured
 
