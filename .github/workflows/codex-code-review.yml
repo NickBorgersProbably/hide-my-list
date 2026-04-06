@@ -1354,8 +1354,9 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
+          # Use the shared stable default configured in .devcontainer/configure-codex.sh.
+          # The gpt-5-mini LiteLLM path has produced invalid tool-call transcripts in CI.
           env: |
-            CODEX_MODEL=gpt-5-mini
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
@@ -1597,8 +1598,9 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
+          # Use the shared stable default configured in .devcontainer/configure-codex.sh.
+          # The gpt-5-mini LiteLLM path has produced invalid tool-call transcripts in CI.
           env: |
-            CODEX_MODEL=gpt-5-mini
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
@@ -1800,8 +1802,9 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
+          # Use the shared stable default configured in .devcontainer/configure-codex.sh.
+          # The gpt-5-mini LiteLLM path has produced invalid tool-call transcripts in CI.
           env: |
-            CODEX_MODEL=gpt-5-mini
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
