@@ -109,7 +109,11 @@ runs:
                 "SSH_AUTH_SOCK is empty or not a live socket; "
                 "stripping SSH agent mount and remoteEnv from override config."
             )
-            config.pop("mounts", None)
+            # Set an empty list rather than removing the key — the
+            # devcontainer CLI merges the override with the base
+            # .devcontainer/devcontainer.json, so omitting the key lets the
+            # base config's mounts pass through.
+            config["mounts"] = []
             remote_env = config.get("remoteEnv", {})
             remote_env.pop("SSH_AUTH_SOCK", None)
             if not remote_env:
