@@ -84,6 +84,10 @@ runs:
 
         config.pop("build", None)
         config.pop("initializeCommand", None)
+        # CI review jobs run on GitHub-hosted runners without a guaranteed SSH
+        # agent socket, so PR-provided bind mounts must not leak into the
+        # trusted override config used to launch the container.
+        config.pop("mounts", None)
         config["image"] = image
 
         with open(target_path, "w", encoding="utf-8") as handle:
