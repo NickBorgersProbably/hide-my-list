@@ -23,7 +23,7 @@ stateDiagram-v2
     Breakdown --> Pending: Sub-tasks created (hidden)
 
     Intake --> ReminderPending: Reminder task detected
-    ReminderPending --> ReminderSent: Scheduler fires at remind_at
+    ReminderPending --> ReminderSent: Next eligible poll after remind_at
     ReminderPending --> ReminderMissed: >15 min past due
     ReminderSent --> Completed: Reminder delivered
     ReminderMissed --> Completed: Late reminder delivered
@@ -923,7 +923,7 @@ The reward system scales celebrations based on achievement significance:
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection — instead, the durable `reminder-check` cron job delivers them proactively at the specified time.
+Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection. Instead, the durable `reminder-check` cron job polls for reminders that have reached `Remind At` and delivers them on the next eligible run.
 
 ```mermaid
 flowchart TD
@@ -955,7 +955,7 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | `reminder-check` injects a `systemEvent` into `main`, then surfaces `.reminder-signal` at `remind_at` |
+| Selection | User requests → AI suggests | `reminder-check` injects a `systemEvent` into `main`, then surfaces `.reminder-signal` on the first eligible poll after `remind_at` |
 | Lifecycle | Pending → In Progress → Completed | Pending → Sent/Missed → Completed |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |

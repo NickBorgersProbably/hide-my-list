@@ -86,7 +86,7 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 
 Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs inject `systemEvent` payloads into the main agent session with `delivery: { mode: none }`.
 
-Production recommendation: keep heartbeat hourly because it is only an infrastructure backstop; keep `reminder-check` at 15-minute cadence because that is the user-facing clock and the best cost/latency tradeoff for routine deployments.
+Production recommendation: keep heartbeat hourly because it is only an infrastructure backstop; keep `reminder-check` at 15-minute cadence as the default cost/latency tradeoff for routine or low-stakes reminders. For exact-time reminders such as medication, departures, or meetings, use tighter polling instead of treating the 15-minute window as exact.
 
 ## Updating
 

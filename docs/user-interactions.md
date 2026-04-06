@@ -780,8 +780,8 @@ If no reminders are due, or if the `main` session has no attached user-facing su
 
 The agent delivers reminders with a brief, casual tone — like a friend tapping your shoulder:
 
-**On-time delivery (before the missed threshold, typically within 15 minutes of scheduled time):**
-> "Hey — you wanted a reminder to email Melanie about availability."
+**Approximate delivery (next eligible poll after the scheduled time, before the missed threshold):**
+> "Hey — this is your reminder to email Melanie about availability."
 
 **Missed delivery (>15 minutes past due, flagged as missed):**
 > "I'm late on this one — you had a reminder at 6pm PT to email Melanie. Want to handle it now or reschedule?"
@@ -795,14 +795,14 @@ During task intake, the AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 
 **Confirmation message style:**
-> "Got it — I'll ping you at 6pm PT to email Melanie."
+> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next reminder check after that."
 
 The user's timezone defaults to US Central. The AI converts timezone references (PT, CT, ET) to UTC offsets at intake time.
 
 ### Reminder vs. Deadline
 
 Reminders and deadlines are different:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification at 6pm
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, on the next reminder check
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 The key signal is notification intent: the user wants to be *told* to do something at a specific time, not just have it prioritized.
