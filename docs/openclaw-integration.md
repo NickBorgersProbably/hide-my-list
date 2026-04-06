@@ -88,18 +88,6 @@ For production deployments, use these timings unless you have a clear reason to 
 
 The core principle is simple: `reminder-check` is the thing that affects user-facing timeliness. Heartbeat exists to keep the runtime healthy and recover expired or drifted cron registrations, so it does not need sub-hour cadence. For routine reminders, 15-minute polling is the default production cost/latency tradeoff. For exact-time reminders such as medication, departures, or meetings, tighten the polling interval rather than treating a 15-minute window as exact.
 
-### Production Timing Recommendation
-
-For production deployments, use these timings unless you have a clear reason to pay for tighter polling:
-
-| Mechanism | Recommended cadence | Why |
-|-----------|---------------------|-----|
-| Heartbeat | Every 60 minutes | Infrastructure safety net only: cron expiry, spec drift, Notion/env health |
-| `reminder-check` | Every 15 minutes | User-facing reminder timeliness with acceptable cost for a mostly-idle job |
-| `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps the workspace fresh |
-
-The core principle is simple: `reminder-check` is the thing that affects user-facing timeliness. Heartbeat exists to keep the runtime healthy and recover expired or drifted cron registrations, so it does not need sub-hour cadence.
-
 ## Messaging Channels
 
 OpenClaw handles all messaging infrastructure. We don't touch it.
