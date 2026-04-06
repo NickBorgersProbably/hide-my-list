@@ -584,7 +584,6 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
-          sanitize_mounts: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -902,7 +901,6 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
-          sanitize_mounts: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1130,7 +1128,6 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
-          sanitize_mounts: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1321,7 +1318,6 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
-          sanitize_mounts: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1564,7 +1560,6 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
-          sanitize_mounts: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1767,7 +1762,6 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
-          sanitize_mounts: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
@@ -1982,7 +1976,6 @@ jobs:
           image: ${{ env.DEVCONTAINER_IMAGE }}
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
-          sanitize_mounts: 'true'
           env: |
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
