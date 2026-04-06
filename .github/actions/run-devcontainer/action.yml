@@ -76,6 +76,12 @@ runs:
           docker pull "${{ inputs.image }}"
         fi
 
+        # Unset SSH_AUTH_SOCK so the devcontainer CLI doesn't resolve
+        # ${localEnv:SSH_AUTH_SOCK} to an empty bind-mount source.
+        # The devcontainer.json mounts the host SSH agent for local dev;
+        # CI has no agent, so we strip the reference entirely.
+        unset SSH_AUTH_SOCK
+
         python3 \
           - \
           "$WORKSPACE/.devcontainer/devcontainer.json" \
