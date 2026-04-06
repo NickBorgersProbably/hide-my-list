@@ -29,7 +29,6 @@ if [ ! -f "$ROOT_DIR/.env" ]; then
     echo "Create it with:"
     echo "  NOTION_API_KEY=ntn_..."
     echo "  NOTION_DATABASE_ID=..."
-    echo "  SIGNAL_OWNER_NUMBER=+15551234567  (optional, if your Signal setup needs it)"
     echo "  OPENAI_API_KEY=sk-...  (optional, for reward images)"
     echo "  GITHUB_PAT=ghp_...     (optional, for higher API rate limits)"
     exit 1

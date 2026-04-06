@@ -27,7 +27,6 @@
    cat > ~/.openclaw/workspace/.env << 'EOF'
    NOTION_API_KEY=ntn_your_key_here
    NOTION_DATABASE_ID=your_database_id_here
-   SIGNAL_OWNER_NUMBER=+15551234567   # Optional: only if your Signal setup needs it
    OPENAI_API_KEY=sk-your_key_here    # Optional: for reward image generation
    GITHUB_PAT=ghp_your_token_here     # Optional: for higher GitHub API rate limits
    EOF
@@ -63,7 +62,6 @@
 |----------|----------|-------------|
 | `NOTION_API_KEY` | Yes | Notion integration API key |
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
-| `SIGNAL_OWNER_NUMBER` | No | Optional owner Signal number (E.164 format) for Signal-specific setup |
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
 | `GITHUB_PAT` | No | GitHub personal access token for higher rate limits |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
