@@ -6,7 +6,7 @@ on:
   pull_request_review_comment:
     types: [created]
   issues:
-    types: [opened, reopened]
+    types: [opened, reopened, unlabeled]
   pull_request_review:
     types: [submitted]
 
@@ -53,8 +53,23 @@ jobs:
               ACTOR="${{ github.event.review.user.login }}"
               ;;
             issues)
-              AUTHOR_ASSOC="${{ github.event.issue.author_association }}"
-              ACTOR="${{ github.event.issue.user.login }}"
+              if [ "${{ github.event.action }}" = "unlabeled" ]; then
+                # For label removal the sender is the actor, not the issue author.
+                # Only collaborators can remove labels, but verify via API to stay consistent.
+                ACTOR="${{ github.actor }}"
+                PERM=$(gh api "repos/${{ github.repository }}/collaborators/${ACTOR}/permission" --jq '.permission' 2>/dev/null || echo "none")
+                case "$PERM" in
+                  admin|maintain|write|triage)
+                    AUTHOR_ASSOC="COLLABORATOR"
+                    ;;
+                  *)
+                    AUTHOR_ASSOC="NONE"
+                    ;;
+                esac
+              else
+                AUTHOR_ASSOC="${{ github.event.issue.author_association }}"
+                ACTOR="${{ github.event.issue.user.login }}"
+              fi
               ;;
             *)
               echo "Unknown event type: $EVENT_NAME"
@@ -216,7 +231,11 @@ jobs:
       needs.authorize.outputs.authorized == 'true' &&
       needs.preflight.outputs.should_run == 'true' &&
       (
-        (github.event_name == 'issues') ||
+        (github.event_name == 'issues' && (
+          github.event.action == 'opened' ||
+          github.event.action == 'reopened' ||
+          (github.event.action == 'unlabeled' && github.event.label.name == 'codex-started')
+        )) ||
         needs.detect_codex_invocation.outputs.codex_requested == 'true'
       )
     runs-on: [self-hosted, homelab]
@@ -410,7 +429,11 @@ jobs:
     needs: [authorize, detect_codex_invocation, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'reopened')
+      github.event_name == 'issues' && (
+        github.event.action == 'opened' ||
+        github.event.action == 'reopened' ||
+        (github.event.action == 'unlabeled' && github.event.label.name == 'codex-started')
+      )
     runs-on: [self-hosted, homelab]
     permissions:
       contents: write
