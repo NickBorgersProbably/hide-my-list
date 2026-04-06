@@ -769,25 +769,25 @@ sequenceDiagram
     Scr->>Signal: Write reminder handoff file
     Note over Cron: Cron exits (NO_REPLY)
     alt User interacts (AGENTS.md step 5)
-        Delivery->>Signal: Read handoff file
+        Delivery->>Signal: Atomically claim handoff file
         Delivery->>User: Deliver reminder
         Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
-        Delivery->>Signal: Delete handoff file
+        Delivery->>Signal: Delete claimed file
     else Heartbeat runs (Check 1)
-        Delivery->>Signal: Read handoff file
+        Delivery->>Signal: Atomically claim handoff file
         Delivery->>User: Deliver reminder
         Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
-        Delivery->>Signal: Delete handoff file
+        Delivery->>Signal: Delete claimed file
     end
 ```
 
-The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). If delivery fails, the handoff file is left in place for retry.
+The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). Both delivery paths must atomically claim the handoff file before sending so only one session can deliver a given reminder batch. If delivery fails after claim, the claimed file should be restored to the handoff path when possible so it can be retried.
 
 ### Reminder Delivery Messages
 
 The agent delivers reminders with a brief, casual tone — like a friend tapping your shoulder:
 
-**Approximate delivery (next eligible poll after the scheduled time, before the missed threshold):**
+**Approximate delivery (after the scheduled time but before the missed threshold):**
 > "Hey — this is your reminder to email Melanie about availability."
 
 **Missed delivery (>15 minutes past due, flagged as missed):**
@@ -802,14 +802,14 @@ During task intake, the AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 
 **Confirmation message style:**
-> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next reminder check after that."
+> "Got it — I'll queue a reminder for 6pm PT to email Melanie. If you're idle, it should come through within about an hour after it's due; if you message first, you'll get it sooner."
 
 The user's timezone defaults to US Central. The AI converts timezone references (PT, CT, ET) to UTC offsets at intake time.
 
 ### Reminder vs. Deadline
 
 Reminders and deadlines are different:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, on the next reminder check
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification on the next user interaction or within about an hour when idle
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 The key signal is notification intent: the user wants to be *told* to do something at a specific time, not just have it prioritized.

@@ -19,8 +19,8 @@ CronCreate:
 This job runs as an isolated Haiku session. It is query-only: it runs the check script, which writes the reminder handoff file (default filename: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if any reminders are due, and then exits. It does not deliver reminders to the user.
 
 **Reminder delivery** is handled separately by two mechanisms:
-1. **AGENTS.md step 5** (opportunistic): every time the user interacts, the main session checks for the handoff file and delivers immediately.
-2. **HEARTBEAT.md Check 1** (hourly backstop): the heartbeat reads the handoff file every 60 minutes and delivers any stranded reminders.
+1. **AGENTS.md step 5** (opportunistic): every time the user interacts, the main session atomically claims the handoff file and delivers immediately.
+2. **HEARTBEAT.md Check 1** (hourly backstop): the heartbeat atomically claims the handoff file every 60 minutes and delivers any stranded reminders.
 
 Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set Notion `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
 

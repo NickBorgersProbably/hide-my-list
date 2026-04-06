@@ -229,9 +229,9 @@ sequenceDiagram
 3. The cron job runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
 4. If due reminders are found, `check-reminders.sh` writes the reminder handoff file in the repo root (default filename: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). The isolated cron session then exits with `NO_REPLY` — it does not deliver reminders.
 5. Reminder delivery happens through two separate mechanisms:
-   - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for the handoff file and delivers immediately.
-   - **HEARTBEAT.md Check 1** (hourly backstop): the heartbeat reads the handoff file every 60 minutes and delivers any stranded reminders.
-   Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
+   - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session claims the handoff file and delivers immediately.
+   - **HEARTBEAT.md Check 1** (hourly backstop): the heartbeat claims the handoff file every 60 minutes and delivers any stranded reminders.
+   Both delivery paths first atomically rename the handoff file to a unique `.claimed` sibling so only one session can deliver a given reminder batch. The claiming session then uses `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
 6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 7. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 

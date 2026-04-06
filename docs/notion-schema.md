@@ -450,7 +450,7 @@ See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)
 
 ### IsReminder (checkbox)
 
-Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow. They become eligible at `Remind At` and are delivered proactively by the scheduled reminder system on the next eligible `reminder-check` poll.
+Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow. They become eligible at `Remind At`; the isolated `reminder-check` cron writes the reminder handoff file, and the reminder is then delivered by the next user interaction or the hourly heartbeat.
 
 | Value | Description |
 |-------|-------------|

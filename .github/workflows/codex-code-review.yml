@@ -52,6 +52,10 @@ on:
         description: 'Immutable PR head SHA reviewed by this workflow run'
         required: false
         type: string
+      review_cycle:
+        description: 'Review cycle hint (labels are authoritative)'
+        required: false
+        type: string
 
 # Prevent duplicate reviews when multiple PR Tests complete around the same time
 # Uses branch name for concurrency group
@@ -74,7 +78,7 @@ jobs:
     # This allows reviews to run even when push happens before PR creation.
     permissions:
       contents: read
-      issues: read
+      issues: write
       pull-requests: write
       statuses: write
     outputs:
@@ -102,7 +106,6 @@ jobs:
       issue_title: ${{ steps.get-issue.outputs.issue_title }}
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
-      review_cycles: ${{ steps.count-review-cycles.outputs.count }}
       reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
       # SECURITY: Authorization status - blocks external/untrusted PR authors
       author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
@@ -110,6 +113,8 @@ jobs:
       config_only: ${{ steps.classify-files.outputs.config_only }}
       has_scripts: ${{ steps.classify-files.outputs.has_scripts }}
       docs_only: ${{ steps.classify-files.outputs.docs_only }}
+      review_cycle: ${{ steps.resolve-review-cycle.outputs.review_cycle }}
+      review_cycle_capped: ${{ steps.resolve-review-cycle.outputs.capped }}
 
     steps:
       # Gate for /review comment triggers — skip non-matching comments early
@@ -344,31 +349,6 @@ jobs:
           echo "Current fix attempt count: $COUNT"
           echo "count=$COUNT" >> $GITHUB_OUTPUT
 
-      - name: Count review cycles from PR labels
-        if: steps.get-pr.outputs.pr_number != ''
-        id: count-review-cycles
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
-
-          # Get all labels on the PR
-          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
-
-          # Count codex-review-cycle-N labels (highest N = current cycle)
-          COUNT=0
-          for label in $LABELS; do
-            if [[ "$label" =~ ^codex-review-cycle-[0-9]+$ ]]; then
-              NUM=$(echo "$label" | grep -oP '\d+$')
-              if [ "$NUM" -gt "$COUNT" ]; then
-                COUNT=$NUM
-              fi
-            fi
-          done
-
-          echo "Current review cycle count: $COUNT"
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
-
       - name: Check if reviews already passed (or reset on /review)
         if: steps.get-pr.outputs.pr_number != ''
         id: check-existing-reviews
@@ -392,12 +372,10 @@ jobs:
               "merge-decision-started"; do
               gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
             done
-            # Also remove review cycle labels
-            LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
-            for label in $LABELS; do
-              if [[ "$label" =~ ^codex-review-cycle- ]]; then
-                gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
-              fi
+            # Remove review-cycle-* labels so reopened PRs start fresh
+            for label in $(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+              --jq '.[].name | select(test("^review-cycle-[0-9]+$"))' 2>/dev/null || true); do
+              gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
             done
             # Signal already_passed=true to skip all downstream review jobs
             echo "already_passed=true" >> $GITHUB_OUTPUT
@@ -418,12 +396,10 @@ jobs:
               "merge-decision-started"; do
               gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
             done
-            # Also remove review cycle labels so /review starts a fresh cycle count
-            LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
-            for label in $LABELS; do
-              if [[ "$label" =~ ^codex-review-cycle- ]]; then
-                gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
-              fi
+            # Reset review-cycle-* labels so /review gets a fresh cycle count
+            for label in $(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+              --jq '.[].name | select(test("^review-cycle-[0-9]+$"))' 2>/dev/null || true); do
+              gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
             done
             echo "already_passed=false" >> $GITHUB_OUTPUT
             exit 0
@@ -438,6 +414,51 @@ jobs:
           else
             echo "No existing reviews found - will run full review cycle"
             echo "already_passed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Resolve review cycle and enforce cap
+        id: resolve-review-cycle
+        if: steps.get-pr.outputs.pr_number != '' && steps.check-existing-reviews.outputs.already_passed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MAX_REVIEW_CYCLES=3
+          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
+
+          # Count existing review-cycle-N labels after any /review or close-event reset.
+          if ! LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name'); then
+            echo "Failed to read review-cycle labels for PR #$PR_NUMBER" >&2
+            exit 1
+          fi
+
+          COUNT=0
+          for label in $LABELS; do
+            if [[ "$label" =~ ^review-cycle-[0-9]+$ ]]; then
+              COUNT=$((COUNT + 1))
+            fi
+          done
+
+          # First cycle: stamp review-cycle-1. Later cycles are stamped only after a
+          # follow-up review run has actually been dispatched.
+          if [ "$COUNT" -eq 0 ]; then
+            COUNT=1
+            gh label create "review-cycle-1" \
+              --color "1d76db" \
+              --description "Review cycle 1 started" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+            gh pr edit "$PR_NUMBER" --add-label "review-cycle-1" \
+              --repo ${{ github.repository }}
+            echo "Added label: review-cycle-1"
+          fi
+
+          echo "Review cycle: $COUNT / $MAX_REVIEW_CYCLES"
+          echo "review_cycle=$COUNT" >> "$GITHUB_OUTPUT"
+
+          if [ "$COUNT" -gt "$MAX_REVIEW_CYCLES" ]; then
+            echo "::warning::Review cycle cap exceeded ($COUNT > $MAX_REVIEW_CYCLES) — skipping review jobs"
+            echo "capped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "capped=false" >> "$GITHUB_OUTPUT"
           fi
 
       # SECURITY: Check if PR author is authorized to trigger Codex reviews
@@ -870,6 +891,7 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.review_cycle_capped != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: [self-hosted, homelab]
@@ -1099,6 +1121,7 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.review_cycle_capped != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.docs_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -1289,6 +1312,7 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.review_cycle_capped != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.config_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -1533,6 +1557,7 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.review_cycle_capped != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: [self-hosted, homelab]
@@ -1735,6 +1760,7 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.review_cycle_capped != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.config_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
@@ -1948,6 +1974,7 @@ jobs:
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
+      needs.get-context.outputs.review_cycle_capped != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: [self-hosted, homelab]
@@ -2069,7 +2096,7 @@ jobs:
             PSYCH_REVIEW_RESULT=${{ needs.psych-review.result }}
             DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
             PROMPT_REVIEW_RESULT=${{ needs.prompt-review.result }}
-            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycles }}
+            REVIEW_CYCLE=${{ needs.get-context.outputs.review_cycle }}
           run_cmd: |
             source .devcontainer/configure-codex.sh
 
@@ -2081,6 +2108,8 @@ jobs:
             You have personal responsibility to decide whether the automated review gate for this PR is GO or NO-GO.
             This workflow does not submit GitHub approving reviews. Do not treat missing human approval or unmet branch protection approval requirements as blocking for your decision.
 
+            **REVIEW CYCLE:** ${REVIEW_CYCLE} of 3 maximum. If this is cycle 3, only apply fixes you are highly confident about — there will be no further automated review cycles.
+
             **REVIEW STATUS:**
             - Design Review: ${DESIGN_REVIEW_RESULT}
             - Security & Infrastructure Review: ${SECURITY_REVIEW_RESULT}
@@ -2088,34 +2117,22 @@ jobs:
             - Prompt Engineering Review: ${PROMPT_REVIEW_RESULT}
             - Documentation Consistency Review: ${DOCS_REVIEW_RESULT}
 
-            **REVIEW CYCLE:** ${REVIEW_CYCLE} (0 = first review, 1 = follow-up after fixes, 2 = final)
-
             **YOUR TASK:**
             1. Read all review feedback on this PR, including inline review comments:
                - \`gh pr view ${PR_NUMBER} --comments\`
                - \`gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments --paginate | jq -r '.[] | \"### \\(.path):\\(.line)\\n\\(.body)\\n\"'\`
             2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
             3. If there are merge conflicts AND you believe the PR should be merged, resolve them
-            4. **Apply fixes from reviewers** (WITH CONTRADICTION CHECK):
-               Check the review comments for fixes described by reviewers:
+            4. **Apply fixes from reviewers**: Check the review comments for fixes described by reviewers:
                - Security Review: \"Fixes Needed\" section
                - Documentation Consistency Review: \"Updates Needed\" section
-
-               **BEFORE applying any fix**, check if it would REVERSE a change from a previous review cycle:
-               - Run \`git log --oneline origin/main..HEAD\` to see all commits on this branch
-               - If a reviewer is asking you to undo or contradict something that a DIFFERENT reviewer requested in a prior cycle, that is a DESIGN DISAGREEMENT between reviewers — not something you can fix by oscillating
-               - In that case: DO NOT apply the fix. Post NO-GO with \"Contradictory reviewer feedback\" and list the conflicting positions so the PR author or a human reviewer can make the design call
-
-               If this is review cycle 2 (the final automated cycle): only apply trivial fixes (typos, formatting, missing doc references). For any structural or architectural change, post NO-GO and explain what needs human review.
-
-               If no contradiction: apply the fixes, commit, and push as normal.
+               If any reviewer described specific fixes, apply them now (edit the files, commit, and push).
                You are the ONLY agent with push access.
             5. Make a GO/NO-GO decision
 
             **DECISION CRITERIA:**
             - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
             - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
-            - NO-GO (contradictory feedback): Two or more reviewers are requesting changes that conflict with each other. Escalate to humans instead of picking a side.
             - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
 
             **IF NO-GO:** Explain what must be fixed before the automated review gate can pass.
@@ -2188,7 +2205,7 @@ jobs:
 
       - name: Trigger follow-up validation after merge-decision push
         id: trigger-follow-up
-        if: success() && steps.setup.outputs.verified == 'true' && needs.get-context.outputs.review_cycles < 2
+        if: success() && steps.setup.outputs.verified == 'true'
         working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
@@ -2210,17 +2227,35 @@ jobs:
           echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
 
-          # Increment review cycle counter
-          CURRENT_CYCLES="${{ needs.get-context.outputs.review_cycles }}"
-          NEXT_CYCLE=$((CURRENT_CYCLES + 1))
-          gh label create "codex-review-cycle-$NEXT_CYCLE" \
-            --color "e4e669" \
-            --description "Codex review cycle $NEXT_CYCLE" \
-            --repo ${{ github.repository }} 2>/dev/null || true
-          gh pr edit ${{ needs.get-context.outputs.pr_number }} \
-            --add-label "codex-review-cycle-$NEXT_CYCLE" \
-            --repo ${{ github.repository }}
-          echo "Marked as review cycle $NEXT_CYCLE"
+          # --- Review cycle cap enforcement (hard gate) ---
+          MAX_REVIEW_CYCLES=3
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+
+          # Count review-cycle-* labels (authoritative, independent of get-context)
+          if ! CYCLE_LABEL_COUNT=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
+            repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+            --jq '[.[].name | select(test("^review-cycle-[0-9]+$"))] | length'); then
+            echo "Failed to read review-cycle labels for PR #$PR_NUMBER" >&2
+            exit 1
+          fi
+
+          if [ "$CYCLE_LABEL_COUNT" -ge "$MAX_REVIEW_CYCLES" ]; then
+            echo "::warning::Review cycle cap reached ($CYCLE_LABEL_COUNT >= $MAX_REVIEW_CYCLES). Will NOT dispatch follow-up."
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+
+            GH_TOKEN="${STATUS_API_TOKEN}" gh pr comment "$PR_NUMBER" \
+              --body "## Review Cycle Cap Reached
+
+          The merge-decision agent pushed fixes, but the maximum of **3 review cycles** has been reached. No further automated review cycles will be triggered.
+
+          A human reviewer should inspect the latest changes. To reset the cycle counter and re-run reviews, comment \`/review\` on this PR." \
+              --repo ${{ github.repository }} 2>/dev/null || true
+
+            exit 0
+          fi
+
+          NEXT_CYCLE=$((CYCLE_LABEL_COUNT + 1))
+          NEXT_LABEL="review-cycle-${NEXT_CYCLE}"
 
           echo "Triggering PR Tests workflow..."
 
@@ -2298,56 +2333,36 @@ jobs:
               -f description="All required tests passed (after merge-decision fix)" \
               -f context="All Required Tests"
 
-            gh workflow run "Codex Code Review" \
-              --ref "main" \
-              --repo ${{ github.repository }} \
-              -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
-              -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
-              -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
-              -f tests_passed="true" \
-              -f run_id="$RUN_ID" \
-              -f reviewed_sha="$CURRENT_HEAD"
-            echo "Triggered follow-up Codex Code Review for updated head"
+            FOLLOW_UP_TESTS_PASSED=true
+            FOLLOW_UP_MESSAGE="Triggered follow-up Codex Code Review for updated head"
           else
             echo "Tests failed after merge-decision update"
-            gh workflow run "Codex Code Review" \
-              --ref "main" \
-              --repo ${{ github.repository }} \
-              -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
-              -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
-              -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
-              -f tests_passed="false" \
-              -f run_id="$RUN_ID" \
-              -f reviewed_sha="$CURRENT_HEAD"
-            echo "Triggered follow-up Codex Code Review to handle failing tests on updated head"
+            FOLLOW_UP_TESTS_PASSED=false
+            FOLLOW_UP_MESSAGE="Triggered follow-up Codex Code Review to handle failing tests on updated head"
           fi
+
+          gh workflow run "Codex Code Review" \
+            --ref "main" \
+            --repo ${{ github.repository }} \
+            -f head_ref="${{ needs.get-context.outputs.head_ref }}" \
+            -f head_repo="${{ needs.get-context.outputs.head_repo }}" \
+            -f pr_number="${{ needs.get-context.outputs.pr_number }}" \
+            -f tests_passed="$FOLLOW_UP_TESTS_PASSED" \
+            -f run_id="$RUN_ID" \
+            -f reviewed_sha="$CURRENT_HEAD" \
+            -f review_cycle="$NEXT_CYCLE"
+
+          # Persist the next cycle only after the follow-up review run is successfully dispatched.
+          GH_TOKEN="${STATUS_API_TOKEN}" gh label create "$NEXT_LABEL" \
+            --color "1d76db" \
+            --description "Review cycle $NEXT_CYCLE started" \
+            --repo ${{ github.repository }} 2>/dev/null || true
+          GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" --add-label "$NEXT_LABEL" \
+            --repo ${{ github.repository }}
+          echo "Added label: $NEXT_LABEL"
+          echo "$FOLLOW_UP_MESSAGE (cycle $NEXT_CYCLE)"
 
           echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
-
-      - name: Post max review cycles reached
-        if: |
-          success() &&
-          steps.setup.outputs.verified == 'true' &&
-          needs.get-context.outputs.review_cycles >= 2
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
-        working-directory: ${{ env.PR_WORKSPACE_PATH }}
-        run: |
-          # Only post if merge decision actually pushed new commits
-          git fetch origin ${{ needs.get-context.outputs.head_ref }}
-          CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
-          REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
-
-          if [ "$CURRENT_HEAD" != "$REVIEWED_SHA" ]; then
-            gh pr comment $PR_NUMBER --body "## Review Cycle Limit Reached
-
-          This PR has gone through ${{ needs.get-context.outputs.review_cycles }} review cycles with fixes applied each time. The automated review loop has been stopped to prevent infinite cycling.
-
-          **Action required:** A human reviewer should examine the remaining feedback and decide how to proceed. Use \`/review\` to reset the cycle counter and re-run automated reviews after making changes.
-
-          _This typically happens when reviewers give contradictory feedback that causes oscillating fixes._"
-          fi
 
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
@@ -2393,6 +2408,15 @@ jobs:
             echo "To re-run reviews: comment /review on the PR"
             echo "skipped_with_success=true" >> $GITHUB_OUTPUT
             set_status_output "success" "Agent reviews already passed (skipped re-review)"
+            exit 0
+          fi
+
+          # Review cycle cap — all review jobs were skipped, report clean status
+          REVIEW_CYCLE_CAPPED="${{ needs.get-context.outputs.review_cycle_capped }}"
+          if [ "$REVIEW_CYCLE_CAPPED" = "true" ]; then
+            echo "Review cycle cap exceeded — all review jobs were skipped"
+            echo "To reset the cycle counter: comment /review on the PR"
+            set_status_output "pending" "Review cycle cap reached — human review required"
             exit 0
           fi
 
@@ -2523,7 +2547,6 @@ jobs:
           echo "Review Results:"
           echo "  Tests Passed: ${{ needs.get-context.outputs.tests_passed }}"
           echo "  Fix Attempts: ${{ needs.get-context.outputs.fix_attempts }}"
-          echo "  Review Cycles: ${{ needs.get-context.outputs.review_cycles }}"
           echo "  Build Devcontainer: ${{ needs.build-devcontainer.result }}"
           echo "  Fix Test Failures: ${{ needs.fix-test-failures.result }}"
           echo "  Design Review: ${{ needs.design-review.result }}"

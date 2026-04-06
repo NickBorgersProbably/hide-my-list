@@ -26,12 +26,15 @@
 #     stranded handoff files and delivers reminders as the idle-session backstop.
 #
 # The delivering session (heartbeat or main session) is responsible for:
-#   - Reading the handoff file payload and delivering each reminder to the user
+#   - Atomically claiming the handoff file by renaming it to a unique
+#     `.reminder-signal-*.claimed` sibling before reading or delivering it
+#   - Reading the claimed file payload and delivering each reminder to the user
 #   - Running `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to
 #     atomically set Notion `Status` and `Reminder Status` after confirmed
 #     delivery
-#   - Deleting the handoff file only after successful delivery and Notion
-#     updates (if delivery fails, leave the handoff file in place for retry)
+#   - Deleting the claimed file only after successful delivery and Notion
+#     updates (if delivery fails, restore the original handoff path when
+#     possible so retry paths can see it)
 #
 # SECURITY PROPERTIES:
 #   - Loads only REMINDER_SIGNAL_FILE into this shell; Notion creds stay scoped
