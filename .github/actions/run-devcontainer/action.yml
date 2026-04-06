@@ -1,3 +1,4 @@
+---
 name: Run command in devcontainer
 description: >
   Runs a command inside a pre-built devcontainer image using the
@@ -140,7 +141,7 @@ runs:
 
         npx -y @devcontainers/cli up \
           --workspace-folder "$WORKSPACE" \
-          --override-config "$OVERRIDE_CONFIG" \
+          --config "$OVERRIDE_CONFIG" \
           --remove-existing-container \
           --skip-post-attach \
           "${REMOTE_ENV_ARGS[@]}"
@@ -149,6 +150,6 @@ runs:
 
         npx -y @devcontainers/cli exec \
           --workspace-folder "$WORKSPACE" \
-          --override-config "$OVERRIDE_CONFIG" \
+          --config "$OVERRIDE_CONFIG" \
           "${REMOTE_ENV_ARGS[@]}" \
           bash -lc "bash '.git/$SCRIPT_NAME'"
