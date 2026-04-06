@@ -18,17 +18,30 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. Both jobs must inject into the main agent session with `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, and `timeout-seconds: 120`. Cron jobs should never deliver directly to Signal or any other channel on their own.
 
 ### 2b. Cron Spec Drift Check
-For each registered cron job (`reminder-check`, `pull-main`), compare the live job's `prompt`, `schedule`, session target (if any), payload kind, delivery mode, and timeout against the canonical spec in `setup/cron/<name>.md`.
+For each registered cron job (`reminder-check`, `pull-main`), compare the live job's effective registration against the canonical `CronCreate` spec in `setup/cron/<name>.md`.
 
 To check: use CronList to inspect the live registrations, then read the corresponding spec file in `setup/cron/`.
+
+At minimum, compare and correct these fields:
+- `name`
+- `durable`
+- `schedule`
+- `prompt`
+- session routing field: canonical `sessionTarget`
+- direct-delivery routing field: live `to` if present
+- payload field: canonical `payload.kind`
+- delivery behavior fields: canonical `delivery.mode` and any equivalent live field such as `best-effort-deliver`
+- `timeout-seconds`
+
+`to` is not a legacy spelling of `sessionTarget`. `sessionTarget` controls whether the cron run re-enters `main`, while `to` is direct-delivery routing for isolated jobs. For `reminder-check` and `pull-main`, the canonical contract is `sessionTarget: main` with no direct-delivery target, so any populated `to` should be treated as drift and removed rather than accepted as equivalent.
 
 If a stale `pipeline-monitor` cron is still registered, delete it with CronDelete — that job has been removed.
 
 `pull-main` now handles the fast path after clean pulls that advance `HEAD`: it immediately reapplies any changed `setup/cron/` specs from that invocation's commit range. Heartbeat remains the safety net for expired jobs, missed fast-path updates, and any residual drift.
 
-If any field differs from the spec, patch the live job to match with CronUpdate. Preserve the intended durable registration contract from the spec:
-- `reminder-check`: `schedule`, `prompt`, `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
-- `pull-main`: `schedule`, `prompt`, `sessionTarget: main`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
+If any field differs from the spec, patch the live job to match with CronUpdate. If CronUpdate cannot safely change an identity field such as `name` or `durable`, delete and re-create the job from the spec instead of leaving drift in place. Preserve the intended durable registration contract from the spec:
+- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: main`, no `to`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
+- `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: main`, no `to`, `payload.kind: systemEvent`, `delivery.mode: none`, `timeout-seconds: 120`
 
 If all jobs already match their specs, do not report anything. If any jobs were corrected, briefly note which ones were patched and what drift was fixed.
 
