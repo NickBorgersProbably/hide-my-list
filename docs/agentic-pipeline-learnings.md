@@ -18,8 +18,8 @@ Two meta-lessons span everything below:
 **Before:** Every reviewer round produced 3× redundant comments.
 **Evidence:** #70, #71, #274
 
-### 1.2 State lives on PR labels, not comments or workflow inputs
-**Why:** Comment-pagination based counters broke past page 1, and `workflow_dispatch` inputs reset to 0 on manual reruns. Labels are durable across reruns and visible to humans.
+### 1.2 PR-scoped review progress state lives on labels, not comments or workflow inputs
+**Why:** Comment-pagination based counters broke past page 1, and `workflow_dispatch` inputs reset to 0 on manual reruns. PR labels are the durable source of truth for PR-scoped cycle/progress state such as cycle counters and `*-started` markers because they survive reruns and stay visible to humans. The exception is SHA-bound approval state: whether a specific commit already passed the full review gate lives on that commit's `All Required Agent Reviews` status, as described in section 1.11.
 **Before:** Cycle counters silently reset, allowing infinite loops.
 **Evidence:** #182, #234, #303, #320
 
@@ -62,6 +62,11 @@ Two meta-lessons span everything below:
 **Why:** Snapshot and clear `*-started` labels at cycle boundaries; only restore if the new cycle label commits successfully.
 **Before:** On cycle 2, humans couldn't tell which review stage was actually running.
 **Evidence:** #320
+
+### 1.11 Review-skip approvals must be SHA-bound, not PR-bound
+**Why:** A PR-level marker such as `agent-reviews-passed` can outlive the diff it originally described. The only safe auto-skip is when the current head SHA already carries the same-SHA `All Required Agent Reviews = success` status from a `GO-CLEAN` merge decision. PR labels can still communicate history to humans, but they must not gate execution for later commits.
+**Before:** New head commits inherited a green aggregate review check without any stage evaluating the updated diff.
+**Evidence:** #339, #338, #337
 
 ---
 

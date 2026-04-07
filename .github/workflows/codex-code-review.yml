@@ -107,6 +107,7 @@ jobs:
       issue_body_b64: ${{ steps.get-issue.outputs.issue_body_b64 }}
       fix_attempts: ${{ steps.count-attempts.outputs.count }}
       reviews_already_passed: ${{ steps.check-existing-reviews.outputs.already_passed }}
+      review_skip_reason: ${{ steps.check-existing-reviews.outputs.skip_reason }}
       # SECURITY: Authorization status - blocks external/untrusted PR authors
       author_authorized: ${{ steps.check-author-auth.outputs.authorized }}
       # File classification - determines which reviews to run
@@ -349,7 +350,7 @@ jobs:
           echo "Current fix attempt count: $COUNT"
           echo "count=$COUNT" >> $GITHUB_OUTPUT
 
-      - name: Check if reviews already passed (or reset on /review)
+      - name: Check if same-SHA reviews already passed (or reset on /review)
         if: steps.get-pr.outputs.pr_number != ''
         id: check-existing-reviews
         env:
@@ -379,6 +380,7 @@ jobs:
             if [ "$EXISTING_GO_CLEAN_STATUS" -gt 0 ]; then
               echo "Current head already has merge-decision GO-CLEAN approval - skipping re-review"
               echo "already_passed=true" >> $GITHUB_OUTPUT
+              echo "skip_reason=same_sha_go_clean" >> $GITHUB_OUTPUT
               exit 0
             fi
           fi
@@ -404,6 +406,7 @@ jobs:
             done
             # Signal already_passed=true to skip all downstream review jobs
             echo "already_passed=true" >> $GITHUB_OUTPUT
+            echo "skip_reason=pr_closed" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -427,19 +430,16 @@ jobs:
               gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
             done
             echo "already_passed=false" >> $GITHUB_OUTPUT
+            echo "skip_reason=manual_rerun" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Check if agent-reviews-passed label exists
-          LABELS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels --jq '.[].name' 2>/dev/null || echo "")
-
-          if echo "$LABELS" | grep -q "^agent-reviews-passed$"; then
-            echo "Agent reviews already passed for this PR - skipping review cycle"
-            echo "already_passed=true" >> $GITHUB_OUTPUT
-          else
-            echo "No existing reviews found - will run full review cycle"
-            echo "already_passed=false" >> $GITHUB_OUTPUT
-          fi
+          # Do not use PR-scoped labels to skip reviews. A new head SHA must run
+          # the normal review path unless that exact SHA already has a same-SHA
+          # GO-CLEAN approval published by merge-decision above.
+          echo "No same-SHA prior approval found - will run full review cycle"
+          echo "already_passed=false" >> $GITHUB_OUTPUT
+          echo "skip_reason=" >> $GITHUB_OUTPUT
 
       - name: Resolve review cycle and enforce cap
         id: resolve-review-cycle
@@ -2741,15 +2741,23 @@ jobs:
 
           failed=false
 
-          # If reviews already passed, signal success but still create commit status.
-          # Closed PRs set reviews_already_passed=true so the required gate clears
-          # after labels are removed without kicking off downstream review jobs.
+          # If this workflow hit the same-SHA GO-CLEAN shortcut, signal success but
+          # still create a commit status. Closed PRs also set reviews_already_passed=true
+          # so the required gate clears after labels are removed without kicking off
+          # downstream review jobs.
           REVIEWS_ALREADY_PASSED="${{ needs.get-context.outputs.reviews_already_passed }}"
+          REVIEW_SKIP_REASON="${{ needs.get-context.outputs.review_skip_reason }}"
           if [ "$REVIEWS_ALREADY_PASSED" = "true" ]; then
-            echo "Reviews already passed for this PR - skipping re-review"
-            echo "To re-run reviews: comment /review on the PR"
+            if [ "$REVIEW_SKIP_REASON" = "pr_closed" ]; then
+              echo "PR was closed - clearing review state without running downstream jobs"
+              set_status_output "success" "PR closed; cleared review progress labels"
+              exit 0
+            fi
+
+            echo "Same-SHA GO-CLEAN approval already exists - skipping duplicate re-review"
+            echo "To force a manual re-review on the same SHA: comment /review on the PR"
             echo "skipped_with_success=true" >> $GITHUB_OUTPUT
-            set_status_output "success" "Agent reviews already passed (skipped re-review)"
+            set_status_output "success" "Same-SHA GO-CLEAN approval already exists"
             exit 0
           fi
 
@@ -2975,8 +2983,8 @@ jobs:
           gh pr edit $PR_NUMBER --add-label "agent-reviews-passed" --repo ${{ github.repository }}
 
           echo "Added 'agent-reviews-passed' label to PR #$PR_NUMBER"
-          echo "Subsequent pushes will skip agent reviews."
-          echo "To re-run reviews: comment /review on the PR."
+          echo "This label is informational only; new head SHAs still require review."
+          echo "To force a manual re-review on the same SHA: comment /review on the PR."
 
       - name: Notify agent webhook
         if: always() && needs.get-context.outputs.pr_number != ''
