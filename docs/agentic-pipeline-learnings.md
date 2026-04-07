@@ -51,8 +51,8 @@ Two meta-lessons span everything below:
 **Before:** Every retry spawned a new failure issue, drowning the issue tracker.
 **Evidence:** #269
 
-### 1.9 Spec-critical `.md` files always trigger security review
-**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. In the current classifier, `docs_only=true` is a very narrow implementation bucket for changes limited to `README.md` and paths under `design/*`; changes under `docs/` still trigger the full review path unless the workflow is updated. That classifier shortcut should not be mistaken for proof that every design doc is behavior-free.
+### 1.9 Spec-critical `.md` files belong on the full review path
+**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. The current `docs_only=true` classifier is only an implementation shortcut, not a semantic proof that every matching Markdown file is inert; for example, `AGENTS.md` still treats `design/adhd-priorities.md` as part of the OpenClaw spec surface. Future classifier tightening should carve out prompt-bearing design docs instead of assuming all `design/*` changes are safe to bypass the full review path.
 **Before:** A behavioral cron prompt slipped through with zero security review.
 **Evidence:** #156, #142
 
