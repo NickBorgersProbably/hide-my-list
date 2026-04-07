@@ -1979,6 +1979,9 @@ jobs:
       needs.get-context.outputs.tests_passed == 'true'
     runs-on: [self-hosted, homelab]
     outputs:
+      # Downstream jobs must read the parsed verdict from the job output.
+      # The parse-decision step is scoped to this job and is not available via
+      # steps.parse-decision in sibling jobs such as all-reviews-passed.
       decision: ${{ steps.parse-decision.outputs.decision }}
       head_changed: ${{ steps.trigger-follow-up.outputs.head_changed }}
       follow_up_triggered: ${{ steps.trigger-follow-up.outputs.follow_up_triggered }}
@@ -2872,6 +2875,7 @@ jobs:
           steps.check-results.outputs.status_state != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          MERGE_DECISION: ${{ needs.merge-decision.outputs.decision }}
         run: |
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
@@ -2884,6 +2888,7 @@ jobs:
           fi
 
           echo "Creating $STATUS_STATE commit status for PR #$PR_NUMBER (SHA: $REVIEWED_SHA)"
+          echo "Using merge decision job output: ${MERGE_DECISION:-unknown}"
 
           # Create commit status
           gh api repos/${{ github.repository }}/statuses/$REVIEWED_SHA \
