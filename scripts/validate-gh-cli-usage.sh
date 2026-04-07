@@ -26,7 +26,9 @@ assignment_pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 command_breaks = {
     ";",
     "&",
+    "&&",
     "|",
+    "||",
     "(",
     ")",
     "{",
@@ -66,6 +68,7 @@ def iter_run_blocks(lines):
             idx += 1
             continue
 
+        is_folded = value.startswith(">")
         idx += 1
         block_lines = []
         while idx < line_count:
@@ -81,6 +84,11 @@ def iter_run_blocks(lines):
         if non_empty:
             base_indent = min(len(line) - len(line.lstrip(" ")) for line in non_empty)
             block_lines = [line[base_indent:] if line.strip() else "" for line in block_lines]
+
+        if is_folded:
+            folded = " ".join(line.strip() for line in block_lines if line.strip())
+            yield start_line + 1, [folded] if folded else []
+            continue
 
         yield start_line + 1, block_lines
 
