@@ -2097,6 +2097,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Capture merge decision comment baseline
+        id: comment-baseline
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+        run: |
+          COMMENT_JSON=$(
+            MERGE_DECISION_COMMENT_MAX_ATTEMPTS=1 \
+              ./scripts/get-latest-merge-decision-comment.sh 2>/dev/null || true
+          )
+          COMMENT_ID=$(jq -r '.id // 0' <<<"${COMMENT_JSON:-null}")
+          if ! [[ "$COMMENT_ID" =~ ^[0-9]+$ ]]; then
+            COMMENT_ID=0
+          fi
+          echo "comment_id=$COMMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "Latest trusted merge decision comment before this run: $COMMENT_ID"
+
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
         uses: ./.github/actions/run-devcontainer
@@ -2206,6 +2226,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+          MERGE_DECISION_COMMENT_MIN_ID: ${{ steps.comment-baseline.outputs.comment_id }}
         run: |
           # PENDING is an infra-failure state distinct from a real NO-GO verdict.
           # Under the three-state design NO-GO closes the PR, so we MUST NOT
@@ -2256,6 +2277,7 @@ jobs:
           STATUS_API_TOKEN: ${{ github.token }}
           DECISION: ${{ steps.parse-decision.outputs.decision }}
           LINKED_ISSUE: ${{ needs.get-context.outputs.issue_number }}
+          MERGE_DECISION_COMMENT_MIN_ID: ${{ steps.comment-baseline.outputs.comment_id }}
         run: |
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
           HEAD_REF="${{ needs.get-context.outputs.head_ref }}"

@@ -9,6 +9,7 @@ set -euo pipefail
 
 MAX_ATTEMPTS="${MERGE_DECISION_COMMENT_MAX_ATTEMPTS:-5}"
 RETRY_DELAY_SECONDS="${MERGE_DECISION_COMMENT_RETRY_DELAY_SECONDS:-3}"
+MIN_COMMENT_ID="${MERGE_DECISION_COMMENT_MIN_ID:-0}"
 MERGE_DECISION_MARKER='<!-- codex-merge-decision -->'
 
 if ! [[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
@@ -21,15 +22,24 @@ if ! [[ "$RETRY_DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
+if ! [[ "$MIN_COMMENT_ID" =~ ^[0-9]+$ ]]; then
+    echo "MIN_COMMENT_ID must be a non-negative integer, got: ${MIN_COMMENT_ID}" >&2
+    exit 1
+fi
+
 for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
     comment_json="$(
         gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             --paginate \
-            | jq -s 'add
+            | jq -s \
+                --arg merge_decision_marker "${MERGE_DECISION_MARKER}" \
+                --argjson min_comment_id "${MIN_COMMENT_ID}" '
+                add
                 | map(
                     select(
                       .user.login == "github-actions[bot]"
-                      and ((.body // "") | contains("'"${MERGE_DECISION_MARKER}"'"))
+                      and ((.id // 0) > $min_comment_id)
+                      and ((.body // "") | contains($merge_decision_marker))
                       and ((.body // "") | contains("## Merge Decision"))
                     )
                   )
