@@ -1419,7 +1419,6 @@ jobs:
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
-            CODEX_MODEL=gpt-5-mini
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
@@ -1663,7 +1662,6 @@ jobs:
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
-            CODEX_MODEL=gpt-5-mini
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
@@ -1867,7 +1865,6 @@ jobs:
           workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
           pull: 'true'
           env: |
-            CODEX_MODEL=gpt-5-mini
             OPENAI_API_KEY=fake-key
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
