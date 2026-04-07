@@ -2201,6 +2201,7 @@ jobs:
       - name: Parse merge decision from PR comments
         id: parse-decision
         if: always()
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
