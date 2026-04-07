@@ -422,7 +422,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          MAX_REVIEW_CYCLES=3
+          MAX_REVIEW_CYCLES=2
           PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
 
           # Count existing review-cycle-N labels after any /review or close-event reset.
@@ -2058,15 +2058,30 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         if: steps.setup.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
+          ref: ${{ needs.get-context.outputs.reviewed_sha }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Reattach PR branch when available
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          HEAD_REF: ${{ needs.get-context.outputs.head_ref }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git checkout -B "$HEAD_REF" "$REVIEWED_SHA"
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF"
+            echo "Attached local branch $HEAD_REF to reviewed commit $REVIEWED_SHA"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; staying on detached reviewed SHA $REVIEWED_SHA"
+          fi
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
@@ -2106,10 +2121,10 @@ jobs:
               --dangerously-bypass-approvals-and-sandbox \
               "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
 
-            You have personal responsibility to decide whether the automated review gate for this PR is GO or NO-GO.
+            You have personal responsibility to decide whether the automated review gate for this PR passes, needs another look, or is unsalvageable.
             This workflow does not submit GitHub approving reviews. Do not treat missing human approval or unmet branch protection approval requirements as blocking for your decision.
 
-            **REVIEW CYCLE:** ${REVIEW_CYCLE} of 3 maximum. If this is cycle 3, only apply fixes you are highly confident about — there will be no further automated review cycles.
+            **REVIEW CYCLE:** ${REVIEW_CYCLE} of 2 maximum. The review pipeline burns significant tokens per cycle. Be decisive — do not request another cycle unless it is genuinely warranted.
 
             **REVIEW STATUS:**
             - Design Review: ${DESIGN_REVIEW_RESULT}
@@ -2124,33 +2139,38 @@ jobs:
                - \`gh api repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments --paginate | jq -r '.[] | \"### \\(.path):\\(.line)\\n\\(.body)\\n\"'\`
             2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
             3. If there are merge conflicts AND you believe the PR should be merged, resolve them
-            4. **Apply fixes from reviewers**: Check the review comments for fixes described by reviewers:
-               - Security Review: \"Fixes Needed\" section
-               - Documentation Consistency Review: \"Updates Needed\" section
-               If any reviewer described specific fixes, apply them now (edit the files, commit, and push).
-               You are the ONLY agent with push access.
-            5. Make a GO/NO-GO decision
+            4. **Apply fixes from reviewers**: Check the review comments for fixes described by reviewers (Security Review's \"Fixes Needed\" section, Docs Review's \"Updates Needed\" section, etc.). If any reviewer described specific fixes, apply them now (edit, commit, push). You are the ONLY agent with push access. BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`.
+            5. Make a three-state decision and post exactly ONE comment.
 
-            **DECISION CRITERIA:**
-            - GO: All reviews passed or had only minor non-blocking issues, no merge conflicts (or you resolved them)
-            - NO-GO: Any review found blocking issues, unresolvable merge conflicts, or tests are failing
-            - Treat unresolved inline review comments that describe bugs or required fixes as blocking until you address them
+            **DECISION RUBRIC — pick exactly one:**
 
-            **IF NO-GO:** Explain what must be fixed before the automated review gate can pass.
+            - **GO-CLEAN** — Reviews passed, OR blockers were trivial/mechanical and your fix is obviously correct (typo, formatting, single-line change, doc tweak). No re-review needed; the PR is ready to merge. This should be your default outcome whenever possible.
 
-            **IF GO with fixes needed:** Make the fixes (merge conflicts, reviewer-requested changes, minor issues), commit, push, then report GO.
+            - **GO-WITH-RESERVATIONS** — You applied non-trivial fixes addressing real blockers but you are NOT confident they fully land the reviewer's intent, OR your fixes introduced new code paths worth a second look. This triggers EXACTLY ONE more review cycle. Do NOT pick this just to be safe — only pick it when you would genuinely benefit from a second opinion. **If REVIEW_CYCLE >= 2, you MAY NOT pick this option.** Pick GO-CLEAN or NO-GO instead.
 
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            - **NO-GO** — The PR is structurally wrong, fixes would amount to a rewrite, reviewers contradict each other irreconcilably, the approach is fundamentally misaligned with the linked issue's intent, or you are on cycle 2 and blockers remain. The PR will be CLOSED and a follow-up issue will be created from your output below.
 
-            Post exactly ONE comment:
-            gh pr comment ${PR_NUMBER} --body '## Merge Decision
+            **REQUIRED COMMENT FORMAT** — post via \`gh pr comment ${PR_NUMBER} --body '...'\`:
 
-            **Decision: [GO | NO-GO]**
+            ## Merge Decision
 
-            [If GO: \"Automated review gate passed. Merge may proceed once any separate branch protection requirements are satisfied.\"]
-            [If NO-GO: List specific blockers that must be resolved.]
+            **Decision: [NO-GO | GO-WITH-RESERVATIONS | GO-CLEAN]**
 
-            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
+            **Rationale:** <1-3 sentence explanation>
+
+            [If you applied fixes:]
+            **Applied fixes:** <brief description of what you changed>
+
+            [REQUIRED if Decision is GO-WITH-RESERVATIONS:]
+            **Reservations:** <what specifically you want re-reviewed and why>
+
+            [REQUIRED if Decision is NO-GO — this block will be parsed to create a follow-up issue:]
+            ### Follow-Up Issue
+            **Title:** <concise replacement issue title>
+            **Body:**
+            <Multi-line body. Include: what this PR attempted, why the approach failed, what we learned, the recommended next approach. Reference the closed PR #${PR_NUMBER} and any linked original issue.>
+
+            Post the comment, then exit." < /dev/null 2>&1 | tee /tmp/merge-decision-output.jsonl
 
       - name: Log out of GHCR
         if: always() && steps.setup.outputs.verified == 'true'
@@ -2172,6 +2192,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
+          # PENDING is an infra-failure state distinct from a real NO-GO verdict.
+          # Under the three-state design NO-GO closes the PR, so we MUST NOT
+          # synthesize NO-GO when the agent never produced a real verdict —
+          # that would auto-close PRs on transient failures.
           if [ "${{ steps.setup.outputs.verified }}" != "true" ]; then
             VERIFICATION_STATE="${{ steps.setup.outputs.verification_state }}"
             echo "Reviewer setup could not verify PR Tests for the current head (state: ${VERIFICATION_STATE:-unknown})"
@@ -2185,26 +2209,29 @@ jobs:
             --jq '[.[] | select(.body | contains("## Merge Decision"))] | last')
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
-            echo "No merge decision comment found - defaulting to NO-GO"
-            echo "decision=NO-GO" >> $GITHUB_OUTPUT
+            echo "No merge decision comment found - emitting PENDING (agent likely crashed or timed out)"
+            echo "decision=PENDING" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           COMMENT_BODY=$(echo "$COMMENTS" | jq -r '.body')
 
-          # Check for GO or NO-GO in the decision line
-          if echo "$COMMENT_BODY" | grep -qE "Decision:.*GO" && ! echo "$COMMENT_BODY" | grep -qE "Decision:.*NO-GO"; then
-            echo "Merge decision: GO"
-            echo "decision=GO" >> $GITHUB_OUTPUT
-          elif echo "$COMMENT_BODY" | grep -qE "NO-GO"; then
-            echo "Merge decision: NO-GO"
-            echo "decision=NO-GO" >> $GITHUB_OUTPUT
-          else
-            echo "Could not parse decision from comment - defaulting to NO-GO"
-            echo "Comment body:"
-            echo "$COMMENT_BODY"
-            echo "decision=NO-GO" >> $GITHUB_OUTPUT
-          fi
+          # Three-state decision: GO-CLEAN | GO-WITH-RESERVATIONS | NO-GO
+          # Order matters: check the most specific pattern first.
+          DECISION_LINE=$(echo "$COMMENT_BODY" | grep -m1 -E '^\*\*Decision:' || true)
+          case "$DECISION_LINE" in
+            *NO-GO*)                 DECISION=NO-GO ;;
+            *GO-WITH-RESERVATIONS*)  DECISION=GO-WITH-RESERVATIONS ;;
+            *GO-CLEAN*)              DECISION=GO-CLEAN ;;
+            *)
+              echo "Could not parse decision from comment - emitting PENDING (malformed agent output)"
+              echo "Comment body:"
+              echo "$COMMENT_BODY"
+              DECISION=PENDING
+              ;;
+          esac
+          echo "Merge decision: $DECISION"
+          echo "decision=$DECISION" >> $GITHUB_OUTPUT
 
       - name: Trigger follow-up validation after merge-decision push
         id: trigger-follow-up
@@ -2213,26 +2240,135 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           STATUS_API_TOKEN: ${{ github.token }}
+          DECISION: ${{ steps.parse-decision.outputs.decision }}
+          LINKED_ISSUE: ${{ needs.get-context.outputs.issue_number }}
         run: |
-          git fetch origin ${{ needs.get-context.outputs.head_ref }}
-          CURRENT_HEAD=$(git rev-parse origin/${{ needs.get-context.outputs.head_ref }})
+          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          HEAD_REF="${{ needs.get-context.outputs.head_ref }}"
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
+          CURRENT_HEAD=$(git rev-parse HEAD)
+
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git fetch origin "$HEAD_REF"
+            CURRENT_HEAD=$(git rev-parse "origin/${HEAD_REF}")
+            echo "Using remote PR branch head $CURRENT_HEAD from origin/$HEAD_REF"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; using local HEAD $CURRENT_HEAD"
+          fi
 
           echo "current_head=$CURRENT_HEAD" >> "$GITHUB_OUTPUT"
+          echo "Parsed decision: $DECISION"
 
-          if [ "$CURRENT_HEAD" = "$REVIEWED_SHA" ]; then
-            echo "Merge decision did not push a new commit"
+          # --- PENDING: infra failure, not a real verdict. Do nothing. ---
+          if [ "$DECISION" = "PENDING" ]; then
+            echo "PENDING decision (verification or parse failure) — taking no action; aggregator will report pending"
             echo "head_changed=false" >> "$GITHUB_OUTPUT"
             echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "Merge decision pushed fixes (HEAD changed from $REVIEWED_SHA to $CURRENT_HEAD)"
+          # --- NO-GO branch: parse follow-up issue, create it, close the PR ---
+          if [ "$DECISION" = "NO-GO" ]; then
+            echo "NO-GO: closing PR and creating follow-up issue"
+
+            # Fetch the merge-decision comment again to parse the Follow-Up Issue block
+            COMMENT_BODY=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments \
+              --jq '[.[] | select(.body | contains("## Merge Decision"))] | last | .body // ""')
+
+            FU_TITLE=""
+            FU_BODY=""
+            if echo "$COMMENT_BODY" | grep -q '^### Follow-Up Issue'; then
+              FU_TITLE=$(echo "$COMMENT_BODY" | sed -n 's/^\*\*Title:\*\*[[:space:]]*//p' | head -1)
+              # Body is everything after the **Body:** marker
+              FU_BODY=$(echo "$COMMENT_BODY" | awk '/^\*\*Body:\*\*/{flag=1; sub(/^\*\*Body:\*\*[[:space:]]*/,""); print; next} flag{print}')
+            fi
+
+            if [ -z "$FU_TITLE" ]; then
+              FU_TITLE="Follow-up: PR #$PR_NUMBER closed without merge"
+            fi
+            if [ -z "$FU_BODY" ]; then
+              FU_BODY="The merge-decision agent closed PR #$PR_NUMBER as NO-GO but did not provide a structured follow-up issue body. See the Merge Decision comment on PR #$PR_NUMBER for context."
+            fi
+
+            # Append automatic backlinks
+            FU_BODY_FULL="${FU_BODY}"$'\n\n'"---"$'\n'"Auto-created by merge-decision agent after closing PR #$PR_NUMBER as NO-GO."
+            if [ -n "$LINKED_ISSUE" ]; then
+              FU_BODY_FULL="$FU_BODY_FULL Replaces approach from #$LINKED_ISSUE."
+            fi
+
+            gh label create "from-failed-pr" \
+              --color "b60205" \
+              --description "Created from a NO-GO merge-decision verdict" \
+              --repo ${{ github.repository }} 2>/dev/null || true
+
+            NEW_ISSUE_URL=$(gh issue create \
+              --repo ${{ github.repository }} \
+              --title "$FU_TITLE" \
+              --body "$FU_BODY_FULL" \
+              --label "from-failed-pr")
+            NEW_ISSUE_NUM=$(basename "$NEW_ISSUE_URL")
+            echo "Created follow-up issue: $NEW_ISSUE_URL"
+
+            if [ -n "$LINKED_ISSUE" ]; then
+              gh issue comment "$LINKED_ISSUE" \
+                --repo ${{ github.repository }} \
+                --body "PR #$PR_NUMBER (linked to this issue) was closed as NO-GO by the merge-decision agent. Follow-up issue: #$NEW_ISSUE_NUM" || true
+            fi
+
+            gh pr close "$PR_NUMBER" \
+              --repo ${{ github.repository }} \
+              --comment "Closed by merge-decision agent (NO-GO). Follow-up issue: #$NEW_ISSUE_NUM"
+
+            echo "head_changed=$([ "$CURRENT_HEAD" = "$REVIEWED_SHA" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            echo "pr_closed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # --- GO-CLEAN branch: no re-review, even if HEAD changed ---
+          if [ "$DECISION" = "GO-CLEAN" ]; then
+            if [ "$CURRENT_HEAD" != "$REVIEWED_SHA" ]; then
+              echo "GO-CLEAN with applied fixes — publishing success status to new HEAD $CURRENT_HEAD"
+              GH_TOKEN="$STATUS_API_TOKEN" gh api \
+                repos/${{ github.repository }}/statuses/$CURRENT_HEAD \
+                -f state="success" \
+                -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+                -f description="Merge decision: GO-CLEAN (no re-review required)" \
+                -f context="All Required Agent Reviews" || true
+              GH_TOKEN="$STATUS_API_TOKEN" gh api \
+                repos/${{ github.repository }}/statuses/$CURRENT_HEAD \
+                -f state="success" \
+                -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+                -f description="GO-CLEAN: skipping post-fix test re-run" \
+                -f context="All Required Tests" || true
+              echo "head_changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "GO-CLEAN with no fixes pushed"
+              echo "head_changed=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # --- GO-WITH-RESERVATIONS branch: existing dispatch logic ---
+          if [ "$CURRENT_HEAD" = "$REVIEWED_SHA" ]; then
+            echo "GO-WITH-RESERVATIONS but no commit was pushed — treating as GO-CLEAN"
+            echo "head_changed=false" >> "$GITHUB_OUTPUT"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "GO-WITH-RESERVATIONS: merge decision pushed fixes (HEAD $REVIEWED_SHA -> $CURRENT_HEAD), dispatching one re-review cycle"
           echo "head_changed=true" >> "$GITHUB_OUTPUT"
 
+          if ! git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            echo "::warning::PR branch origin/$HEAD_REF no longer exists; skipping follow-up validation dispatch"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # --- Review cycle cap enforcement (hard gate) ---
-          MAX_REVIEW_CYCLES=3
-          PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
+          MAX_REVIEW_CYCLES=2
 
           # Count review-cycle-* labels (authoritative, independent of get-context)
           if ! CYCLE_LABEL_COUNT=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
@@ -2386,6 +2522,7 @@ jobs:
         run: |
           STATUS_ALREADY_SET=false
           MERGE_DECISION_NOGO=false
+          PR_CLOSED_BY_AGENT=false
 
           set_status_output() {
             local state=$1
@@ -2506,27 +2643,46 @@ jobs:
               exit 0
             fi
 
-            # Check the actual merge decision (GO vs NO-GO) from the agent's comment
+            # Check the three-state merge decision
             MERGE_DECISION="${{ needs.merge-decision.outputs.decision }}"
             MERGE_DECISION_REASON="${{ needs.merge-decision.outputs.decision_reason }}"
             echo "Merge Decision Agent Verdict: $MERGE_DECISION"
-            if [ "$MERGE_DECISION" = "PENDING" ]; then
-              echo "Merge decision is pending until PR Tests verification matches the current head"
-              echo "Reason: ${MERGE_DECISION_REASON:-unverified}"
-              set_status_output "pending" "Waiting for a fresh PR Tests/code review cycle"
-              exit 0
-            elif [ "$MERGE_DECISION" = "NO-GO" ]; then
-              echo "Merge decision agent returned NO-GO - blocking issues found"
-              echo "See the 'Merge Decision' comment on the PR for details"
-              MERGE_DECISION_NOGO=true
-              echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
-              failed=true
-            elif [ -z "$MERGE_DECISION" ]; then
-              echo "Could not determine merge decision - treating as NO-GO"
-              MERGE_DECISION_NOGO=true
-              echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
-              failed=true
-            fi
+            case "$MERGE_DECISION" in
+              GO-CLEAN)
+                echo "GO-CLEAN — automated review gate passed, ready to merge"
+                ;;
+              GO-WITH-RESERVATIONS)
+                # If the agent picked GO-WITH-RESERVATIONS but did not push fixes,
+                # follow_up_triggered will be false and we treat this as GO-CLEAN.
+                echo "GO-WITH-RESERVATIONS without follow-up dispatch — treating as ready"
+                ;;
+              NO-GO)
+                echo "NO-GO — merge-decision agent closed the PR and created a follow-up issue"
+                PR_CLOSED_BY_AGENT=true
+                set_status_output "success" "PR closed by merge-decision agent (NO-GO); see follow-up issue"
+                # Do not label closed PR as agent-reviews-passed; exit cleanly.
+                exit 0
+                ;;
+              PENDING)
+                echo "PENDING — merge-decision verification or parse failed; not a real verdict"
+                echo "Reason: ${MERGE_DECISION_REASON:-unverified}"
+                echo "Holding the gate in pending; a fresh review run is required (e.g. after PR Tests re-runs or via /review)"
+                set_status_output "pending" "Merge decision incomplete — re-run reviews after PR Tests"
+                exit 0
+                ;;
+              "")
+                echo "Could not determine merge decision - treating as NO-GO"
+                MERGE_DECISION_NOGO=true
+                echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
+                failed=true
+                ;;
+              *)
+                echo "Unrecognized merge decision: $MERGE_DECISION - treating as NO-GO"
+                MERGE_DECISION_NOGO=true
+                echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
+                failed=true
+                ;;
+            esac
           fi
 
           # If max attempts reached and tests still failing
