@@ -1,6 +1,6 @@
 # Agentic Pipeline Learnings
 
-This repo's agentic review/CI pipeline was forked from [home-automation](https://github.com/NickBorgers/home-automation) and has since absorbed roughly 100 PRs of hard lessons. This document is **prescriptive**: each rule is what we now do, with a one-line explanation of *why* and a brief note on the failure mode that taught us. PR numbers are cited so you can dig in.
+This repo's agentic review/CI pipeline was forked from [home-automation](https://github.com/NickBorgers/home-automation) and has since absorbed roughly 100 PRs of hard lessons. This document is **prescriptive**: each rule is either part of the current pipeline contract or a guardrail that future pipeline changes must preserve. Each entry includes a one-line explanation of *why* and a brief note on the failure mode that taught us. PR numbers are cited so you can dig in.
 
 Two meta-lessons span everything below:
 
@@ -11,8 +11,8 @@ Two meta-lessons span everything below:
 
 ## 1. Review Pipeline Architecture
 
-### 1.1 Reviewers are read-only; only `merge-decision` pushes
-**Why:** When parallel reviewers had write access they pushed fixes that retriggered the whole pipeline and posted near-duplicate comments. One pusher = one source of truth.
+### 1.1 Parallel review jobs are read-only; only dedicated fixer/decision jobs push
+**Why:** When parallel reviewers had write access they pushed fixes that retriggered the whole pipeline and posted near-duplicate comments. The current pipeline keeps the fan-out review jobs read-only; branch mutations are limited to dedicated single-writer jobs such as `fix-test-failures` (pre-review) and `merge-decision` (post-review).
 **Before:** Every reviewer round produced 3× redundant comments.
 **Evidence:** #70, #71, #274
 
@@ -31,8 +31,8 @@ Two meta-lessons span everything below:
 **Before:** Pipeline cost was dominated by trivial PRs being re-reviewed end-to-end.
 **Evidence:** #315, #320, #322, #274
 
-### 1.5 Inline review comments are blocking
-**Why:** The merge-decision agent reads all inline PR comments via `gh api` and treats unresolved ones as blockers, not just review summaries.
+### 1.5 Inline review comments are blocking inputs
+**Why:** The merge-decision agent reads all inline PR comments via `gh api` and treats substantive change requests there as blockers, not just review summaries. The enforcement mechanism today is "read every inline comment and apply judgment," not a separate resolution-state API check.
 **Before:** PRs were getting auto-approved despite outstanding inline change requests.
 **Evidence:** #143
 
@@ -83,8 +83,8 @@ Two meta-lessons span everything below:
 **Why:** Untrusted PR code on homelab runners with credential access is a privilege escalation. Building devcontainer images from the PR ref is also a Dockerfile injection vector.
 **Evidence:** #110
 
-### 2.5 Set `BUILDX_NO_DEFAULT_ATTESTATIONS=1` when pushing devcontainer images
-**Why:** BuildKit's default attestations produce OCI manifest lists without valid platform metadata, breaking `docker push`.
+### 2.5 Treat BuildKit default attestations as an explicit compatibility choice
+**Why:** BuildKit's default attestations can produce OCI manifest lists without valid platform metadata, breaking `docker push`. If the current image-push path needs `BUILDX_NO_DEFAULT_ATTESTATIONS=1`, that knob should be set explicitly in workflow code rather than living only in docs.
 **Evidence:** #133
 
 ### 2.6 Use the custom `run-devcontainer` action for run steps; reserve `devcontainers/ci@v0.3` for build-and-push only
@@ -95,8 +95,8 @@ Two meta-lessons span everything below:
 **Why:** Runtime CLI downloads stalled on slow networks; missing model defaults caused fallback to mismatched models. Downgrading three of six review stages to `gpt-5-mini` cut review cost ~45% with no measurable quality loss.
 **Evidence:** #110, #130, #145, #292
 
-### 2.8 Auto-detect and strip `SSH_AUTH_SOCK` mount in CI
-**Why:** CI runners have no SSH agent, but `devcontainer.json` bind-mounts `${localEnv:SSH_AUTH_SOCK}`, which Docker rejects as an empty source. The CI override config generator must strip this mount before writing.
+### 2.8 Keep local-only SSH agent mounts out of CI
+**Why:** CI runners have no SSH agent, so any `${localEnv:SSH_AUTH_SOCK}` bind mount becomes an empty or invalid source. The current repo avoids the problem by not defining that mount in `.devcontainer/devcontainer.json`; if a future devcontainer adds it back for local use, the CI override generator must strip or override it explicitly.
 **Before:** Seven iterative PRs across two days chasing variations of "invalid value for 'source'".
 **Evidence:** #224, #226, #230, #248, #260, #270, #280
 
