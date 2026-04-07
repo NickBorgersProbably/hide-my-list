@@ -134,8 +134,8 @@ Two meta-lessons span everything below:
 **Before:** Claude Code refused legitimate infrastructure edits, citing AGENTS.md as if it were universal.
 **Evidence:** #247
 
-### 3.5 Pass event IDs through Actions; fetch bodies inside the container
-**Why:** Multi-line comment bodies in Actions outputs cause shell-escaping failures and context loss. Pass only `COMMENT_ID`, `ISSUE_NUMBER`, `RUN_ID`, then `gh api` the body inside the devcontainer.
+### 3.5 Prefer passing event IDs through Actions; fetch large bodies inside the container
+**Why:** Multi-line comment bodies in Actions outputs cause shell-escaping failures and context loss. The clean pattern is to pass only `COMMENT_ID`, `ISSUE_NUMBER`, `RUN_ID`, then `gh api` the body inside the devcontainer. Some current review jobs still pass base64-encoded PR/issue bodies; future refactors should converge on ID-only handoff instead of expanding that exception.
 **Evidence:** #41, #178
 
 ### 3.6 Reopen-gate PRs until `workflow_run` reviews complete
