@@ -2106,16 +2106,23 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
-          COMMENT_JSON=$(
+          if COMMENT_JSON=$(
             MERGE_DECISION_COMMENT_MAX_ATTEMPTS=1 \
-              ./scripts/get-latest-merge-decision-comment.sh 2>/dev/null || true
-          )
-          COMMENT_ID=$(jq -r '.id // 0' <<<"${COMMENT_JSON:-null}")
-          if ! [[ "$COMMENT_ID" =~ ^[0-9]+$ ]]; then
-            COMMENT_ID=0
+              ./scripts/get-latest-merge-decision-comment.sh 2>/dev/null
+          ); then
+            COMMENT_ID=$(jq -r '.id // 0' <<<"${COMMENT_JSON:-null}")
+            if ! [[ "$COMMENT_ID" =~ ^[0-9]+$ ]]; then
+              echo "Baseline merge decision lookup returned a non-numeric comment id" >&2
+              exit 1
+            fi
+            echo "baseline_ok=true" >> "$GITHUB_OUTPUT"
+            echo "comment_id=$COMMENT_ID" >> "$GITHUB_OUTPUT"
+            echo "Latest trusted merge decision comment before this run: $COMMENT_ID"
+          else
+            echo "baseline_ok=false" >> "$GITHUB_OUTPUT"
+            echo "comment_id=" >> "$GITHUB_OUTPUT"
+            echo "Could not read merge decision comment baseline; downstream steps will emit PENDING" >&2
           fi
-          echo "comment_id=$COMMENT_ID" >> "$GITHUB_OUTPUT"
-          echo "Latest trusted merge decision comment before this run: $COMMENT_ID"
 
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -2226,7 +2233,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
-          MERGE_DECISION_COMMENT_MIN_ID: ${{ steps.comment-baseline.outputs.comment_id }}
         run: |
           # PENDING is an infra-failure state distinct from a real NO-GO verdict.
           # Under the three-state design NO-GO closes the PR, so we MUST NOT
@@ -2238,9 +2244,18 @@ jobs:
             exit 0
           fi
 
+          if [ "${{ steps.comment-baseline.outputs.baseline_ok }}" != "true" ]; then
+            echo "Merge decision baseline lookup failed - emitting PENDING"
+            echo "decision=PENDING" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # GitHub comment propagation can lag the successful gh pr comment call by a
           # few seconds, so retry before treating the absence as an infra failure.
-          COMMENTS=$(./scripts/get-latest-merge-decision-comment.sh || true)
+          COMMENTS=$(
+            MERGE_DECISION_COMMENT_MIN_ID="${{ steps.comment-baseline.outputs.comment_id }}" \
+              ./scripts/get-latest-merge-decision-comment.sh || true
+          )
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
             echo "No merge decision comment found - emitting PENDING (agent likely crashed or timed out)"
@@ -2277,7 +2292,6 @@ jobs:
           STATUS_API_TOKEN: ${{ github.token }}
           DECISION: ${{ steps.parse-decision.outputs.decision }}
           LINKED_ISSUE: ${{ needs.get-context.outputs.issue_number }}
-          MERGE_DECISION_COMMENT_MIN_ID: ${{ steps.comment-baseline.outputs.comment_id }}
         run: |
           PR_NUMBER="${{ needs.get-context.outputs.pr_number }}"
           HEAD_REF="${{ needs.get-context.outputs.head_ref }}"
@@ -2303,13 +2317,23 @@ jobs:
             exit 0
           fi
 
+          if [ "${{ steps.comment-baseline.outputs.baseline_ok }}" != "true" ]; then
+            echo "Merge decision baseline lookup failed - taking no action"
+            echo "head_changed=false" >> "$GITHUB_OUTPUT"
+            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # --- NO-GO branch: parse follow-up issue, create it, close the PR ---
           if [ "$DECISION" = "NO-GO" ]; then
             echo "NO-GO: closing PR and creating follow-up issue"
 
             # Re-read the same trusted merge-decision comment with retries so the
             # follow-up issue parser does not race comment propagation either.
-            COMMENT_JSON=$(./scripts/get-latest-merge-decision-comment.sh || true)
+            COMMENT_JSON=$(
+              MERGE_DECISION_COMMENT_MIN_ID="${{ steps.comment-baseline.outputs.comment_id }}" \
+                ./scripts/get-latest-merge-decision-comment.sh || true
+            )
             COMMENT_BODY=$(jq -r '.body // ""' <<<"${COMMENT_JSON:-null}")
 
             FU_TITLE=""
