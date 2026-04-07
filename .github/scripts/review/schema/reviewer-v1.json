@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NickBorgersProbably/hide-my-list/.github/scripts/review/schema/reviewer-v1.json",
+  "title": "Reviewer Artifact v1",
+  "description": "Structured output produced by a single reviewer role in the v2 review pipeline. The judge (aggregate.mjs) consumes ONLY these artifacts; it never reads PR comments or PR Reviews. Reviewers are responsible for ingesting inline PR comments via `gh api` and folding any blocking change requests into `blocking_issues[]` (per agentic-pipeline-learnings.md rule 1.5).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "role",
+    "reviewed_sha",
+    "cycle",
+    "decision",
+    "summary",
+    "blocking_issues",
+    "non_blocking_notes",
+    "fix_suggestions",
+    "followup_issues"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "role": {
+      "type": "string",
+      "enum": ["design", "security", "psych", "docs", "prompt"]
+    },
+    "reviewed_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "cycle": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["approve", "request_changes", "comment", "abstain"]
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "blocking_issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "message"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium"] },
+          "file": { "type": ["string", "null"] },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "category": { "type": ["string", "null"] },
+          "source": {
+            "type": "string",
+            "enum": ["reviewer", "inline_comment"],
+            "description": "How this blocker was discovered. `inline_comment` means the reviewer ingested a human inline comment per pipeline rule 1.5."
+          }
+        }
+      }
+    },
+    "non_blocking_notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message"],
+        "properties": {
+          "file": { "type": ["string", "null"] },
+          "line": { "type": ["integer", "null"], "minimum": 1 },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "fix_suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "applicable", "patch_hint", "confidence"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Should match the id of a blocking_issues[] or non_blocking_notes[] entry when this suggestion addresses one."
+          },
+          "applicable": { "type": "string", "enum": ["mechanical", "manual"] },
+          "patch_hint": { "type": "string", "minLength": 1 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "followup_issues": {
+      "type": "array",
+      "description": "Tightly-scoped follow-up issues to auto-create on PR merge. Reviewers must keep these well-scoped; loose scoping risks an issue/PR loop.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "body": { "type": "string", "minLength": 1 },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "tokens_used": { "type": "integer", "minimum": 0 },
+    "duration_seconds": { "type": "integer", "minimum": 0 }
+  }
+}
