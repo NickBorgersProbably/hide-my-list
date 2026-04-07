@@ -482,10 +482,12 @@ Tracks whether a scheduled reminder has been delivered.
 | Value | Description | Trigger |
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
-| `sent` | Successfully delivered to user | Agent confirms delivery after scheduler surfaces the reminder |
-| `missed` | Delivered after being more than 15 minutes late | Agent confirms late delivery using the scheduler's missed flag |
+| `sent` | Successfully delivered to user | Delivering session confirms delivery after the handoff-file reminder flow surfaces the reminder |
+| `missed` | Delivered after being more than 15 minutes late | Delivering session confirms late delivery using the scheduler's missed flag |
 
-**Note:** When a reminder is `sent`, the task's main `Status` is also updated to `Completed` since the reminder action (notifying the user) is done.
+**Note:** When a reminder is marked `sent` or `missed`, the task's main `Status` is also updated to `Completed` since the reminder action (notifying the user) is done.
+
+**Design constraint:** The isolated `reminder-check` cron does not set `Reminder Status` directly. OpenClaw currently exposes no post-announce delivery acknowledgment hook, so pre-delivery status mutation would remove a reminder from the `pending` query set before delivery was confirmed.
 
 ---
 

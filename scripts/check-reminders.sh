@@ -7,9 +7,12 @@
 #
 # The script does NOT update reminder status in Notion — the agent marks
 # reminders as sent or missed, and marks the task Completed, after confirmed
-# delivery. A successful Notion query is treated as the source of truth for
-# which reminders still need delivery, so stale signal entries are cleared
-# automatically once the agent updates Notion.
+# delivery. OpenClaw does not currently expose a post-announce delivery
+# acknowledgment hook, so moving the status mutation into this cron path would
+# risk dropping reminders permanently if the session died after the PATCH but
+# before the user-facing delivery completed. A successful Notion query is
+# treated as the source of truth for which reminders still need delivery, so
+# stale signal entries are cleared automatically once the agent updates Notion.
 #
 # Designed to run from the durable reminder-check cron job (15-minute cadence).
 # The script queries Notion for reminder tasks whose Remind At time has arrived
