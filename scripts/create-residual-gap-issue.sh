@@ -6,13 +6,24 @@ set -euo pipefail
 : "${PR_NUMBER:?PR_NUMBER is required}"
 
 LINKED_ISSUE="${LINKED_ISSUE:-}"
+MERGE_DECISION_MARKER="<!-- codex-merge-decision -->"
 RESIDUAL_BLOCK_START="<codex-residual-gap>"
 RESIDUAL_BLOCK_END="</codex-residual-gap>"
 DEDUP_MARKER="<!-- codex-residual-gap:pr-${PR_NUMBER} -->"
 
 comment_json="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
   --paginate \
-  --jq '[.[] | select(.body | contains("## Merge Decision"))] | last')"
+  --slurp \
+  --jq 'add
+    | map(
+        select(
+          .user.login == "github-actions[bot]"
+          and ((.body // "") | contains("'"${MERGE_DECISION_MARKER}"'"))
+          and ((.body // "") | contains("## Merge Decision"))
+        )
+      )
+    | sort_by(.id)
+    | last')"
 
 if [[ -z "${comment_json}" || "${comment_json}" == "null" ]]; then
   echo "No merge decision comment found for PR #${PR_NUMBER}"

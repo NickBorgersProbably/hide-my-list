@@ -2151,6 +2151,7 @@ jobs:
 
             **REQUIRED COMMENT FORMAT** — post via \`gh pr comment ${PR_NUMBER} --body '...'\`:
 
+            <!-- codex-merge-decision -->
             ## Merge Decision
 
             **Decision: [NO-GO | GO-WITH-RESERVATIONS | GO-CLEAN]**
@@ -2211,9 +2212,22 @@ jobs:
             exit 0
           fi
 
-          # Fetch the most recent "Merge Decision" comment from the PR
+          MERGE_DECISION_MARKER='<!-- codex-merge-decision -->'
+
+          # Fetch the most recent trusted "Merge Decision" comment from the PR
           COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --jq '[.[] | select(.body | contains("## Merge Decision"))] | last')
+            --paginate \
+            --slurp \
+            --jq 'add
+              | map(
+                  select(
+                    .user.login == "github-actions[bot]"
+                    and ((.body // "") | contains("'"${MERGE_DECISION_MARKER}"'"))
+                    and ((.body // "") | contains("## Merge Decision"))
+                  )
+                )
+              | sort_by(.id)
+              | last')
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
             echo "No merge decision comment found - emitting PENDING (agent likely crashed or timed out)"
@@ -2278,9 +2292,23 @@ jobs:
           if [ "$DECISION" = "NO-GO" ]; then
             echo "NO-GO: closing PR and creating follow-up issue"
 
-            # Fetch the merge-decision comment again to parse the Follow-Up Issue block
+            MERGE_DECISION_MARKER='<!-- codex-merge-decision -->'
+
+            # Fetch the trusted merge-decision comment again to parse the Follow-Up Issue block
             COMMENT_BODY=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments \
-              --jq '[.[] | select(.body | contains("## Merge Decision"))] | last | .body // ""')
+              --paginate \
+              --slurp \
+              --jq 'add
+                | map(
+                    select(
+                      .user.login == "github-actions[bot]"
+                      and ((.body // "") | contains("'"${MERGE_DECISION_MARKER}"'"))
+                      and ((.body // "") | contains("## Merge Decision"))
+                    )
+                  )
+                | sort_by(.id)
+                | last
+                | .body // ""')
 
             FU_TITLE=""
             FU_BODY=""
