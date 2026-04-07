@@ -91,7 +91,7 @@ When user requests a task, score each pending task:
 **Every task gets sub-steps.** Users interpret vague goals as infinite.
 - Quick tasks (≤30 min): 2-4 inline steps
 - Standard tasks (30-60 min): 3-6 inline steps
-- Large tasks (60+ min): Hidden sub-tasks in Notion
+- Large tasks (`time_estimate > 60` minutes): Hidden sub-tasks in Notion
 
 Personalize prep steps using user preferences (beverage, comfort spot, rituals).
 
@@ -191,6 +191,8 @@ PRs are reviewed by a multi-agent Codex pipeline:
 4. Prompt Engineering Review — validates prompt clarity, constraints, and cross-prompt consistency
 5. Documentation Consistency Review — checks docs for contradictions, stale references, and cross-doc consistency
 6. Merge Decision — synthesizes all reviews into one of three outcomes: **GO-CLEAN** (merge-ready, no re-review), **GO-WITH-RESERVATIONS** (applied fixes, triggers exactly one re-review cycle), or **NO-GO** (closes the PR and creates a follow-up issue capturing what was learned)
+
+When the Merge Decision reviewer selects **GO-WITH-RESERVATIONS** and includes a `<codex-residual-gap>` block in the published merge-decision comment, `scripts/create-residual-gap-issue.sh` creates a deduplicated follow-up GitHub issue from that block. The helper requires `GH_TOKEN`, `GITHUB_REPOSITORY`, and `PR_NUMBER`, and uses a `<!-- codex-residual-gap:pr-<PR_NUMBER> -->` marker to avoid duplicate issue creation.
 
 ## When Making Changes
 

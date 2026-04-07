@@ -212,12 +212,12 @@ sequenceDiagram
     alt User interacts (AGENTS.md step 5)
         Delivery->>Signal: Read handoff file
         Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Notion: Mark reminder delivered<br/>Status=Completed, Reminder Status=sent/missed
         Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
         Delivery->>Signal: Read handoff file
         Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Notion: Mark reminder delivered<br/>Status=Completed, Reminder Status=sent/missed
         Delivery->>Signal: Delete handoff file
     end
 ```
@@ -231,11 +231,11 @@ sequenceDiagram
 5. Reminder delivery happens through two separate mechanisms:
    - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for the handoff file and delivers immediately.
    - **HEARTBEAT.md Check 1** (hourly backstop): the heartbeat reads the handoff file every 60 minutes and delivers any stranded reminders.
-   Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
-6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
+   Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`. This closes the reminder record itself because the notification request was fulfilled; it does not claim the downstream real-world action is already complete unless the user later confirms that separately.
+6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with shame-free wording from [ai-prompts.md](./ai-prompts.md) Module 6, for example: "This was due a bit ago — {task}. Want to do it now or reschedule?"
 7. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
-Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with `model: litellm/claude-haiku-4-5` and `payload.kind: agentTurn`. This is a deliberate design choice: the previous architecture ran both on `sessionTarget: main`, which loaded the full Opus agent context for routine script work and burned ~18M tokens per 6 hours. Isolating cron jobs cuts per-run cost by orders of magnitude. The trade-off for reminders is that delivery is deferred to the next user interaction or heartbeat cycle; in the fully idle case, delivery can take up to about 75 minutes because discovery and delivery happen on separate schedules. If reminder delivery fails after the handoff file is written, the delivering session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
+Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with `model: litellm/claude-haiku-4-5` and `payload.kind: agentTurn`. This is a deliberate design choice: the previous architecture ran both on `sessionTarget: main`, which loaded the full Opus agent context for routine script work and burned ~18M tokens per 6 hours. Isolating cron jobs cuts per-run cost by orders of magnitude. The trade-off for reminders is that delivery is deferred to the next user interaction or heartbeat cycle; in the fully idle case, delivery can take up to about 75 minutes because discovery and delivery happen on separate schedules. This means the built-in reminder system is appropriate for best-effort nudges, not exact-time or safety-critical alerts; those should use a device-native alarm/calendar path instead. If reminder delivery fails after the handoff file is written, the delivering session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.
 
 **Timezone handling:** The AI converts user-specified times (e.g., "6pm PT", "3pm Central") to full ISO 8601 timestamps with timezone offsets at intake time. The check script compares against UTC — no timezone conversion at check time.
 

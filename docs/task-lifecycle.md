@@ -152,7 +152,7 @@ flowchart TD
     subgraph TimeRules["Time Estimation"]
         T1[/"quick, brief, short"/] --> Quick[15-30 min]
         T2[/"meeting, review"/] --> Med[30-60 min]
-        T3[/"project, deep work"/] --> Large[60+ min]
+        T3[/"project, deep work"/] --> Large[> 60 minutes]
     end
 ```
 
@@ -173,7 +173,7 @@ flowchart TD
     Generate --> Evaluate{Task size?}
 
     Evaluate -->|Quick/Standard task<br/>15-60 min| InlineSteps[Store sub-tasks inline<br/>Present as numbered steps]
-    Evaluate -->|Large task<br/>60+ min| CreateHidden[Create sub-tasks in Notion<br/>Hidden from user]
+    Evaluate -->|Large task<br/>> 60 minutes| CreateHidden[Create sub-tasks in Notion<br/>Hidden from user]
 
     InlineSteps --> Ready([Task ready for selection])
     CreateHidden --> LinkParent[Link to parent task]
@@ -239,7 +239,7 @@ See [user-preferences.md](./user-preferences.md) for full preference system docu
 |-----------|-------------------|---------|
 | Quick (15 min) | 2-3 inline steps | "Call mom" → 1. Make tea, 2. Settle into cozy chair, 3. Make call |
 | Standard (30-60 min) | 3-5 inline steps | "Review proposal" → 1. Make coffee, 2. Find quiet spot, 3. Read intro, 4. Check numbers, 5. Note concerns |
-| Large (60+ min) | Hidden sub-tasks | "Complete report" → 4+ separate tasks in Notion (each with prep steps) |
+| Large (> 60 minutes) | Hidden sub-tasks | "Complete report" → 4+ separate tasks in Notion (each with prep steps) |
 
 ### Complexity Signals (For Hidden vs. Inline)
 

@@ -212,7 +212,7 @@ SUB-TASK GENERATION (ALWAYS REQUIRED):
 Every task gets explicit sub-tasks, regardless of complexity.
 - Quick tasks (15-30 min): 2-3 inline steps shown with the task
 - Standard tasks (30-60 min): 3-5 inline steps
-- Large tasks (60+ min): Create as hidden Notion sub-tasks
+- Large tasks (`time_estimate > 60` minutes): Create as hidden Notion sub-tasks
 
 For EVERY task, generate:
 - Specific, actionable steps
@@ -304,6 +304,8 @@ When detected:
 - Set reminder_status = "pending"
 - Set urgency = 90 (reminders are inherently time-critical)
 - Work type and energy level are still inferred from the reminder content
+- Treat reminder delivery as completion of the reminder request itself, not proof that the downstream real-world action happened
+- If the user needs an exact-time or safety-critical alert, recommend a device-native alarm/calendar reminder instead; this deferred delivery path is a best-effort nudge and can be late when the user is idle
 
 Examples:
   "Remind me at 6pm PT to email Melanie" →
@@ -1060,6 +1062,17 @@ OUTPUT (JSON):
   "user_message": "..." (response to user)
 }
 ```
+
+### Reminder Delivery Tone
+
+When delivering reminders from the reminder handoff file, use the same non-judgmental tone as check-ins:
+
+- On-time / approximate delivery: "Hey, time to {task}."
+- Late delivery (`reminder_status = "missed"`): "This was due a bit ago — {task}. Want to do it now or reschedule?"
+
+Rules:
+- Never shame the user for lateness or missed timing.
+- Make it clear that the reminder request was delivered; do not imply the underlying task is already done unless the user confirms it separately.
 
 ### Check-In Message Templates (Shame-Safe)
 

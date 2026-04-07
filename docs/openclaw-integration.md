@@ -90,7 +90,7 @@ For production deployments, use these timings unless you have a clear reason to 
 | `reminder-check` | Every 15 minutes | Isolated Haiku query; writes `.reminder-signal` for heartbeat/startup delivery |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps the workspace fresh |
 
-The core principle is simple: `reminder-check` controls when due reminders are discovered, while heartbeat is part of the idle-user delivery path. For routine reminders, 15-minute polling plus hourly heartbeat is the default production cost/latency tradeoff. This means exact-time delivery is not guaranteed in the current deferred-delivery architecture; fully idle worst-case delivery is about 75 minutes unless the user interacts sooner.
+The core principle is simple: `reminder-check` controls when due reminders are discovered, while heartbeat is part of the idle-user delivery path. For routine reminders, 15-minute polling plus hourly heartbeat is the default production cost/latency tradeoff. This means exact-time delivery is not guaranteed in the current deferred-delivery architecture; fully idle worst-case delivery is about 75 minutes unless the user interacts sooner. Treat this as a best-effort nudge channel, not an exact-time alarm. If a user needs minute-accurate or safety-critical notifications, direct them to a device-native alarm or calendar reminder instead.
 
 ## Messaging Channels
 

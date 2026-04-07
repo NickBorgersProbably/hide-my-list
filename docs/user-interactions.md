@@ -791,7 +791,7 @@ The agent delivers reminders with a brief, casual tone — like a friend tapping
 > "Hey — this is your reminder to email Melanie about availability."
 
 **Missed delivery (>15 minutes past due, flagged as missed):**
-> "I'm late on this one — you had a reminder at 6pm PT to email Melanie. Want to handle it now or reschedule?"
+> "This was due a bit ago — email Melanie about availability. Want to do it now or reschedule?"
 
 ### Reminder Intake
 
