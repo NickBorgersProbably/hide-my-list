@@ -26,6 +26,8 @@ Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|mi
 
 This separation is a deliberate design choice. The previous architecture ran reminder-check on `sessionTarget: main`, which loaded the full Opus agent context (~200k tokens) for a job that 95% of the time just runs a script and finds nothing. Moving to isolated Haiku cuts per-run cost by orders of magnitude. The trade-off is that fully idle worst-case delivery latency is now up to about 75 minutes: up to 15 minutes for this cron to write the handoff file, then up to another 60 minutes for heartbeat to deliver it if the user does not interact first. In practice, many reminders still deliver on the next user interaction. The current system already can't interrupt mid-conversation (cron only fires when the REPL is idle), so the practical difference is small.
 
+The handoff file is also the current durability boundary. OpenClaw does not currently provide a post-announce delivery acknowledgment hook, so an announce-only cron flow cannot safely call `complete-reminder` before delivery without risking permanent reminder loss if the turn crashes after the Notion PATCH but before user-facing delivery completes. Until that hook exists, this job stays query-only.
+
 ## Prompt
 
 ```
