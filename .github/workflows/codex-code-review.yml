@@ -357,6 +357,31 @@ jobs:
         run: |
           PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
           EVENT_NAME="${{ github.event_name }}"
+          REVIEWED_SHA="${{ steps.resolve-reviewed-sha.outputs.reviewed_sha }}"
+          HEAD_REPO="${{ steps.get-pr.outputs.head_repo }}"
+
+          # Fast-path: if PR Tests completed for a head SHA that the merge-decision
+          # job already marked as GO-CLEAN with no re-review required, skip this
+          # workflow_run invocation entirely. Manual /review remains authoritative
+          # because it uses the issue_comment path and bypasses this shortcut.
+          if [ "$EVENT_NAME" = "workflow_run" ] && [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+            EXISTING_GO_CLEAN_STATUS=$(gh api repos/$HEAD_REPO/commits/$REVIEWED_SHA/status \
+              --jq '
+                [.statuses[]
+                 | select(
+                     .context == "All Required Agent Reviews" and
+                     .state == "success" and
+                     .description == "Merge decision: GO-CLEAN (no re-review required)"
+                   )]
+                | length
+              ' 2>/dev/null || echo "0")
+
+            if [ "$EXISTING_GO_CLEAN_STATUS" -gt 0 ]; then
+              echo "Current head already has merge-decision GO-CLEAN approval - skipping re-review"
+              echo "already_passed=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
 
           # If PR was closed, strip all review labels so a future reopen starts clean
           if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ]; then
