@@ -2409,7 +2409,7 @@ jobs:
             GH_TOKEN="${STATUS_API_TOKEN}" gh pr comment "$PR_NUMBER" \
               --body "## Review Cycle Cap Reached
 
-          The merge-decision agent pushed fixes, but the maximum of **3 review cycles** has been reached. No further automated review cycles will be triggered.
+          The merge-decision agent pushed fixes, but the maximum of **${MAX_REVIEW_CYCLES} review cycles** has been reached. No further automated review cycles will be triggered.
 
           A human reviewer should inspect the latest changes. To reset the cycle counter and re-run reviews, comment \`/review\` on this PR." \
               --repo ${{ github.repository }} 2>/dev/null || true
@@ -2440,11 +2440,42 @@ jobs:
           fi
 
           # Clear stale started labels before dispatching the next cycle. If any
-          # later step fails, the EXIT trap restores the prior label state.
-          for label in "${STARTED_LABELS[@]}"; do
-            GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
-              --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
-          done
+          # removal fails or a started label remains, fail closed and let the
+          # EXIT trap restore the prior label state.
+          while IFS= read -r label; do
+            [ -n "$label" ] || continue
+            if ! GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
+              --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null; then
+              echo "Failed to remove started label '$label' from PR #$PR_NUMBER" >&2
+              exit 1
+            fi
+          done <<< "$STARTED_LABEL_SNAPSHOT"
+
+          if ! REMAINING_STARTED_LABELS=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
+            repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+            --jq '
+              [.[].name
+               | select(
+                   . == "all-reviews-started" or
+                   . == "design-review-started" or
+                   . == "security-review-started" or
+                   . == "psych-review-started" or
+                   . == "docs-review-started" or
+                   . == "prompt-review-started" or
+                   . == "merge-decision-started"
+                 )]
+              | .[]
+            '); then
+            echo "Failed to verify started labels were cleared for PR #$PR_NUMBER" >&2
+            exit 1
+          fi
+
+          if [ -n "$REMAINING_STARTED_LABELS" ]; then
+            echo "Started labels still present after clear attempt:" >&2
+            printf '%s\n' "$REMAINING_STARTED_LABELS" >&2
+            exit 1
+          fi
+
           STARTED_LABELS_CLEARED=true
 
           echo "Triggering PR Tests workflow..."
