@@ -2094,6 +2094,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Capture merge decision comment baseline
+        id: comment-baseline
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+        run: |
+          BASELINE_STDERR="$(mktemp)"
+          if COMMENT_JSON=$(
+            MERGE_DECISION_COMMENT_MAX_ATTEMPTS=1 \
+              ./scripts/get-latest-merge-decision-comment.sh 2>"$BASELINE_STDERR"
+          ); then
+            COMMENT_ID=$(jq -r '.id // 0' <<<"${COMMENT_JSON:-null}")
+            if ! [[ "$COMMENT_ID" =~ ^[0-9]+$ ]]; then
+              echo "Baseline merge decision lookup returned a non-numeric comment id" >&2
+              rm -f "$BASELINE_STDERR"
+              exit 1
+            fi
+            echo "baseline_ok=true" >> "$GITHUB_OUTPUT"
+            echo "comment_id=$COMMENT_ID" >> "$GITHUB_OUTPUT"
+            echo "Latest trusted merge decision comment before this run: $COMMENT_ID"
+          elif grep -q "Merge decision comment not found for PR #" "$BASELINE_STDERR"; then
+            echo "baseline_ok=true" >> "$GITHUB_OUTPUT"
+            echo "comment_id=0" >> "$GITHUB_OUTPUT"
+            echo "No trusted merge decision comment existed before this run"
+          else
+            echo "baseline_ok=false" >> "$GITHUB_OUTPUT"
+            echo "comment_id=" >> "$GITHUB_OUTPUT"
+            cat "$BASELINE_STDERR" >&2
+            echo "Could not read merge decision comment baseline; downstream steps will preserve PENDING/no-op behavior rather than risk a stale verdict" >&2
+          fi
+          rm -f "$BASELINE_STDERR"
+
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
         uses: ./.github/actions/run-devcontainer
@@ -2198,8 +2233,10 @@ jobs:
       - name: Parse merge decision from PR comments
         id: parse-decision
         if: always()
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
           # PENDING is an infra-failure state distinct from a real NO-GO verdict.
@@ -2212,21 +2249,18 @@ jobs:
             exit 0
           fi
 
-          MERGE_DECISION_MARKER='<!-- codex-merge-decision -->'
-
-          # Fetch the most recent trusted "Merge Decision" comment from the PR
-          COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --paginate \
-            | jq -s 'add
-              | map(
-                  select(
-                    .user.login == "github-actions[bot]"
-                    and ((.body // "") | contains("'"${MERGE_DECISION_MARKER}"'"))
-                    and ((.body // "") | contains("## Merge Decision"))
-                  )
-                )
-              | sort_by(.id)
-              | last')
+          # GitHub comment propagation can lag the successful gh pr comment call by a
+          # few seconds, so retry before treating the absence as an infra failure.
+          if [ "${{ steps.comment-baseline.outputs.baseline_ok }}" = "true" ]; then
+            COMMENTS=$(
+              MERGE_DECISION_COMMENT_MIN_ID="${{ steps.comment-baseline.outputs.comment_id }}" \
+                ./scripts/get-latest-merge-decision-comment.sh || true
+            )
+          else
+            echo "Merge decision baseline lookup failed; emitting PENDING to avoid parsing a stale trusted comment"
+            echo "decision=PENDING" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
             echo "No merge decision comment found - emitting PENDING (agent likely crashed or timed out)"
@@ -2259,6 +2293,7 @@ jobs:
         working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           STATUS_API_TOKEN: ${{ github.token }}
           DECISION: ${{ steps.parse-decision.outputs.decision }}
           LINKED_ISSUE: ${{ needs.get-context.outputs.issue_number }}
@@ -2291,22 +2326,20 @@ jobs:
           if [ "$DECISION" = "NO-GO" ]; then
             echo "NO-GO: closing PR and creating follow-up issue"
 
-            MERGE_DECISION_MARKER='<!-- codex-merge-decision -->'
-
-            # Fetch the trusted merge-decision comment again to parse the Follow-Up Issue block
-            COMMENT_BODY=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments \
-              --paginate \
-              | jq -rs 'add
-                | map(
-                    select(
-                      .user.login == "github-actions[bot]"
-                      and ((.body // "") | contains("'"${MERGE_DECISION_MARKER}"'"))
-                      and ((.body // "") | contains("## Merge Decision"))
-                    )
-                  )
-                | sort_by(.id)
-                | last
-                | .body // ""')
+            # Re-read the same trusted merge-decision comment with retries so the
+            # follow-up issue parser does not race comment propagation either.
+            if [ "${{ steps.comment-baseline.outputs.baseline_ok }}" = "true" ]; then
+              COMMENT_JSON=$(
+                MERGE_DECISION_COMMENT_MIN_ID="${{ steps.comment-baseline.outputs.comment_id }}" \
+                  ./scripts/get-latest-merge-decision-comment.sh || true
+              )
+            else
+              echo "Merge decision baseline lookup failed; aborting NO-GO follow-up parsing to avoid a stale trusted comment"
+              echo "head_changed=false" >> "$GITHUB_OUTPUT"
+              echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            COMMENT_BODY=$(jq -r '.body // ""' <<<"${COMMENT_JSON:-null}")
 
             FU_TITLE=""
             FU_BODY=""
