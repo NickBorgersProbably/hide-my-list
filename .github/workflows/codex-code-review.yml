@@ -2220,8 +2220,7 @@ jobs:
           # Fetch the most recent trusted "Merge Decision" comment from the PR
           COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
             --paginate \
-            --slurp \
-            --jq 'add
+            | jq -s 'add
               | map(
                   select(
                     .user.login == "github-actions[bot]"
@@ -2300,8 +2299,7 @@ jobs:
             # Fetch the trusted merge-decision comment again to parse the Follow-Up Issue block
             COMMENT_BODY=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments \
               --paginate \
-              --slurp \
-              --jq 'add
+              | jq -rs 'add
                 | map(
                     select(
                       .user.login == "github-actions[bot]"
