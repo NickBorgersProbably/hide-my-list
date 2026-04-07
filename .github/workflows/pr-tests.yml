@@ -72,6 +72,7 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
               - '.github/actionlint.yaml'
+              - 'scripts/validate-gh-cli-usage.sh'
               - 'scripts/validate-workflow-refs.sh'
             devcontainer:
               - '.devcontainer/**'
@@ -200,6 +201,9 @@ jobs:
 
       - name: Validate cross-file workflow references
         run: ./scripts/validate-workflow-refs.sh
+
+      - name: Validate GitHub CLI usage in workflows
+        run: ./scripts/validate-gh-cli-usage.sh
 
   devcontainer-validation:
     name: Devcontainer Build Check
