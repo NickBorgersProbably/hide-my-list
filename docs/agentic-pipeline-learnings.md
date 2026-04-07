@@ -65,8 +65,8 @@ Two meta-lessons span everything below:
 
 ## 2. CI Runtime Infrastructure
 
-### 2.1 Pre-create all bind-mount source directories on the host
-**Why:** Docker silently fails (or errors only at startup) when a bind-mount source path doesn't exist. Always `mkdir -p ~/.config/gh ~/.claude ~/.codex` before launching the devcontainer.
+### 2.1 Pre-create bind-mount source directories before workflows that mount them
+**Why:** Docker silently fails (or errors only at startup) when a bind-mount source path doesn't exist. Any workflow that mounts host config dirs into a devcontainer should `mkdir -p` those paths first. The current Codex review pipeline does this for `~/.config/gh`, `~/.claude`, and `~/.codex`; future workflows that add the same mounts need the same guard.
 **Evidence:** #77, #78
 
 ### 2.2 Don't make CI reviewer containers depend on forwarded Anthropic/OAuth credentials
@@ -100,8 +100,8 @@ Two meta-lessons span everything below:
 **Before:** Seven iterative PRs across two days chasing variations of "invalid value for 'source'".
 **Evidence:** #224, #226, #230, #248, #260, #270, #280
 
-### 2.9 Validate workflows with `actionlint` + cross-file ref checks + a devcontainer build smoke test
-**Why:** Yamllint passes broken `uses:` refs, missing script paths, and local-action checkout races. Over a 48-hour window we shipped 7+ PRs that all passed yamllint and broke at runtime.
+### 2.9 Validate workflows with `actionlint` + cross-file ref checks, and keep a devcontainer smoke test for container changes
+**Why:** Yamllint passes broken `uses:` refs, missing script paths, and local-action checkout races. The current `pr-tests.yml` path always runs `actionlint` plus `validate-workflow-refs.sh` for workflow changes, and it adds a devcontainer build smoke test when `.devcontainer/**` changes. If workflow changes start depending on new devcontainer behavior, extend that smoke-test trigger instead of assuming yamllint is enough.
 **Evidence:** #232, #207, #219
 
 ### 2.10 Scope env loading per script; fall back to `.env` for host `gh` auth
