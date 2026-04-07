@@ -30,7 +30,7 @@ GitHub has been chosen as the tool for facilitating this, and that means we need
 
 ### Cron-driven reminder flow — [BC] configuration
 
-The reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus the OpenClaw `reminder-check` durable cron job) keeps its shell narrow and lets `scripts/notion-cli.sh` load just the Notion credentials it needs **[B]**, then announces the reminder through OpenClaw and updates Notion delivery state **[C]**. It processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
+The reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus the OpenClaw `reminder-check` durable cron job) keeps its shell narrow and lets `scripts/notion-cli.sh` load just the Notion credentials it needs **[B]**, then writes the reminder handoff file in the repo root (default filename: `.reminder-signal`) **[C]**. It processes no untrusted input **[A]** — it only reads structured data from Notion that was created by the agent itself. This is a safe **[BC]** configuration.
 
 
 ### CI/CD review agents — [AC] configuration
