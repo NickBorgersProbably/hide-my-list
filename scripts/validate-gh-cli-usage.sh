@@ -16,7 +16,7 @@ targets.extend(sorted((repo_root / ".github" / "workflows").glob("*.yaml")))
 targets.extend(sorted((repo_root / "scripts").glob("*.sh")))
 
 errors = []
-command_pattern = re.compile(r"(^|[\s(])gh api\b")
+command_pattern = re.compile(r"(^|[\s(])gh\s+api\b")
 
 for path in targets:
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -24,23 +24,21 @@ for path in targets:
     idx = 0
 
     while idx < line_count:
-        line = lines[idx]
-        if not command_pattern.search(line):
-            idx += 1
-            continue
-
         start = idx
-        command_lines = [line]
+        command_lines = [lines[idx]]
         while command_lines[-1].rstrip().endswith("\\") and idx + 1 < line_count:
             idx += 1
             command_lines.append(lines[idx])
 
-        command = "\n".join(command_lines)
+        command = " ".join(part.strip().rstrip("\\") for part in command_lines)
+        if not command_pattern.search(command):
+            idx += 1
+            continue
+
         if "--slurp" in command and ("--jq" in command or "--template" in command):
-            display = " ".join(part.strip().rstrip("\\") for part in command_lines)
             errors.append(
                 f"ERROR: {path.relative_to(repo_root)}:{start + 1}: "
-                f"`gh api` cannot combine `--slurp` with `--jq` or `--template`: {display}"
+                f"`gh api` cannot combine `--slurp` with `--jq` or `--template`: {command}"
             )
 
         idx += 1
