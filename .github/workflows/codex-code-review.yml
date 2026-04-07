@@ -2128,7 +2128,7 @@ jobs:
             echo "baseline_ok=false" >> "$GITHUB_OUTPUT"
             echo "comment_id=" >> "$GITHUB_OUTPUT"
             cat "$BASELINE_STDERR" >&2
-            echo "Could not read merge decision comment baseline; downstream steps will fall back to an unfiltered lookup" >&2
+            echo "Could not read merge decision comment baseline; downstream steps will preserve PENDING/no-op behavior rather than risk a stale verdict" >&2
           fi
           rm -f "$BASELINE_STDERR"
 
@@ -2260,8 +2260,9 @@ jobs:
                 ./scripts/get-latest-merge-decision-comment.sh || true
             )
           else
-            echo "Merge decision baseline lookup failed; retrying without a minimum comment id filter"
-            COMMENTS=$(./scripts/get-latest-merge-decision-comment.sh || true)
+            echo "Merge decision baseline lookup failed; emitting PENDING to avoid parsing a stale trusted comment"
+            echo "decision=PENDING" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
@@ -2336,8 +2337,10 @@ jobs:
                   ./scripts/get-latest-merge-decision-comment.sh || true
               )
             else
-              echo "Merge decision baseline lookup failed; retrying follow-up parsing without a minimum comment id filter"
-              COMMENT_JSON=$(./scripts/get-latest-merge-decision-comment.sh || true)
+              echo "Merge decision baseline lookup failed; aborting NO-GO follow-up parsing to avoid a stale trusted comment"
+              echo "head_changed=false" >> "$GITHUB_OUTPUT"
+              echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
             COMMENT_BODY=$(jq -r '.body // ""' <<<"${COMMENT_JSON:-null}")
 
