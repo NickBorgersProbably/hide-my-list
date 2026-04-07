@@ -52,7 +52,7 @@ Two meta-lessons span everything below:
 **Evidence:** #269
 
 ### 1.9 Spec-critical `.md` files always trigger security review
-**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. In the current classifier, `docs_only=true` is reserved for changes limited to `design/*` research docs and `README.md`; changes under `docs/` still trigger the full review path unless the workflow is updated.
+**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. In the current classifier, `docs_only=true` is a very narrow implementation bucket for changes limited to `README.md` and paths under `design/*`; changes under `docs/` still trigger the full review path unless the workflow is updated. That classifier shortcut should not be mistaken for proof that every design doc is behavior-free.
 **Before:** A behavioral cron prompt slipped through with zero security review.
 **Evidence:** #156, #142
 
