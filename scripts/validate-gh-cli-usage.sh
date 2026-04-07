@@ -11,9 +11,14 @@ from pathlib import Path
 
 
 repo_root = Path(sys.argv[1])
-targets = []
-targets.extend(sorted((repo_root / ".github" / "workflows").glob("*.yml")))
-targets.extend(sorted((repo_root / ".github" / "workflows").glob("*.yaml")))
+targets = sorted(
+    {
+        * (repo_root / ".github" / "workflows").glob("*.yml"),
+        * (repo_root / ".github" / "workflows").glob("*.yaml"),
+        * (repo_root / ".github" / "actions").rglob("*.yml"),
+        * (repo_root / ".github" / "actions").rglob("*.yaml"),
+    }
+)
 
 errors = []
 run_pattern = re.compile(r"^(?P<prefix>\s*(?:-\s*)?)run:\s*(?P<value>.*)$")
