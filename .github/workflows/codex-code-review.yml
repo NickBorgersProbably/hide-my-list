@@ -2648,7 +2648,9 @@ jobs:
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
     name: All Required Agent Reviews
-    runs-on: [self-hosted, homelab]
+    # Keep the lightweight branch-protection gate on GitHub-hosted runners so a
+    # transient homelab outage cannot block status publication, labels, or mergeability.
+    runs-on: ubuntu-latest
     needs: [get-context, build-devcontainer, fix-test-failures, design-review, security-review, psych-review, docs-review, prompt-review, merge-decision]
     if: always()
     permissions:
