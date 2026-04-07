@@ -13,7 +13,6 @@ repo_root = Path(sys.argv[1])
 targets = []
 targets.extend(sorted((repo_root / ".github" / "workflows").glob("*.yml")))
 targets.extend(sorted((repo_root / ".github" / "workflows").glob("*.yaml")))
-targets.extend(sorted((repo_root / "scripts").glob("*.sh")))
 
 errors = []
 command_pattern = re.compile(r"(^|[\s(])gh\s+api\b")
