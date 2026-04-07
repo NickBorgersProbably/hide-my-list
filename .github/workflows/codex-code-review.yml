@@ -2163,6 +2163,16 @@ jobs:
             [REQUIRED if Decision is GO-WITH-RESERVATIONS:]
             **Reservations:** <what specifically you want re-reviewed and why>
 
+            [OPTIONAL if Decision is GO-WITH-RESERVATIONS AND the merged PR would still leave part of the linked issue unsolved:]
+            ### Residual Gap
+            <codex-residual-gap>
+            <title><concise follow-up issue title></title>
+            <body>
+            <Multi-line body. Include: what this PR shipped, what remains unsolved from the linked issue, why it was deferred, and the recommended next step. Reference merged PR #${PR_NUMBER} and the original linked issue.>
+            </body>
+            </codex-residual-gap>
+            Omit this entire block when there is no real residual gap. Do not emit empty tags or placeholder text.
+
             [REQUIRED if Decision is NO-GO — this block will be parsed to create a follow-up issue:]
             ### Follow-Up Issue
             **Title:** <concise replacement issue title>
@@ -2499,6 +2509,29 @@ jobs:
           echo "$FOLLOW_UP_MESSAGE (cycle $NEXT_CYCLE)"
 
           echo "follow_up_triggered=true" >> "$GITHUB_OUTPUT"
+
+  create-residual-gap-issue:
+    name: Capture GO-WITH-RESERVATIONS residual gap
+    runs-on: ubuntu-latest
+    needs: [get-context]
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && needs.get-context.outputs.pr_number != ''
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create residual gap issue after merge
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
+          LINKED_ISSUE: ${{ needs.get-context.outputs.issue_number }}
+        run: scripts/create-residual-gap-issue.sh
 
   # Aggregator job - use this as the required check for branch protection
   all-reviews-passed:
