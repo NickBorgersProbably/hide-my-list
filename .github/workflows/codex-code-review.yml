@@ -2203,6 +2203,7 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
           # PENDING is an infra-failure state distinct from a real NO-GO verdict.
@@ -2215,21 +2216,9 @@ jobs:
             exit 0
           fi
 
-          MERGE_DECISION_MARKER='<!-- codex-merge-decision -->'
-
-          # Fetch the most recent trusted "Merge Decision" comment from the PR
-          COMMENTS=$(gh api repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
-            --paginate \
-            | jq -s 'add
-              | map(
-                  select(
-                    .user.login == "github-actions[bot]"
-                    and ((.body // "") | contains("'"${MERGE_DECISION_MARKER}"'"))
-                    and ((.body // "") | contains("## Merge Decision"))
-                  )
-                )
-              | sort_by(.id)
-              | last')
+          # GitHub comment propagation can lag the successful gh pr comment call by a
+          # few seconds, so retry before treating the absence as an infra failure.
+          COMMENTS=$(./scripts/get-latest-merge-decision-comment.sh || true)
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
             echo "No merge decision comment found - emitting PENDING (agent likely crashed or timed out)"
@@ -2262,6 +2251,7 @@ jobs:
         working-directory: ${{ env.PR_WORKSPACE_PATH }}
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           STATUS_API_TOKEN: ${{ github.token }}
           DECISION: ${{ steps.parse-decision.outputs.decision }}
           LINKED_ISSUE: ${{ needs.get-context.outputs.issue_number }}
@@ -2294,22 +2284,10 @@ jobs:
           if [ "$DECISION" = "NO-GO" ]; then
             echo "NO-GO: closing PR and creating follow-up issue"
 
-            MERGE_DECISION_MARKER='<!-- codex-merge-decision -->'
-
-            # Fetch the trusted merge-decision comment again to parse the Follow-Up Issue block
-            COMMENT_BODY=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments \
-              --paginate \
-              | jq -rs 'add
-                | map(
-                    select(
-                      .user.login == "github-actions[bot]"
-                      and ((.body // "") | contains("'"${MERGE_DECISION_MARKER}"'"))
-                      and ((.body // "") | contains("## Merge Decision"))
-                    )
-                  )
-                | sort_by(.id)
-                | last
-                | .body // ""')
+            # Re-read the same trusted merge-decision comment with retries so the
+            # follow-up issue parser does not race comment propagation either.
+            COMMENT_JSON=$(./scripts/get-latest-merge-decision-comment.sh || true)
+            COMMENT_BODY=$(jq -r '.body // ""' <<<"${COMMENT_JSON:-null}")
 
             FU_TITLE=""
             FU_BODY=""
