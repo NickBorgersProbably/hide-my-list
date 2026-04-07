@@ -9,6 +9,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 python3 - "$REPO_ROOT" <<'PY'
+import re
 import sys
 from pathlib import Path
 
@@ -50,6 +51,17 @@ def iter_uses(node):
     elif isinstance(node, list):
         for item in node:
             yield from iter_uses(item)
+
+
+def iter_strings(node):
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for value in node.values():
+            yield from iter_strings(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from iter_strings(item)
 
 
 print("=== Checking local composite action references ===")
@@ -111,6 +123,37 @@ for workflow_file, data in workflows:
             errors.append(
                 f"ERROR: {workflow_file.name}: workflow_run references '{normalized}' but no workflow with that name exists"
             )
+
+
+print("=== Checking step output references stay within job scope ===")
+
+for workflow_file, data in workflows:
+    jobs = data.get("jobs")
+    if not isinstance(jobs, dict):
+        continue
+
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+
+        steps = job.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+
+        step_ids = {
+            step.get("id")
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("id"), str) and step.get("id")
+        }
+
+        for text in iter_strings(job):
+            for match in re.finditer(r"\bsteps\.([A-Za-z0-9_-]+)\.outputs\.", text):
+                step_id = match.group(1)
+                if step_id not in step_ids:
+                    errors.append(
+                        f"ERROR: {workflow_file.name}: job '{job_name}' references steps.{step_id}.outputs "
+                        "but no step with that id exists in the same job"
+                    )
 
 
 print("")
