@@ -114,7 +114,7 @@ Personalize prep steps using user preferences (beverage, comfort spot, rituals).
 - **Runtime**: OpenClaw agent (no standalone server)
 - **Storage**: Notion database via API
 - **Scripts**: `scripts/` — Notion CLI helpers and infrastructure tooling
-- **Docs**: `docs/` — prompt architecture, interaction patterns, and behavior specs
+- **Docs**: `docs/` — mostly runtime behavior specs, plus contributor/CI guidance where explicitly noted
 - **Design**: `design/` — ADHD-informed design priorities and principles
 - **OpenClaw integration**: See `docs/openclaw-integration.md` for how this maps to the platform
 
@@ -145,6 +145,7 @@ These files support the development pipeline and are not part of the OpenClaw ag
 
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
+- `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract and guardrail document
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates or reuses the canonical deduplicated GitHub Actions failure issue for the diagnosis workflow
 - `scripts/get-latest-merge-decision-comment.sh` — Fetches the latest trusted merge-decision PR comment with retry logic to tolerate GitHub comment propagation lag
 - `scripts/pull-main.sh` — Branch sync helper
@@ -195,7 +196,7 @@ PRs are reviewed by a multi-agent Codex pipeline:
 
 ## When Making Changes
 
-- Docs define agent behavior — changing a doc IS changing the system
+- Runtime/spec docs define agent behavior — changing those docs changes the system; contributor/CI guidance docs should still be reviewed as infra changes
 - The psych reviewer will validate user-facing changes against ADHD research
 - Infrastructure/CI changes skip the psych review automatically
 - All changes go through PR with the full review pipeline
