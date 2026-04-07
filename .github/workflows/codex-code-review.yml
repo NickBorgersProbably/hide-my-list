@@ -2581,10 +2581,19 @@ jobs:
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
           STATUS_STATE="${{ steps.check-results.outputs.status_state }}"
           DESCRIPTION="${{ steps.check-results.outputs.status_description }}"
+          MERGE_DECISION="${{ steps.parse-decision.outputs.decision }}"
 
           if [ -z "$REVIEWED_SHA" ]; then
             echo "Reviewed SHA is missing; cannot publish review status" >&2
             exit 1
+          fi
+
+          if [ "$STATUS_STATE" = "pending" ] && [ "$MERGE_DECISION" = "PENDING" ]; then
+            LIVE_HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER --jq '.head.sha')
+            if [ -n "$LIVE_HEAD_SHA" ] && [ "$LIVE_HEAD_SHA" != "null" ]; then
+              echo "Publishing pending review status to current PR head: $LIVE_HEAD_SHA"
+              REVIEWED_SHA="$LIVE_HEAD_SHA"
+            fi
           fi
 
           echo "Creating $STATUS_STATE commit status for PR #$PR_NUMBER (SHA: $REVIEWED_SHA)"
