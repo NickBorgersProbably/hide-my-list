@@ -235,7 +235,7 @@ OpenClaw supports up to 8 concurrent sub-agents.
 │       (personality)  (operations)  (health)      │
 │                                                  │
 │  docs/           scripts/          state.json    │
-│  (behavior spec) (Notion CRUD)    (runtime)      │
+│  (mixed docs)    (Notion CRUD)    (runtime)      │
 │                                                  │
 │  .claude/settings.json                           │
 │  (tool-use hooks)                                │
@@ -251,3 +251,5 @@ OpenClaw supports up to 8 concurrent sub-agents.
 **OpenClaw owns:** How messages arrive, how models are called, how sessions persist, and how scheduling runs.
 
 The boundary is clean: we write markdown and bash scripts; OpenClaw turns that into a running agent that talks to people.
+
+Most files under `docs/` are runtime behavior spec, but not all of them. Pipeline-focused references such as `docs/agentic-pipeline-learnings.md` document contributor/CI guardrails rather than the OpenClaw runtime contract.

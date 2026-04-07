@@ -2,6 +2,8 @@
 
 This repo's agentic review/CI pipeline was forked from [home-automation](https://github.com/NickBorgers/home-automation) and has since absorbed roughly 100 PRs of hard lessons. This document is **prescriptive**: each rule is either part of the current pipeline contract or a guardrail that future pipeline changes must preserve. Each entry includes a one-line explanation of *why* and a brief note on the failure mode that taught us. PR numbers are cited so you can dig in.
 
+This file is CI/review-pipeline guidance for contributors and reviewers. It is **not** part of the OpenClaw runtime prompt/behavior spec. When sections below reference runtime, cron, or recovery behavior, the canonical source remains the owning docs such as `AGENTS.md`, `HEARTBEAT.md`, `setup/cron/*.md`, and `docs/openclaw-integration.md`.
+
 Two meta-lessons span everything below:
 
 - **Silent failures are the expensive ones.** Most fixes here address things that ran successfully but did the wrong thing: dropped env vars, missing mounts, agents that posted no comments, cron jobs that drifted with no alert. Add loud assertions and validation gates; trust nothing silent.
@@ -51,8 +53,8 @@ Two meta-lessons span everything below:
 **Before:** Every retry spawned a new failure issue, drowning the issue tracker.
 **Evidence:** #269
 
-### 1.9 Spec-critical `.md` files belong on the full review path
-**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. The current `docs_only=true` classifier is only an implementation shortcut, not a semantic proof that every matching Markdown file is inert; for example, `AGENTS.md` still treats `design/adhd-priorities.md` as part of the OpenClaw spec surface. Future classifier tightening should carve out prompt-bearing design docs instead of assuming all `design/*` changes are safe to bypass the full review path.
+### 1.9 Guardrail: spec-critical `.md` files should stay on the full review path
+**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. The current `docs_only=true` classifier is only an implementation shortcut, not a semantic proof that every matching Markdown file is inert, and today it is still too broad around `design/*`; for example, `AGENTS.md` treats `design/adhd-priorities.md` as part of the OpenClaw spec surface even though the workflow currently classifies `design/*` as `docs_only=true`. Future classifier tightening should carve out prompt-bearing design docs instead of assuming all `design/*` changes are safe to bypass the full review path.
 **Before:** A behavioral cron prompt slipped through with zero security review.
 **Evidence:** #156, #142
 
@@ -79,8 +81,8 @@ Two meta-lessons span everything below:
 **Before:** Reviewers ran successfully and posted zero comments. Perfect silent failure.
 **Evidence:** #91 (applied across nine occurrences)
 
-### 2.4 Fork PRs stay on `ubuntu-latest`; build images from the `main` ref
-**Why:** Untrusted PR code on homelab runners with credential access is a privilege escalation. Building devcontainer images from the PR ref is also a Dockerfile injection vector.
+### 2.4 External fork PRs do not run Codex review; any devcontainer build must use the `main` ref
+**Why:** Untrusted PR code on homelab runners with credential access is a privilege escalation. The current workflow blocks Codex review for non-collaborator PR authors, and the devcontainer build path checks out `main` rather than the PR ref to avoid Dockerfile injection.
 **Evidence:** #110
 
 ### 2.5 Treat BuildKit default attestations as an explicit compatibility choice
