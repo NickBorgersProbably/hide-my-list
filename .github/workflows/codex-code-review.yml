@@ -2366,6 +2366,33 @@ jobs:
 
           # --- Review cycle cap enforcement (hard gate) ---
           MAX_REVIEW_CYCLES=2
+          STARTED_LABELS=(
+            "all-reviews-started"
+            "design-review-started"
+            "security-review-started"
+            "psych-review-started"
+            "docs-review-started"
+            "prompt-review-started"
+            "merge-decision-started"
+          )
+          STARTED_LABELS_CLEARED=false
+          NEW_CYCLE_COMMITTED=false
+          STARTED_LABEL_SNAPSHOT=""
+
+          restore_started_labels() {
+            if [ "$STARTED_LABELS_CLEARED" != "true" ] || [ "$NEW_CYCLE_COMMITTED" = "true" ]; then
+              return
+            fi
+
+            echo "Restoring prior started labels because the new cycle was not committed"
+            while IFS= read -r label; do
+              [ -n "$label" ] || continue
+              GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
+                --add-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+            done <<< "$STARTED_LABEL_SNAPSHOT"
+          }
+
+          trap restore_started_labels EXIT
 
           # Count review-cycle-* labels (authoritative, independent of get-context)
           if ! CYCLE_LABEL_COUNT=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
@@ -2382,7 +2409,7 @@ jobs:
             GH_TOKEN="${STATUS_API_TOKEN}" gh pr comment "$PR_NUMBER" \
               --body "## Review Cycle Cap Reached
 
-          The merge-decision agent pushed fixes, but the maximum of **3 review cycles** has been reached. No further automated review cycles will be triggered.
+          The merge-decision agent pushed fixes, but the maximum of **${MAX_REVIEW_CYCLES} review cycles** has been reached. No further automated review cycles will be triggered.
 
           A human reviewer should inspect the latest changes. To reset the cycle counter and re-run reviews, comment \`/review\` on this PR." \
               --repo ${{ github.repository }} 2>/dev/null || true
@@ -2392,6 +2419,64 @@ jobs:
 
           NEXT_CYCLE=$((CYCLE_LABEL_COUNT + 1))
           NEXT_LABEL="review-cycle-${NEXT_CYCLE}"
+
+          if ! STARTED_LABEL_SNAPSHOT=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
+            repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+            --jq '
+              [.[].name
+               | select(
+                   . == "all-reviews-started" or
+                   . == "design-review-started" or
+                   . == "security-review-started" or
+                   . == "psych-review-started" or
+                   . == "docs-review-started" or
+                   . == "prompt-review-started" or
+                   . == "merge-decision-started"
+                 )]
+              | .[]
+            '); then
+            echo "Failed to snapshot started labels for PR #$PR_NUMBER" >&2
+            exit 1
+          fi
+
+          # Clear stale started labels before dispatching the next cycle. If any
+          # removal fails or a started label remains, fail closed and let the
+          # EXIT trap restore the prior label state.
+          while IFS= read -r label; do
+            [ -n "$label" ] || continue
+            if ! GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" \
+              --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null; then
+              echo "Failed to remove started label '$label' from PR #$PR_NUMBER" >&2
+              exit 1
+            fi
+          done <<< "$STARTED_LABEL_SNAPSHOT"
+
+          if ! REMAINING_STARTED_LABELS=$(GH_TOKEN="${STATUS_API_TOKEN}" gh api \
+            repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+            --jq '
+              [.[].name
+               | select(
+                   . == "all-reviews-started" or
+                   . == "design-review-started" or
+                   . == "security-review-started" or
+                   . == "psych-review-started" or
+                   . == "docs-review-started" or
+                   . == "prompt-review-started" or
+                   . == "merge-decision-started"
+                 )]
+              | .[]
+            '); then
+            echo "Failed to verify started labels were cleared for PR #$PR_NUMBER" >&2
+            exit 1
+          fi
+
+          if [ -n "$REMAINING_STARTED_LABELS" ]; then
+            echo "Started labels still present after clear attempt:" >&2
+            printf '%s\n' "$REMAINING_STARTED_LABELS" >&2
+            exit 1
+          fi
+
+          STARTED_LABELS_CLEARED=true
 
           echo "Triggering PR Tests workflow..."
 
@@ -2495,6 +2580,7 @@ jobs:
             --repo ${{ github.repository }} 2>/dev/null || true
           GH_TOKEN="${STATUS_API_TOKEN}" gh pr edit "$PR_NUMBER" --add-label "$NEXT_LABEL" \
             --repo ${{ github.repository }}
+          NEW_CYCLE_COMMITTED=true
           echo "Added label: $NEXT_LABEL"
           echo "$FOLLOW_UP_MESSAGE (cycle $NEXT_CYCLE)"
 
