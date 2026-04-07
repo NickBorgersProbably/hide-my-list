@@ -69,9 +69,9 @@ Two meta-lessons span everything below:
 **Why:** Docker silently fails (or errors only at startup) when a bind-mount source path doesn't exist. Always `mkdir -p ~/.config/gh ~/.claude ~/.codex` before launching the devcontainer.
 **Evidence:** #77, #78
 
-### 2.2 Inside containers, use `ANTHROPIC_API_KEY` (not `CLAUDE_CODE_OAUTH_TOKEN`)
-**Why:** `devcontainers/ci@v0.3` silently drops env vars literally named `CLAUDE_CODE_OAUTH_TOKEN` when forwarding into the container. The GitHub secret can keep its name; rename only at the `env:` block.
-**Before:** Three workflows had agents starting with no API key and failing inscrutably.
+### 2.2 Don't make CI reviewer containers depend on forwarded Anthropic/OAuth credentials
+**Why:** The stable pattern in this repo is to run review jobs through baked container config and pass only the minimal runtime env they actually need. Today's Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}` into the container; they do not rely on `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` passthrough.
+**Before:** Earlier iterations tried to forward LLM auth env vars directly and failed in confusing ways when container runtime forwarding differed from expectations.
 **Evidence:** #90, #100
 
 ### 2.3 Use `WORKFLOW_PAT` as `GH_TOKEN` for `gh` inside devcontainers
@@ -87,8 +87,8 @@ Two meta-lessons span everything below:
 **Why:** BuildKit's default attestations produce OCI manifest lists without valid platform metadata, breaking `docker push`.
 **Evidence:** #133
 
-### 2.6 Wrap `docker run` directly for run steps; reserve `devcontainers/ci@v0.3` for build-and-push only
-**Why:** The action's post-step cleanup crashes with "Index was out of range" on self-hosted runners. A custom composite action wrapping `docker run` avoids the bug entirely.
+### 2.6 Use the custom `run-devcontainer` action for run steps; reserve `devcontainers/ci@v0.3` for build-and-push only
+**Why:** `devcontainers/ci@v0.3` hit a post-step cleanup crash on self-hosted runners. The repo avoids that by building/pushing with `devcontainers/ci@v0.3`, then running commands through `.github/actions/run-devcontainer/action.yml`, which uses `@devcontainers/cli up/exec` directly.
 **Evidence:** #179
 
 ### 2.7 Bake the Codex CLI into the Dockerfile; route models via LiteLLM with explicit `CODEX_MODEL`
@@ -117,8 +117,8 @@ Two meta-lessons span everything below:
 **Before:** Reminders were unreliable and pipeline monitoring inconsistent.
 **Evidence:** #112, #199, #263
 
-### 3.2 Heartbeat enforces spec drift, not just job existence
-**Why:** Heartbeat compares live cron jobs against canonical specs in `setup/cron/` and patches drift via `CronUpdate`. `pull-main` triggers a fast re-apply when specs change.
+### 3.2 Heartbeat enforces cron spec drift, not just job existence
+**Why:** Heartbeat compares live cron jobs against canonical specs in `setup/cron/` and patches drift via `CronUpdate`. Cron spec re-application after a `pull-main` run happens on heartbeat's next cycle, because the isolated `pull-main` session cannot reliably call `CronList`/`CronUpdate`.
 **Before:** Cron jobs drifted from registered config, causing exponential backoff and silent failures.
 **Evidence:** #238, #266, #268, #277
 
@@ -140,8 +140,8 @@ Two meta-lessons span everything below:
 **Why:** Closing and reopening a PR previously bypassed the review gate because the `all-reviews-passed` check evaluated before reviews actually re-ran.
 **Evidence:** #92, #99
 
-### 3.7 Cron specs declare `delivery`, `best-effort-deliver`, and `timeout-seconds` explicitly
-**Why:** Missing fields caused accumulating errors and ambiguous routing. Required fields force the spec to be self-describing.
+### 3.7 Cron specs must declare the full isolated-session contract explicitly
+**Why:** Missing or inconsistent registration fields caused accumulating errors and ambiguous routing. In the current design, canonical cron specs spell out `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, `payload.kind`, and `timeout-seconds`, and they stay silent by omitting any direct-delivery `to`.
 **Evidence:** #199, #231, #268
 
 ### 3.8 MEMORY.md is for lessons; tasks belong in Notion
