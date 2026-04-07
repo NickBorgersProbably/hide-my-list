@@ -13,8 +13,7 @@ DEDUP_MARKER="<!-- codex-residual-gap:pr-${PR_NUMBER} -->"
 
 comment_json="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
   --paginate \
-  --slurp \
-  --jq 'add
+  | jq -s 'add
     | map(
         select(
           .user.login == "github-actions[bot]"
