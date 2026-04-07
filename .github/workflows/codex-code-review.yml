@@ -2737,7 +2737,7 @@ jobs:
           REVIEWED_SHA="${{ needs.get-context.outputs.reviewed_sha }}"
           STATUS_STATE="${{ steps.check-results.outputs.status_state }}"
           DESCRIPTION="${{ steps.check-results.outputs.status_description }}"
-          MERGE_DECISION="${{ steps.parse-decision.outputs.decision }}"
+          MERGE_DECISION="${{ needs.merge-decision.outputs.decision }}"
 
           if [ -z "$REVIEWED_SHA" ]; then
             echo "Reviewed SHA is missing; cannot publish review status" >&2
