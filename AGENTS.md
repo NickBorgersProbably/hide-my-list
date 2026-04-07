@@ -193,7 +193,8 @@ PRs are reviewed by a multi-agent Codex pipeline:
 3. Psych Research Review — validates against ADHD clinical research
 4. Prompt Engineering Review — validates prompt clarity, constraints, and cross-prompt consistency
 5. Documentation Consistency Review — checks docs for contradictions, stale references, and cross-doc consistency
-6. Merge Decision — synthesizes all reviews into one of three outcomes: **GO-CLEAN** (merge-ready, no re-review), **GO-WITH-RESERVATIONS** (applied fixes, triggers exactly one re-review cycle), or **NO-GO** (closes the PR and creates a follow-up issue capturing what was learned)
+6. Judge — a read-only aggregation stage that evaluates structured reviewer artifacts for one `reviewed_sha`/`cycle` pair and emits an internal binary verdict: `GO | NO-GO`
+7. Merge Decision — synthesizes the judge verdict, full PR discussion, and any applied fixes into one of three final outcomes: **GO-CLEAN** (merge-ready, no re-review), **GO-WITH-RESERVATIONS** (applied fixes, triggers exactly one re-review cycle), or **NO-GO** (closes the PR and creates a follow-up issue capturing what was learned)
 
 ## When Making Changes
 

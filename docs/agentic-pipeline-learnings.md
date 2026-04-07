@@ -28,15 +28,15 @@ Two meta-lessons span everything below:
 **Before:** A single PR looped 4+ times as agents contradicted each other's prior fixes.
 **Evidence:** #303, #315, #301
 
-### 1.4 Three-state merge decisions: GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO
-**Why:** Binary GO/NO-GO with auto-retrigger on every push burned ~18 LLM runs per PR even for typo fixes. Three states let the merge agent collapse unnecessary loops: clean merges skip re-review, reservations get exactly one re-review cycle, no-go closes the PR with a follow-up issue.
-**Before:** Pipeline cost was dominated by trivial PRs being re-reviewed end-to-end.
+### 1.4 Keep the judge verdict binary, but the final merge decision three-state
+**Why:** The v2 artifact pipeline splits decision-making into two layers. A read-only **judge** aggregates structured reviewer artifacts for one `(reviewed_sha, cycle)` pair into an internal `GO | NO-GO` verdict; the write-capable **merge-decision** stage then combines that judge verdict with any applied fixes and the live PR state to emit the final `GO-CLEAN | GO-WITH-RESERVATIONS | NO-GO` outcome. This preserves the cheaper internal contract without reintroducing the old "every push triggers a full re-review" loop.
+**Before:** Earlier binary end-to-end GO/NO-GO loops burned ~18 LLM runs per PR even for typo fixes because every fix forced another full pass.
 **Evidence:** #315, #320, #322, #274
 
-### 1.5 Inline review comments are blocking inputs
-**Why:** The merge-decision agent reads all inline PR comments via `gh api` and treats substantive change requests there as blockers, not just review summaries. The enforcement mechanism today is "read every inline comment and apply judgment," not a separate resolution-state API check.
+### 1.5 Inline review comments are blocking inputs, but reviewers fold them into judge artifacts
+**Why:** Inline PR comments remain authoritative blocking input. In the v2 authority chain, reviewer jobs ingest inline comments via `gh api` and fold substantive change requests into `blocking_issues[]`; the judge consumes only reviewer artifacts and never reads the PR thread directly. The merge-decision agent still reads the full PR thread before posting the final decision comment, so the final stage can verify the judge result against the live discussion.
 **Before:** PRs were getting auto-approved despite outstanding inline change requests.
-**Evidence:** #143
+**Evidence:** #143, #341
 
 ### 1.6 Manual re-trigger is a `/review` comment, not close/reopen
 **Why:** Close/reopen fired both a direct `pull_request` trigger and a `workflow_run` trigger; the concurrency group cancelled one of them at random.

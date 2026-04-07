@@ -7,9 +7,10 @@ import assert from "node:assert/strict";
 import { aggregate } from "./aggregate.mjs";
 
 const SHA = "a".repeat(40);
+const NEXT_SHA = "b".repeat(40);
 
 /** Helper: build a minimal reviewer artifact. */
-function reviewer(role, decision, blockers = []) {
+function reviewer(role, decision, blockers = [], overrides = {}) {
   return {
     schema_version: "1",
     role,
@@ -21,6 +22,7 @@ function reviewer(role, decision, blockers = []) {
     non_blocking_notes: [],
     fix_suggestions: [],
     followup_issues: [],
+    ...overrides,
   };
 }
 
@@ -29,16 +31,18 @@ function blocker(id, severity = "high") {
 }
 
 const noFix = { addressed: [], skipped: [], new_sha: SHA };
+const epoch = { reviewed_sha: SHA, cycle: 1 };
 
 test("empty reviewer set is NO-GO", () => {
-  const v = aggregate([], noFix);
+  const v = aggregate([], noFix, epoch);
   assert.equal(v.verdict, "NO-GO");
 });
 
 test("all approve, no blockers -> GO", () => {
   const v = aggregate(
     [reviewer("design", "approve"), reviewer("security", "approve")],
-    noFix
+    noFix,
+    epoch
   );
   assert.equal(v.verdict, "GO");
   assert.deepEqual(v.unaddressed_blocker_ids, []);
@@ -51,7 +55,8 @@ test("approve + comment + abstain, no blockers -> GO", () => {
       reviewer("security", "comment"),
       reviewer("psych", "abstain"),
     ],
-    noFix
+    noFix,
+    epoch
   );
   assert.equal(v.verdict, "GO");
 });
@@ -59,7 +64,8 @@ test("approve + comment + abstain, no blockers -> GO", () => {
 test("all abstain -> GO (vacuous)", () => {
   const v = aggregate(
     [reviewer("design", "abstain"), reviewer("security", "abstain")],
-    noFix
+    noFix,
+    epoch
   );
   assert.equal(v.verdict, "GO");
   assert.match(v.reasons.join("\n"), /vacuous/i);
@@ -68,7 +74,8 @@ test("all abstain -> GO (vacuous)", () => {
 test("unaddressed critical blocker -> NO-GO", () => {
   const v = aggregate(
     [reviewer("security", "request_changes", [blocker("sec-1", "critical")])],
-    noFix
+    noFix,
+    epoch
   );
   assert.equal(v.verdict, "NO-GO");
   assert.deepEqual(v.unaddressed_blocker_ids, ["security/sec-1"]);
@@ -77,7 +84,8 @@ test("unaddressed critical blocker -> NO-GO", () => {
 test("unaddressed medium blocker -> NO-GO", () => {
   const v = aggregate(
     [reviewer("design", "request_changes", [blocker("d-1", "medium")])],
-    noFix
+    noFix,
+    epoch
   );
   assert.equal(v.verdict, "NO-GO");
 });
@@ -85,7 +93,8 @@ test("unaddressed medium blocker -> NO-GO", () => {
 test("blocker fully addressed by fixer -> GO", () => {
   const v = aggregate(
     [reviewer("security", "request_changes", [blocker("sec-1")])],
-    { addressed: ["sec-1"], skipped: [], new_sha: "b".repeat(40) }
+    { addressed: ["security/sec-1"], skipped: [], new_sha: NEXT_SHA },
+    epoch
   );
   assert.equal(v.verdict, "GO");
 });
@@ -99,7 +108,12 @@ test("partially addressed blockers -> NO-GO with remaining ids", () => {
       ]),
       reviewer("design", "request_changes", [blocker("d-1")]),
     ],
-    { addressed: ["sec-1"], skipped: [{ id: "sec-2", reason: "manual" }], new_sha: SHA }
+    {
+      addressed: ["security/sec-1"],
+      skipped: [{ id: "security/sec-2", reason: "manual" }],
+      new_sha: NEXT_SHA,
+    },
+    epoch
   );
   assert.equal(v.verdict, "NO-GO");
   assert.deepEqual(
@@ -113,13 +127,97 @@ test("request_changes with all blockers addressed -> GO", () => {
   // fixer addressed every blocker. We treat the fix as authoritative.
   const v = aggregate(
     [reviewer("security", "request_changes", [blocker("sec-1")])],
-    { addressed: ["sec-1"], skipped: [], new_sha: "c".repeat(40) }
+    { addressed: ["security/sec-1"], skipped: [], new_sha: "c".repeat(40) },
+    epoch
   );
   assert.equal(v.verdict, "GO");
 });
 
 test("verdict object always carries reasons", () => {
-  const v = aggregate([reviewer("design", "approve")], noFix);
+  const v = aggregate([reviewer("design", "approve")], noFix, epoch);
   assert.ok(Array.isArray(v.reasons));
   assert.ok(v.reasons.length > 0);
+});
+
+test("mixed reviewed_sha reviewer artifacts fail closed", () => {
+  const v = aggregate(
+    [
+      reviewer("design", "approve"),
+      reviewer("security", "approve", [], { reviewed_sha: NEXT_SHA }),
+    ],
+    noFix,
+    epoch
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.match(v.reasons.join("\n"), /multiple reviewed_sha/i);
+});
+
+test("mixed review cycles fail closed", () => {
+  const v = aggregate(
+    [
+      reviewer("design", "approve"),
+      reviewer("security", "approve", [], { cycle: 2 }),
+    ],
+    noFix,
+    epoch
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.match(v.reasons.join("\n"), /multiple cycle/i);
+});
+
+test("expected epoch mismatch fails closed", () => {
+  const v = aggregate(
+    [reviewer("design", "approve")],
+    noFix,
+    { reviewed_sha: NEXT_SHA, cycle: 2 }
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.match(v.reasons.join("\n"), /Expected reviewed_sha/);
+  assert.match(v.reasons.join("\n"), /Expected cycle/);
+});
+
+test("duplicate blocker ids across reviewers require namespaced addressed ids", () => {
+  const v = aggregate(
+    [
+      reviewer("design", "request_changes", [blocker("shared-1")]),
+      reviewer("security", "request_changes", [blocker("shared-1")]),
+    ],
+    { addressed: ["shared-1"], skipped: [], new_sha: NEXT_SHA },
+    epoch
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.match(v.reasons.join("\n"), /ambiguous blocker id/i);
+});
+
+test("duplicate blocker ids across reviewers only clear the namespaced blocker", () => {
+  const v = aggregate(
+    [
+      reviewer("design", "request_changes", [blocker("shared-1")]),
+      reviewer("security", "request_changes", [blocker("shared-1")]),
+    ],
+    { addressed: ["design/shared-1"], skipped: [], new_sha: NEXT_SHA },
+    epoch
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.deepEqual(v.unaddressed_blocker_ids, ["security/shared-1"]);
+});
+
+test("unknown namespaced addressed ids fail closed", () => {
+  const v = aggregate(
+    [reviewer("security", "request_changes", [blocker("sec-1")])],
+    { addressed: ["security/sec-404"], skipped: [], new_sha: NEXT_SHA },
+    epoch
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.match(v.reasons.join("\n"), /unknown blocker id/i);
+});
+
+test("addressed blockers require a new sha", () => {
+  const v = aggregate(
+    [reviewer("security", "request_changes", [blocker("sec-1")])],
+    { addressed: ["security/sec-1"], skipped: [], new_sha: SHA },
+    epoch
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.match(v.reasons.join("\n"), /new_sha matches the reviewed_sha/i);
 });

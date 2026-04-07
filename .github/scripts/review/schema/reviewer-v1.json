@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/NickBorgersProbably/hide-my-list/.github/scripts/review/schema/reviewer-v1.json",
   "title": "Reviewer Artifact v1",
-  "description": "Structured output produced by a single reviewer role in the v2 review pipeline. The judge (aggregate.mjs) consumes ONLY these artifacts; it never reads PR comments or PR Reviews. Reviewers are responsible for ingesting inline PR comments via `gh api` and folding any blocking change requests into `blocking_issues[]` (per agentic-pipeline-learnings.md rule 1.5).",
+  "description": "Structured output produced by a single reviewer role in the v2 review pipeline. The judge stage (aggregate.mjs) consumes ONLY these artifacts for one reviewed_sha/cycle pair; it never reads PR comments or PR Reviews directly. Reviewer jobs are responsible for ingesting inline PR comments via `gh api` and folding any blocking change requests into `blocking_issues[]` for the judge. The downstream merge-decision stage still reads the full PR thread before posting the final three-state outcome (per agentic-pipeline-learnings.md rules 1.4 and 1.5).",
   "type": "object",
   "additionalProperties": false,
   "required": [
