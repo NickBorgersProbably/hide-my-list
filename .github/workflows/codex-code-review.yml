@@ -2106,23 +2106,31 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
         run: |
+          BASELINE_STDERR="$(mktemp)"
           if COMMENT_JSON=$(
             MERGE_DECISION_COMMENT_MAX_ATTEMPTS=1 \
-              ./scripts/get-latest-merge-decision-comment.sh 2>/dev/null
+              ./scripts/get-latest-merge-decision-comment.sh 2>"$BASELINE_STDERR"
           ); then
             COMMENT_ID=$(jq -r '.id // 0' <<<"${COMMENT_JSON:-null}")
             if ! [[ "$COMMENT_ID" =~ ^[0-9]+$ ]]; then
               echo "Baseline merge decision lookup returned a non-numeric comment id" >&2
+              rm -f "$BASELINE_STDERR"
               exit 1
             fi
             echo "baseline_ok=true" >> "$GITHUB_OUTPUT"
             echo "comment_id=$COMMENT_ID" >> "$GITHUB_OUTPUT"
             echo "Latest trusted merge decision comment before this run: $COMMENT_ID"
+          elif grep -q "Merge decision comment not found for PR #" "$BASELINE_STDERR"; then
+            echo "baseline_ok=true" >> "$GITHUB_OUTPUT"
+            echo "comment_id=0" >> "$GITHUB_OUTPUT"
+            echo "No trusted merge decision comment existed before this run"
           else
             echo "baseline_ok=false" >> "$GITHUB_OUTPUT"
             echo "comment_id=" >> "$GITHUB_OUTPUT"
-            echo "Could not read merge decision comment baseline; downstream steps will emit PENDING" >&2
+            cat "$BASELINE_STDERR" >&2
+            echo "Could not read merge decision comment baseline; downstream steps will fall back to an unfiltered lookup" >&2
           fi
+          rm -f "$BASELINE_STDERR"
 
       - name: Make merge decision in devcontainer
         if: steps.setup.outputs.verified == 'true'
@@ -2244,18 +2252,17 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ steps.comment-baseline.outputs.baseline_ok }}" != "true" ]; then
-            echo "Merge decision baseline lookup failed - emitting PENDING"
-            echo "decision=PENDING" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           # GitHub comment propagation can lag the successful gh pr comment call by a
           # few seconds, so retry before treating the absence as an infra failure.
-          COMMENTS=$(
-            MERGE_DECISION_COMMENT_MIN_ID="${{ steps.comment-baseline.outputs.comment_id }}" \
-              ./scripts/get-latest-merge-decision-comment.sh || true
-          )
+          if [ "${{ steps.comment-baseline.outputs.baseline_ok }}" = "true" ]; then
+            COMMENTS=$(
+              MERGE_DECISION_COMMENT_MIN_ID="${{ steps.comment-baseline.outputs.comment_id }}" \
+                ./scripts/get-latest-merge-decision-comment.sh || true
+            )
+          else
+            echo "Merge decision baseline lookup failed; retrying without a minimum comment id filter"
+            COMMENTS=$(./scripts/get-latest-merge-decision-comment.sh || true)
+          fi
 
           if [ -z "$COMMENTS" ] || [ "$COMMENTS" = "null" ]; then
             echo "No merge decision comment found - emitting PENDING (agent likely crashed or timed out)"
@@ -2317,23 +2324,21 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ steps.comment-baseline.outputs.baseline_ok }}" != "true" ]; then
-            echo "Merge decision baseline lookup failed - taking no action"
-            echo "head_changed=false" >> "$GITHUB_OUTPUT"
-            echo "follow_up_triggered=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           # --- NO-GO branch: parse follow-up issue, create it, close the PR ---
           if [ "$DECISION" = "NO-GO" ]; then
             echo "NO-GO: closing PR and creating follow-up issue"
 
             # Re-read the same trusted merge-decision comment with retries so the
             # follow-up issue parser does not race comment propagation either.
-            COMMENT_JSON=$(
-              MERGE_DECISION_COMMENT_MIN_ID="${{ steps.comment-baseline.outputs.comment_id }}" \
-                ./scripts/get-latest-merge-decision-comment.sh || true
-            )
+            if [ "${{ steps.comment-baseline.outputs.baseline_ok }}" = "true" ]; then
+              COMMENT_JSON=$(
+                MERGE_DECISION_COMMENT_MIN_ID="${{ steps.comment-baseline.outputs.comment_id }}" \
+                  ./scripts/get-latest-merge-decision-comment.sh || true
+              )
+            else
+              echo "Merge decision baseline lookup failed; retrying follow-up parsing without a minimum comment id filter"
+              COMMENT_JSON=$(./scripts/get-latest-merge-decision-comment.sh || true)
+            fi
             COMMENT_BODY=$(jq -r '.body // ""' <<<"${COMMENT_JSON:-null}")
 
             FU_TITLE=""
