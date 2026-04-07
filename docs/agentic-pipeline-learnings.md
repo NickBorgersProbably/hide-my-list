@@ -63,6 +63,11 @@ Two meta-lessons span everything below:
 **Before:** On cycle 2, humans couldn't tell which review stage was actually running.
 **Evidence:** #320
 
+### 1.11 Review-skip approvals must be SHA-bound, not PR-bound
+**Why:** A PR-level marker such as `agent-reviews-passed` can outlive the diff it originally described. The only safe auto-skip is when the current head SHA already carries the same-SHA `All Required Agent Reviews = success` status from a `GO-CLEAN` merge decision. PR labels can still communicate history to humans, but they must not gate execution for later commits.
+**Before:** New head commits inherited a green aggregate review check without any stage evaluating the updated diff.
+**Evidence:** #339, #338, #337
+
 ---
 
 ## 2. CI Runtime Infrastructure
