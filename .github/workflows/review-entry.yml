@@ -18,9 +18,23 @@ on:
     types: [created]
 
 permissions:
-  contents: read
-  issues: read
-  pull-requests: read
+  # Reusable-workflow callees can only request a SUBSET of the
+  # caller's permissions. review-entry.yml is the top of the v2
+  # dispatch chain, so it must declare the UNION of every
+  # permission any downstream reusable workflow needs:
+  #   - review-reviewer.yml needs pull-requests: write to post
+  #     GitHub PR Reviews via review-publish
+  #   - review-fixer.yml needs contents: write to push the fixer
+  #     commit, plus pull-requests: write
+  #   - review-finalize.yml needs issues: write (label create) and
+  #     pull-requests: write (sticky comment + label apply)
+  #   - all stages need statuses: write to advance review/* state
+  # The downstream workflows still re-declare their narrower needs
+  # in their own permissions: blocks; this just ensures the chain
+  # validates at workflow load time.
+  contents: write
+  issues: write
+  pull-requests: write
   statuses: write
 
 concurrency:
