@@ -68,6 +68,11 @@ Two meta-lessons span everything below:
 **Before:** New head commits inherited a green aggregate review check without any stage evaluating the updated diff.
 **Evidence:** #339, #338, #337
 
+### 1.12 Security/infra review explicitly owns reviewer-routing regressions
+**Why:** Review-pipeline dispatch and classifier changes can silently drop specialist coverage while the workflow still "works." When a PR changes reviewer routing, the Security & Infrastructure reviewer must compare the new behavior against the current pipeline contract and flag any unintended loss of coverage, especially for prompt/spec files such as `.github/scripts/review/prompts/*.md`, unless the PR explicitly documents and justifies the change.
+**Before:** The v2 classifier treated reviewer prompt markdown as config-only CI, which would have skipped specialist prompt/psych review and no reviewer called it out.
+**Evidence:** #343, #349
+
 ---
 
 ## 2. CI Runtime Infrastructure

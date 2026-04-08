@@ -20,7 +20,8 @@ description: >
   See agentic-pipeline-learnings.md §1.9: spec-critical .md files
   must NOT be classified as docs_only just because they end in .md.
   The classifier carves out AGENTS.md, SOUL.md, TOOLS.md, HEARTBEAT.md,
-  setup/cron/*, and design/adhd-priorities.md as runtime spec.
+  setup/cron/*, design/adhd-priorities.md, and
+  .github/scripts/review/prompts/*.md as prompt-bearing spec/config.
 
 inputs:
   base_ref:
@@ -74,6 +75,7 @@ runs:
             setup/cron/*) return 0 ;;
             design/adhd-priorities.md) return 0 ;;
             docs/ai-prompts.md|docs/task-lifecycle.md|docs/notion-schema.md|docs/architecture.md|docs/user-interactions.md|docs/user-preferences.md|docs/reward-system.md|docs/openclaw-integration.md) return 0 ;;
+            .github/scripts/review/prompts/*.md) return 0 ;;
             *) return 1 ;;
           esac
         }
@@ -86,6 +88,11 @@ runs:
             .github/*|.devcontainer/*|scripts/*) ;;
             *) CONFIG_ONLY=false ;;
           esac
+
+          # Reviewer prompts are prompt-bearing markdown, not inert CI config.
+          if is_spec_md "$f"; then
+            CONFIG_ONLY=false
+          fi
 
           # Spec MDs and any non-doc/design file invalidate docs_only.
           if is_spec_md "$f"; then

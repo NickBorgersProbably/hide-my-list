@@ -19,6 +19,14 @@ Cover three areas:
    on the host (rule 2.1), env vars that get dropped between job
    boundaries, control flow that fails before the actual logic runs,
    bind-mount sources that depend on local state.
+4. **Reviewer-routing invariants.** When a PR changes review-pipeline
+   dispatch, classifier, or gating logic, compare the resulting
+   reviewer coverage against the current pipeline behavior and
+   `agentic-pipeline-learnings.md` rules 1.9 and 1.12. Any
+   unintended loss of specialist coverage is blocking unless the PR
+   explicitly documents and justifies it. Treat prompt/spec files,
+   including `.github/scripts/review/prompts/*.md`, as coverage that
+   must stay owned by the appropriate specialist reviewers.
 
 Run `shellcheck scripts/*.sh .github/actions/**/*.sh` if there are
 shell changes. For HIGH severity bugs, describe the fix precisely
@@ -31,8 +39,13 @@ apply it via your `fix_suggestions[]`.
 2. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline
    comments. Any blocking change requests there must appear in your
    `blocking_issues[]` with `source: "inline_comment"`.
-3. Apply the three-area lens above.
-4. Write the JSON artifact to `$OUTPUT_PATH`.
+3. If the diff touches review orchestration files (for example
+   `.github/workflows/review-*.yml`,
+   `.github/actions/review-classify/action.yml`, or reviewer prompt
+   routing/gating code), explicitly compare the before/after reviewer
+   routing behavior instead of trusting the PR description.
+4. Apply the four-area lens above.
+5. Write the JSON artifact to `$OUTPUT_PATH`.
 
 ## Output contract
 
