@@ -18,6 +18,9 @@ on:
       reviewed_sha:
         type: string
         required: true
+      base_sha:
+        type: string
+        required: true
       head_ref:
         type: string
         required: true
@@ -88,6 +91,8 @@ jobs:
           cycle: ${{ inputs.cycle }}
           read_only: 'true'
           workflow_pat: ${{ secrets.WORKFLOW_PAT }}
+          extra_env: |
+            REVIEW_BASE_SHA=${{ inputs.base_sha }}
 
       - name: Validate reviewer artifact against schema
         env:

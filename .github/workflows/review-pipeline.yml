@@ -168,6 +168,7 @@ jobs:
       role: design
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
@@ -186,6 +187,7 @@ jobs:
       role: security
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
@@ -204,6 +206,7 @@ jobs:
       role: psych
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
@@ -222,6 +225,7 @@ jobs:
       role: docs
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
@@ -240,6 +244,7 @@ jobs:
       role: prompt
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}

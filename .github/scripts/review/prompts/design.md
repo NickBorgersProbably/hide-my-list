@@ -33,8 +33,8 @@ Reference `docs/architecture.md` for system design context.
 
 ## Procedure
 
-1. `git fetch origin main && git diff origin/main...HEAD` — read the
-   full diff.
+1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — read the full diff against
+   the frozen PR base SHA.
 2. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline
    comments. Any blocking change requests there must appear in your
    `blocking_issues[]` with `source: "inline_comment"`.
