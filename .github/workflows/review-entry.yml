@@ -35,6 +35,7 @@ permissions:
   # forces every downstream review-*.yml to also declare read-only.
   contents: read
   issues: read
+  packages: read
   pull-requests: read
   statuses: read
 
