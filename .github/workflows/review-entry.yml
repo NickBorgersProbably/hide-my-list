@@ -37,7 +37,7 @@ permissions:
   issues: read
   packages: read
   pull-requests: read
-  statuses: read
+  statuses: write
 
 concurrency:
   group: review-entry-v2-${{ github.event_name == 'issue_comment' && format('pr-{0}', github.event.issue.number) || github.event.pull_request.head.ref }}

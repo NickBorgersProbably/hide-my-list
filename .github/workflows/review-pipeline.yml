@@ -42,7 +42,7 @@ permissions:
   issues: read
   packages: read
   pull-requests: read
-  statuses: read
+  statuses: write
 
 env:
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
