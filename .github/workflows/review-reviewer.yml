@@ -127,5 +127,5 @@ jobs:
         with:
           name: reviewer-${{ inputs.role }}-${{ inputs.reviewed_sha }}
           path: |
-            /tmp/${{ inputs.role }}-result.json
-            /tmp/${{ inputs.role }}-output.jsonl
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-result.json
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-output.jsonl

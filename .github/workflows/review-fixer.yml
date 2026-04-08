@@ -80,10 +80,12 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}
 
-      - name: Download all reviewer artifacts
+      - name: Download all reviewer artifacts into workspace
+        # Must be inside the workspace folder so the devcontainer can
+        # see them — host /tmp is NOT bind-mounted into the container.
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/reviewer-artifacts
+          path: ${{ env.PR_WORKSPACE_PATH }}/.review-output/reviewer-artifacts
           pattern: reviewer-*-${{ inputs.reviewed_sha }}
 
       - name: Create directories for devcontainer mounts
@@ -110,7 +112,7 @@ jobs:
           read_only: 'false'
           workflow_pat: ${{ secrets.WORKFLOW_PAT }}
           extra_env: |
-            REVIEWER_ARTIFACTS_DIR=/tmp/reviewer-artifacts
+            REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
 
       - name: Validate fix-result against schema
         env:
@@ -221,5 +223,5 @@ jobs:
         with:
           name: fix-result-${{ inputs.reviewed_sha }}
           path: |
-            /tmp/fixer-result.json
-            /tmp/fixer-output.jsonl
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/fixer-result.json
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/fixer-output.jsonl
