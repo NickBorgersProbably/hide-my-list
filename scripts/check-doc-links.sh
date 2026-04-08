@@ -13,6 +13,7 @@ repo_root = Path(sys.argv[1]).resolve()
 scan_targets = [
     repo_root / "docs",
     repo_root / "design",
+    repo_root / "setup",
     repo_root / "README.md",
     repo_root / "AGENTS.md",
 ]
@@ -30,7 +31,7 @@ for file_path in files:
     content = file_path.read_text(encoding="utf-8")
     for raw_link in link_pattern.findall(content):
         link = raw_link.strip()
-        if not link or link.startswith(("http://", "https://", "mailto:", "#")):
+        if not link or link.startswith(("http://", "https://", "mailto:", "tel:", "#")):
             continue
 
         target = link.split("#", 1)[0].strip()

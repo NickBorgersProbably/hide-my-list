@@ -6,8 +6,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 readonly SCRIPT_PATH_PATTERN='^(scripts/.*\.sh|\.githooks/(install-hooks\.sh|pre-commit|pre-push))$'
-readonly DOC_PATH_PATTERN='^(docs/.*\.md|design/.*\.md|README\.md|AGENTS\.md)$'
-readonly WORKFLOW_PATH_PATTERN='^(\.github/workflows/.*\.ya?ml|\.github/actions/.*\.ya?ml|\.github/actionlint\.yaml|\.yamllint|scripts/validate-gh-cli-usage\.sh|scripts/validate-workflow-refs\.sh)$'
+readonly DOC_PATH_PATTERN='^(docs/.*\.md|design/.*\.md|setup/.*\.md|README\.md|AGENTS\.md)$'
+readonly DOC_HELPER_PATH_PATTERN='^(scripts/check-doc-links\.sh|scripts/lint-mermaid-rendering\.sh|scripts/validate-mermaid\.sh)$'
+readonly WORKFLOW_PATH_PATTERN='^(\.github/workflows/.*\.ya?ml|\.github/actions/.*\.ya?ml|\.github/actionlint\.yaml|\.yamllint|\.githooks/(install-hooks\.sh|pre-commit|pre-push)|scripts/validate-gh-cli-usage\.sh|scripts/validate-workflow-refs\.sh)$'
 readonly CANONICAL_RUNNER='scripts/run-required-checks.sh'
 
 changed_files=()
@@ -137,8 +138,8 @@ run_doc_link_check() {
 build_doc_targets() {
   local -a doc_targets=()
 
-  if [ "${#changed_files[@]}" -eq 0 ] || canonical_runner_changed; then
-    for target in docs design README.md AGENTS.md; do
+  if [ "${#changed_files[@]}" -eq 0 ] || canonical_runner_changed || has_changed_path "$DOC_HELPER_PATH_PATTERN"; then
+    for target in docs design setup README.md AGENTS.md; do
       if [ -e "$target" ]; then
         doc_targets+=("$target")
       fi
@@ -291,7 +292,7 @@ run_pre_push() {
     run_script_validation
   fi
 
-  if canonical_runner_changed || has_changed_path "$DOC_PATH_PATTERN"; then
+  if canonical_runner_changed || has_changed_path "$DOC_PATH_PATTERN" || has_changed_path "$DOC_HELPER_PATH_PATTERN"; then
     run_doc_validation
   fi
 

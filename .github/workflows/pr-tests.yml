@@ -67,8 +67,12 @@ jobs:
             docs:
               - 'docs/**'
               - 'design/**'
+              - 'setup/**/*.md'
               - 'README.md'
               - 'AGENTS.md'
+              - 'scripts/check-doc-links.sh'
+              - 'scripts/lint-mermaid-rendering.sh'
+              - 'scripts/validate-mermaid.sh'
               - 'scripts/run-required-checks.sh'
             workflows:
               - '.github/workflows/**'

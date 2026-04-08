@@ -37,6 +37,9 @@ See [docs/openclaw-integration.md](docs/openclaw-integration.md) for how the sys
 # Clone as OpenClaw workspace
 git clone https://github.com/NickBorgersProbably/hide-my-list.git ~/.openclaw/workspace
 
+# Install the repo-managed git hooks for this worktree
+cd ~/.openclaw/workspace && bash .githooks/install-hooks.sh
+
 # Create .env from .env.template and fill in the values you need
 cp ~/.openclaw/workspace/.env.template ~/.openclaw/workspace/.env
 
@@ -55,6 +58,8 @@ bash .githooks/install-hooks.sh
 ```
 
 `core.hooksPath` is stored per worktree, so re-run that after each `git worktree add`.
+`pre-commit` handles the fast staged-file checks, and `pre-push` blocks the
+deterministic CI-equivalent checks before they reach GitHub.
 
 ## Research-informed design
 

@@ -22,7 +22,17 @@
    git checkout main
    ```
 
-2. Create the `.env` file:
+2. Install the repo-managed git hooks for this worktree:
+   ```bash
+   cd ~/.openclaw/workspace
+   bash .githooks/install-hooks.sh
+   ```
+
+   `pre-commit` handles the fast staged-file checks, and `pre-push` reruns the
+   deterministic CI-equivalent checks for changed scripts, docs, and
+   workflow-related paths before GitHub is the first place they fail.
+
+3. Create the `.env` file:
    ```bash
    cp ~/.openclaw/workspace/.env.template ~/.openclaw/workspace/.env
    # Then edit ~/.openclaw/workspace/.env with the values you need
@@ -35,28 +45,25 @@
    that includes the Notion, reminder, and GitHub-auth helpers. Normal runtime
    setups should leave it unset and keep using `~/.openclaw/workspace/.env`.
 
-3. Run bootstrap:
+4. Run bootstrap:
    ```bash
    cd ~/.openclaw/workspace
    bash setup/bootstrap.sh
    ```
 
-   Bootstrap installs the repo git hooks for the current worktree by setting
-   `core.hooksPath` to `.githooks/`.
-
-4. Configure OpenClaw:
+5. Configure OpenClaw:
    ```bash
    # Copy and customize the config template
    cp setup/openclaw.json.template ~/.openclaw/openclaw.json
    # Edit ~/.openclaw/openclaw.json — replace all {{PLACEHOLDER}} values
    ```
 
-5. Start the gateway:
+6. Start the gateway:
    ```bash
    openclaw gateway
    ```
 
-6. Register cron jobs (from within an agent session or via the control UI):
+7. Register cron jobs (from within an agent session or via the control UI):
    - See `setup/cron/reminder-check.md` for the reminder polling job
    - See `setup/cron/pull-main.md` for automatic workspace sync
    - The heartbeat is built-in and configured in `openclaw.json`
