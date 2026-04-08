@@ -1004,7 +1004,6 @@ jobs:
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Reattach PR branch when available
         if: steps.setup.outputs.verified == 'true'
@@ -1248,7 +1247,6 @@ jobs:
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Reattach PR branch when available
         if: steps.setup.outputs.verified == 'true'
@@ -1455,7 +1453,6 @@ jobs:
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Reattach PR branch when available
         if: steps.setup.outputs.verified == 'true'
@@ -1714,7 +1711,6 @@ jobs:
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Reattach PR branch when available
         if: steps.setup.outputs.verified == 'true'
@@ -1933,7 +1929,6 @@ jobs:
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Reattach PR branch when available
         if: steps.setup.outputs.verified == 'true'
@@ -2170,7 +2165,6 @@ jobs:
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Reattach PR branch when available
         if: steps.setup.outputs.verified == 'true'
