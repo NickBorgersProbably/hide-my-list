@@ -72,6 +72,26 @@ env:
 jobs:
   # Extract PR and Issue context from workflow_run or workflow_dispatch event
   get-context:
+    # ATOMIC PIPELINE SWAP GATE.
+    #
+    # When the repo variable REVIEW_PIPELINE_V2 is set to 'true', this
+    # entire legacy monolith short-circuits. Every other job in this
+    # file `needs: get-context` (directly or transitively), so skipping
+    # get-context cascades dormancy through the whole graph. The v2
+    # pipeline (.github/workflows/review-entry.yml) takes over via the
+    # mirror gate `vars.REVIEW_PIPELINE_V2 == 'true'`.
+    #
+    # Flipping the variable back to anything else (or unsetting it)
+    # restores this monolith and dormancy moves to v2. Zero data
+    # migration in either direction.
+    #
+    # Gate target: every job that needs: get-context is downstream of
+    # this skip. The remaining v1-only jobs (create-residual-gap-issue,
+    # all-reviews-passed) also `needs: get-context`, so they skip too.
+    #
+    # See .claude/plans/reflective-coalescing-peach.md for the full
+    # rearchitecture plan. See PR #343 for the v2 dormant landing.
+    if: vars.REVIEW_PIPELINE_V2 != 'true'
     runs-on: ubuntu-latest
     # Note: We don't filter by event type here. The concurrency group prevents
     # duplicate runs for the same branch, and downstream jobs skip if no PR is found.
