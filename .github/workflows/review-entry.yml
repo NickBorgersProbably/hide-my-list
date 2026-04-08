@@ -49,23 +49,34 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          # Pass all event payload fields as env vars rather than
+          # inlining them into the script. actionlint flags inline
+          # use of github.event.* as a script-injection vector
+          # because head.ref / comment.body are user-controlled.
+          PR_EVENT_NUMBER: ${{ github.event.pull_request.number }}
+          PR_EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_EVENT_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ISSUE_EVENT_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_NUMBER='${{ github.event.pull_request.number }}'
-            REVIEWED_SHA='${{ github.event.pull_request.head.sha }}'
-            HEAD_REF='${{ github.event.pull_request.head.ref }}'
-            HEAD_REPO='${{ github.event.pull_request.head.repo.full_name }}'
-            BASE_SHA='${{ github.event.pull_request.base.sha }}'
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            PR_NUMBER="$PR_EVENT_NUMBER"
+            REVIEWED_SHA="$PR_EVENT_HEAD_SHA"
+            HEAD_REF="$PR_EVENT_HEAD_REF"
+            HEAD_REPO="$PR_EVENT_HEAD_REPO"
+            BASE_SHA="$PR_EVENT_BASE_SHA"
           else
             # issue_comment — must be on a PR with body matching ^/review\b
-            BODY='${{ github.event.comment.body }}'
-            if [[ ! "$BODY" =~ ^/review([[:space:]]|$) ]]; then
+            if [[ ! "$COMMENT_BODY" =~ ^/review([[:space:]]|$) ]]; then
               echo "review-entry: comment is not /review; nothing to do"
               exit 0
             fi
-            PR_NUMBER='${{ github.event.issue.number }}'
+            PR_NUMBER="$ISSUE_EVENT_NUMBER"
             PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
             REVIEWED_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
             HEAD_REF=$(echo "$PR_JSON" | jq -r '.head.ref')
