@@ -34,6 +34,7 @@ permissions:
   # caller's permissions block, so this read-only declaration
   # forces every downstream review-*.yml to also declare read-only.
   contents: read
+  issues: read
   pull-requests: read
   statuses: read
 
