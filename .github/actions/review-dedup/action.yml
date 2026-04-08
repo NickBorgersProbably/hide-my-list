@@ -25,6 +25,10 @@ inputs:
     description: Status description to attach to the claim (<=140 chars)
     required: false
     default: 'review-pipeline v2 claim'
+  stale_pending_after_seconds:
+    description: Pending claims older than this threshold are treated as stale and reclaimed
+    required: false
+    default: '3600'
   github_token:
     description: GH token with statuses:write on the target repo
     required: true
@@ -53,6 +57,7 @@ runs:
         SHA: ${{ inputs.sha }}
         CTX: ${{ inputs.context }}
         DESC: ${{ inputs.description }}
+        STALE_PENDING_AFTER_SECONDS: ${{ inputs.stale_pending_after_seconds }}
       run: |
         set -euo pipefail
 
@@ -71,6 +76,29 @@ runs:
 
         if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
           STATE=$(echo "$EXISTING" | jq -r '.state // ""')
+          if [ "$STATE" = "pending" ] && [[ "$STALE_PENDING_AFTER_SECONDS" =~ ^[0-9]+$ ]] && [ "$STALE_PENDING_AFTER_SECONDS" -gt 0 ]; then
+            CREATED_AT=$(echo "$EXISTING" | jq -r '.created_at // ""')
+            CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s 2>/dev/null || echo "")
+            NOW_EPOCH=$(date -u +%s)
+
+            if [ -n "$CREATED_EPOCH" ]; then
+              AGE=$(( NOW_EPOCH - CREATED_EPOCH ))
+              if [ "$AGE" -ge "$STALE_PENDING_AFTER_SECONDS" ]; then
+                echo "review-dedup: reclaiming stale pending claim on $SHA ($AGE s old)"
+                gh api -X POST "repos/${REPO}/statuses/${SHA}" \
+                  -f state=pending \
+                  -f context="${CTX}" \
+                  -f description="${DESC}" >/dev/null
+
+                {
+                  echo "claimed=true"
+                  echo "existing_state=$STATE"
+                } >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          fi
+
           echo "review-dedup: SHA $SHA already has $CTX = $STATE; refusing to claim"
           {
             echo "claimed=false"

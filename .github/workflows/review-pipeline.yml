@@ -119,19 +119,6 @@ jobs:
           description: 'cycle=${{ steps.cycle.outputs.cycle }} roles=${{ steps.classify.outputs.roles_json }}'
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
-  cap-exhausted:
-    name: Cycle cap exhausted (terminal NO-GO)
-    needs: gather
-    if: needs.gather.outputs.capped == 'true'
-    uses: ./.github/workflows/review-finalize.yml
-    with:
-      pr_number: ${{ inputs.pr_number }}
-      post_fix_sha: ${{ inputs.reviewed_sha }}
-      cycle: ${{ needs.gather.outputs.cycle }}
-      verdict: 'NO-GO'
-    secrets:
-      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
   # Per-role caller jobs.
   #
   # Why five separate jobs instead of one matrix job:
@@ -275,15 +262,115 @@ jobs:
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
+  finalize-meta:
+    name: Resolve terminal pipeline outcome
+    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt, fix, judge]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      post_fix_sha: ${{ steps.resolve.outputs.post_fix_sha }}
+      cycle: ${{ steps.resolve.outputs.cycle }}
+      verdict: ${{ steps.resolve.outputs.verdict }}
+      pipeline_state: ${{ steps.resolve.outputs.pipeline_state }}
+      pipeline_description: ${{ steps.resolve.outputs.pipeline_description }}
+      no_go_summary: ${{ steps.resolve.outputs.no_go_summary }}
+      verdict_artifact_expected: ${{ steps.resolve.outputs.verdict_artifact_expected }}
+    steps:
+      - name: Resolve final status inputs
+        id: resolve
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          FIX_NEW_SHA: ${{ needs.fix.outputs.new_sha }}
+          CAPPED: ${{ needs.gather.outputs.capped }}
+          CYCLE: ${{ needs.gather.outputs.cycle }}
+          VERDICT: ${{ needs.judge.outputs.verdict }}
+          GATHER_RESULT: ${{ needs.gather.result }}
+          REVIEW_DESIGN_RESULT: ${{ needs.review-design.result }}
+          REVIEW_SECURITY_RESULT: ${{ needs.review-security.result }}
+          REVIEW_PSYCH_RESULT: ${{ needs.review-psych.result }}
+          REVIEW_DOCS_RESULT: ${{ needs.review-docs.result }}
+          REVIEW_PROMPT_RESULT: ${{ needs.review-prompt.result }}
+          FIX_RESULT: ${{ needs.fix.result }}
+          JUDGE_RESULT: ${{ needs.judge.result }}
+        run: |
+          set -euo pipefail
+
+          POST_FIX_SHA="${FIX_NEW_SHA:-$REVIEWED_SHA}"
+          FAILURE_JOB=""
+
+          for entry in \
+            "gather:$GATHER_RESULT" \
+            "review-design:$REVIEW_DESIGN_RESULT" \
+            "review-security:$REVIEW_SECURITY_RESULT" \
+            "review-psych:$REVIEW_PSYCH_RESULT" \
+            "review-docs:$REVIEW_DOCS_RESULT" \
+            "review-prompt:$REVIEW_PROMPT_RESULT" \
+            "fix:$FIX_RESULT" \
+            "judge:$JUDGE_RESULT"
+          do
+            JOB_NAME=${entry%%:*}
+            JOB_RESULT=${entry#*:}
+            if [ "$JOB_RESULT" = "failure" ] || [ "$JOB_RESULT" = "cancelled" ]; then
+              FAILURE_JOB="$JOB_NAME"
+              break
+            fi
+          done
+
+          PIPELINE_STATE=""
+          PIPELINE_DESCRIPTION=""
+          FINAL_VERDICT=""
+          NO_GO_SUMMARY=""
+          VERDICT_ARTIFACT_EXPECTED="false"
+
+          if [ "$CAPPED" = "true" ]; then
+            PIPELINE_STATE="failure"
+            PIPELINE_DESCRIPTION="cycle=$CYCLE cap-exhausted"
+            FINAL_VERDICT="NO-GO"
+            NO_GO_SUMMARY="Review cycle cap exhausted at cycle $CYCLE."
+          elif [ -n "$FAILURE_JOB" ]; then
+            PIPELINE_STATE="failure"
+            PIPELINE_DESCRIPTION="upstream-failed: $FAILURE_JOB"
+          elif [ -n "$VERDICT" ]; then
+            FINAL_VERDICT="$VERDICT"
+            if [ "$VERDICT" = "GO" ]; then
+              PIPELINE_STATE="success"
+            else
+              PIPELINE_STATE="failure"
+              VERDICT_ARTIFACT_EXPECTED="true"
+            fi
+            if [ -n "$CYCLE" ]; then
+              PIPELINE_DESCRIPTION="cycle=$CYCLE verdict=$VERDICT"
+            else
+              PIPELINE_DESCRIPTION="verdict=$VERDICT"
+            fi
+          else
+            PIPELINE_STATE="failure"
+            PIPELINE_DESCRIPTION="upstream-failed: verdict-missing"
+          fi
+
+          {
+            echo "post_fix_sha=$POST_FIX_SHA"
+            echo "cycle=$CYCLE"
+            echo "verdict=$FINAL_VERDICT"
+            echo "pipeline_state=$PIPELINE_STATE"
+            echo "pipeline_description=$PIPELINE_DESCRIPTION"
+            echo "no_go_summary=$NO_GO_SUMMARY"
+            echo "verdict_artifact_expected=$VERDICT_ARTIFACT_EXPECTED"
+          } >> "$GITHUB_OUTPUT"
+
   finalize:
-    name: Finalize verdict
-    needs: [gather, fix, judge]
-    if: needs.gather.outputs.capped != 'true'
+    name: Finalize terminal status
+    needs: finalize-meta
+    if: always() && needs.finalize-meta.result == 'success'
     uses: ./.github/workflows/review-finalize.yml
     with:
       pr_number: ${{ inputs.pr_number }}
-      post_fix_sha: ${{ needs.fix.outputs.new_sha }}
-      cycle: ${{ needs.gather.outputs.cycle }}
-      verdict: ${{ needs.judge.outputs.verdict }}
+      post_fix_sha: ${{ needs.finalize-meta.outputs.post_fix_sha }}
+      cycle: ${{ needs.finalize-meta.outputs.cycle }}
+      verdict: ${{ needs.finalize-meta.outputs.verdict }}
+      pipeline_state: ${{ needs.finalize-meta.outputs.pipeline_state }}
+      pipeline_description: ${{ needs.finalize-meta.outputs.pipeline_description }}
+      no_go_summary: ${{ needs.finalize-meta.outputs.no_go_summary }}
+      verdict_artifact_expected: ${{ needs.finalize-meta.outputs.verdict_artifact_expected }}
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}

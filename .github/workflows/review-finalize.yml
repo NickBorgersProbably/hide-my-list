@@ -23,10 +23,28 @@ on:
         required: true
       cycle:
         type: string
-        required: true
+        required: false
+        default: ''
       verdict:
         type: string
-        required: true
+        required: false
+        default: ''
+      pipeline_state:
+        type: string
+        required: false
+        default: ''
+      pipeline_description:
+        type: string
+        required: false
+        default: ''
+      no_go_summary:
+        type: string
+        required: false
+        default: ''
+      verdict_artifact_expected:
+        type: string
+        required: false
+        default: 'false'
     secrets:
       WORKFLOW_PAT:
         required: true
@@ -42,7 +60,7 @@ permissions:
 
 jobs:
   finalize:
-    name: Finalize ${{ inputs.verdict }}
+    name: Finalize ${{ inputs.verdict || 'pipeline status' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main (for composite actions)
@@ -50,7 +68,51 @@ jobs:
         with:
           ref: main
 
+      - name: Resolve terminal review/pipeline status
+        id: pipeline
+        env:
+          CYCLE: ${{ inputs.cycle }}
+          VERDICT: ${{ inputs.verdict }}
+          PIPELINE_STATE: ${{ inputs.pipeline_state }}
+          PIPELINE_DESCRIPTION: ${{ inputs.pipeline_description }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "$PIPELINE_STATE" ]; then
+            STATE="$PIPELINE_STATE"
+          elif [ "$VERDICT" = "GO" ]; then
+            STATE="success"
+          else
+            STATE="failure"
+          fi
+
+          if [ -n "$PIPELINE_DESCRIPTION" ]; then
+            DESCRIPTION="$PIPELINE_DESCRIPTION"
+          elif [ -n "$CYCLE" ] && [ -n "$VERDICT" ]; then
+            DESCRIPTION="cycle=$CYCLE verdict=$VERDICT"
+          elif [ -n "$VERDICT" ]; then
+            DESCRIPTION="verdict=$VERDICT"
+          else
+            DESCRIPTION="pipeline-finalized"
+          fi
+
+          {
+            echo "state=$STATE"
+            echo "description=$DESCRIPTION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Stamp review/pipeline on post-fix SHA
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.post_fix_sha }}
+          context: review/pipeline
+          state: ${{ steps.pipeline.outputs.state }}
+          description: ${{ steps.pipeline.outputs.description }}
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
       - name: Stamp review/cycle on post-fix SHA
+        if: inputs.cycle != ''
         uses: ./.github/actions/review-state
         with:
           op: write-status
@@ -61,6 +123,7 @@ jobs:
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Download verdict artifact
+        if: inputs.verdict == 'NO-GO' && inputs.verdict_artifact_expected == 'true'
         uses: actions/download-artifact@v4
         with:
           path: /tmp/verdict
@@ -72,25 +135,38 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          CYCLE: ${{ inputs.cycle }}
+          NO_GO_SUMMARY: ${{ inputs.no_go_summary }}
+          VERDICT_ARTIFACT_EXPECTED: ${{ inputs.verdict_artifact_expected }}
+          VERDICT_PATH: /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json
         run: |
           set -euo pipefail
 
-          # Idempotent label create.
+          if [ "$VERDICT_ARTIFACT_EXPECTED" = "true" ] && [ -f "$VERDICT_PATH" ]; then
+            REASONS=$(jq -r '.reasons[]? // empty' "$VERDICT_PATH" | sed 's/^/- /')
+            BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' "$VERDICT_PATH" | sed 's/^/- /')
+          else
+            SUMMARY="${NO_GO_SUMMARY:-Review pipeline v2 ended in NO-GO without a verdict artifact.}"
+            REASONS=$(printf '%s\n' "$SUMMARY" | sed 's/^/- /')
+            BLOCKERS=""
+          fi
+
           gh label create needs-human-review \
             --color B60205 \
             --description "Review pipeline v2 could not converge; human takeover needed" \
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review
 
-          REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
-          BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
-
           BODY_FILE=$(mktemp)
           {
             echo "<!-- review-pipeline-v2:no-go -->"
             echo "## Review pipeline v2 — NO-GO"
             echo
-            echo "The autonomous review pipeline could not converge on this PR after cycle ${{ inputs.cycle }}. A human needs to take a look."
+            if [ -n "$CYCLE" ]; then
+              echo "The autonomous review pipeline could not converge on this PR after cycle $CYCLE. A human needs to take a look."
+            else
+              echo "The autonomous review pipeline could not converge on this PR. A human needs to take a look."
+            fi
             echo
             echo "**The PR is intentionally left open.** Nothing has been auto-closed and no replacement issue has been auto-filed (loop-prevention)."
             echo
@@ -104,7 +180,11 @@ jobs:
               echo "$BLOCKERS"
               echo
             fi
-            echo "<sub>Posted by review-pipeline v2 (cycle ${{ inputs.cycle }}).</sub>"
+            if [ -n "$CYCLE" ]; then
+              echo "<sub>Posted by review-pipeline v2 (cycle $CYCLE).</sub>"
+            else
+              echo "<sub>Posted by review-pipeline v2.</sub>"
+            fi
           } > "$BODY_FILE"
 
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
