@@ -71,6 +71,7 @@ jobs:
             workflows:
               - '.github/workflows/**'
               - '.github/actions/**'
+              - '.github/scripts/review/**'
               - '.github/actionlint.yaml'
               - 'scripts/validate-gh-cli-usage.sh'
               - 'scripts/validate-workflow-refs.sh'
@@ -198,6 +199,9 @@ jobs:
 
       - name: Run actionlint
         run: actionlint .github/workflows/*.yml
+
+      - name: Run review pipeline unit tests
+        run: node --test .github/scripts/review/*.test.mjs
 
       - name: Validate cross-file workflow references
         run: ./scripts/validate-workflow-refs.sh
