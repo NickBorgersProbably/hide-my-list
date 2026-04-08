@@ -59,6 +59,18 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Pre-create output directory on host
+      shell: bash
+      env:
+        WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
+      run: |
+        # Codex writes its result JSON to a path inside the workspace
+        # folder, NOT /tmp, because /tmp inside the devcontainer is
+        # not bind-mounted from /tmp on the host. The workspace folder
+        # IS bind-mounted, so files written there from inside the
+        # container are visible to subsequent host steps.
+        mkdir -p "${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
+
     - name: Run Codex prompt in devcontainer
       id: run
       uses: ./.github/actions/run-devcontainer
@@ -75,7 +87,8 @@ runs:
           PR_NUMBER=${{ inputs.pr_number }}
           REVIEWED_SHA=${{ inputs.reviewed_sha }}
           REVIEW_CYCLE=${{ inputs.cycle }}
-          OUTPUT_PATH=/tmp/${{ inputs.role }}-result.json
+          OUTPUT_PATH=.review-output/${{ inputs.role }}-result.json
+          OUTPUT_LOG_PATH=.review-output/${{ inputs.role }}-output.jsonl
           REPO=${{ github.repository }}
           ${{ inputs.extra_env }}
         run_cmd: |
@@ -91,6 +104,11 @@ runs:
           fi
           PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
 
+          # OUTPUT_PATH and OUTPUT_LOG_PATH are workspace-relative;
+          # the workspace is bind-mounted into the container so the
+          # host can read these files after the container exits.
+          mkdir -p "$(dirname "$OUTPUT_PATH")"
+
           # The prompt body must instruct Codex to write its structured
           # result JSON to $OUTPUT_PATH and conform to the appropriate
           # schema in .github/scripts/review/schema/.
@@ -99,15 +117,13 @@ runs:
             --dangerously-bypass-approvals-and-sandbox \
             "$PROMPT_BODY" \
             < /dev/null 2>&1 \
-            | tee "/tmp/${REVIEW_ROLE}-output.jsonl"
+            | tee "$OUTPUT_LOG_PATH"
 
           if [ ! -s "$OUTPUT_PATH" ]; then
             echo "::error::review-codex-run: prompt did not produce $OUTPUT_PATH"
             exit 1
           fi
 
-          # Echo back the host paths so downstream steps can pick them up
-          # via the output artifact upload.
           echo "review-codex-run: ${REVIEW_ROLE} produced $OUTPUT_PATH"
 
     - name: Echo result paths
@@ -115,8 +131,13 @@ runs:
       shell: bash
       env:
         ROLE: ${{ inputs.role }}
+        WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
       run: |
+        # Emit absolute host paths so downstream host steps (validate,
+        # publish, upload-artifact) can locate the files the container
+        # wrote into the workspace bind-mount.
+        BASE="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
         {
-          echo "output_artifact=/tmp/${ROLE}-output.jsonl"
-          echo "result_json=/tmp/${ROLE}-result.json"
+          echo "output_artifact=${BASE}/${ROLE}-output.jsonl"
+          echo "result_json=${BASE}/${ROLE}-result.json"
         } >> "$GITHUB_OUTPUT"
