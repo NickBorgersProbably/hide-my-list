@@ -40,6 +40,7 @@ permissions:
   # GITHUB_TOKEN (rule 2.3). The reviewer-setup composite action
   # uses GITHUB_TOKEN for actions/checkout only.
   contents: read
+  packages: read
   pull-requests: read
   statuses: read
 
