@@ -85,20 +85,28 @@ runs:
           echo "<sub>Posted by review-pipeline v2 (\`role=$ROLE\`, \`decision=$DECISION\`).</sub>"
         } > "$BODY_FILE"
 
+        # Originally this used `gh pr review --approve|--request-changes|--comment`
+        # to post a structured GitHub PR Review. That fails with:
+        #
+        #   GraphQL: Review Can not approve your own pull request
+        #
+        # whenever the WORKFLOW_PAT belongs to the same user who
+        # authored the PR — which is the common case in this repo.
+        # The legacy v1 monolith hit the same restriction and worked
+        # around it by posting a plain `gh pr comment`.
+        #
+        # The structured verdict still lives in the reviewer artifact
+        # (which the judge consumes), so the loss of the GitHub PR
+        # Review type doesn't affect verdict aggregation. The decision
+        # is also rendered in the comment body header for humans.
         case "$DECISION" in
-          approve)
-            gh pr review "$PR_NUMBER" --repo "$REPO" --approve --body-file "$BODY_FILE"
-            ;;
-          request_changes)
-            gh pr review "$PR_NUMBER" --repo "$REPO" --request-changes --body-file "$BODY_FILE"
-            ;;
-          comment|abstain)
-            gh pr review "$PR_NUMBER" --repo "$REPO" --comment --body-file "$BODY_FILE"
-            ;;
+          approve|request_changes|comment|abstain) ;;
           *)
             echo "::error::review-publish: unknown decision '$DECISION'"
             exit 1
             ;;
         esac
+
+        gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
 
         rm -f "$BODY_FILE"
