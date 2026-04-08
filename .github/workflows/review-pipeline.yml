@@ -250,7 +250,17 @@ jobs:
   fix:
     name: Apply reviewer-requested fixes
     needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt]
-    if: needs.gather.outputs.capped != 'true'
+    # GHA defaults dependent jobs to skipped if any `needs:` job is
+    # skipped — but per-role gating means several reviewers WILL be
+    # skipped on every run (psych/prompt for config-only diffs,
+    # security for docs-only, etc.). We allow skipped reviewers but
+    # block on actual failure or cancellation.
+    if: |
+      always() &&
+      needs.gather.outputs.capped != 'true' &&
+      needs.gather.result == 'success' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     uses: ./.github/workflows/review-fixer.yml
     with:
       pr_number: ${{ inputs.pr_number }}
@@ -265,7 +275,13 @@ jobs:
   judge:
     name: Judge (read-only aggregator)
     needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt, fix]
-    if: needs.gather.outputs.capped != 'true'
+    if: |
+      always() &&
+      needs.gather.outputs.capped != 'true' &&
+      needs.gather.result == 'success' &&
+      needs.fix.result == 'success' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     uses: ./.github/workflows/review-judge.yml
     with:
       pr_number: ${{ inputs.pr_number }}
@@ -278,7 +294,11 @@ jobs:
   finalize:
     name: Finalize verdict
     needs: [gather, fix, judge]
-    if: needs.gather.outputs.capped != 'true'
+    if: |
+      always() &&
+      needs.gather.outputs.capped != 'true' &&
+      needs.gather.result == 'success' &&
+      needs.judge.result == 'success'
     uses: ./.github/workflows/review-finalize.yml
     with:
       pr_number: ${{ inputs.pr_number }}
