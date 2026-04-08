@@ -18,10 +18,26 @@ on:
     types: [created]
 
 permissions:
+  # GITHUB_TOKEN is only used for `actions/checkout@v4` (read) and
+  # the `statuses:` updates the entry workflow does directly via
+  # the dedup action (which actually authenticates via WORKFLOW_PAT
+  # — see comment below).
+  #
+  # Every actual write operation in the v2 pipeline — posting PR
+  # Reviews, pushing fixer commits, applying labels, writing
+  # commit statuses — uses `secrets.WORKFLOW_PAT` per
+  # agentic-pipeline-learnings.md §2.3, NOT GITHUB_TOKEN. So the
+  # GITHUB_TOKEN scopes for the entire reusable graph can stay
+  # at minimum-privilege read.
+  #
+  # GH validates that reusable callees declare a SUBSET of the
+  # caller's permissions block, so this read-only declaration
+  # forces every downstream review-*.yml to also declare read-only.
   contents: read
   issues: read
+  packages: read
   pull-requests: read
-  statuses: write
+  statuses: read
 
 concurrency:
   group: review-entry-v2-${{ github.event_name == 'issue_comment' && format('pr-{0}', github.event.issue.number) || github.event.pull_request.head.ref }}

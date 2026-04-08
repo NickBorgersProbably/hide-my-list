@@ -8,19 +8,20 @@ description: >
   Today the rules are:
     - design:    always
     - docs:      always
-    - security:  unless docs_only (no scripts/, no .github/, no .sh)
-    - psych:     unless config_only (touches user-facing or runtime spec)
-    - prompt:    unless config_only
+    - security:  unless docs_only (all changed files are inert docs)
+    - psych:     unless config_only (pure CI/infrastructure config)
+    - prompt:    unless config_only (pure CI/infrastructure config)
 
   These mirror the conditions hardcoded across the current monolith's
   reviewer jobs (lines ~520-552 + per-reviewer if:). Centralizing them
   here means adding a new role is one matrix entry + one new prompt
   file, with no scattered if-conditions to update.
 
-  See agentic-pipeline-learnings.md §1.9: spec-critical .md files
-  must NOT be classified as docs_only just because they end in .md.
-  The classifier carves out AGENTS.md, SOUL.md, TOOLS.md, HEARTBEAT.md,
-  setup/cron/*, and design/adhd-priorities.md as runtime spec.
+  See agentic-pipeline-learnings.md §1.9 and §1.12: spec-critical
+  and reviewer-prompt .md files must NOT be classified as inert docs
+  or config just because they end in .md. The classifier carves out
+  AGENTS.md, SOUL.md, TOOLS.md, HEARTBEAT.md, setup/cron/*,
+  design/adhd-priorities.md, and .github/scripts/review/prompts/*.md.
 
 inputs:
   base_ref:
@@ -78,17 +79,27 @@ runs:
           esac
         }
 
+        # Reviewer prompts are executable routing/spec surface even
+        # though they live under .github/ and end in .md.
+        is_review_prompt_md() {
+          case "$1" in
+            .github/scripts/review/prompts/*.md) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
         while IFS= read -r f; do
           [ -z "$f" ] && continue
 
           # Anything outside config/CI invalidates config_only.
           case "$f" in
+            .github/scripts/review/prompts/*.md) CONFIG_ONLY=false ;;
             .github/*|.devcontainer/*|scripts/*) ;;
             *) CONFIG_ONLY=false ;;
           esac
 
           # Spec MDs and any non-doc/design file invalidate docs_only.
-          if is_spec_md "$f"; then
+          if is_spec_md "$f" || is_review_prompt_md "$f"; then
             DOCS_ONLY=false
           else
             case "$f" in

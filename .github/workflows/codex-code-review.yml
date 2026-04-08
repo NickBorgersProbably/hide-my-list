@@ -1312,6 +1312,14 @@ jobs:
               - whether git commands run in the intended checkout
               - whether workflow control flow can fail before
                 the actual review logic runs
+              - if the PR changes review-pipeline dispatch,
+                classifier, or gating logic, compare the new
+                reviewer-routing behavior against the current
+                pipeline behavior and flag unintended loss of
+                specialist coverage as a blocking issue unless the
+                PR explicitly documents and justifies it
+              - preserve expected coverage for prompt/spec files,
+                including \`.github/scripts/review/prompts/*.md\`
 
             Run \`shellcheck scripts/*.sh\` to verify.
 

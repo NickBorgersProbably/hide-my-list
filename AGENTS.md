@@ -208,5 +208,5 @@ The two pipelines are mutually exclusive via gate jobs: flipping the variable at
 
 - Runtime/spec docs define agent behavior — changing those docs changes the system; contributor/CI guidance docs should still be reviewed as infra changes
 - The psych reviewer will validate user-facing changes against ADHD research
-- Infrastructure/CI changes skip the psych review automatically
+- `config_only` infrastructure/CI changes skip the psych review automatically; prompt-bearing reviewer/config markdown still follows the specialist review path
 - All changes go through PR with the full review pipeline

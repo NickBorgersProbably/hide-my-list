@@ -44,9 +44,16 @@ on:
         required: true
 
 permissions:
-  contents: write
-  pull-requests: write
-  statuses: write
+  # Read-only GITHUB_TOKEN. The fixer's `git push` uses the
+  # WORKFLOW_PAT-authenticated remote (set up via the PR-branch
+  # actions/checkout step that passes token: secrets.WORKFLOW_PAT),
+  # not GITHUB_TOKEN. Same for the `gh api .../statuses` claim and
+  # any `gh pr` calls. Actions/checkout for the orchestration
+  # workspace only needs read.
+  contents: read
+  packages: read
+  pull-requests: read
+  statuses: read
 
 env:
   PR_WORKSPACE_PATH: pr-head
@@ -67,16 +74,18 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.head_ref }}
+          ref: ${{ inputs.reviewed_sha }}
           repository: ${{ inputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}
 
-      - name: Download all reviewer artifacts
+      - name: Download all reviewer artifacts into workspace
+        # Must be inside the workspace folder so the devcontainer can
+        # see them — host /tmp is NOT bind-mounted into the container.
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/reviewer-artifacts
+          path: ${{ env.PR_WORKSPACE_PATH }}/.review-output/reviewer-artifacts
           pattern: reviewer-*-${{ inputs.reviewed_sha }}
 
       - name: Create directories for devcontainer mounts
@@ -103,14 +112,19 @@ jobs:
           read_only: 'false'
           workflow_pat: ${{ secrets.WORKFLOW_PAT }}
           extra_env: |
-            REVIEWER_ARTIFACTS_DIR=/tmp/reviewer-artifacts
+            REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
 
       - name: Validate fix-result against schema
         env:
           ARTIFACT: ${{ steps.run.outputs.result_json }}
         run: |
           set -euo pipefail
+          # Schema declares $schema: draft/2020-12. ajv-cli@5 needs an
+          # explicit --spec=draft2020 flag to register the meta-schema;
+          # without it the schema parse fails with "no schema with key
+          # or ref https://json-schema.org/draft/2020-12/schema".
           npx -y ajv-cli@5 validate \
+            --spec=draft2020 \
             -s .github/scripts/review/schema/fix-result-v1.json \
             -d "$ARTIFACT"
 
@@ -139,18 +153,66 @@ jobs:
             exit 0
           fi
 
-          # Claim review/pipeline on the new SHA BEFORE pushing.
-          # This is the structural protection: the synchronize event
-          # GitHub fires for the push will land on an already-claimed
-          # SHA in review-dedup and exit.
+          # Push from the PR workspace, which has the PAT-authenticated remote.
+          cd "${{ env.PR_WORKSPACE_PATH }}"
+          REMOTE_HEAD=$(git ls-remote --heads origin "refs/heads/${HEAD_REF}" | awk 'NR==1 {print $1}')
+          if [ -z "$REMOTE_HEAD" ] || [ "$REMOTE_HEAD" != "$REVIEWED_SHA" ]; then
+            TMP_ARTIFACT=$(mktemp)
+            jq \
+              --arg reviewed_sha "$REVIEWED_SHA" \
+              --arg remote_head "$REMOTE_HEAD" \
+              --arg head_ref "$HEAD_REF" \
+              '
+              def push_skip_reason:
+                if $remote_head == "" then
+                  "Not pushed because origin/" + $head_ref + " no longer exists after gather froze " + $reviewed_sha + "."
+                else
+                  "Not pushed because origin/" + $head_ref + " advanced to " + $remote_head + " after gather froze " + $reviewed_sha + "."
+                end;
+              .new_sha = $reviewed_sha
+              | .skipped = (
+                  (.skipped // [])
+                  + ((.addressed // []) | map({id: ., reason: push_skip_reason}))
+                  | if length == 0 then
+                      [{id: "docs/review-pipeline-head-moved", reason: push_skip_reason}]
+                    else
+                      .
+                    end
+                )
+              | .addressed = []
+              ' "$ARTIFACT" > "$TMP_ARTIFACT"
+            mv "$TMP_ARTIFACT" "$ARTIFACT"
+
+            if [ -z "$REMOTE_HEAD" ]; then
+              echo "origin/${HEAD_REF} no longer exists; refusing to push fixer commit built from ${REVIEWED_SHA}"
+            else
+              echo "origin/${HEAD_REF} moved to ${REMOTE_HEAD}; refusing to push fixer commit built from ${REVIEWED_SHA}"
+            fi
+
+            echo "new_sha=$REVIEWED_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Push first, claim immediately after.
+          #
+          # The original design tried to write a `pending` status on
+          # NEW_SHA *before* pushing to close the synchronize-event
+          # race window. But GitHub's commit-status API returns 422
+          # for SHAs it hasn't seen yet, so the pre-push claim was
+          # impossible — the SHA only exists on the remote after the
+          # push completes.
+          #
+          # Push then claim. The synchronize event GitHub fires for
+          # the push takes a few seconds to schedule. The race window
+          # is bounded by the cycle counter (#374's cleanup-claim and
+          # gather's cycle cap), so worst case is a single wasted
+          # extra cycle, not an infinite loop.
+          git push origin "HEAD:${HEAD_REF}"
+
           gh api -X POST "repos/${REPO}/statuses/${NEW_SHA}" \
             -f state=pending \
             -f context=review/pipeline \
-            -f description="cycle=${{ inputs.cycle }} (fixer claim)" >/dev/null
-
-          # Push from the PR workspace, which has the PAT-authenticated remote.
-          cd "${{ env.PR_WORKSPACE_PATH }}"
-          git push origin "HEAD:${HEAD_REF}"
+            -f description="cycle=${{ inputs.cycle }} (fixer post-push claim)" >/dev/null
 
           echo "new_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
 
@@ -171,5 +233,5 @@ jobs:
         with:
           name: fix-result-${{ inputs.reviewed_sha }}
           path: |
-            /tmp/fixer-result.json
-            /tmp/fixer-output.jsonl
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/fixer-result.json
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/fixer-output.jsonl

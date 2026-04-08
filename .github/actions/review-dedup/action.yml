@@ -63,23 +63,36 @@ runs:
         fi
 
         # Look for an existing status with this context on this SHA.
-        # `gh api` returns the combined status payload; we filter to our
-        # specific context.
+        # We only refuse the claim when an active (`pending`) run is
+        # already in progress. Terminal states (`success`/`failure`/
+        # `error`) mean a previous run completed; a new event (push,
+        # /review) is allowed to re-claim and re-run, with the new
+        # `pending` status overwriting the old terminal one.
+        #
+        # This preserves the loop-impossibility property the design
+        # depends on: the fixer's push triggers a synchronize event
+        # that lands on the SHA the fixer just wrote `pending` for,
+        # and dedup correctly bails because that pending status was
+        # set just before the push. Two events on the same SHA still
+        # collapse via the in-flight pending lock.
         EXISTING=$(gh api "repos/${REPO}/commits/${SHA}/statuses" \
           --jq "[.[] | select(.context == \"${CTX}\")] | sort_by(.created_at) | last // empty" \
           2>/dev/null || echo "")
 
         if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
           STATE=$(echo "$EXISTING" | jq -r '.state // ""')
-          echo "review-dedup: SHA $SHA already has $CTX = $STATE; refusing to claim"
-          {
-            echo "claimed=false"
-            echo "existing_state=$STATE"
-          } >> "$GITHUB_OUTPUT"
-          exit 0
+          if [ "$STATE" = "pending" ]; then
+            echo "review-dedup: SHA $SHA has pending $CTX claim from another run; refusing to re-claim"
+            {
+              echo "claimed=false"
+              echo "existing_state=$STATE"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "review-dedup: SHA $SHA has terminal $CTX = $STATE from a prior run; overwriting with new pending claim"
         fi
 
-        # No existing status — write the claim.
+        # Write the claim (overwriting any terminal-state prior).
         gh api -X POST "repos/${REPO}/statuses/${SHA}" \
           -f state=pending \
           -f context="${CTX}" \

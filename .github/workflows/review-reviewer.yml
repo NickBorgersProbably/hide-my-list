@@ -35,9 +35,14 @@ on:
         required: true
 
 permissions:
+  # Read-only GITHUB_TOKEN. Posting GitHub PR Reviews via
+  # review-publish authenticates with secrets.WORKFLOW_PAT, not
+  # GITHUB_TOKEN (rule 2.3). The reviewer-setup composite action
+  # uses GITHUB_TOKEN for actions/checkout only.
   contents: read
-  pull-requests: write
-  statuses: write
+  packages: read
+  pull-requests: read
+  statuses: read
 
 env:
   PR_WORKSPACE_PATH: pr-head
@@ -55,7 +60,7 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.head_ref }}
+          ref: ${{ inputs.reviewed_sha }}
           repository: ${{ inputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
@@ -89,7 +94,12 @@ jobs:
           ARTIFACT: ${{ steps.run.outputs.result_json }}
         run: |
           set -euo pipefail
+          # Schema declares $schema: draft/2020-12. ajv-cli@5 needs an
+          # explicit --spec=draft2020 flag to register the meta-schema;
+          # without it the schema parse fails with "no schema with key
+          # or ref https://json-schema.org/draft/2020-12/schema".
           npx -y ajv-cli@5 validate \
+            --spec=draft2020 \
             -s .github/scripts/review/schema/reviewer-v1.json \
             -d "$ARTIFACT"
 
@@ -117,5 +127,5 @@ jobs:
         with:
           name: reviewer-${{ inputs.role }}-${{ inputs.reviewed_sha }}
           path: |
-            /tmp/${{ inputs.role }}-result.json
-            /tmp/${{ inputs.role }}-output.jsonl
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-result.json
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-output.jsonl

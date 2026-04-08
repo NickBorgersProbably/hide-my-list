@@ -32,10 +32,13 @@ on:
         required: true
 
 permissions:
+  # Read-only GITHUB_TOKEN. The label create, sticky comment, and
+  # cycle-status write all authenticate via secrets.WORKFLOW_PAT,
+  # not GITHUB_TOKEN.
   contents: read
-  pull-requests: write
-  issues: write
-  statuses: write
+  pull-requests: read
+  issues: read
+  statuses: read
 
 jobs:
   finalize:
@@ -69,8 +72,12 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          POST_FIX_SHA: ${{ inputs.post_fix_sha }}
         run: |
           set -euo pipefail
+
+          # Remove any stale agent-reviews-passed label from a prior cycle.
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label agent-reviews-passed 2>/dev/null || true
 
           # Idempotent label create.
           gh label create needs-human-review \
@@ -79,13 +86,25 @@ jobs:
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review
 
+          # Write the v1-compatible commit-status check as failure so
+          # branch protection sees a terminal state instead of forever
+          # pending. The PR still merges only after a human takes
+          # action; this just makes the GitHub UI honest.
+          gh api -X POST "repos/${REPO}/statuses/${POST_FIX_SHA}" \
+            -f state=failure \
+            -f context='All Required Agent Reviews' \
+            -f description='v2 verdict: NO-GO; needs-human-review' >/dev/null
+
           REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
           BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
 
           BODY_FILE=$(mktemp)
           {
+            echo "<!-- codex-merge-decision -->"
             echo "<!-- review-pipeline-v2:no-go -->"
-            echo "## Review pipeline v2 — NO-GO"
+            echo "## Merge Decision"
+            echo
+            echo "**Decision: NO-GO**"
             echo
             echo "The autonomous review pipeline could not converge on this PR after cycle ${{ inputs.cycle }}. A human needs to take a look."
             echo
@@ -107,14 +126,63 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
           rm -f "$BODY_FILE"
 
-      - name: Mark GO success
+      - name: Mark GO success and post Merge Decision comment
         if: inputs.verdict == 'GO'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          POST_FIX_SHA: ${{ inputs.post_fix_sha }}
         run: |
           set -euo pipefail
+
           # Remove any stale needs-human-review label from a prior cycle.
           gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label needs-human-review 2>/dev/null || true
+
+          # Apply the v1-compatible "agent-reviews-passed" label so the
+          # PR shows a clear human-visible indicator that v2 cleared it.
+          # Idempotent label create + add.
+          gh label create agent-reviews-passed \
+            --color 0E8A16 \
+            --description "All required agent reviews passed (v2)" \
+            --repo "$REPO" 2>/dev/null || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label agent-reviews-passed
+
+          # Write the v1-compatible commit-status check that branch
+          # protection expects. v1's all-reviews-passed job published
+          # this exact context name; v2 needs to write the same so
+          # PR merge gates and any external automation that keys on
+          # "All Required Agent Reviews" continue to work.
+          gh api -X POST "repos/${REPO}/statuses/${POST_FIX_SHA}" \
+            -f state=success \
+            -f context='All Required Agent Reviews' \
+            -f description='v2 verdict: GO' >/dev/null
+
+          REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
+
+          # Post a single Merge Decision comment so humans can see the
+          # verdict at a glance. Uses the same `<!-- codex-merge-decision -->`
+          # marker the legacy v1 monolith used so any downstream
+          # automation that scrapes for the marker continues to work.
+          BODY_FILE=$(mktemp)
+          {
+            echo "<!-- codex-merge-decision -->"
+            echo "<!-- review-pipeline-v2:go -->"
+            echo "## Merge Decision"
+            echo
+            echo "**Decision: GO**"
+            echo
+            if [ -n "$REASONS" ]; then
+              echo "### Rationale"
+              echo "$REASONS"
+              echo
+            fi
+            echo "Reviewed at \`${{ inputs.post_fix_sha }}\` (cycle ${{ inputs.cycle }})."
+            echo
+            echo "<sub>Posted by review-pipeline v2.</sub>"
+          } > "$BODY_FILE"
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
+          rm -f "$BODY_FILE"
+
           echo "review-pipeline-v2: GO on cycle ${{ inputs.cycle }}"

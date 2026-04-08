@@ -33,25 +33,30 @@ on:
         required: true
 
 permissions:
+  # Read-only GITHUB_TOKEN. Every actual write in this graph
+  # authenticates via secrets.WORKFLOW_PAT (rule 2.3), not
+  # GITHUB_TOKEN. The downstream callees are also read-only on
+  # GITHUB_TOKEN; this declaration must be a subset of the
+  # caller's (review-entry.yml) permissions.
   contents: read
-  pull-requests: write
-  statuses: write
-  issues: write
+  issues: read
+  packages: read
+  pull-requests: read
+  statuses: read
 
 env:
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
-
-concurrency:
-  # SHA-keyed concurrency: two events for the same SHA collapse;
-  # different SHAs are independent runs of the pipeline (which is
-  # exactly the cycle granularity we want).
-  group: review-pipeline-v2-${{ inputs.reviewed_sha }}
-  cancel-in-progress: false
 
 jobs:
   gather:
     name: Gather + classify + cycle check
     runs-on: ubuntu-latest
+    concurrency:
+      # SHA-keyed concurrency: two events for the same SHA collapse;
+      # different SHAs are independent runs of the pipeline (which is
+      # exactly the cycle granularity we want).
+      group: review-pipeline-v2-${{ inputs.reviewed_sha }}
+      cancel-in-progress: false
     outputs:
       roles_json: ${{ steps.classify.outputs.roles_json }}
       cycle: ${{ steps.cycle.outputs.cycle }}
@@ -127,17 +132,112 @@ jobs:
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
-  reviewers:
-    name: Reviewer (${{ matrix.role }})
+  # Per-role caller jobs.
+  #
+  # Why five separate jobs instead of one matrix job:
+  #
+  # GitHub Actions does NOT support a dynamic `strategy.matrix` (one
+  # built from `fromJSON(needs.*.outputs.*)`) on a reusable-workflow
+  # caller (`uses:`). The validator must resolve matrix dimensions at
+  # workflow load time, before any job has run. Trying it produces a
+  # `startup_failure` with no logs (this is the bug from #356/#358).
+  #
+  # AND: `matrix.*` context is NOT available in `jobs.<id>.if` on a
+  # reusable-workflow caller — only `github`, `inputs`, `needs`, and
+  # `vars` are. So we can't even declare a static matrix and gate
+  # per-row from `matrix.role`.
+  #
+  # The remaining options are: (a) always run all five reviewers and
+  # have abstain be a no-op at the prompt layer (wastes Codex calls
+  # and devcontainer spin-up), or (b) declare five separate caller
+  # jobs, each with a static role and an `if:` checking the
+  # classifier output. (b) is verbose but minimal-cost; we use it.
+  #
+  # Each job's `if:` is statically resolvable at workflow load time
+  # (the role string is a literal constant; the runtime check is
+  # `contains(needs.gather.outputs.roles_json, '<role>')`).
+
+  review-design:
+    name: Reviewer (design)
     needs: gather
-    if: needs.gather.outputs.capped != 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        role: ${{ fromJSON(needs.gather.outputs.roles_json) }}
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'design')
     uses: ./.github/workflows/review-reviewer.yml
     with:
-      role: ${{ matrix.role }}
+      role: design
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  review-security:
+    name: Reviewer (security)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'security')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: security
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  review-psych:
+    name: Reviewer (psych)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'psych')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: psych
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  review-docs:
+    name: Reviewer (docs)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'docs')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: docs
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  review-prompt:
+    name: Reviewer (prompt)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'prompt')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: prompt
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
       head_ref: ${{ inputs.head_ref }}
@@ -149,8 +249,18 @@ jobs:
 
   fix:
     name: Apply reviewer-requested fixes
-    needs: [gather, reviewers]
-    if: needs.gather.outputs.capped != 'true'
+    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt]
+    # GHA defaults dependent jobs to skipped if any `needs:` job is
+    # skipped — but per-role gating means several reviewers WILL be
+    # skipped on every run (psych/prompt for config-only diffs,
+    # security for docs-only, etc.). We allow skipped reviewers but
+    # block on actual failure or cancellation.
+    if: |
+      always() &&
+      needs.gather.outputs.capped != 'true' &&
+      needs.gather.result == 'success' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     uses: ./.github/workflows/review-fixer.yml
     with:
       pr_number: ${{ inputs.pr_number }}
@@ -164,8 +274,14 @@ jobs:
 
   judge:
     name: Judge (read-only aggregator)
-    needs: [gather, reviewers, fix]
-    if: needs.gather.outputs.capped != 'true'
+    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt, fix]
+    if: |
+      always() &&
+      needs.gather.outputs.capped != 'true' &&
+      needs.gather.result == 'success' &&
+      needs.fix.result == 'success' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     uses: ./.github/workflows/review-judge.yml
     with:
       pr_number: ${{ inputs.pr_number }}
@@ -178,7 +294,11 @@ jobs:
   finalize:
     name: Finalize verdict
     needs: [gather, fix, judge]
-    if: needs.gather.outputs.capped != 'true'
+    if: |
+      always() &&
+      needs.gather.outputs.capped != 'true' &&
+      needs.gather.result == 'success' &&
+      needs.judge.result == 'success'
     uses: ./.github/workflows/review-finalize.yml
     with:
       pr_number: ${{ inputs.pr_number }}
@@ -187,3 +307,64 @@ jobs:
       verdict: ${{ needs.judge.outputs.verdict }}
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  # Always-runs cleanup. Advances the `review/pipeline` commit status
+  # from `pending` (set by review-dedup at entry time) to a terminal
+  # state, regardless of whether any upstream job in the orchestrator
+  # succeeded, failed, or was skipped. Without this, a failed
+  # reviewer/fixer/judge run leaks the pending claim forever and
+  # blocks future re-claims (see #368).
+  #
+  # The dedup action only refuses claims when the existing state is
+  # `pending`, so any non-pending terminal value here is sufficient
+  # to allow the next event (push, /review) to start a fresh run.
+  cleanup-claim:
+    name: Cleanup pipeline claim
+    needs:
+      - gather
+      - cap-exhausted
+      - review-design
+      - review-security
+      - review-psych
+      - review-docs
+      - review-prompt
+      - fix
+      - judge
+      - finalize
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (for composite actions)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Advance review/pipeline claim on reviewed SHA
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.reviewed_sha }}
+          context: review/pipeline
+          state: success
+          description: 'pipeline run completed'
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Advance review/pipeline claim on post-fix SHA
+        # The fixer claims its own new SHA (post-push) before the
+        # synchronize event lands. That claim must also be advanced
+        # to a terminal state at the end of the run, otherwise the
+        # next event for the post-fix SHA sees a leaked pending
+        # claim and dedup refuses to start a fresh run on it.
+        # Skipped when fix was a no-op (post-fix SHA equals reviewed SHA).
+        if: |
+          needs.fix.result == 'success' &&
+          needs.fix.outputs.new_sha != '' &&
+          needs.fix.outputs.new_sha != inputs.reviewed_sha
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ needs.fix.outputs.new_sha }}
+          context: review/pipeline
+          state: success
+          description: 'pipeline run completed (post-fix)'
+          github_token: ${{ secrets.WORKFLOW_PAT }}

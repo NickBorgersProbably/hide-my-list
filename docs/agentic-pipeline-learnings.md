@@ -46,9 +46,11 @@ Two meta-lessons span everything below:
 **Evidence:** #244, #234
 
 ### 1.7 Track immutable `reviewed_sha`, separate from the branch ref
-**Why:** Once a PR merges, the branch may be deleted. Follow-up validation must check out the SHA we reviewed, not the (now missing) branch.
+**Why:** Reviewers and fixers must check out the immutable `reviewed_sha`, not the mutable branch ref, because the branch may be deleted or advanced while the pipeline is still working. Any branch-writing stage must also re-read `origin/<head_ref>` immediately before push and refuse to publish if that tip no longer equals the frozen `reviewed_sha`; otherwise it can silently overwrite newer author commits with changes prepared against stale code.
 **Before:** Post-merge follow-ups failed with "could not fetch ref".
-**Evidence:** #308
+**Evidence:** #308, #351, #353, #354
+
+**Manual regression playbook:** Open a PR, let `review-entry.yml` freeze `reviewed_sha`, then push another commit before `review-fixer.yml` reaches its push step. The fixer should log that `origin/<head_ref>` moved, rewrite `fix-result.json` so `new_sha == input_sha == reviewed_sha`, add a `skipped[]` reason explaining the head changed, and exit without pushing. The subsequent judge/finalize path should evaluate the unchanged reviewed tree instead of overwriting the newer commit.
 
 ### 1.8 Dedupe workflow-failure issues by fingerprint
 **Why:** A helper script fingerprints failures by (workflow, branch, commit) and reuses any existing open issue.
@@ -56,7 +58,7 @@ Two meta-lessons span everything below:
 **Evidence:** #269
 
 ### 1.9 Guardrail: spec-critical `.md` files should stay on the full review path
-**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. The current `docs_only=true` classifier is only an implementation shortcut, not a semantic proof that every matching Markdown file is inert, and today it is still too broad around `design/*`; for example, `AGENTS.md` treats `design/adhd-priorities.md` as part of the OpenClaw spec surface even though the workflow currently classifies `design/*` as `docs_only=true`. Future classifier tightening should carve out prompt-bearing design docs instead of assuming all `design/*` changes are safe to bypass the full review path.
+**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. The `docs_only=true` classifier is only an implementation shortcut, not a semantic proof that every matching Markdown file is inert. The workflow now correctly carves out known spec-critical Markdown such as `design/adhd-priorities.md`, but the remaining risk is future prompt-bearing docs under broad content trees like `design/` or `.github/` being added without updating the carve-outs. Classifier tightening should keep treating these paths as an allowlist problem, not assume an entire Markdown-heavy directory is safe to bypass the full review path.
 **Before:** A behavioral cron prompt slipped through with zero security review.
 **Evidence:** #156, #142
 
@@ -69,6 +71,11 @@ Two meta-lessons span everything below:
 **Why:** A PR-level marker such as `agent-reviews-passed` can outlive the diff it originally described. The safe auto-skip rule is version-specific but always SHA-bound: in v1, the current head SHA must already carry the same-SHA `All Required Agent Reviews = success` status from a `GO-CLEAN` merge decision; in v2, the orchestrator must see the reviewed SHA already claimed on `review/pipeline`, with the corresponding `review/*` and `review/cycle` statuses describing that exact commit chain, and any branch mutation must still flow only through `review-fixer.yml` as the sole writer. PR labels can still communicate history to humans, but they must not gate execution for later commits.
 **Before:** New head commits inherited a green aggregate review check without any stage evaluating the updated diff.
 **Evidence:** #339, #338, #337
+
+### 1.12 Security/infra review explicitly owns reviewer-routing regressions
+**Why:** Review-pipeline dispatch and classifier changes can silently narrow who reviews future PRs while the workflow still "works." When a PR touches classifier, dispatch, or gating logic, the Security & Infrastructure reviewer must compare the proposed routing against the current pipeline behavior and flag any unintended loss of specialist coverage. Regressions that drop coverage for prompt/spec files, including `.github/scripts/review/prompts/*.md`, are blocking unless the PR explicitly documents and justifies the change.
+**Before:** Reviewer prompt markdown under `.github/scripts/review/prompts/*.md` was classified as config-only in v2, which would have skipped security, psych, and prompt review and no reviewer called it out.
+**Evidence:** #343, #349
 
 ---
 
