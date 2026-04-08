@@ -28,15 +28,17 @@ Two meta-lessons span everything below:
 **Before:** A single PR looped 4+ times as agents contradicted each other's prior fixes.
 **Evidence:** #303, #315, #301
 
-### 1.4 Three-state merge decisions: GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO
-**Why:** Binary GO/NO-GO with auto-retrigger on every push burned ~18 LLM runs per PR even for typo fixes. Three states let the merge agent collapse unnecessary loops: clean merges skip re-review, reservations get exactly one re-review cycle, no-go closes the PR with a follow-up issue.
-**Before:** Pipeline cost was dominated by trivial PRs being re-reviewed end-to-end.
-**Evidence:** #315, #320, #322, #274
+### 1.4 Merge-decision verdict shape (v1: three-state; v2: binary)
+**v1 (legacy `codex-code-review.yml`, active when `vars.REVIEW_PIPELINE_V2 != 'true'`):** Three states — GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO. Binary GO/NO-GO with auto-retrigger on every push had burned ~18 LLM runs per PR even for typo fixes; three states let the merge agent collapse unnecessary loops: clean merges skip re-review, reservations get exactly one re-review cycle, no-go closes the PR with a follow-up issue.
+**v2 (new `review-entry.yml` graph, active when `vars.REVIEW_PIPELINE_V2 == 'true'`):** Two states — GO / NO-GO. The cost-control mechanism v1 needed three states for is now structural: the v2 fixer runs *after* reviewers and *before* the judge, the judge has `permissions: contents: read` and cannot push, and the fixer claims its output SHA on `review/pipeline` *before* publishing the push so the synchronize event hits already-claimed dedup and exits. Re-review-loops-from-autofix are impossible by construction, so the third state isn't needed. NO-GO in v2 is the human-escalation path: it labels the PR `needs-human-review`, posts one sticky comment, and **does not** close the PR or auto-create a replacement issue (avoids the lessons-learned-issue → new PR → NO-GO infinite loop class). PR #343 introduces this; PR with the gate flip (Phase 2/3) makes it active.
+**Before:** Pipeline cost was dominated by trivial PRs being re-reviewed end-to-end (v1 problem). v2 solves the same problem at the orchestration layer instead of at the verdict layer.
+**Evidence:** #315, #320, #322, #274 (v1); #336, #341, #342, #343 (v2)
 
-### 1.5 Inline review comments are blocking inputs
-**Why:** The merge-decision agent reads all inline PR comments via `gh api` and treats substantive change requests there as blockers, not just review summaries. The enforcement mechanism today is "read every inline comment and apply judgment," not a separate resolution-state API check.
-**Before:** PRs were getting auto-approved despite outstanding inline change requests.
-**Evidence:** #143
+### 1.5 Inline review comments are blocking inputs (v1: judge reads them; v2: reviewers fold them in)
+**v1 (legacy `codex-code-review.yml`):** The merge-decision agent reads all inline PR comments via `gh api` and treats substantive change requests there as blockers, not just review summaries. The enforcement mechanism is "read every inline comment and apply judgment," not a separate resolution-state API check.
+**v2 (new pipeline):** The judge (`.github/scripts/review/aggregate.mjs`) is a deterministic Node script with no Codex, no git credentials, and no PR API access — it consumes ONLY structured reviewer JSON artifacts conforming to `schema/reviewer-v1.json`. To preserve the same property as v1 (inline comments are blockers), each reviewer is responsible for ingesting inline PR comments via `gh api repos/.../pulls/{n}/comments` inside its own prompt and folding any blocking change requests into its `blocking_issues[]` array with `source: "inline_comment"`. The schema's `source` enum encodes this contract. The authority chain inverts (reviewer-side ingestion instead of judge-side), but the user-visible invariant is identical: an inline change request still blocks the PR.
+**Before:** PRs were getting auto-approved despite outstanding inline change requests (v1 root cause).
+**Evidence:** #143 (v1); #341, #342 (v2 schema + judge contract)
 
 ### 1.6 Manual re-trigger is a `/review` comment, not close/reopen
 **Why:** Close/reopen fired both a direct `pull_request` trigger and a `workflow_run` trigger; the concurrency group cancelled one of them at random.
