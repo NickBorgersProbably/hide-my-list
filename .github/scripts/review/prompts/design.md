@@ -53,7 +53,7 @@ Write your verdict as JSON to `$OUTPUT_PATH` conforming to
   "reviewed_sha": "${REVIEWED_SHA}",
   "cycle": ${REVIEW_CYCLE},
   "decision": "approve | request_changes | comment | abstain",
-  "summary": "<one paragraph including explicit Scope check: PASS|FAIL>",
+  "summary": "<one paragraph including explicit Scope check: PASS|FAIL — MAX 500 characters; put detail in non_blocking_notes[] or blocking_issues[]>",
   "blocking_issues": [],
   "non_blocking_notes": [],
   "fix_suggestions": [],
