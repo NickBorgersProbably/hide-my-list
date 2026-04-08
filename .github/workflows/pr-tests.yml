@@ -59,7 +59,7 @@ jobs:
         uses: dorny/paths-filter@v3
         id: filter
         with:
-          list-files: shell
+          list-files: json
           filters: |
             scripts:
               - 'scripts/**'
@@ -115,8 +115,13 @@ jobs:
 
       - name: Run doc validation
         env:
-          RUN_REQUIRED_CHECKS_CHANGED_FILES: ${{ needs.changes.outputs.docs_files }}
-        run: ./scripts/run-required-checks.sh ci-docs
+          DOCS_FILES_JSON: ${{ needs.changes.outputs.docs_files }}
+        run: |
+          RUN_REQUIRED_CHECKS_CHANGED_FILES="$(
+            node -e 'JSON.parse(process.env.DOCS_FILES_JSON).forEach((path) => console.log(path))'
+          )"
+          export RUN_REQUIRED_CHECKS_CHANGED_FILES
+          ./scripts/run-required-checks.sh ci-docs
 
   workflow-validation:
     name: Workflow YAML Validation
@@ -130,9 +135,6 @@ jobs:
 
       - name: Install yamllint
         run: pip3 install yamllint
-
-      - name: Run workflow validation
-        run: ./scripts/run-required-checks.sh ci-workflows
 
       - name: Install actionlint
         run: |
@@ -150,6 +152,9 @@ jobs:
             grep " ${ARCHIVE}$" "${CHECKSUMS}" | sha256sum -c -
           )
           sudo tar -xzf "${TMP_DIR}/${ARCHIVE}" -C /usr/local/bin actionlint
+
+      - name: Run workflow validation
+        run: ./scripts/run-required-checks.sh ci-workflows
 
   devcontainer-validation:
     name: Devcontainer Build Check
