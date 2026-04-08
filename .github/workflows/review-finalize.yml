@@ -38,7 +38,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
-  statuses: read
+  statuses: write
 
 jobs:
   finalize:
@@ -66,6 +66,34 @@ jobs:
           path: /tmp/verdict
           name: verdict-${{ inputs.post_fix_sha }}
 
+      # Write the v1-compatible "All Required Agent Reviews" merge-gate
+      # status using GITHUB_TOKEN (the Actions native integration,
+      # integration_id 15368). The repo's branch protection ruleset
+      # requires this exact context published by THAT specific
+      # integration; statuses written by a personal PAT (User type)
+      # do NOT satisfy the rule. v1's all-reviews-passed job used
+      # github-script with GITHUB_TOKEN, which is what we mirror here.
+      - name: Publish "All Required Agent Reviews" merge-gate status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const verdict = ${{ toJSON(inputs.verdict) }};
+            const sha = ${{ toJSON(inputs.post_fix_sha) }};
+            const state = verdict === 'GO' ? 'success' : 'failure';
+            const description = verdict === 'GO'
+              ? 'v2 verdict: GO'
+              : 'v2 verdict: NO-GO; needs-human-review';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state,
+              context: 'All Required Agent Reviews',
+              description,
+            });
+            core.info(`Wrote All Required Agent Reviews=${state} on ${sha}`);
+
       - name: Apply NO-GO label and sticky comment
         if: inputs.verdict == 'NO-GO'
         env:
@@ -85,15 +113,6 @@ jobs:
             --description "Review pipeline v2 could not converge; human takeover needed" \
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review
-
-          # Write the v1-compatible commit-status check as failure so
-          # branch protection sees a terminal state instead of forever
-          # pending. The PR still merges only after a human takes
-          # action; this just makes the GitHub UI honest.
-          gh api -X POST "repos/${REPO}/statuses/${POST_FIX_SHA}" \
-            -f state=failure \
-            -f context='All Required Agent Reviews' \
-            -f description='v2 verdict: NO-GO; needs-human-review' >/dev/null
 
           REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
           BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
@@ -147,16 +166,6 @@ jobs:
             --description "All required agent reviews passed (v2)" \
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label agent-reviews-passed
-
-          # Write the v1-compatible commit-status check that branch
-          # protection expects. v1's all-reviews-passed job published
-          # this exact context name; v2 needs to write the same so
-          # PR merge gates and any external automation that keys on
-          # "All Required Agent Reviews" continue to work.
-          gh api -X POST "repos/${REPO}/statuses/${POST_FIX_SHA}" \
-            -f state=success \
-            -f context='All Required Agent Reviews' \
-            -f description='v2 verdict: GO' >/dev/null
 
           REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
 
