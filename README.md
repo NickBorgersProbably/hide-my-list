@@ -58,8 +58,10 @@ bash .githooks/install-hooks.sh
 ```
 
 `core.hooksPath` is stored per worktree, so re-run that after each `git worktree add`.
-`pre-commit` handles the fast staged-file checks, and `pre-push` blocks the
-deterministic CI-equivalent checks before they reach GitHub.
+`pre-commit` handles the fast staged-file checks, and `pre-push` reruns the
+deterministic CI-equivalent checks for changed scripts, docs, and
+workflow-related paths, so those failures are caught locally before GitHub is
+the first place they fail.
 
 ## Research-informed design
 

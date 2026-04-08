@@ -147,8 +147,10 @@ These files support the development pipeline and are not part of the OpenClaw ag
 - `.github/actions/` — Composite actions used by workflows
 - `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract and guardrail document
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates or reuses the canonical deduplicated GitHub Actions failure issue for the diagnosis workflow
+- `scripts/check-doc-links.sh` — Internal documentation link validator used by local hooks and CI doc checks
 - `scripts/get-latest-merge-decision-comment.sh` — Fetches the latest trusted merge-decision PR comment with retry logic to tolerate GitHub comment propagation lag
 - `scripts/pull-main.sh` — Branch sync helper
+- `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, and workflow validations
 - `scripts/security-update.sh` — Security update automation
 - `scripts/validate-gh-cli-usage.sh` — GitHub CLI workflow usage validation
 - `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
