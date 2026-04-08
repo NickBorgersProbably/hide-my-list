@@ -28,11 +28,12 @@ concurrency:
 
 jobs:
   resolve:
-    name: Resolve SHA + dedup claim
+    name: Resolve SHA + authorize + dedup claim
     if: vars.REVIEW_PIPELINE_V2 == 'true'
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.dedup.outputs.claimed }}
+      authorized: ${{ steps.authorize.outputs.authorized }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       reviewed_sha: ${{ steps.resolve.outputs.reviewed_sha }}
       head_ref: ${{ steps.resolve.outputs.head_ref }}
@@ -92,9 +93,93 @@ jobs:
             echo "base_sha=$BASE_SHA"
           } >> "$GITHUB_OUTPUT"
 
+      # SECURITY GATE — must run BEFORE the dedup claim, BEFORE the
+      # pipeline reusable workflow, and BEFORE WORKFLOW_PAT touches
+      # anything else. Mirrors the v1 admission control in
+      # codex-code-review.yml lines 509-563. Honors
+      # agentic-pipeline-learnings.md §2.4: external fork PRs MUST
+      # NOT run Codex review on self-hosted runners with credentials.
+      #
+      # Rules (deny by default):
+      #   1. PR head.repo MUST equal base.repo (no forks).
+      #   2. PR author association MUST be OWNER, MEMBER, or COLLABORATOR.
+      #   3. For /review comments: the COMMENTER's association ALSO must
+      #      be OWNER, MEMBER, or COLLABORATOR (someone outside the trust
+      #      boundary cannot trigger a review by commenting).
+      #
+      # On any failure: emit authorized=false, post one explainer
+      # comment, exit cleanly without writing the dedup claim.
+      - name: Authorize PR and (if applicable) commenter
+        id: authorize
+        if: steps.resolve.outputs.reviewed_sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          HEAD_REPO: ${{ steps.resolve.outputs.head_repo }}
+          # Pull associations from event payload via env vars; do not
+          # inline ${{ github.event.* }} into shell (script-injection).
+          PR_EVENT_AUTHOR_ASSOC: ${{ github.event.pull_request.author_association }}
+          COMMENT_AUTHOR_ASSOC: ${{ github.event.comment.author_association }}
+        run: |
+          set -euo pipefail
+
+          DENY_REASON=""
+
+          # (1) Same-repo check.
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            DENY_REASON="PR head repo ($HEAD_REPO) is not $REPO (fork PR)"
+          fi
+
+          # Look up the authoritative PR author association from the API
+          # (the event payload value can be stale/missing for re-runs).
+          if [ -z "$DENY_REASON" ]; then
+            PR_DATA=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+            PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.user.login')
+            PR_AUTHOR_ASSOC=$(echo "$PR_DATA" | jq -r '.author_association')
+
+            case "$PR_AUTHOR_ASSOC" in
+              OWNER|MEMBER|COLLABORATOR) ;;
+              *) DENY_REASON="PR author $PR_AUTHOR has association $PR_AUTHOR_ASSOC (must be OWNER|MEMBER|COLLABORATOR)" ;;
+            esac
+          fi
+
+          # (3) For /review comments, the commenter must also be authorized.
+          if [ -z "$DENY_REASON" ] && [ "$EVENT_NAME" = "issue_comment" ]; then
+            case "$COMMENT_AUTHOR_ASSOC" in
+              OWNER|MEMBER|COLLABORATOR) ;;
+              *) DENY_REASON="/review commenter has association $COMMENT_AUTHOR_ASSOC (must be OWNER|MEMBER|COLLABORATOR)" ;;
+            esac
+          fi
+
+          if [ -n "$DENY_REASON" ]; then
+            echo "::warning::review-entry: authorization denied — $DENY_REASON"
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+
+            # One-shot explainer comment. Continue past failures so
+            # auth-denied reruns don't spam comments if the PR has been
+            # commented on already.
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body "## Review pipeline v2 — skipped
+
+          $DENY_REASON.
+
+          For security reasons, the agentic review pipeline only runs for
+          repository collaborators, members, and owners on same-repo PRs.
+          This prevents prompt-injection and credential exfiltration on
+          self-hosted runners (see \\\`docs/agentic-pipeline-learnings.md\\\` §2.4).
+
+          A repository maintainer can review this PR manually." 2>/dev/null || true
+
+            exit 0
+          fi
+
+          echo "review-entry: authorization passed"
+          echo "authorized=true" >> "$GITHUB_OUTPUT"
+
       - name: SHA-keyed dedup claim
         id: dedup
-        if: steps.resolve.outputs.reviewed_sha != ''
+        if: steps.authorize.outputs.authorized == 'true'
         uses: ./.github/actions/review-dedup
         with:
           sha: ${{ steps.resolve.outputs.reviewed_sha }}
@@ -110,7 +195,12 @@ jobs:
   pipeline:
     name: Run review pipeline v2
     needs: resolve
-    if: vars.REVIEW_PIPELINE_V2 == 'true' && needs.resolve.outputs.should_run == 'true'
+    # Defense in depth: gate on the variable, the auth output, AND
+    # the dedup claim. Any one of these short-circuits the dispatch.
+    if: |
+      vars.REVIEW_PIPELINE_V2 == 'true' &&
+      needs.resolve.outputs.authorized == 'true' &&
+      needs.resolve.outputs.should_run == 'true'
     uses: ./.github/workflows/review-pipeline.yml
     with:
       pr_number: ${{ needs.resolve.outputs.pr_number }}
