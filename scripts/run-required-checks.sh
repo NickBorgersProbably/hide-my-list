@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 readonly SCRIPT_PATH_PATTERN='^(scripts/.*\.sh|setup/.*\.sh|\.githooks/(install-hooks\.sh|pre-commit|pre-push))$'
+readonly SCRIPT_TRIGGER_PATH_PATTERN='^(scripts/.*|setup/.*\.sh|\.githooks/.*)$'
 readonly DOC_PATH_PATTERN='^(docs/.*\.md|design/.*\.md|setup/.*\.md|README\.md|AGENTS\.md)$'
 readonly DOC_HELPER_PATH_PATTERN='^(scripts/check-doc-links\.sh|scripts/lint-mermaid-rendering\.sh|scripts/validate-mermaid\.sh)$'
 readonly WORKFLOW_PATH_PATTERN='^(\.github/workflows/.*\.ya?ml|\.github/actions/.*\.ya?ml|\.github/actionlint\.yaml|\.yamllint|\.githooks/(install-hooks\.sh|pre-commit|pre-push)|scripts/validate-gh-cli-usage\.sh|scripts/validate-pr-tests-workflow\.sh|scripts/validate-workflow-refs\.sh)$'
@@ -123,10 +124,12 @@ run_executable_check() {
 
 run_script_validation() {
   local -a script_targets=()
+  local -a executable_targets=()
 
   mapfile -t script_targets < <(filter_existing_files scripts/*.sh setup/*.sh .githooks/install-hooks.sh .githooks/pre-commit .githooks/pre-push)
+  mapfile -t executable_targets < <(filter_existing_files scripts/*.sh .githooks/install-hooks.sh .githooks/pre-commit .githooks/pre-push)
   run_shellcheck "${script_targets[@]}"
-  run_executable_check "${script_targets[@]}"
+  run_executable_check "${executable_targets[@]}"
 }
 
 run_doc_link_check() {
@@ -290,7 +293,7 @@ run_pre_push() {
 
   trap 'echo ""; echo "Pre-push checks failed. Fix the issues above before pushing."' ERR
 
-  if canonical_runner_changed || has_changed_path "$SCRIPT_PATH_PATTERN"; then
+  if canonical_runner_changed || has_changed_path "$SCRIPT_TRIGGER_PATH_PATTERN"; then
     run_script_validation
   fi
 
