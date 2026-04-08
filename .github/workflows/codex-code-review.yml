@@ -1004,6 +1004,8 @@ jobs:
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
+          # PAT required to push workflow file changes
+          token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Reattach PR branch when available
         if: steps.setup.outputs.verified == 'true'
