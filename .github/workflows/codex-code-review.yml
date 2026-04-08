@@ -124,9 +124,12 @@ jobs:
         if: github.event_name == 'issue_comment'
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_PULL_REQUEST_URL: ${{ github.event.issue.pull_request.url }}
+          COMMENT_AUTHOR_ASSOC: ${{ github.event.comment.author_association }}
+          COMMENT_AUTHOR_LOGIN: ${{ github.event.comment.user.login }}
         run: |
           # Must be a PR comment (issues don't have pull_request field)
-          if [ -z "${{ github.event.issue.pull_request.url }}" ]; then
+          if [ -z "$ISSUE_PULL_REQUEST_URL" ]; then
             echo "Not a PR comment, skipping"
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 0
@@ -140,14 +143,13 @@ jobs:
           fi
 
           # Authorization check
-          AUTHOR_ASSOC="${{ github.event.comment.author_association }}"
-          case "$AUTHOR_ASSOC" in
+          case "$COMMENT_AUTHOR_ASSOC" in
             OWNER|MEMBER|COLLABORATOR)
-              echo "Authorized: ${{ github.event.comment.user.login }} ($AUTHOR_ASSOC)"
+              echo "Authorized: $COMMENT_AUTHOR_LOGIN ($COMMENT_AUTHOR_ASSOC)"
               echo "valid=true" >> $GITHUB_OUTPUT
               ;;
             *)
-              echo "Not authorized: ${{ github.event.comment.user.login }} ($AUTHOR_ASSOC)"
+              echo "Not authorized: $COMMENT_AUTHOR_LOGIN ($COMMENT_AUTHOR_ASSOC)"
               echo "valid=false" >> $GITHUB_OUTPUT
               ;;
           esac
@@ -156,8 +158,10 @@ jobs:
         if: github.event_name == 'issue_comment' && steps.comment-gate.outputs.valid == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
         run: |
-          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+          gh api repos/$REPOSITORY/issues/comments/$COMMENT_ID/reactions \
             -f content='eyes' || true
 
       # Look up the latest PR Tests result for /review triggers
@@ -166,17 +170,20 @@ jobs:
         if: github.event_name == 'issue_comment' && steps.comment-gate.outputs.valid == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
-          PR_NUMBER="${{ github.event.issue.number }}"
+          PR_NUMBER="$ISSUE_NUMBER"
 
           # Get PR head SHA and branch
-          PR_DATA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER)
+          PR_DATA=$(gh api repos/$REPOSITORY/pulls/$PR_NUMBER)
           HEAD_SHA=$(echo "$PR_DATA" | jq -r '.head.sha')
           HEAD_REF=$(echo "$PR_DATA" | jq -r '.head.ref')
           echo "head_sha=$HEAD_SHA" >> $GITHUB_OUTPUT
 
           # Find most recent completed PR Tests run for this branch
-          RUN_JSON=$(gh api "repos/${{ github.repository }}/actions/workflows/pr-tests.yml/runs?branch=$HEAD_REF&per_page=1&status=completed" --jq '.workflow_runs[0] // empty')
+          RUN_JSON=$(gh api "repos/$REPOSITORY/actions/workflows/pr-tests.yml/runs?branch=$HEAD_REF&per_page=1&status=completed" --jq '.workflow_runs[0] // empty')
 
           if [ -n "$RUN_JSON" ]; then
             RUN_ID=$(echo "$RUN_JSON" | jq -r '.id')
@@ -193,7 +200,7 @@ jobs:
           else
             echo "No completed PR Tests run found"
             echo "tests_passed=false" >> $GITHUB_OUTPUT
-            echo "run_id=${{ github.run_id }}" >> $GITHUB_OUTPUT
+            echo "run_id=$CURRENT_RUN_ID" >> $GITHUB_OUTPUT
           fi
 
       - name: Get PR from workflow run or dispatch inputs
@@ -274,18 +281,25 @@ jobs:
         if: steps.get-pr.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          LOOKUP_TESTS_HEAD_SHA: ${{ steps.lookup-tests.outputs.head_sha }}
+          PR_EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DISPATCH_REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          REPOSITORY: ${{ github.repository }}
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [ "${{ github.event_name }}" = "issue_comment" ]; then
-            REVIEWED_SHA="${{ steps.lookup-tests.outputs.head_sha }}"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            REVIEWED_SHA="${{ github.event.pull_request.head.sha }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            REVIEWED_SHA="${{ inputs.reviewed_sha }}"
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            REVIEWED_SHA="$LOOKUP_TESTS_HEAD_SHA"
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            REVIEWED_SHA="$PR_EVENT_HEAD_SHA"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            REVIEWED_SHA="$DISPATCH_REVIEWED_SHA"
             if [ -z "$REVIEWED_SHA" ]; then
-              REVIEWED_SHA=$(gh api repos/${{ github.repository }}/actions/runs/${{ inputs.run_id }} --jq '.head_sha')
+              REVIEWED_SHA=$(gh api repos/$REPOSITORY/actions/runs/$INPUT_RUN_ID --jq '.head_sha')
             fi
           else
-            REVIEWED_SHA="${{ github.event.workflow_run.head_sha }}"
+            REVIEWED_SHA="$WORKFLOW_RUN_HEAD_SHA"
           fi
 
           if [ -z "$REVIEWED_SHA" ] || [ "$REVIEWED_SHA" = "null" ]; then
@@ -355,17 +369,19 @@ jobs:
         id: check-existing-reviews
         env:
           GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.get-pr.outputs.pr_number }}
+          EVENT_NAME: ${{ github.event_name }}
+          REVIEWED_SHA: ${{ steps.resolve-reviewed-sha.outputs.reviewed_sha }}
+          HEAD_REPO: ${{ steps.get-pr.outputs.head_repo }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          PR_ACTION: ${{ github.event.action }}
         run: |
-          PR_NUMBER="${{ steps.get-pr.outputs.pr_number }}"
-          EVENT_NAME="${{ github.event_name }}"
-          REVIEWED_SHA="${{ steps.resolve-reviewed-sha.outputs.reviewed_sha }}"
-          HEAD_REPO="${{ steps.get-pr.outputs.head_repo }}"
-
           # Fast-path: if PR Tests completed for a head SHA that the merge-decision
           # job already marked as GO-CLEAN with no re-review required, skip this
           # workflow_run invocation entirely. Manual /review remains authoritative
           # because it uses the issue_comment path and bypasses this shortcut.
-          if [ "$EVENT_NAME" = "workflow_run" ] && [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+          if [ "$EVENT_NAME" = "workflow_run" ] && [ "$WORKFLOW_RUN_CONCLUSION" = "success" ]; then
             EXISTING_GO_CLEAN_STATUS=$(gh api repos/$HEAD_REPO/commits/$REVIEWED_SHA/status \
               --jq '
                 [.statuses[]
@@ -386,7 +402,7 @@ jobs:
           fi
 
           # If PR was closed, strip all review labels so a future reopen starts clean
-          if [ "$EVENT_NAME" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$PR_ACTION" = "closed" ]; then
             echo "PR was closed - removing all review progress labels"
             for label in \
               "agent-reviews-passed" \
@@ -397,12 +413,12 @@ jobs:
               "docs-review-started" \
               "prompt-review-started" \
               "merge-decision-started"; do
-              gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+              gh pr edit $PR_NUMBER --remove-label "$label" --repo $REPOSITORY 2>/dev/null || true
             done
             # Remove review-cycle-* labels so reopened PRs start fresh
-            for label in $(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/labels \
+            for label in $(gh api repos/$REPOSITORY/issues/$PR_NUMBER/labels \
               --jq '.[].name | select(test("^review-cycle-[0-9]+$"))' 2>/dev/null || true); do
-              gh pr edit $PR_NUMBER --remove-label "$label" --repo ${{ github.repository }} 2>/dev/null || true
+              gh pr edit $PR_NUMBER --remove-label "$label" --repo $REPOSITORY 2>/dev/null || true
             done
             # Signal already_passed=true to skip all downstream review jobs
             echo "already_passed=true" >> $GITHUB_OUTPUT
