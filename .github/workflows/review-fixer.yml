@@ -193,16 +193,26 @@ jobs:
             exit 0
           fi
 
-          # Claim review/pipeline on the new SHA BEFORE pushing.
-          # This is the structural protection: the synchronize event
-          # GitHub fires for the push will land on an already-claimed
-          # SHA in review-dedup and exit.
+          # Push first, claim immediately after.
+          #
+          # The original design tried to write a `pending` status on
+          # NEW_SHA *before* pushing to close the synchronize-event
+          # race window. But GitHub's commit-status API returns 422
+          # for SHAs it hasn't seen yet, so the pre-push claim was
+          # impossible — the SHA only exists on the remote after the
+          # push completes.
+          #
+          # Push then claim. The synchronize event GitHub fires for
+          # the push takes a few seconds to schedule. The race window
+          # is bounded by the cycle counter (#374's cleanup-claim and
+          # gather's cycle cap), so worst case is a single wasted
+          # extra cycle, not an infinite loop.
+          git push origin "HEAD:${HEAD_REF}"
+
           gh api -X POST "repos/${REPO}/statuses/${NEW_SHA}" \
             -f state=pending \
             -f context=review/pipeline \
-            -f description="cycle=${{ inputs.cycle }} (fixer claim)" >/dev/null
-
-          git push origin "HEAD:${HEAD_REF}"
+            -f description="cycle=${{ inputs.cycle }} (fixer post-push claim)" >/dev/null
 
           echo "new_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
 
