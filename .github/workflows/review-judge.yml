@@ -1,0 +1,94 @@
+---
+name: Review pipeline v2 — judge
+# Reusable: invoked from review-pipeline.yml after the fixer completes.
+# Runs aggregate.mjs (pure deterministic Node) over the reviewer
+# artifacts and the fix-result artifact, emits a verdict, writes the
+# review/verdict commit status on the post-fix SHA, and uploads
+# verdict-<sha>.json as an artifact.
+#
+# CRITICAL: this job's permissions are intentionally `contents: read`
+# and it has NO git credentials in scope. The judge structurally
+# cannot push code. This is the property that closes the
+# autofix → synchronize → re-review loop class from #336.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        type: string
+        required: true
+      reviewed_sha:
+        type: string
+        required: true
+      post_fix_sha:
+        type: string
+        required: true
+      cycle:
+        type: string
+        required: true
+    outputs:
+      verdict:
+        description: 'GO | NO-GO'
+        value: ${{ jobs.judge.outputs.verdict }}
+      verdict_artifact_name:
+        description: 'Artifact name for verdict-<sha>.json'
+        value: ${{ jobs.judge.outputs.verdict_artifact_name }}
+    secrets:
+      WORKFLOW_PAT:
+        required: true
+
+# Read-only by construction. Judge cannot push.
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  judge:
+    name: Aggregate verdicts
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.aggregate.outputs.verdict }}
+      verdict_artifact_name: verdict-${{ inputs.post_fix_sha }}
+    steps:
+      - name: Checkout main (read-only)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download all reviewer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/reviewer-artifacts
+          pattern: reviewer-*-${{ inputs.reviewed_sha }}
+
+      - name: Download fix-result artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/fix-result
+          name: fix-result-${{ inputs.reviewed_sha }}
+
+      - name: Aggregate verdict
+        id: aggregate
+        env:
+          REVIEWER_DIR: /tmp/reviewer-artifacts
+          FIX_RESULT_PATH: /tmp/fix-result/fixer-result.json
+          VERDICT_OUTPUT_PATH: /tmp/verdict-${{ inputs.post_fix_sha }}.json
+        run: node .github/scripts/review/judge.mjs
+
+      - name: Write verdict commit status
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.post_fix_sha }}
+          context: review/verdict
+          state: ${{ steps.aggregate.outputs.verdict == 'GO' && 'success' || 'failure' }}
+          description: ${{ steps.aggregate.outputs.verdict }}
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Upload verdict artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: verdict-${{ inputs.post_fix_sha }}
+          path: /tmp/verdict-${{ inputs.post_fix_sha }}.json

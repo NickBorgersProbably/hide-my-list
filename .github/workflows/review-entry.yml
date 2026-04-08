@@ -1,0 +1,122 @@
+---
+name: Review pipeline v2 — entry
+# SINGLE entry point for the v2 review pipeline. Listens to PR events
+# and `/review` comments. Resolves the head SHA, runs SHA-keyed dedup,
+# and dispatches the orchestrator if and only if this run owns the
+# SHA. /review, reopen, push, and synchronize all collapse into the
+# same path with no per-trigger special-cases.
+#
+# DORMANCY: every job here gates on `vars.REVIEW_PIPELINE_V2 == 'true'`.
+# Until the repo variable is flipped (Phase 3), this workflow runs but
+# all jobs short-circuit and the orchestrator is never invoked. The
+# legacy codex-code-review.yml continues to own real review work.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: review-entry-v2-${{ github.event_name == 'issue_comment' && format('pr-{0}', github.event.issue.number) || github.event.pull_request.head.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve SHA + dedup claim
+    if: vars.REVIEW_PIPELINE_V2 == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.dedup.outputs.claimed }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      reviewed_sha: ${{ steps.resolve.outputs.reviewed_sha }}
+      head_ref: ${{ steps.resolve.outputs.head_ref }}
+      head_repo: ${{ steps.resolve.outputs.head_repo }}
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+    steps:
+      - name: Checkout main (for composite actions)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Resolve PR + head SHA
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          # Pass all event payload fields as env vars rather than
+          # inlining them into the script. actionlint flags inline
+          # use of github.event.* as a script-injection vector
+          # because head.ref / comment.body are user-controlled.
+          PR_EVENT_NUMBER: ${{ github.event.pull_request.number }}
+          PR_EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_EVENT_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ISSUE_EVENT_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            PR_NUMBER="$PR_EVENT_NUMBER"
+            REVIEWED_SHA="$PR_EVENT_HEAD_SHA"
+            HEAD_REF="$PR_EVENT_HEAD_REF"
+            HEAD_REPO="$PR_EVENT_HEAD_REPO"
+            BASE_SHA="$PR_EVENT_BASE_SHA"
+          else
+            # issue_comment — must be on a PR with body matching ^/review\b
+            if [[ ! "$COMMENT_BODY" =~ ^/review([[:space:]]|$) ]]; then
+              echo "review-entry: comment is not /review; nothing to do"
+              exit 0
+            fi
+            PR_NUMBER="$ISSUE_EVENT_NUMBER"
+            PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+            REVIEWED_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+            HEAD_REF=$(echo "$PR_JSON" | jq -r '.head.ref')
+            HEAD_REPO=$(echo "$PR_JSON" | jq -r '.head.repo.full_name')
+            BASE_SHA=$(echo "$PR_JSON" | jq -r '.base.sha')
+          fi
+
+          {
+            echo "pr_number=$PR_NUMBER"
+            echo "reviewed_sha=$REVIEWED_SHA"
+            echo "head_ref=$HEAD_REF"
+            echo "head_repo=$HEAD_REPO"
+            echo "base_sha=$BASE_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: SHA-keyed dedup claim
+        id: dedup
+        if: steps.resolve.outputs.reviewed_sha != ''
+        uses: ./.github/actions/review-dedup
+        with:
+          sha: ${{ steps.resolve.outputs.reviewed_sha }}
+          context: review/pipeline
+          description: 'cycle-claim by review-entry-v2'
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Note dedup result
+        if: steps.dedup.outputs.claimed == 'false'
+        run: |
+          echo "review-entry: SHA already claimed (${{ steps.dedup.outputs.existing_state }}); exiting cleanly"
+
+  pipeline:
+    name: Run review pipeline v2
+    needs: resolve
+    if: vars.REVIEW_PIPELINE_V2 == 'true' && needs.resolve.outputs.should_run == 'true'
+    uses: ./.github/workflows/review-pipeline.yml
+    with:
+      pr_number: ${{ needs.resolve.outputs.pr_number }}
+      reviewed_sha: ${{ needs.resolve.outputs.reviewed_sha }}
+      head_ref: ${{ needs.resolve.outputs.head_ref }}
+      head_repo: ${{ needs.resolve.outputs.head_repo }}
+      base_sha: ${{ needs.resolve.outputs.base_sha }}
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}

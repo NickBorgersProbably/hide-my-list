@@ -1,0 +1,104 @@
+---
+name: Publish reviewer artifact as a GitHub PR Review
+description: >
+  Renders a structured reviewer JSON artifact (conforming to
+  schema/reviewer-v1.json) as a GitHub PR Review using
+  `gh pr review --approve | --request-changes | --comment`.
+
+  PR Reviews and rendered comments are display-only — they exist for
+  humans to read in the PR UI. The judge (aggregate.mjs) consumes the
+  JSON artifact directly and never reads PR comments or PR Reviews.
+
+  This separation closes the comment-scraping fragility class from
+  the v1 monolith: reviewer verdicts are exchanged via structured
+  data, not by parsing markdown back out of the issue API.
+
+inputs:
+  artifact_path:
+    description: Host path to the reviewer JSON artifact
+    required: true
+  pr_number:
+    description: PR number to post the review on
+    required: true
+  github_token:
+    description: GH token (PAT) with PR review write permission (rule 2.3)
+    required: true
+  repo:
+    description: owner/repo (defaults to current repo)
+    required: false
+    default: ${{ github.repository }}
+
+runs:
+  using: composite
+  steps:
+    - name: Render and publish
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        REPO: ${{ inputs.repo }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        ARTIFACT_PATH: ${{ inputs.artifact_path }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -f "$ARTIFACT_PATH" ]; then
+          echo "::error::review-publish: artifact not found at $ARTIFACT_PATH"
+          exit 1
+        fi
+
+        DECISION=$(jq -r '.decision' "$ARTIFACT_PATH")
+        ROLE=$(jq -r '.role' "$ARTIFACT_PATH")
+        SUMMARY=$(jq -r '.summary // ""' "$ARTIFACT_PATH")
+
+        # Render markdown body for the human-facing PR Review.
+        BODY_FILE=$(mktemp)
+        {
+          echo "## $(echo "$ROLE" | sed 's/.*/\u&/') Review"
+          echo
+          if [ -n "$SUMMARY" ]; then
+            echo "$SUMMARY"
+            echo
+          fi
+
+          BLOCKERS=$(jq -r '.blocking_issues | length' "$ARTIFACT_PATH")
+          if [ "$BLOCKERS" -gt 0 ]; then
+            echo "### Blocking Issues"
+            jq -r '.blocking_issues[] | "- **\(.severity)** [`\(.id)`] \(.message)\(if .file then " (`\(.file)\(if .line then ":\(.line)" else "" end)`)" else "" end)"' "$ARTIFACT_PATH"
+            echo
+          fi
+
+          NOTES=$(jq -r '.non_blocking_notes | length' "$ARTIFACT_PATH")
+          if [ "$NOTES" -gt 0 ]; then
+            echo "### Worth Considering"
+            jq -r '.non_blocking_notes[] | "- \(.message)\(if .file then " (`\(.file)\(if .line then ":\(.line)" else "" end)`)" else "" end)"' "$ARTIFACT_PATH"
+            echo
+          fi
+
+          FOLLOWUPS=$(jq -r '.followup_issues | length' "$ARTIFACT_PATH")
+          if [ "$FOLLOWUPS" -gt 0 ]; then
+            echo "### Suggested Follow-up Issues"
+            echo "_(These are well-scoped issues this reviewer would file post-merge.)_"
+            jq -r '.followup_issues[] | "- \(.title)"' "$ARTIFACT_PATH"
+            echo
+          fi
+
+          echo "<sub>Posted by review-pipeline v2 (\`role=$ROLE\`, \`decision=$DECISION\`).</sub>"
+        } > "$BODY_FILE"
+
+        case "$DECISION" in
+          approve)
+            gh pr review "$PR_NUMBER" --repo "$REPO" --approve --body-file "$BODY_FILE"
+            ;;
+          request_changes)
+            gh pr review "$PR_NUMBER" --repo "$REPO" --request-changes --body-file "$BODY_FILE"
+            ;;
+          comment|abstain)
+            gh pr review "$PR_NUMBER" --repo "$REPO" --comment --body-file "$BODY_FILE"
+            ;;
+          *)
+            echo "::error::review-publish: unknown decision '$DECISION'"
+            exit 1
+            ;;
+        esac
+
+        rm -f "$BODY_FILE"
