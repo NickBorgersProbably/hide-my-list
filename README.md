@@ -46,6 +46,16 @@ cd ~/.openclaw/workspace && bash setup/bootstrap.sh
 
 See [setup/README.md](setup/README.md) for full setup instructions.
 
+## Git hooks
+
+Install the repo hooks in every worktree you plan to commit from:
+
+```bash
+bash .githooks/install-hooks.sh
+```
+
+`core.hooksPath` is stored per worktree, so re-run that after each `git worktree add`.
+
 ## Research-informed design
 
 Every feature is evaluated against ADHD clinical research:

@@ -41,6 +41,9 @@
    bash setup/bootstrap.sh
    ```
 
+   Bootstrap installs the repo git hooks for the current worktree by setting
+   `core.hooksPath` to `.githooks/`.
+
 4. Configure OpenClaw:
    ```bash
    # Copy and customize the config template
@@ -100,6 +103,27 @@ git pull origin main
 ```
 
 The agent reads docs on every interaction, so changes take effect immediately. No restart needed unless `openclaw.json` changed.
+
+## Contributor Hooks
+
+Install hooks in every worktree before committing:
+
+```bash
+bash .githooks/install-hooks.sh
+```
+
+The hook contract is:
+- `pre-commit` runs fast staged-file checks.
+- `pre-push` reruns the deterministic CI-equivalent checks for any changed category, so a bad local push is rejected before GitHub is the first place it fails.
+
+`core.hooksPath` is stored per worktree, so `git worktree add` requires re-running `bash .githooks/install-hooks.sh` inside the new worktree.
+
+Manual regression playbook:
+1. Run `bash .githooks/install-hooks.sh`.
+2. Create a feature branch.
+3. Introduce a deliberate workflow lint error, such as an invalid GitHub Actions expression in `.github/workflows/pr-tests.yml`.
+4. Commit the change and run `git push origin HEAD`.
+5. Confirm that `pre-push` rejects the push locally with the same deterministic diagnostic CI would have produced.
 
 ## Troubleshooting
 

@@ -110,7 +110,7 @@ Two meta-lessons span everything below:
 **Evidence:** #224, #226, #230, #248, #260, #270, #280
 
 ### 2.9 Validate workflows with `actionlint` + cross-file ref checks, and keep a devcontainer smoke test for container changes
-**Why:** Yamllint passes broken `uses:` refs, missing script paths, and local-action checkout races. The current `pr-tests.yml` path always runs `actionlint` plus `validate-workflow-refs.sh` for workflow changes, and it adds a devcontainer build smoke test when `.devcontainer/**` changes. If workflow changes start depending on new devcontainer behavior, extend that smoke-test trigger instead of assuming yamllint is enough.
+**Why:** Yamllint passes broken `uses:` refs, missing script paths, and local-action checkout races. The current `pr-tests.yml` path always runs the canonical local/CI runner in `scripts/run-required-checks.sh`, which includes `actionlint` plus `validate-workflow-refs.sh` for workflow changes, and it adds a devcontainer build smoke test when `.devcontainer/**` changes. If workflow changes start depending on new devcontainer behavior, extend that smoke-test trigger instead of assuming yamllint is enough.
 **Evidence:** #232, #207, #219
 
 ### 2.10 Scope env loading per script; fall back to `.env` for host `gh` auth

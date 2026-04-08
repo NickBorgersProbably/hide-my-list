@@ -95,6 +95,12 @@ mkdir -p "$ROOT_DIR/rewards"
 echo "Ensured runtime directories exist"
 echo ""
 
+# --- Git hooks ---
+
+echo "Installing git hooks for this worktree..."
+bash "$ROOT_DIR/.githooks/install-hooks.sh"
+echo ""
+
 # --- Notion connectivity ---
 
 echo "Testing Notion connectivity..."

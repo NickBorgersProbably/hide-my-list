@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Pre-push hook: runs the CI-equivalent deterministic checks for any
+# category touched by the commits being pushed.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+EMPTY_TREE="$(git hash-object -t tree /dev/null)"
+changed_files=()
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  if [ -z "${local_sha:-}" ] || [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+    continue
+  fi
+
+  if [ -z "${remote_sha:-}" ] || [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    mapfile -t ref_files < <(git diff --name-only "$EMPTY_TREE" "$local_sha")
+  else
+    mapfile -t ref_files < <(git diff --name-only "$remote_sha" "$local_sha")
+  fi
+
+  if [ "${#ref_files[@]}" -gt 0 ]; then
+    changed_files+=("${ref_files[@]}")
+  fi
+done
+
+if [ "${#changed_files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+RUN_REQUIRED_CHECKS_CHANGED_FILES="$(printf '%s\n' "${changed_files[@]}" | sed '/^$/d' | sort -u)"
+export RUN_REQUIRED_CHECKS_CHANGED_FILES
+"$REPO_ROOT/scripts/run-required-checks.sh" pre-push
