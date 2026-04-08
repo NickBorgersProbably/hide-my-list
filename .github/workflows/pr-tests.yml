@@ -175,9 +175,11 @@ jobs:
       - name: Install yamllint
         run: pip3 install yamllint
 
-      - name: Run workflow validation
-        run: |
-          yamllint -c .yamllint .github/workflows/*.yml
+      # Keep the pre-bootstrap phase limited to yamllint. All checks that
+      # require actionlint or repo-local workflow validation scripts run only
+      # after the actionlint install step below.
+      - name: Run yamllint
+        run: yamllint -c .yamllint .github/workflows/*.yml
 
       - name: Install actionlint
         run: |
@@ -196,14 +198,11 @@ jobs:
           )
           sudo tar -xzf "${TMP_DIR}/${ARCHIVE}" -C /usr/local/bin actionlint
 
-      - name: Run actionlint
-        run: actionlint .github/workflows/*.yml
-
-      - name: Validate cross-file workflow references
-        run: ./scripts/validate-workflow-refs.sh
-
-      - name: Validate GitHub CLI usage in workflows
-        run: ./scripts/validate-gh-cli-usage.sh
+      - name: Run actionlint-dependent workflow checks
+        run: |
+          actionlint .github/workflows/*.yml
+          ./scripts/validate-workflow-refs.sh
+          ./scripts/validate-gh-cli-usage.sh
 
   devcontainer-validation:
     name: Devcontainer Build Check
