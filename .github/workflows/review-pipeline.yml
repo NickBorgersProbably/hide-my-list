@@ -8,7 +8,9 @@ name: Review pipeline v2 — orchestrator
 #
 # State is SHA-keyed: every stage writes a review/* commit status on
 # the SHA it operated on. The cycle counter walks the commit chain
-# back to the PR base via review-state read-cycle.
+# back to the frozen PR base via review-state read-cycle, and all
+# diff-based routing must use that same immutable base SHA rather
+# than mutable origin/main.
 
 on:
   workflow_call:
@@ -105,7 +107,7 @@ jobs:
         if: steps.cap.outputs.capped != 'true'
         uses: ./.github/actions/review-classify
         with:
-          base_ref: origin/main
+          base_sha: ${{ inputs.base_sha }}
           head_sha: ${{ inputs.reviewed_sha }}
 
       - name: Stamp gather status
@@ -168,6 +170,7 @@ jobs:
       role: design
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
@@ -186,6 +189,7 @@ jobs:
       role: security
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
@@ -204,6 +208,7 @@ jobs:
       role: psych
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
@@ -222,6 +227,7 @@ jobs:
       role: docs
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
@@ -240,6 +246,7 @@ jobs:
       role: prompt
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}

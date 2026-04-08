@@ -30,7 +30,8 @@ Lens:
 
 ## Procedure
 
-1. `git diff origin/main...HEAD` — read the full diff.
+1. `git diff "${PR_BASE_SHA}"...HEAD` — read the full diff from the
+   frozen PR base.
 2. For each changed `.md` file, identify cross-references and
    double-check them.
 3. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline

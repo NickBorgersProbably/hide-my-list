@@ -2,8 +2,9 @@
 name: Review pipeline file classifier
 description: >
   Single source of truth for "which reviewer roles apply to this SHA"
-  in the v2 review pipeline. Classifies the diff against origin/main
-  and emits a JSON list of applicable roles.
+  in the v2 review pipeline. Classifies the diff against the frozen
+  PR base SHA captured at entry time and emits a JSON list of
+  applicable roles.
 
   Today the rules are:
     - design:    always
@@ -24,8 +25,8 @@ description: >
   design/adhd-priorities.md, and .github/scripts/review/prompts/*.md.
 
 inputs:
-  base_ref:
-    description: Base ref to diff against
+  base_sha:
+    description: Frozen PR base revision to diff against
     required: false
     default: origin/main
   head_sha:
@@ -50,19 +51,20 @@ runs:
       id: classify
       shell: bash
       env:
-        BASE_REF: ${{ inputs.base_ref }}
+        BASE_SHA: ${{ inputs.base_sha }}
         HEAD_SHA: ${{ inputs.head_sha }}
       run: |
         set -euo pipefail
 
         git fetch origin main >/dev/null 2>&1 || true
 
-        FILES=$(git diff --name-only "${BASE_REF}"...HEAD 2>/dev/null || echo "")
+        FILES=$(git diff --name-only "${BASE_SHA}"...HEAD 2>/dev/null || echo "")
         if [ -z "$FILES" ]; then
           # No diff (e.g. empty PR). Classify as docs_only so only the
           # cheap reviewers run; the judge will produce a vacuous result
-          # and the orchestrator will fail closed.
-          echo "review-classify: empty diff for $HEAD_SHA"
+          # and the orchestrator will fail closed. This should be
+          # computed against the immutable PR base, not mutable main.
+          echo "review-classify: empty diff for $HEAD_SHA vs base $BASE_SHA"
         fi
 
         DOCS_ONLY=true

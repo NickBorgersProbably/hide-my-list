@@ -37,7 +37,8 @@ If the diff does not touch any prompt or `.md` agent-spec file, set
 
 ## Procedure
 
-1. `git diff origin/main...HEAD` — read the full diff.
+1. `git diff "${PR_BASE_SHA}"...HEAD` — read the full diff from the
+   frozen PR base.
 2. For each changed prompt file, apply the lens above and
    cross-reference related prompts.
 3. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline

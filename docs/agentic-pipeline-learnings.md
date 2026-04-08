@@ -46,7 +46,7 @@ Two meta-lessons span everything below:
 **Evidence:** #244, #234
 
 ### 1.7 Track immutable `reviewed_sha`, separate from the branch ref
-**Why:** Reviewers and fixers must check out the immutable `reviewed_sha`, not the mutable branch ref, because the branch may be deleted or advanced while the pipeline is still working. Any branch-writing stage must also re-read `origin/<head_ref>` immediately before push and refuse to publish if that tip no longer equals the frozen `reviewed_sha`; otherwise it can silently overwrite newer author commits with changes prepared against stale code.
+**Why:** Reviewers and fixers must check out the immutable `reviewed_sha`, not the mutable branch ref, because the branch may be deleted or advanced while the pipeline is still working. The same rule applies to diff computation: classifier routing and reviewer prompts must compare `${reviewed_sha}` against the frozen PR base SHA captured at entry time, not mutable `origin/main`, or post-merge/delayed runs can collapse to an empty diff and silently skip specialist coverage. Any branch-writing stage must also re-read `origin/<head_ref>` immediately before push and refuse to publish if that tip no longer equals the frozen `reviewed_sha`; otherwise it can silently overwrite newer author commits with changes prepared against stale code.
 **Before:** Post-merge follow-ups failed with "could not fetch ref".
 **Evidence:** #308, #351, #353, #354
 
