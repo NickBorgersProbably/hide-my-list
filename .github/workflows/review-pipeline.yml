@@ -1,0 +1,189 @@
+---
+name: Review pipeline v2 — orchestrator
+# Reusable: invoked from review-entry.yml after dedup has claimed the
+# reviewed SHA. This is pure orchestration glue — no Codex calls,
+# no inline shell prompts. It threads the reviewed SHA through:
+#
+#   gather → reviewers (matrix, parallel) → fix → judge → finalize
+#
+# State is SHA-keyed: every stage writes a review/* commit status on
+# the SHA it operated on. The cycle counter walks the commit chain
+# back to the PR base via review-state read-cycle.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        type: string
+        required: true
+      reviewed_sha:
+        type: string
+        required: true
+      head_ref:
+        type: string
+        required: true
+      head_repo:
+        type: string
+        required: true
+      base_sha:
+        type: string
+        required: true
+    secrets:
+      WORKFLOW_PAT:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+  issues: write
+
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+
+concurrency:
+  # SHA-keyed concurrency: two events for the same SHA collapse;
+  # different SHAs are independent runs of the pipeline (which is
+  # exactly the cycle granularity we want).
+  group: review-pipeline-v2-${{ inputs.reviewed_sha }}
+  cancel-in-progress: false
+
+jobs:
+  gather:
+    name: Gather + classify + cycle check
+    runs-on: ubuntu-latest
+    outputs:
+      roles_json: ${{ steps.classify.outputs.roles_json }}
+      cycle: ${{ steps.cycle.outputs.cycle }}
+      capped: ${{ steps.cap.outputs.capped }}
+    steps:
+      - name: Checkout reviewed SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          fetch-depth: 0
+
+      - name: Read prior cycle from commit chain
+        id: cycle-read
+        uses: ./.github/actions/review-state
+        with:
+          op: read-cycle
+          sha: ${{ inputs.reviewed_sha }}
+          base_sha: ${{ inputs.base_sha }}
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Compute next cycle and cap check
+        id: cycle
+        env:
+          PRIOR: ${{ steps.cycle-read.outputs.cycle }}
+        run: |
+          set -euo pipefail
+          NEXT=$(( PRIOR + 1 ))
+          echo "cycle=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "review-pipeline-v2: prior cycle=$PRIOR next=$NEXT"
+
+      - name: Cap check
+        id: cap
+        env:
+          NEXT: ${{ steps.cycle.outputs.cycle }}
+          MAX: '3'
+        run: |
+          set -euo pipefail
+          if [ "$NEXT" -gt "$MAX" ]; then
+            echo "capped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "capped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Classify diff into reviewer roles
+        id: classify
+        if: steps.cap.outputs.capped != 'true'
+        uses: ./.github/actions/review-classify
+        with:
+          base_ref: origin/main
+          head_sha: ${{ inputs.reviewed_sha }}
+
+      - name: Stamp gather status
+        if: steps.cap.outputs.capped != 'true'
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.reviewed_sha }}
+          context: review/gather
+          state: success
+          description: 'cycle=${{ steps.cycle.outputs.cycle }} roles=${{ steps.classify.outputs.roles_json }}'
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+  cap-exhausted:
+    name: Cycle cap exhausted (terminal NO-GO)
+    needs: gather
+    if: needs.gather.outputs.capped == 'true'
+    uses: ./.github/workflows/review-finalize.yml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      post_fix_sha: ${{ inputs.reviewed_sha }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      verdict: 'NO-GO'
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  reviewers:
+    name: Reviewer (${{ matrix.role }})
+    needs: gather
+    if: needs.gather.outputs.capped != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJSON(needs.gather.outputs.roles_json) }}
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: ${{ matrix.role }}
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  fix:
+    name: Apply reviewer-requested fixes
+    needs: [gather, reviewers]
+    if: needs.gather.outputs.capped != 'true'
+    uses: ./.github/workflows/review-fixer.yml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  judge:
+    name: Judge (read-only aggregator)
+    needs: [gather, reviewers, fix]
+    if: needs.gather.outputs.capped != 'true'
+    uses: ./.github/workflows/review-judge.yml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      post_fix_sha: ${{ needs.fix.outputs.new_sha }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  finalize:
+    name: Finalize verdict
+    needs: [gather, fix, judge]
+    if: needs.gather.outputs.capped != 'true'
+    uses: ./.github/workflows/review-finalize.yml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      post_fix_sha: ${{ needs.fix.outputs.new_sha }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      verdict: ${{ needs.judge.outputs.verdict }}
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}

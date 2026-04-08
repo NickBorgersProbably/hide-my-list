@@ -1,0 +1,155 @@
+---
+name: Review pipeline SHA-keyed state
+description: >
+  Read and write the v2 review pipeline's per-SHA state via GitHub
+  commit statuses. State that needs to survive workflow runs lives on
+  the reviewed commit, not on PR labels (per agentic-pipeline-learnings
+  §1.11). The cycle counter is the integer in the status `description`
+  field of the `review/cycle` context, walked back through the PR's
+  commit chain to find the max prior value.
+
+  This action wraps three operations:
+    - read-cycle:   walk parent SHAs from the input SHA back to base
+                    looking for the highest prior `review/cycle` value
+    - write-status: set an arbitrary review/* commit status on a SHA
+    - read-status:  read the latest state of a review/* context on a SHA
+
+  All operations are idempotent on the same SHA — re-running the same
+  write produces the same observable state, which is what makes the
+  dedup contract safe under concurrent synchronize events.
+
+inputs:
+  op:
+    description: 'Operation: read-cycle | write-status | read-status'
+    required: true
+  sha:
+    description: Target commit SHA
+    required: true
+  base_sha:
+    description: Base SHA to walk back to (for read-cycle)
+    required: false
+    default: ''
+  context:
+    description: Commit-status context for write-status / read-status
+    required: false
+    default: ''
+  state:
+    description: 'Status state for write-status: pending|success|failure|error'
+    required: false
+    default: 'success'
+  description:
+    description: Status description for write-status (<=140 chars)
+    required: false
+    default: ''
+  github_token:
+    description: GH token with statuses:read+write on the target repo
+    required: true
+  repo:
+    description: owner/repo (defaults to current repo)
+    required: false
+    default: ${{ github.repository }}
+
+outputs:
+  cycle:
+    description: 'Highest prior cycle observed in the commit chain (read-cycle)'
+    value: ${{ steps.run.outputs.cycle }}
+  state:
+    description: 'Current state of the requested context (read-status)'
+    value: ${{ steps.run.outputs.state }}
+  description:
+    description: 'Current description of the requested context (read-status)'
+    value: ${{ steps.run.outputs.description }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run state op
+      id: run
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        REPO: ${{ inputs.repo }}
+        SHA: ${{ inputs.sha }}
+        BASE_SHA: ${{ inputs.base_sha }}
+        OP: ${{ inputs.op }}
+        CTX: ${{ inputs.context }}
+        STATE: ${{ inputs.state }}
+        DESC: ${{ inputs.description }}
+      run: |
+        set -euo pipefail
+
+        if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::review-state: invalid SHA '$SHA'"
+          exit 1
+        fi
+
+        case "$OP" in
+          read-cycle)
+            if [ -z "$BASE_SHA" ]; then
+              echo "::error::review-state read-cycle requires base_sha"
+              exit 1
+            fi
+            # Walk from SHA back toward BASE_SHA looking for review/cycle
+            # status. We bound the walk to 50 commits to avoid runaway loops
+            # on long-lived branches; cycle cap is 3 so 50 is far more than
+            # enough headroom.
+            MAX_DEPTH=50
+            CURRENT="$SHA"
+            HIGHEST=0
+            for _ in $(seq 1 "$MAX_DEPTH"); do
+              if [ "$CURRENT" = "$BASE_SHA" ] || [ -z "$CURRENT" ]; then
+                break
+              fi
+              VALUE=$(gh api "repos/${REPO}/commits/${CURRENT}/statuses" \
+                --jq "[.[] | select(.context == \"review/cycle\")] | sort_by(.created_at) | last // empty | .description // empty" \
+                2>/dev/null || echo "")
+              if [[ "$VALUE" =~ ^[0-9]+$ ]] && [ "$VALUE" -gt "$HIGHEST" ]; then
+                HIGHEST="$VALUE"
+              fi
+              # Step to first parent.
+              PARENT=$(gh api "repos/${REPO}/commits/${CURRENT}" \
+                --jq '.parents[0].sha // empty' 2>/dev/null || echo "")
+              CURRENT="$PARENT"
+            done
+            echo "cycle=$HIGHEST" >> "$GITHUB_OUTPUT"
+            ;;
+
+          write-status)
+            if [ -z "$CTX" ]; then
+              echo "::error::review-state write-status requires context"
+              exit 1
+            fi
+            gh api -X POST "repos/${REPO}/statuses/${SHA}" \
+              -f state="${STATE}" \
+              -f context="${CTX}" \
+              -f description="${DESC}" >/dev/null
+            ;;
+
+          read-status)
+            if [ -z "$CTX" ]; then
+              echo "::error::review-state read-status requires context"
+              exit 1
+            fi
+            PAYLOAD=$(gh api "repos/${REPO}/commits/${SHA}/statuses" \
+              --jq "[.[] | select(.context == \"${CTX}\")] | sort_by(.created_at) | last // empty" \
+              2>/dev/null || echo "")
+            if [ -z "$PAYLOAD" ] || [ "$PAYLOAD" = "null" ]; then
+              {
+                echo "state="
+                echo "description="
+              } >> "$GITHUB_OUTPUT"
+            else
+              ST=$(echo "$PAYLOAD" | jq -r '.state // ""')
+              DS=$(echo "$PAYLOAD" | jq -r '.description // ""')
+              {
+                echo "state=$ST"
+                echo "description=$DS"
+              } >> "$GITHUB_OUTPUT"
+            fi
+            ;;
+
+          *)
+            echo "::error::review-state: unknown op '$OP'"
+            exit 1
+            ;;
+        esac
