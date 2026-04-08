@@ -996,14 +996,30 @@ jobs:
       # Keep post-actions out of the local composite action. Re-checking out the
       # PR branch over the workspace that contains ./.github/actions/reviewer-setup
       # can trigger runner cleanup failures on self-hosted runners.
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         if: steps.setup.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
+          ref: ${{ needs.get-context.outputs.reviewed_sha }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Reattach PR branch when available
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          HEAD_REF: ${{ needs.get-context.outputs.head_ref }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git checkout -B "$HEAD_REF" "$REVIEWED_SHA"
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF"
+            echo "Attached local branch $HEAD_REF to reviewed commit $REVIEWED_SHA"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; staying on detached reviewed SHA $REVIEWED_SHA"
+          fi
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
@@ -1224,14 +1240,30 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         if: steps.setup.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
+          ref: ${{ needs.get-context.outputs.reviewed_sha }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Reattach PR branch when available
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          HEAD_REF: ${{ needs.get-context.outputs.head_ref }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git checkout -B "$HEAD_REF" "$REVIEWED_SHA"
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF"
+            echo "Attached local branch $HEAD_REF to reviewed commit $REVIEWED_SHA"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; staying on detached reviewed SHA $REVIEWED_SHA"
+          fi
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
@@ -1415,14 +1447,30 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         if: steps.setup.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
+          ref: ${{ needs.get-context.outputs.reviewed_sha }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Reattach PR branch when available
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          HEAD_REF: ${{ needs.get-context.outputs.head_ref }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git checkout -B "$HEAD_REF" "$REVIEWED_SHA"
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF"
+            echo "Attached local branch $HEAD_REF to reviewed commit $REVIEWED_SHA"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; staying on detached reviewed SHA $REVIEWED_SHA"
+          fi
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
@@ -1658,14 +1706,30 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         if: steps.setup.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
+          ref: ${{ needs.get-context.outputs.reviewed_sha }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Reattach PR branch when available
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          HEAD_REF: ${{ needs.get-context.outputs.head_ref }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git checkout -B "$HEAD_REF" "$REVIEWED_SHA"
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF"
+            echo "Attached local branch $HEAD_REF to reviewed commit $REVIEWED_SHA"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; staying on detached reviewed SHA $REVIEWED_SHA"
+          fi
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
@@ -1861,14 +1925,30 @@ jobs:
             echo "Added all-reviews-started label to PR #$PR_NUMBER"
           fi
 
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         if: steps.setup.outputs.verified == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.get-context.outputs.head_ref }}
+          ref: ${{ needs.get-context.outputs.reviewed_sha }}
           repository: ${{ needs.get-context.outputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Reattach PR branch when available
+        if: steps.setup.outputs.verified == 'true'
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          HEAD_REF: ${{ needs.get-context.outputs.head_ref }}
+          REVIEWED_SHA: ${{ needs.get-context.outputs.reviewed_sha }}
+        run: |
+          if git ls-remote --exit-code origin "refs/heads/${HEAD_REF}" >/dev/null 2>&1; then
+            git checkout -B "$HEAD_REF" "$REVIEWED_SHA"
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF"
+            echo "Attached local branch $HEAD_REF to reviewed commit $REVIEWED_SHA"
+          else
+            echo "PR branch origin/$HEAD_REF no longer exists; staying on detached reviewed SHA $REVIEWED_SHA"
+          fi
 
       - name: Create directories for devcontainer mounts
         if: steps.setup.outputs.verified == 'true'
