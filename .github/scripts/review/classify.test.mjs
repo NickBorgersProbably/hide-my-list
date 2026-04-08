@@ -84,3 +84,45 @@ test("SHA-bound diff returns changed files for workflow changes", (t) => {
   const files = getChangedFiles({ cwd, baseSha, headSha });
   assert.deepEqual(files, [".github/workflows/review-pipeline.yml"]);
 });
+
+test("SHA-bound diff keeps PR semantics when the base branch advances", (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "review-classify-diverged-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+
+  execFileSync("git", ["init", "-b", "main"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Codex"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "codex@example.com"], {
+    cwd,
+    stdio: "ignore",
+  });
+
+  writeFileSync(join(cwd, "README.md"), "base\n");
+  execFileSync("git", ["add", "README.md"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "base"], { cwd, stdio: "ignore" });
+
+  execFileSync("git", ["checkout", "-b", "feature"], { cwd, stdio: "ignore" });
+  mkdirSync(join(cwd, "docs"), { recursive: true });
+  writeFileSync(join(cwd, "docs", "feature.md"), "feature change\n");
+  execFileSync("git", ["add", "docs/feature.md"], { cwd, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "feature change"], { cwd, stdio: "ignore" });
+  const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+  }).trim();
+
+  execFileSync("git", ["checkout", "main"], { cwd, stdio: "ignore" });
+  mkdirSync(join(cwd, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(cwd, ".github", "workflows", "review-pipeline.yml"), "name: main-only\n");
+  execFileSync("git", ["add", ".github/workflows/review-pipeline.yml"], {
+    cwd,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["commit", "-m", "main only change"], { cwd, stdio: "ignore" });
+  const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+  }).trim();
+
+  const files = getChangedFiles({ cwd, baseSha, headSha });
+  assert.deepEqual(files, ["docs/feature.md"]);
+});

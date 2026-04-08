@@ -94,7 +94,7 @@ export function getChangedFiles({ baseSha = "", baseRef = "", headSha, cwd = pro
 
   const diffArgs = ["diff", "--name-only"];
   if (baseSha) {
-    diffArgs.push(baseSha, headSha);
+    diffArgs.push(`${baseSha}...${headSha}`);
   } else if (baseRef) {
     diffArgs.push(`${baseRef}...${headSha}`);
   } else {
