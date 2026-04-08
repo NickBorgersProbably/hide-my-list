@@ -126,17 +126,112 @@ jobs:
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
-  reviewers:
-    name: Reviewer (${{ matrix.role }})
+  # Per-role caller jobs.
+  #
+  # Why five separate jobs instead of one matrix job:
+  #
+  # GitHub Actions does NOT support a dynamic `strategy.matrix` (one
+  # built from `fromJSON(needs.*.outputs.*)`) on a reusable-workflow
+  # caller (`uses:`). The validator must resolve matrix dimensions at
+  # workflow load time, before any job has run. Trying it produces a
+  # `startup_failure` with no logs (this is the bug from #356/#358).
+  #
+  # AND: `matrix.*` context is NOT available in `jobs.<id>.if` on a
+  # reusable-workflow caller — only `github`, `inputs`, `needs`, and
+  # `vars` are. So we can't even declare a static matrix and gate
+  # per-row from `matrix.role`.
+  #
+  # The remaining options are: (a) always run all five reviewers and
+  # have abstain be a no-op at the prompt layer (wastes Codex calls
+  # and devcontainer spin-up), or (b) declare five separate caller
+  # jobs, each with a static role and an `if:` checking the
+  # classifier output. (b) is verbose but minimal-cost; we use it.
+  #
+  # Each job's `if:` is statically resolvable at workflow load time
+  # (the role string is a literal constant; the runtime check is
+  # `contains(needs.gather.outputs.roles_json, '<role>')`).
+
+  review-design:
+    name: Reviewer (design)
     needs: gather
-    if: needs.gather.outputs.capped != 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        role: ${{ fromJSON(needs.gather.outputs.roles_json) }}
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'design')
     uses: ./.github/workflows/review-reviewer.yml
     with:
-      role: ${{ matrix.role }}
+      role: design
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  review-security:
+    name: Reviewer (security)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'security')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: security
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  review-psych:
+    name: Reviewer (psych)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'psych')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: psych
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  review-docs:
+    name: Reviewer (docs)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'docs')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: docs
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  review-prompt:
+    name: Reviewer (prompt)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'prompt')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: prompt
       pr_number: ${{ inputs.pr_number }}
       reviewed_sha: ${{ inputs.reviewed_sha }}
       head_ref: ${{ inputs.head_ref }}
@@ -148,7 +243,7 @@ jobs:
 
   fix:
     name: Apply reviewer-requested fixes
-    needs: [gather, reviewers]
+    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt]
     if: needs.gather.outputs.capped != 'true'
     uses: ./.github/workflows/review-fixer.yml
     with:
@@ -163,7 +258,7 @@ jobs:
 
   judge:
     name: Judge (read-only aggregator)
-    needs: [gather, reviewers, fix]
+    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt, fix]
     if: needs.gather.outputs.capped != 'true'
     uses: ./.github/workflows/review-judge.yml
     with:
