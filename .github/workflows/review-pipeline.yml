@@ -39,6 +39,7 @@ permissions:
   # GITHUB_TOKEN; this declaration must be a subset of the
   # caller's (review-entry.yml) permissions.
   contents: read
+  issues: read
   pull-requests: read
   statuses: read
 
