@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
   pull-requests: read
   statuses: write
 
@@ -27,9 +28,92 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize:
+    name: Authorize trigger
+    if: vars.REVIEW_PIPELINE_V2 == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      authorized: ${{ steps.authorize.outputs.authorized }}
+      pr_number: ${{ steps.authorize.outputs.pr_number }}
+      reason: ${{ steps.authorize.outputs.reason }}
+    steps:
+      - name: Validate trigger, repo origin, and trust level
+        id: authorize
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const allowedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+
+            const output = (key, value) => core.setOutput(key, String(value ?? ''));
+            let authorized = false;
+            let prNumber = '';
+            let reason = '';
+
+            if (context.eventName === 'pull_request') {
+              const pr = context.payload.pull_request;
+              prNumber = String(pr.number);
+
+              if (pr.head.repo.full_name !== repoFullName) {
+                reason = `external-pr:${pr.head.repo.full_name}`;
+              } else if (!allowedAssociations.has(pr.author_association)) {
+                reason = `pr-author:${pr.author_association}`;
+              } else {
+                authorized = true;
+              }
+            } else if (context.eventName === 'issue_comment') {
+              const issue = context.payload.issue;
+              const comment = context.payload.comment;
+              const body = (comment.body || '').trim();
+
+              if (!issue.pull_request) {
+                reason = 'not-pr-comment';
+              } else if (!/^\/review(?:\s|$)/.test(body)) {
+                reason = 'not-review-command';
+              } else if (!allowedAssociations.has(comment.author_association)) {
+                reason = `comment-author:${comment.author_association}`;
+              } else {
+                prNumber = String(issue.number);
+
+                const [{ data: issueData }, { data: prData }] = await Promise.all([
+                  github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                  }),
+                  github.rest.pulls.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: issue.number,
+                  }),
+                ]);
+
+                if (prData.head.repo.full_name !== repoFullName) {
+                  reason = `external-pr:${prData.head.repo.full_name}`;
+                } else if (!allowedAssociations.has(issueData.author_association)) {
+                  reason = `pr-author:${issueData.author_association}`;
+                } else {
+                  authorized = true;
+                }
+              }
+            } else {
+              reason = `unsupported-event:${context.eventName}`;
+            }
+
+            core.info(
+              authorized
+                ? `review-entry authorized for PR #${prNumber}`
+                : `review-entry skipped: ${reason || 'not authorized'}`
+            );
+
+            output('authorized', authorized ? 'true' : 'false');
+            output('pr_number', prNumber);
+            output('reason', reason || 'authorized');
+
   resolve:
     name: Resolve SHA + dedup claim
-    if: vars.REVIEW_PIPELINE_V2 == 'true'
+    needs: authorize
+    if: vars.REVIEW_PIPELINE_V2 == 'true' && needs.authorize.outputs.authorized == 'true'
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.dedup.outputs.claimed }}
@@ -109,8 +193,8 @@ jobs:
 
   pipeline:
     name: Run review pipeline v2
-    needs: resolve
-    if: vars.REVIEW_PIPELINE_V2 == 'true' && needs.resolve.outputs.should_run == 'true'
+    needs: [authorize, resolve]
+    if: vars.REVIEW_PIPELINE_V2 == 'true' && needs.authorize.outputs.authorized == 'true' && needs.resolve.outputs.should_run == 'true'
     uses: ./.github/workflows/review-pipeline.yml
     with:
       pr_number: ${{ needs.resolve.outputs.pr_number }}

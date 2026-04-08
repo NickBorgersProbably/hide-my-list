@@ -123,15 +123,26 @@ jobs:
             meaningful gap that warrants proposing a new review step or changes to an
             existing one.
 
-            **THE EXISTING REVIEW PIPELINE (6 stages):**
+            **THE EXISTING REVIEW PIPELINE**
+
+            The repo currently runs one of two pipelines, selected by the
+            repo variable \`REVIEW_PIPELINE_V2\` (see AGENTS.md \"Review
+            Pipeline\" section and docs/agentic-pipeline-learnings.md
+            §1.4 / §1.5 for the full contract).
+
+            Reviewer roles 1-5 are the same in both pipelines:
             1. Design Review - validates PR implements issue intent, reviews design quality, and checks docs-as-spec consistency
-            2. Security & Infrastructure Review - script safety,
-               credential handling, workflow permissions, and GitHub
-               Actions/runtime correctness for CI orchestration changes
+            2. Security & Infrastructure Review - script safety, credential handling, workflow permissions, and GitHub Actions/runtime correctness for CI orchestration changes
             3. Psych Research Review - evaluates user-facing changes against ADHD research literature
             4. Prompt Engineering Review - validates prompt clarity, constraints, and cross-prompt consistency
             5. Documentation Consistency Review - checks docs for contradictions, stale references, and cross-doc consistency
-            6. Merge Decision - synthesizes all review feedback into GO-CLEAN, GO-WITH-RESERVATIONS, or NO-GO
+
+            The verdict stage differs by pipeline:
+
+            - v1 (legacy \`codex-code-review.yml\`, \`vars.REVIEW_PIPELINE_V2 != 'true'\`): the merge-decision agent applies fixes inline and emits one of three outcomes — GO-CLEAN, GO-WITH-RESERVATIONS, or NO-GO.
+            - v2 (\`review-entry.yml\` + reusable workflows, \`vars.REVIEW_PIPELINE_V2 == 'true'\`): a deterministic read-only judge (\`.github/scripts/review/aggregate.mjs\`) emits a binary GO / NO-GO from structured reviewer artifacts conforming to \`schema/reviewer-v1.json\`. The agentic fixer runs *before* the judge and *after* the reviewers.
+
+            When evaluating coverage, identify which pipeline this PR was reviewed under (look for v2 reviewer artifact comments or v1 \`## Merge Decision\` comments) and reason about gaps in the reviewer-role surface, not the verdict shape. The reviewer roles are what matter for coverage; the verdict shape is implementation detail.
 
             **YOUR TASK:**
             1. Read the full PR diff: \`gh pr diff ${PR_NUMBER}\`

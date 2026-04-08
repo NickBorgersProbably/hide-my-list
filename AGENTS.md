@@ -187,13 +187,22 @@ Log significant interactions, preference learning, and any issues.
 
 ## Review Pipeline
 
-PRs are reviewed by a multi-agent Codex pipeline:
+PRs are reviewed by a multi-agent Codex pipeline. The reviewer roles are the same in both versions; only the orchestration differs.
+
+**Reviewer roles** (both versions):
 1. Design Review — validates intent fulfillment and design quality, and runs a docs-as-spec consistency check whenever spec-critical files change
 2. Security & Infrastructure Review — script safety, credential handling, workflow permissions, and GitHub Actions/runtime correctness for CI orchestration changes
 3. Psych Research Review — validates against ADHD clinical research
 4. Prompt Engineering Review — validates prompt clarity, constraints, and cross-prompt consistency
 5. Documentation Consistency Review — checks docs for contradictions, stale references, and cross-doc consistency
-6. Merge Decision — synthesizes all reviews into one of three outcomes: **GO-CLEAN** (merge-ready, no re-review), **GO-WITH-RESERVATIONS** (applied fixes, triggers exactly one re-review cycle), or **NO-GO** (closes the PR and creates a follow-up issue capturing what was learned)
+6. Judge / Merge Decision — synthesizes all reviews into a verdict
+
+**Active version** is selected by the repo variable `REVIEW_PIPELINE_V2`:
+
+- **v1 — `vars.REVIEW_PIPELINE_V2 != 'true'`** (default). Lives in `.github/workflows/codex-code-review.yml`. The merge-decision agent itself reads PR comments, applies fixes, pushes commits, and emits one of three verdicts: **GO-CLEAN**, **GO-WITH-RESERVATIONS** (applied fixes, triggers exactly one re-review), or **NO-GO** (closes the PR and creates a follow-up issue).
+- **v2 — `vars.REVIEW_PIPELINE_V2 == 'true'`**. Lives in `.github/workflows/review-entry.yml` and dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. The judge is a deterministic Node script (`.github/scripts/review/aggregate.mjs`) running with `permissions: contents: read` — it cannot push, by construction. The fixer runs *after* reviewers and *before* the judge, claims its output SHA on `review/pipeline` *before* publishing the push, and is the only stage with write permission. Verdicts are binary **GO** / **NO-GO**; NO-GO labels the PR `needs-human-review` and stops without closing or auto-creating issues. Reviewer prompts are standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 and §1.5 for the design decisions and the rules they obsolete from v1.
+
+The two pipelines are mutually exclusive via gate jobs: flipping the variable atomically swaps which one runs. There is no shared state to migrate.
 
 ## When Making Changes
 
