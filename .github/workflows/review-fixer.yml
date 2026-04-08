@@ -117,7 +117,12 @@ jobs:
           ARTIFACT: ${{ steps.run.outputs.result_json }}
         run: |
           set -euo pipefail
+          # Schema declares $schema: draft/2020-12. ajv-cli@5 needs an
+          # explicit --spec=draft2020 flag to register the meta-schema;
+          # without it the schema parse fails with "no schema with key
+          # or ref https://json-schema.org/draft/2020-12/schema".
           npx -y ajv-cli@5 validate \
+            --spec=draft2020 \
             -s .github/scripts/review/schema/fix-result-v1.json \
             -d "$ARTIFACT"
 
