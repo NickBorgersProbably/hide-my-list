@@ -18,24 +18,24 @@ on:
     types: [created]
 
 permissions:
-  # Reusable-workflow callees can only request a SUBSET of the
-  # caller's permissions. review-entry.yml is the top of the v2
-  # dispatch chain, so it must declare the UNION of every
-  # permission any downstream reusable workflow needs:
-  #   - review-reviewer.yml needs pull-requests: write to post
-  #     GitHub PR Reviews via review-publish
-  #   - review-fixer.yml needs contents: write to push the fixer
-  #     commit, plus pull-requests: write
-  #   - review-finalize.yml needs issues: write (label create) and
-  #     pull-requests: write (sticky comment + label apply)
-  #   - all stages need statuses: write to advance review/* state
-  # The downstream workflows still re-declare their narrower needs
-  # in their own permissions: blocks; this just ensures the chain
-  # validates at workflow load time.
-  contents: write
-  issues: write
-  pull-requests: write
-  statuses: write
+  # GITHUB_TOKEN is only used for `actions/checkout@v4` (read) and
+  # the `statuses:` updates the entry workflow does directly via
+  # the dedup action (which actually authenticates via WORKFLOW_PAT
+  # — see comment below).
+  #
+  # Every actual write operation in the v2 pipeline — posting PR
+  # Reviews, pushing fixer commits, applying labels, writing
+  # commit statuses — uses `secrets.WORKFLOW_PAT` per
+  # agentic-pipeline-learnings.md §2.3, NOT GITHUB_TOKEN. So the
+  # GITHUB_TOKEN scopes for the entire reusable graph can stay
+  # at minimum-privilege read.
+  #
+  # GH validates that reusable callees declare a SUBSET of the
+  # caller's permissions block, so this read-only declaration
+  # forces every downstream review-*.yml to also declare read-only.
+  contents: read
+  pull-requests: read
+  statuses: read
 
 concurrency:
   group: review-entry-v2-${{ github.event_name == 'issue_comment' && format('pr-{0}', github.event.issue.number) || github.event.pull_request.head.ref }}
