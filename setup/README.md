@@ -101,6 +101,24 @@ git pull origin main
 
 The agent reads docs on every interaction, so changes take effect immediately. No restart needed unless `openclaw.json` changed.
 
+## Git Hooks
+
+The repo uses versioned hooks in `.githooks/` to block pushes that would fail deterministic local CI checks. Install them in each worktree with:
+
+```bash
+bash .githooks/install-hooks.sh
+```
+
+The devcontainer runs that installer automatically on first create, but linked worktrees need their own hook path. After every `git worktree add`, re-run `bash .githooks/install-hooks.sh` inside the new worktree so `core.hooksPath` points at that worktree's `.githooks/` directory.
+
+Manual regression playbook for the push gate:
+
+1. Create a feature branch and run `bash .githooks/install-hooks.sh`.
+2. Introduce a known workflow lint failure, such as a malformed GitHub Actions expression in `.github/workflows/pr-tests.yml`.
+3. Commit the change and run `git push`.
+4. Confirm `.githooks/pre-push` rejects the push locally with the same `actionlint` diagnostic CI would have produced.
+5. Fix the workflow file and push again.
+
 ## Troubleshooting
 
 **Reminders not firing:**

@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Pre-push hook: run the local-required CI checks before allowing a push.
+# Install with: bash .githooks/install-hooks.sh
+
+set -euo pipefail
+
+remote_name=${1:-origin}
+zero_oid=0000000000000000000000000000000000000000
+fallback_to_full_checks=0
+
+declare -a changed_files=()
+declare -A seen_files=()
+
+add_changed_file() {
+  local file=$1
+  if [ -n "$file" ] && [ -z "${seen_files[$file]+x}" ]; then
+    seen_files["$file"]=1
+    changed_files+=("$file")
+  fi
+}
+
+default_base_ref() {
+  local candidate
+
+  candidate=$(git symbolic-ref --quiet --short "refs/remotes/${remote_name}/HEAD" 2>/dev/null || true)
+  if [ -n "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  for candidate in "${remote_name}/main" "${remote_name}/master"; do
+    if git rev-parse --verify --quiet "$candidate" >/dev/null; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+while read -r local_ref local_sha _remote_ref remote_sha; do
+  [ -n "${local_ref:-}" ] || continue
+
+  if [ "$local_sha" = "$zero_oid" ]; then
+    continue
+  fi
+
+  if [ "$remote_sha" = "$zero_oid" ]; then
+    base_ref=$(default_base_ref || true)
+    if [ -z "${base_ref:-}" ]; then
+      fallback_to_full_checks=1
+      continue
+    fi
+
+    base_sha=$(git merge-base "$local_sha" "$base_ref" 2>/dev/null || true)
+    if [ -z "${base_sha:-}" ]; then
+      fallback_to_full_checks=1
+      continue
+    fi
+
+    range="${base_sha}..${local_sha}"
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+
+  while IFS= read -r file; do
+    add_changed_file "$file"
+  done < <(git diff --name-only --diff-filter=ACM "$range")
+done
+
+if [ "$fallback_to_full_checks" -eq 1 ]; then
+  echo "Unable to determine the exact push diff. Running the full local-required check suite."
+  ./scripts/run-required-checks.sh --mode pre-push --check scripts --check docs --check workflows
+  exit 0
+fi
+
+if [ "${#changed_files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+./scripts/run-required-checks.sh --mode pre-push -- "${changed_files[@]}"
