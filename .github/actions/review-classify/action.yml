@@ -1,0 +1,115 @@
+---
+name: Review pipeline file classifier
+description: >
+  Single source of truth for "which reviewer roles apply to this SHA"
+  in the v2 review pipeline. Classifies the diff against origin/main
+  and emits a JSON list of applicable roles.
+
+  Today the rules are:
+    - design:    always
+    - docs:      always
+    - security:  unless docs_only (no scripts/, no .github/, no .sh)
+    - psych:     unless config_only (touches user-facing or runtime spec)
+    - prompt:    unless config_only
+
+  These mirror the conditions hardcoded across the current monolith's
+  reviewer jobs (lines ~520-552 + per-reviewer if:). Centralizing them
+  here means adding a new role is one matrix entry + one new prompt
+  file, with no scattered if-conditions to update.
+
+  See agentic-pipeline-learnings.md §1.9: spec-critical .md files
+  must NOT be classified as docs_only just because they end in .md.
+  The classifier carves out AGENTS.md, SOUL.md, TOOLS.md, HEARTBEAT.md,
+  setup/cron/*, and design/adhd-priorities.md as runtime spec.
+
+inputs:
+  base_ref:
+    description: Base ref to diff against
+    required: false
+    default: origin/main
+  head_sha:
+    description: Head SHA being reviewed (informational; the diff is taken from working tree)
+    required: true
+
+outputs:
+  roles_json:
+    description: JSON array of applicable role names
+    value: ${{ steps.classify.outputs.roles_json }}
+  docs_only:
+    description: '"true" if the diff only touches inert documentation'
+    value: ${{ steps.classify.outputs.docs_only }}
+  config_only:
+    description: '"true" if the diff only touches CI/infrastructure config'
+    value: ${{ steps.classify.outputs.config_only }}
+
+runs:
+  using: composite
+  steps:
+    - name: Classify changed files
+      id: classify
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base_ref }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+      run: |
+        set -euo pipefail
+
+        git fetch origin main >/dev/null 2>&1 || true
+
+        FILES=$(git diff --name-only "${BASE_REF}"...HEAD 2>/dev/null || echo "")
+        if [ -z "$FILES" ]; then
+          # No diff (e.g. empty PR). Classify as docs_only so only the
+          # cheap reviewers run; the judge will produce a vacuous result
+          # and the orchestrator will fail closed.
+          echo "review-classify: empty diff for $HEAD_SHA"
+        fi
+
+        DOCS_ONLY=true
+        CONFIG_ONLY=true
+
+        # Files that, despite being .md, are runtime spec (rule §1.9).
+        is_spec_md() {
+          case "$1" in
+            AGENTS.md|SOUL.md|TOOLS.md|HEARTBEAT.md|IDENTITY.md) return 0 ;;
+            setup/cron/*) return 0 ;;
+            design/adhd-priorities.md) return 0 ;;
+            docs/ai-prompts.md|docs/task-lifecycle.md|docs/notion-schema.md|docs/architecture.md|docs/user-interactions.md|docs/user-preferences.md|docs/reward-system.md|docs/openclaw-integration.md) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
+        while IFS= read -r f; do
+          [ -z "$f" ] && continue
+
+          # Anything outside config/CI invalidates config_only.
+          case "$f" in
+            .github/*|.devcontainer/*|scripts/*) ;;
+            *) CONFIG_ONLY=false ;;
+          esac
+
+          # Spec MDs and any non-doc/design file invalidate docs_only.
+          if is_spec_md "$f"; then
+            DOCS_ONLY=false
+          else
+            case "$f" in
+              docs/*.md|design/*.md|README.md|*.md) ;;
+              *) DOCS_ONLY=false ;;
+            esac
+          fi
+        done <<< "$FILES"
+
+        ROLES='["design","docs"]'
+        if [ "$DOCS_ONLY" != "true" ]; then
+          ROLES=$(echo "$ROLES" | jq -c '. + ["security"]')
+        fi
+        if [ "$CONFIG_ONLY" != "true" ]; then
+          ROLES=$(echo "$ROLES" | jq -c '. + ["psych","prompt"]')
+        fi
+
+        {
+          echo "roles_json=$ROLES"
+          echo "docs_only=$DOCS_ONLY"
+          echo "config_only=$CONFIG_ONLY"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "review-classify: roles=$ROLES docs_only=$DOCS_ONLY config_only=$CONFIG_ONLY"

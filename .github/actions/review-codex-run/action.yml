@@ -1,0 +1,122 @@
+---
+name: Run a Codex review prompt in the devcontainer
+description: >
+  Wraps Codex CLI invocation for the v2 review pipeline. Reads the
+  reviewer (or fixer) prompt from a standalone markdown file at the
+  given path — the prompt is NEVER inlined into YAML, so editing a
+  prompt is a normal markdown diff with no escaping concerns.
+
+  Captures Codex output to /tmp/<role>-output.jsonl as an artifact and
+  expects the inner prompt to write a structured JSON artifact at the
+  path passed via the OUTPUT_PATH env var. The caller is responsible
+  for validating that JSON against the appropriate schema.
+
+  Forwards minimal env per agentic-pipeline-learnings §2.2 and uses
+  WORKFLOW_PAT as GH_TOKEN per §2.3.
+
+inputs:
+  role:
+    description: 'Role label used in artifact filenames (e.g. "design", "fixer")'
+    required: true
+  prompt_path:
+    description: Repo-relative path to the standalone prompt markdown file
+    required: true
+  image:
+    description: Devcontainer image to run inside
+    required: true
+  workspace_folder:
+    description: Workspace folder containing the PR checkout (passed to run-devcontainer)
+    required: true
+  pr_number:
+    description: PR number being reviewed
+    required: true
+  reviewed_sha:
+    description: Frozen reviewed SHA (40-char hex)
+    required: true
+  cycle:
+    description: Pipeline cycle number for this run
+    required: true
+  read_only:
+    description: '"true" forbids tools that write to disk or call git push'
+    required: false
+    default: 'true'
+  workflow_pat:
+    description: PAT used as GH_TOKEN inside the container (rule 2.3)
+    required: true
+  extra_env:
+    description: 'Additional KEY=VALUE pairs (newline-separated) to forward'
+    required: false
+    default: ''
+
+outputs:
+  output_artifact:
+    description: Host path to the captured Codex output JSONL
+    value: ${{ steps.paths.outputs.output_artifact }}
+  result_json:
+    description: Host path to the structured JSON artifact the prompt wrote
+    value: ${{ steps.paths.outputs.result_json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run Codex prompt in devcontainer
+      id: run
+      uses: ./.github/actions/run-devcontainer
+      with:
+        image: ${{ inputs.image }}
+        workspace_folder: ${{ inputs.workspace_folder }}
+        pull: 'true'
+        env: |
+          OPENAI_API_KEY=fake-key
+          GH_TOKEN=${{ inputs.workflow_pat }}
+          REVIEW_ROLE=${{ inputs.role }}
+          REVIEW_PROMPT_PATH=${{ inputs.prompt_path }}
+          REVIEW_READ_ONLY=${{ inputs.read_only }}
+          PR_NUMBER=${{ inputs.pr_number }}
+          REVIEWED_SHA=${{ inputs.reviewed_sha }}
+          REVIEW_CYCLE=${{ inputs.cycle }}
+          OUTPUT_PATH=/tmp/${{ inputs.role }}-result.json
+          REPO=${{ github.repository }}
+          ${{ inputs.extra_env }}
+        run_cmd: |
+          set -euo pipefail
+
+          # Source the repo's Codex configuration helper.
+          source .devcontainer/configure-codex.sh
+
+          # Read the prompt body from the standalone markdown file.
+          if [ ! -f "$REVIEW_PROMPT_PATH" ]; then
+            echo "::error::review-codex-run: prompt file not found at $REVIEW_PROMPT_PATH"
+            exit 1
+          fi
+          PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
+
+          # The prompt body must instruct Codex to write its structured
+          # result JSON to $OUTPUT_PATH and conform to the appropriate
+          # schema in .github/scripts/review/schema/.
+          timeout 30m codex exec \
+            --json \
+            --dangerously-bypass-approvals-and-sandbox \
+            "$PROMPT_BODY" \
+            < /dev/null 2>&1 \
+            | tee "/tmp/${REVIEW_ROLE}-output.jsonl"
+
+          if [ ! -s "$OUTPUT_PATH" ]; then
+            echo "::error::review-codex-run: prompt did not produce $OUTPUT_PATH"
+            exit 1
+          fi
+
+          # Echo back the host paths so downstream steps can pick them up
+          # via the output artifact upload.
+          echo "review-codex-run: ${REVIEW_ROLE} produced $OUTPUT_PATH"
+
+    - name: Echo result paths
+      id: paths
+      shell: bash
+      env:
+        ROLE: ${{ inputs.role }}
+      run: |
+        {
+          echo "output_artifact=/tmp/${ROLE}-output.jsonl"
+          echo "result_json=/tmp/${ROLE}-result.json"
+        } >> "$GITHUB_OUTPUT"

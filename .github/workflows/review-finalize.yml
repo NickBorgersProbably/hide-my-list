@@ -1,0 +1,120 @@
+---
+name: Review pipeline v2 — finalize
+# Reusable: invoked at the tail of every pipeline run.
+#
+# On GO: stamps review/cycle-N on the post-fix SHA, leaves the PR alone.
+# Optional `followup_issues[]` from reviewer artifacts are ONLY created
+# after the PR actually merges; that path lives in the post-merge
+# coverage workflow, not here.
+#
+# On NO-GO: stamps review/cycle-N, applies the `needs-human-review`
+# label, and posts ONE sticky comment summarizing unaddressed blockers.
+# Never closes the PR. Never creates an issue. (User decision: avoid
+# the lessons-learned-issue → new PR → NO-GO infinite loop class.)
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        type: string
+        required: true
+      post_fix_sha:
+        type: string
+        required: true
+      cycle:
+        type: string
+        required: true
+      verdict:
+        type: string
+        required: true
+    secrets:
+      WORKFLOW_PAT:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
+jobs:
+  finalize:
+    name: Finalize ${{ inputs.verdict }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (for composite actions)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Stamp review/cycle on post-fix SHA
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.post_fix_sha }}
+          context: review/cycle
+          state: success
+          description: ${{ inputs.cycle }}
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Download verdict artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/verdict
+          name: verdict-${{ inputs.post_fix_sha }}
+
+      - name: Apply NO-GO label and sticky comment
+        if: inputs.verdict == 'NO-GO'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          # Idempotent label create.
+          gh label create needs-human-review \
+            --color B60205 \
+            --description "Review pipeline v2 could not converge; human takeover needed" \
+            --repo "$REPO" 2>/dev/null || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review
+
+          REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
+          BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
+
+          BODY_FILE=$(mktemp)
+          {
+            echo "<!-- review-pipeline-v2:no-go -->"
+            echo "## Review pipeline v2 — NO-GO"
+            echo
+            echo "The autonomous review pipeline could not converge on this PR after cycle ${{ inputs.cycle }}. A human needs to take a look."
+            echo
+            echo "**The PR is intentionally left open.** Nothing has been auto-closed and no replacement issue has been auto-filed (loop-prevention)."
+            echo
+            if [ -n "$REASONS" ]; then
+              echo "### Reasons"
+              echo "$REASONS"
+              echo
+            fi
+            if [ -n "$BLOCKERS" ]; then
+              echo "### Unaddressed blockers"
+              echo "$BLOCKERS"
+              echo
+            fi
+            echo "<sub>Posted by review-pipeline v2 (cycle ${{ inputs.cycle }}).</sub>"
+          } > "$BODY_FILE"
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
+          rm -f "$BODY_FILE"
+
+      - name: Mark GO success
+        if: inputs.verdict == 'GO'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          # Remove any stale needs-human-review label from a prior cycle.
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label needs-human-review 2>/dev/null || true
+          echo "review-pipeline-v2: GO on cycle ${{ inputs.cycle }}"

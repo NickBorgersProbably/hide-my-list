@@ -1,0 +1,92 @@
+---
+name: Review pipeline dedup claim
+description: >
+  SHA-keyed dedup for the v2 review pipeline. Tries to atomically claim a
+  given context (e.g. "review/pipeline") on a commit SHA by writing a
+  pending GitHub commit status. If the context already exists on that
+  SHA, the claim fails and the caller should exit early — another
+  pipeline run already owns this SHA.
+
+  This is the mechanism that makes the autofix → synchronize → re-review
+  loop class structurally impossible: the fixer claims its output SHA
+  *before* publishing the push, so the synchronize event GitHub fires
+  for that push lands on an already-claimed SHA and the dedup short-
+  circuits the new run.
+
+inputs:
+  sha:
+    description: Commit SHA to claim (40-char hex)
+    required: true
+  context:
+    description: Commit-status context to use as the claim key
+    required: true
+    default: review/pipeline
+  description:
+    description: Status description to attach to the claim (<=140 chars)
+    required: false
+    default: 'review-pipeline v2 claim'
+  github_token:
+    description: GH token with statuses:write on the target repo
+    required: true
+  repo:
+    description: owner/repo (defaults to current repo)
+    required: false
+    default: ${{ github.repository }}
+
+outputs:
+  claimed:
+    description: '"true" if this run claimed the SHA, "false" if already claimed'
+    value: ${{ steps.claim.outputs.claimed }}
+  existing_state:
+    description: Existing status state if not claimed (pending|success|failure|error|"")
+    value: ${{ steps.claim.outputs.existing_state }}
+
+runs:
+  using: composite
+  steps:
+    - name: Attempt claim
+      id: claim
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        REPO: ${{ inputs.repo }}
+        SHA: ${{ inputs.sha }}
+        CTX: ${{ inputs.context }}
+        DESC: ${{ inputs.description }}
+      run: |
+        set -euo pipefail
+
+        # Validate SHA format up front so we fail loudly on bad input.
+        if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::review-dedup: invalid SHA '$SHA'"
+          exit 1
+        fi
+
+        # Look for an existing status with this context on this SHA.
+        # `gh api` returns the combined status payload; we filter to our
+        # specific context.
+        EXISTING=$(gh api "repos/${REPO}/commits/${SHA}/statuses" \
+          --jq "[.[] | select(.context == \"${CTX}\")] | sort_by(.created_at) | last // empty" \
+          2>/dev/null || echo "")
+
+        if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+          STATE=$(echo "$EXISTING" | jq -r '.state // ""')
+          echo "review-dedup: SHA $SHA already has $CTX = $STATE; refusing to claim"
+          {
+            echo "claimed=false"
+            echo "existing_state=$STATE"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # No existing status — write the claim.
+        gh api -X POST "repos/${REPO}/statuses/${SHA}" \
+          -f state=pending \
+          -f context="${CTX}" \
+          -f description="${DESC}" >/dev/null
+
+        echo "review-dedup: claimed $CTX on $SHA"
+        {
+          echo "claimed=true"
+          echo "existing_state="
+        } >> "$GITHUB_OUTPUT"

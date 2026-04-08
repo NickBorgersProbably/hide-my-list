@@ -1,0 +1,175 @@
+---
+name: Review pipeline v2 — fixer
+# Reusable: invoked from review-pipeline.yml after all reviewers complete.
+# Reads every reviewer artifact, runs the agentic fixer with a NARROW
+# prompt that only addresses substantive findings the reviewers asked
+# for, then claims the resulting SHA on review/pipeline BEFORE pushing
+# (this is what makes the autofix → synchronize loop structurally
+# impossible — the synchronize event GitHub fires for the fixer push
+# lands on an already-claimed SHA in review-dedup and exits).
+#
+# This is the ONLY job in the v2 pipeline that has write permission to
+# the PR branch. All reviewers and the judge are read-only.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        type: string
+        required: true
+      reviewed_sha:
+        type: string
+        required: true
+      head_ref:
+        type: string
+        required: true
+      head_repo:
+        type: string
+        required: true
+      cycle:
+        type: string
+        required: true
+      devcontainer_image:
+        type: string
+        required: true
+    outputs:
+      new_sha:
+        description: 'SHA after fixer push (== reviewed_sha if no-op)'
+        value: ${{ jobs.fix.outputs.new_sha }}
+      fix_artifact_name:
+        description: 'Artifact name containing fix-result.json'
+        value: ${{ jobs.fix.outputs.fix_artifact_name }}
+    secrets:
+      WORKFLOW_PAT:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+
+env:
+  PR_WORKSPACE_PATH: pr-head
+
+jobs:
+  fix:
+    name: Apply reviewer-requested fixes
+    runs-on: self-hosted
+    outputs:
+      new_sha: ${{ steps.push.outputs.new_sha }}
+      fix_artifact_name: fix-result-${{ inputs.reviewed_sha }}
+    steps:
+      - name: Checkout main (for composite actions)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_ref }}
+          repository: ${{ inputs.head_repo }}
+          path: ${{ env.PR_WORKSPACE_PATH }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Download all reviewer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/reviewer-artifacts
+          pattern: reviewer-*-${{ inputs.reviewed_sha }}
+
+      - name: Create directories for devcontainer mounts
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run agentic fixer in devcontainer
+        id: run
+        uses: ./.github/actions/review-codex-run
+        with:
+          role: fixer
+          prompt_path: .github/scripts/review/prompts/fixer.md
+          image: ${{ inputs.devcontainer_image }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pr_number: ${{ inputs.pr_number }}
+          reviewed_sha: ${{ inputs.reviewed_sha }}
+          cycle: ${{ inputs.cycle }}
+          read_only: 'false'
+          workflow_pat: ${{ secrets.WORKFLOW_PAT }}
+          extra_env: |
+            REVIEWER_ARTIFACTS_DIR=/tmp/reviewer-artifacts
+
+      - name: Validate fix-result against schema
+        env:
+          ARTIFACT: ${{ steps.run.outputs.result_json }}
+        run: |
+          set -euo pipefail
+          npx -y ajv-cli@5 validate \
+            -s .github/scripts/review/schema/fix-result-v1.json \
+            -d "$ARTIFACT"
+
+      - name: Claim new SHA, then push
+        id: push
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          ARTIFACT: ${{ steps.run.outputs.result_json }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          HEAD_REF: ${{ inputs.head_ref }}
+        run: |
+          set -euo pipefail
+
+          INPUT_SHA=$(jq -r '.input_sha' "$ARTIFACT")
+          NEW_SHA=$(jq -r '.new_sha' "$ARTIFACT")
+
+          if [ "$INPUT_SHA" != "$REVIEWED_SHA" ]; then
+            echo "::error::fixer reported input_sha=$INPUT_SHA but reviewed_sha=$REVIEWED_SHA"
+            exit 1
+          fi
+
+          if [ "$NEW_SHA" = "$REVIEWED_SHA" ]; then
+            echo "fixer was a no-op; nothing to push"
+            echo "new_sha=$REVIEWED_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Claim review/pipeline on the new SHA BEFORE pushing.
+          # This is the structural protection: the synchronize event
+          # GitHub fires for the push will land on an already-claimed
+          # SHA in review-dedup and exit.
+          gh api -X POST "repos/${REPO}/statuses/${NEW_SHA}" \
+            -f state=pending \
+            -f context=review/pipeline \
+            -f description="cycle=${{ inputs.cycle }} (fixer claim)" >/dev/null
+
+          # Push from the PR workspace, which has the PAT-authenticated remote.
+          cd "${{ env.PR_WORKSPACE_PATH }}"
+          git push origin "HEAD:${HEAD_REF}"
+
+          echo "new_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Write fix commit status
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.reviewed_sha }}
+          context: review/fix
+          state: success
+          description: 'cycle=${{ inputs.cycle }}'
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Upload fix-result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: fix-result-${{ inputs.reviewed_sha }}
+          path: |
+            /tmp/fixer-result.json
+            /tmp/fixer-output.jsonl
