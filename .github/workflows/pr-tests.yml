@@ -72,6 +72,7 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
               - '.github/actionlint.yaml'
+              - 'scripts/validate-pr-tests-workflow.sh'
               - 'scripts/validate-gh-cli-usage.sh'
               - 'scripts/validate-workflow-refs.sh'
             devcontainer:
@@ -178,6 +179,9 @@ jobs:
       - name: Run workflow validation
         run: |
           yamllint -c .yamllint .github/workflows/*.yml
+
+      - name: Validate PR Tests workflow tool ordering
+        run: ./scripts/validate-pr-tests-workflow.sh
 
       - name: Install actionlint
         run: |
