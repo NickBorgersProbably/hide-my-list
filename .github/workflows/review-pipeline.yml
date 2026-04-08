@@ -287,3 +287,44 @@ jobs:
       verdict: ${{ needs.judge.outputs.verdict }}
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  # Always-runs cleanup. Advances the `review/pipeline` commit status
+  # from `pending` (set by review-dedup at entry time) to a terminal
+  # state, regardless of whether any upstream job in the orchestrator
+  # succeeded, failed, or was skipped. Without this, a failed
+  # reviewer/fixer/judge run leaks the pending claim forever and
+  # blocks future re-claims (see #368).
+  #
+  # The dedup action only refuses claims when the existing state is
+  # `pending`, so any non-pending terminal value here is sufficient
+  # to allow the next event (push, /review) to start a fresh run.
+  cleanup-claim:
+    name: Cleanup pipeline claim
+    needs:
+      - gather
+      - cap-exhausted
+      - review-design
+      - review-security
+      - review-psych
+      - review-docs
+      - review-prompt
+      - fix
+      - judge
+      - finalize
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (for composite actions)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Advance review/pipeline claim to terminal
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.reviewed_sha }}
+          context: review/pipeline
+          state: success
+          description: 'pipeline run completed'
+          github_token: ${{ secrets.WORKFLOW_PAT }}
