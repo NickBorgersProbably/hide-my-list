@@ -72,8 +72,12 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          POST_FIX_SHA: ${{ inputs.post_fix_sha }}
         run: |
           set -euo pipefail
+
+          # Remove any stale agent-reviews-passed label from a prior cycle.
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label agent-reviews-passed 2>/dev/null || true
 
           # Idempotent label create.
           gh label create needs-human-review \
@@ -81,6 +85,15 @@ jobs:
             --description "Review pipeline v2 could not converge; human takeover needed" \
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review
+
+          # Write the v1-compatible commit-status check as failure so
+          # branch protection sees a terminal state instead of forever
+          # pending. The PR still merges only after a human takes
+          # action; this just makes the GitHub UI honest.
+          gh api -X POST "repos/${REPO}/statuses/${POST_FIX_SHA}" \
+            -f state=failure \
+            -f context='All Required Agent Reviews' \
+            -f description='v2 verdict: NO-GO; needs-human-review' >/dev/null
 
           REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
           BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
@@ -119,11 +132,31 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          POST_FIX_SHA: ${{ inputs.post_fix_sha }}
         run: |
           set -euo pipefail
 
           # Remove any stale needs-human-review label from a prior cycle.
           gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label needs-human-review 2>/dev/null || true
+
+          # Apply the v1-compatible "agent-reviews-passed" label so the
+          # PR shows a clear human-visible indicator that v2 cleared it.
+          # Idempotent label create + add.
+          gh label create agent-reviews-passed \
+            --color 0E8A16 \
+            --description "All required agent reviews passed (v2)" \
+            --repo "$REPO" 2>/dev/null || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label agent-reviews-passed
+
+          # Write the v1-compatible commit-status check that branch
+          # protection expects. v1's all-reviews-passed job published
+          # this exact context name; v2 needs to write the same so
+          # PR merge gates and any external automation that keys on
+          # "All Required Agent Reviews" continue to work.
+          gh api -X POST "repos/${REPO}/statuses/${POST_FIX_SHA}" \
+            -f state=success \
+            -f context='All Required Agent Reviews' \
+            -f description='v2 verdict: GO' >/dev/null
 
           REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
 
