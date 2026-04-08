@@ -105,7 +105,7 @@ jobs:
         if: steps.cap.outputs.capped != 'true'
         uses: ./.github/actions/review-classify
         with:
-          base_ref: origin/main
+          base_ref: ${{ inputs.base_sha }}
           head_sha: ${{ inputs.reviewed_sha }}
 
       - name: Stamp gather status

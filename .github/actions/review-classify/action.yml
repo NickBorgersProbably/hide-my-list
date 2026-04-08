@@ -2,13 +2,15 @@
 name: Review pipeline file classifier
 description: >
   Single source of truth for "which reviewer roles apply to this SHA"
-  in the v2 review pipeline. Classifies the diff against origin/main
+  in the v2 review pipeline. Classifies the diff against the provided
+  PR base ref / SHA
   and emits a JSON list of applicable roles.
 
   Today the rules are:
     - design:    always
     - docs:      always
-    - security:  unless docs_only (all changed files are inert docs)
+    - security:  unless docs_only (all changed files are inert docs),
+                 OR always for review-orchestration / routing files
     - psych:     unless config_only (pure CI/infrastructure config)
     - prompt:    unless config_only (pure CI/infrastructure config)
 
@@ -29,7 +31,7 @@ inputs:
     required: false
     default: origin/main
   head_sha:
-    description: Head SHA being reviewed (informational; the diff is taken from working tree)
+    description: Head SHA being reviewed
     required: true
 
 outputs:
@@ -55,10 +57,14 @@ runs:
       run: |
         set -euo pipefail
 
-        git fetch origin main >/dev/null 2>&1 || true
+        FILES=""
+        DIFF_FAILED=false
+        if ! FILES=$(git diff --name-only "${BASE_REF}"..."${HEAD_SHA}" 2>/dev/null); then
+          DIFF_FAILED=true
+          echo "review-classify: failed to diff ${BASE_REF}...${HEAD_SHA}; failing closed"
+        fi
 
-        FILES=$(git diff --name-only "${BASE_REF}"...HEAD 2>/dev/null || echo "")
-        if [ -z "$FILES" ]; then
+        if [ "$DIFF_FAILED" = "false" ] && [ -z "$FILES" ]; then
           # No diff (e.g. empty PR). Classify as docs_only so only the
           # cheap reviewers run; the judge will produce a vacuous result
           # and the orchestrator will fail closed.
@@ -67,6 +73,13 @@ runs:
 
         DOCS_ONLY=true
         CONFIG_ONLY=true
+        FORCE_SECURITY=false
+
+        if [ "$DIFF_FAILED" = "true" ]; then
+          DOCS_ONLY=false
+          CONFIG_ONLY=false
+          FORCE_SECURITY=true
+        fi
 
         # Files that, despite being .md, are runtime spec (rule §1.9).
         is_spec_md() {
@@ -88,8 +101,26 @@ runs:
           esac
         }
 
+        # Review-orchestration files are CI control-plane surface.
+        # Security/infra review owns routing and gating regressions for
+        # these files even when the PR is otherwise workflow/config-only.
+        is_security_routing_file() {
+          case "$1" in
+            .github/workflows/review-*.yml) return 0 ;;
+            .github/workflows/codex-code-review.yml) return 0 ;;
+            .github/actions/review-classify/*) return 0 ;;
+            .github/scripts/review/prompts/*.md) return 0 ;;
+            .github/scripts/review/*.mjs) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
         while IFS= read -r f; do
           [ -z "$f" ] && continue
+
+          if is_security_routing_file "$f"; then
+            FORCE_SECURITY=true
+          fi
 
           # Anything outside config/CI invalidates config_only.
           case "$f" in
@@ -110,7 +141,7 @@ runs:
         done <<< "$FILES"
 
         ROLES='["design","docs"]'
-        if [ "$DOCS_ONLY" != "true" ]; then
+        if [ "$DOCS_ONLY" != "true" ] || [ "$FORCE_SECURITY" = "true" ]; then
           ROLES=$(echo "$ROLES" | jq -c '. + ["security"]')
         fi
         if [ "$CONFIG_ONLY" != "true" ]; then
