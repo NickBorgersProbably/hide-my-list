@@ -46,9 +46,11 @@ Two meta-lessons span everything below:
 **Evidence:** #244, #234
 
 ### 1.7 Track immutable `reviewed_sha`, separate from the branch ref
-**Why:** Once a PR merges, the branch may be deleted. Follow-up validation must check out the SHA we reviewed, not the (now missing) branch.
+**Why:** Reviewers and fixers must check out the immutable `reviewed_sha`, not the mutable branch ref, because the branch may be deleted or advanced while the pipeline is still working. Any branch-writing stage must also re-read `origin/<head_ref>` immediately before push and refuse to publish if that tip no longer equals the frozen `reviewed_sha`; otherwise it can silently overwrite newer author commits with changes prepared against stale code.
 **Before:** Post-merge follow-ups failed with "could not fetch ref".
-**Evidence:** #308
+**Evidence:** #308, #351, #353, #354
+
+**Manual regression playbook:** Open a PR, let `review-entry.yml` freeze `reviewed_sha`, then push another commit before `review-fixer.yml` reaches its push step. The fixer should log that `origin/<head_ref>` moved, rewrite `fix-result.json` so `new_sha == input_sha == reviewed_sha`, add a `skipped[]` reason explaining the head changed, and exit without pushing. The subsequent judge/finalize path should evaluate the unchanged reviewed tree instead of overwriting the newer commit.
 
 ### 1.8 Dedupe workflow-failure issues by fingerprint
 **Why:** A helper script fingerprints failures by (workflow, branch, commit) and reuses any existing open issue.

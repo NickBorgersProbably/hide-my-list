@@ -67,7 +67,7 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.head_ref }}
+          ref: ${{ inputs.reviewed_sha }}
           repository: ${{ inputs.head_repo }}
           path: ${{ env.PR_WORKSPACE_PATH }}
           fetch-depth: 0
@@ -139,6 +139,46 @@ jobs:
             exit 0
           fi
 
+          # Push from the PR workspace, which has the PAT-authenticated remote.
+          cd "${{ env.PR_WORKSPACE_PATH }}"
+          REMOTE_HEAD=$(git ls-remote --heads origin "refs/heads/${HEAD_REF}" | awk 'NR==1 {print $1}')
+          if [ -z "$REMOTE_HEAD" ] || [ "$REMOTE_HEAD" != "$REVIEWED_SHA" ]; then
+            TMP_ARTIFACT=$(mktemp)
+            jq \
+              --arg reviewed_sha "$REVIEWED_SHA" \
+              --arg remote_head "$REMOTE_HEAD" \
+              --arg head_ref "$HEAD_REF" \
+              '
+              def push_skip_reason:
+                if $remote_head == "" then
+                  "Not pushed because origin/" + $head_ref + " no longer exists after gather froze " + $reviewed_sha + "."
+                else
+                  "Not pushed because origin/" + $head_ref + " advanced to " + $remote_head + " after gather froze " + $reviewed_sha + "."
+                end;
+              .new_sha = $reviewed_sha
+              | .skipped = (
+                  (.skipped // [])
+                  + ((.addressed // []) | map({id: ., reason: push_skip_reason}))
+                  | if length == 0 then
+                      [{id: "docs/review-pipeline-head-moved", reason: push_skip_reason}]
+                    else
+                      .
+                    end
+                )
+              | .addressed = []
+              ' "$ARTIFACT" > "$TMP_ARTIFACT"
+            mv "$TMP_ARTIFACT" "$ARTIFACT"
+
+            if [ -z "$REMOTE_HEAD" ]; then
+              echo "origin/${HEAD_REF} no longer exists; refusing to push fixer commit built from ${REVIEWED_SHA}"
+            else
+              echo "origin/${HEAD_REF} moved to ${REMOTE_HEAD}; refusing to push fixer commit built from ${REVIEWED_SHA}"
+            fi
+
+            echo "new_sha=$REVIEWED_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Claim review/pipeline on the new SHA BEFORE pushing.
           # This is the structural protection: the synchronize event
           # GitHub fires for the push will land on an already-claimed
@@ -148,8 +188,6 @@ jobs:
             -f context=review/pipeline \
             -f description="cycle=${{ inputs.cycle }} (fixer claim)" >/dev/null
 
-          # Push from the PR workspace, which has the PAT-authenticated remote.
-          cd "${{ env.PR_WORKSPACE_PATH }}"
           git push origin "HEAD:${HEAD_REF}"
 
           echo "new_sha=$NEW_SHA" >> "$GITHUB_OUTPUT"
