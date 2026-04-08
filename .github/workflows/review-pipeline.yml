@@ -33,10 +33,14 @@ on:
         required: true
 
 permissions:
+  # Read-only GITHUB_TOKEN. Every actual write in this graph
+  # authenticates via secrets.WORKFLOW_PAT (rule 2.3), not
+  # GITHUB_TOKEN. The downstream callees are also read-only on
+  # GITHUB_TOKEN; this declaration must be a subset of the
+  # caller's (review-entry.yml) permissions.
   contents: read
-  pull-requests: write
-  statuses: write
-  issues: write
+  pull-requests: read
+  statuses: read
 
 env:
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer

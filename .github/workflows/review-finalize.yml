@@ -32,10 +32,13 @@ on:
         required: true
 
 permissions:
+  # Read-only GITHUB_TOKEN. The label create, sticky comment, and
+  # cycle-status write all authenticate via secrets.WORKFLOW_PAT,
+  # not GITHUB_TOKEN.
   contents: read
-  pull-requests: write
-  issues: write
-  statuses: write
+  pull-requests: read
+  issues: read
+  statuses: read
 
 jobs:
   finalize:
