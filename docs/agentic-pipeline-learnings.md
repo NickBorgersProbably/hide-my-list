@@ -54,7 +54,7 @@ Two meta-lessons span everything below:
 **Evidence:** #269
 
 ### 1.9 Guardrail: spec-critical `.md` files should stay on the full review path
-**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. The current `docs_only=true` classifier is only an implementation shortcut, not a semantic proof that every matching Markdown file is inert, and today it is still too broad around `design/*`; for example, `AGENTS.md` treats `design/adhd-priorities.md` as part of the OpenClaw spec surface even though the workflow currently classifies `design/*` as `docs_only=true`. Future classifier tightening should carve out prompt-bearing design docs instead of assuming all `design/*` changes are safe to bypass the full review path.
+**Why:** Files like `setup/cron/reminder-check.md`, `TOOLS.md`, and `SOUL.md` are *executable* — they define agent behavior. The `docs_only=true` classifier is only an implementation shortcut, not a semantic proof that every matching Markdown file is inert. The workflow now correctly carves out known spec-critical Markdown such as `design/adhd-priorities.md`, but the remaining risk is future prompt-bearing docs under broad content trees like `design/` or `.github/` being added without updating the carve-outs. Classifier tightening should keep treating these paths as an allowlist problem, not assume an entire Markdown-heavy directory is safe to bypass the full review path.
 **Before:** A behavioral cron prompt slipped through with zero security review.
 **Evidence:** #156, #142
 
