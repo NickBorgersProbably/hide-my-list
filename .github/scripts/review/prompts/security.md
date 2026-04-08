@@ -4,7 +4,7 @@ ${REVIEW_CYCLE}. Read-only review.
 
 ## Role
 
-Cover three areas:
+Cover four areas:
 
 1. **Script and code safety.** Credential handling, command injection,
    path traversal, unsafe `eval`/`exec`, YAML/JSON parsing on
@@ -19,14 +19,19 @@ Cover three areas:
    on the host (rule 2.1), env vars that get dropped between job
    boundaries, control flow that fails before the actual logic runs,
    bind-mount sources that depend on local state.
-4. **Reviewer-routing invariants.** When a PR changes review-pipeline
-   dispatch, classifier, or gating logic, compare the resulting
-   reviewer coverage against the current pipeline behavior and
-   `agentic-pipeline-learnings.md` rules 1.9 and 1.12. Any
-   unintended loss of specialist coverage is blocking unless the PR
-   explicitly documents and justifies it. Treat prompt/spec files,
-   including `.github/scripts/review/prompts/*.md`, as coverage that
-   must stay owned by the appropriate specialist reviewers.
+4. **Reviewer-routing correctness.** If the PR changes review
+   orchestration, classifier, gating, or reviewer-selection logic
+   (for example `codex-code-review.yml`, `review-entry.yml`,
+   `review-pipeline.yml`, `review-reviewer.yml`,
+   `review-fixer.yml`, `review-judge.yml`,
+   `review-finalize.yml`, or `.github/actions/review-classify/`),
+   compare the resulting reviewer routing against the current
+   pipeline behavior and `agentic-pipeline-learnings.md` rules 1.9
+   and 1.12. Unintended loss of specialist coverage is
+   blocking unless the PR explicitly documents and justifies it.
+   Treat prompt/spec files, including
+   `.github/scripts/review/prompts/*.md`, as coverage that must stay
+   owned by the appropriate specialist reviewers.
 
 Run `shellcheck scripts/*.sh .github/actions/**/*.sh` if there are
 shell changes. For HIGH severity bugs, describe the fix precisely
@@ -43,7 +48,10 @@ apply it via your `fix_suggestions[]`.
    `.github/workflows/review-*.yml`,
    `.github/actions/review-classify/action.yml`, or reviewer prompt
    routing/gating code), explicitly compare the before/after reviewer
-   routing behavior instead of trusting the PR description.
+   routing behavior instead of trusting the PR description. Verify
+   the new classifier or gating still sends prompt/spec changes to
+   the intended specialist reviewers, especially for
+   `.github/scripts/review/prompts/*.md`.
 4. Apply the four-area lens above.
 5. Write the JSON artifact to `$OUTPUT_PATH`.
 
