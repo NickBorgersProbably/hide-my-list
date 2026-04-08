@@ -73,7 +73,7 @@ Two meta-lessons span everything below:
 **Evidence:** #339, #338, #337
 
 ### 1.12 Security/infra review explicitly owns reviewer-routing regressions
-**Why:** Review-pipeline dispatch and classifier changes can silently narrow who reviews future PRs while the workflow still "works." When a PR touches classifier, dispatch, or gating logic, the Security & Infrastructure reviewer must compare the proposed routing against the current pipeline behavior and flag any unintended loss of specialist coverage. Regressions that drop coverage for prompt/spec files, including `.github/scripts/review/prompts/*.md`, are blocking unless the PR explicitly documents and justifies the change.
+**Why:** Review-pipeline dispatch and classifier changes can silently narrow who reviews future PRs while the workflow still "works." When a PR touches classifier, dispatch, or gating logic, the Security & Infrastructure reviewer must compare the proposed routing against the current pipeline behavior and flag any unintended loss of specialist coverage. Regressions that drop coverage for prompt/spec files, including `.github/scripts/review/prompts/*.md`, are blocking unless the PR explicitly documents and justifies the change. In v2, review-orchestration files must therefore force security review even when the PR is otherwise workflow-only or config-only.
 **Before:** Reviewer prompt markdown under `.github/scripts/review/prompts/*.md` was classified as config-only in v2, which would have skipped security, psych, and prompt review and no reviewer called it out.
 **Evidence:** #343, #349
 

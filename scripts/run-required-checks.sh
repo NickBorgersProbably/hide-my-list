@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 readonly SCRIPT_PATH_PATTERN='^(scripts/.*\.sh|\.githooks/(install-hooks\.sh|pre-commit|pre-push))$'
 readonly DOC_PATH_PATTERN='^(docs/.*\.md|design/.*\.md|setup/.*\.md|README\.md|AGENTS\.md)$'
 readonly DOC_HELPER_PATH_PATTERN='^(scripts/check-doc-links\.sh|scripts/lint-mermaid-rendering\.sh|scripts/validate-mermaid\.sh)$'
-readonly WORKFLOW_PATH_PATTERN='^(\.github/workflows/.*\.ya?ml|\.github/actions/.*\.ya?ml|\.github/actionlint\.yaml|\.yamllint|\.githooks/(install-hooks\.sh|pre-commit|pre-push)|scripts/validate-gh-cli-usage\.sh|scripts/validate-workflow-refs\.sh)$'
+readonly WORKFLOW_PATH_PATTERN='^(\.github/workflows/.*\.ya?ml|\.github/actions/.*\.ya?ml|\.github/actionlint\.yaml|\.yamllint|\.githooks/(install-hooks\.sh|pre-commit|pre-push)|scripts/validate-gh-cli-usage\.sh|scripts/validate-pr-tests-workflow\.sh|scripts/validate-workflow-refs\.sh)$'
 readonly CANONICAL_RUNNER='scripts/run-required-checks.sh'
 
 changed_files=()
@@ -207,6 +207,8 @@ run_actionlint() {
 run_workflow_validation() {
   run_yamllint
   require_command python3
+  echo "=== Validating PR Tests workflow tool ordering ==="
+  "$REPO_ROOT/scripts/validate-pr-tests-workflow.sh"
   run_actionlint
   echo "=== Validating cross-file workflow references ==="
   "$REPO_ROOT/scripts/validate-workflow-refs.sh"

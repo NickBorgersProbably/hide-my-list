@@ -18,7 +18,8 @@ review** — you must not edit files, run formatters, or push commits.
 
 ### What to do
 
-1. Read the diff: `git fetch origin main && git diff origin/main...HEAD`.
+1. Read the diff against the frozen PR base SHA:
+   `git diff "${REVIEW_BASE_SHA}...HEAD"`.
 2. Read inline PR review comments via
    `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` and any blocking
    change requests there must be folded into your `blocking_issues[]`

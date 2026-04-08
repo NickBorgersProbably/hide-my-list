@@ -151,6 +151,7 @@ These files support the development pipeline and are not part of the OpenClaw ag
 - `scripts/pull-main.sh` — Branch sync helper
 - `scripts/security-update.sh` — Security update automation
 - `scripts/validate-gh-cli-usage.sh` — GitHub CLI workflow usage validation
+- `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
 - `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
 - `setup/` — Cron and setup documentation
