@@ -41,17 +41,16 @@ permissions:
 env:
   DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
 
-concurrency:
-  # SHA-keyed concurrency: two events for the same SHA collapse;
-  # different SHAs are independent runs of the pipeline (which is
-  # exactly the cycle granularity we want).
-  group: review-pipeline-v2-${{ inputs.reviewed_sha }}
-  cancel-in-progress: false
-
 jobs:
   gather:
     name: Gather + classify + cycle check
     runs-on: ubuntu-latest
+    concurrency:
+      # SHA-keyed concurrency: two events for the same SHA collapse;
+      # different SHAs are independent runs of the pipeline (which is
+      # exactly the cycle granularity we want).
+      group: review-pipeline-v2-${{ inputs.reviewed_sha }}
+      cancel-in-progress: false
     outputs:
       roles_json: ${{ steps.classify.outputs.roles_json }}
       cycle: ${{ steps.cycle.outputs.cycle }}
