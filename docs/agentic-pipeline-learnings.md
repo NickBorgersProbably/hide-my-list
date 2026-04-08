@@ -13,13 +13,13 @@ Two meta-lessons span everything below:
 
 ## 1. Review Pipeline Architecture
 
-### 1.1 Parallel review jobs are read-only; only dedicated fixer/decision jobs push
-**Why:** When parallel reviewers had write access they pushed fixes that retriggered the whole pipeline and posted near-duplicate comments. The current pipeline keeps the fan-out review jobs read-only; branch mutations are limited to dedicated single-writer jobs such as `fix-test-failures` (pre-review) and `merge-decision` (post-review).
+### 1.1 Parallel review jobs are read-only; only dedicated single-writer stages push
+**Why:** When parallel reviewers had write access they pushed fixes that retriggered the whole pipeline and posted near-duplicate comments. Both pipeline versions keep the fan-out review jobs read-only; branch mutations are limited to dedicated single-writer stages. In v1, those are jobs such as `fix-test-failures` (pre-review) and `merge-decision` (post-review). In v2, `review-fixer.yml` is the only branch-writing stage and the judge/finalize path stays read-only.
 **Before:** Every reviewer round produced 3× redundant comments.
 **Evidence:** #70, #71, #274
 
-### 1.2 PR-scoped review progress state lives on labels, not comments or workflow inputs
-**Why:** Comment-pagination based counters broke past page 1, and `workflow_dispatch` inputs reset to 0 on manual reruns. PR labels are the durable source of truth for PR-scoped cycle/progress state such as cycle counters and `*-started` markers because they survive reruns and stay visible to humans. The exception is SHA-bound approval state: whether a specific commit already passed the full review gate lives on that commit's `All Required Agent Reviews` status, as described in section 1.11.
+### 1.2 Review progress state must live in durable GitHub state, not comments or workflow inputs
+**Why:** Comment-pagination based counters broke past page 1, and `workflow_dispatch` inputs reset to 0 on manual reruns. The durable state carrier depends on pipeline version: v1 stores PR-scoped cycle/progress state on labels (`review-cycle-*`, `*-started`) because labels survive reruns and stay visible to humans; v2 stores execution state on SHA-scoped commit statuses (`review/pipeline`, `review/*`, `review/cycle`) because the orchestrator/fixer/judge/finalize graph is keyed to immutable commits rather than mutable PR labels. In both versions, comments and workflow inputs are observability aids, not authority.
 **Before:** Cycle counters silently reset, allowing infinite loops.
 **Evidence:** #182, #234, #303, #320
 
@@ -66,7 +66,7 @@ Two meta-lessons span everything below:
 **Evidence:** #320
 
 ### 1.11 Review-skip approvals must be SHA-bound, not PR-bound
-**Why:** A PR-level marker such as `agent-reviews-passed` can outlive the diff it originally described. The only safe auto-skip is when the current head SHA already carries the same-SHA `All Required Agent Reviews = success` status from a `GO-CLEAN` merge decision. PR labels can still communicate history to humans, but they must not gate execution for later commits.
+**Why:** A PR-level marker such as `agent-reviews-passed` can outlive the diff it originally described. The safe auto-skip rule is version-specific but always SHA-bound: in v1, the current head SHA must already carry the same-SHA `All Required Agent Reviews = success` status from a `GO-CLEAN` merge decision; in v2, the orchestrator must see the reviewed SHA already claimed on `review/pipeline`, with the corresponding `review/*` and `review/cycle` statuses describing that exact commit chain, and any branch mutation must still flow only through `review-fixer.yml` as the sole writer. PR labels can still communicate history to humans, but they must not gate execution for later commits.
 **Before:** New head commits inherited a green aggregate review check without any stage evaluating the updated diff.
 **Evidence:** #339, #338, #337
 

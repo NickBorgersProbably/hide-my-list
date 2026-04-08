@@ -131,7 +131,6 @@ jobs:
             §1.4 / §1.5 for the full contract).
 
             Reviewer roles 1-5 are the same in both pipelines:
-
             1. Design Review - validates PR implements issue intent, reviews design quality, and checks docs-as-spec consistency
             2. Security & Infrastructure Review - script safety, credential handling, workflow permissions, and GitHub Actions/runtime correctness for CI orchestration changes
             3. Psych Research Review - evaluates user-facing changes against ADHD research literature
