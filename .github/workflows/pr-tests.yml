@@ -59,19 +59,29 @@ jobs:
         uses: dorny/paths-filter@v3
         id: filter
         with:
-          list-files: shell
+          list-files: json
           filters: |
             scripts:
               - 'scripts/**'
+              - 'setup/*.sh'
+              - '.githooks/**'
             docs:
               - 'docs/**'
               - 'design/**'
+              - 'setup/**/*.md'
               - 'README.md'
               - 'AGENTS.md'
+              - 'scripts/check-doc-links.sh'
+              - 'scripts/lint-mermaid-rendering.sh'
+              - 'scripts/validate-mermaid.sh'
+              - 'scripts/run-required-checks.sh'
             workflows:
               - '.github/workflows/**'
               - '.github/actions/**'
               - '.github/actionlint.yaml'
+              - '.yamllint'
+              - '.githooks/**'
+              - 'scripts/run-required-checks.sh'
               - 'scripts/validate-pr-tests-workflow.sh'
               - 'scripts/validate-gh-cli-usage.sh'
               - 'scripts/validate-workflow-refs.sh'
@@ -89,18 +99,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run script validation
-        run: |
-          echo "=== Linting shell scripts ==="
-          find scripts/ -name '*.sh' -exec shellcheck {} +
-
-          echo "=== Checking script permissions ==="
-          find scripts/ -name '*.sh' | while read f; do
-            if [ ! -x "$f" ]; then
-              echo "ERROR: $f is not executable"
-              exit 1
-            fi
-          done
-          echo "All scripts have execute permission"
+        run: ./scripts/run-required-checks.sh ci-scripts
 
   doc-validation:
     name: Documentation Validation
@@ -122,46 +121,13 @@ jobs:
 
       - name: Run doc validation
         env:
-          CHANGED_FILES: ${{ needs.changes.outputs.docs_files }}
+          DOCS_FILES_JSON: ${{ needs.changes.outputs.docs_files }}
         run: |
-          echo "=== Checking for broken internal links ==="
-          ERRORS=0
-          # Check markdown files for internal links and verify targets exist
-          find docs/ design/ -name '*.md' | while read f; do
-            # Extract relative links like [text](./file.md) or [text](../docs/file.md)
-            grep -oP '\[.*?\]\(\K[^)]+' "$f" 2>/dev/null | grep -v '^http' | while read link; do
-              # Resolve relative to the file's directory
-              dir=$(dirname "$f")
-              target="$dir/$link"
-              # Strip anchors
-              target=$(echo "$target" | cut -d'#' -f1)
-              if [ -n "$target" ] && [ ! -e "$target" ]; then
-                echo "BROKEN LINK in $f: $link (resolved to $target)"
-                ERRORS=$((ERRORS + 1))
-              fi
-            done
-          done
-          if [ "$ERRORS" -gt 0 ]; then
-            echo "$ERRORS broken links found"
-            exit 1
-          fi
-          echo "No broken internal links found"
-
-          echo "=== Linting Mermaid diagrams ==="
-          if [ -n "$CHANGED_FILES" ]; then
-            # shellcheck disable=SC2086
-            ./scripts/lint-mermaid-rendering.sh $CHANGED_FILES
-          else
-            echo "No changed doc files to lint"
-          fi
-
-          echo "=== Validating Mermaid diagrams ==="
-          if [ -n "$CHANGED_FILES" ]; then
-            # shellcheck disable=SC2086
-            ./scripts/validate-mermaid.sh $CHANGED_FILES
-          else
-            echo "No changed doc files to validate"
-          fi
+          RUN_REQUIRED_CHECKS_CHANGED_FILES="$(
+            node -e 'JSON.parse(process.env.DOCS_FILES_JSON).forEach((path) => console.log(path))'
+          )"
+          export RUN_REQUIRED_CHECKS_CHANGED_FILES
+          ./scripts/run-required-checks.sh ci-docs
 
   workflow-validation:
     name: Workflow YAML Validation
@@ -175,13 +141,6 @@ jobs:
 
       - name: Install yamllint
         run: pip3 install yamllint
-
-      - name: Run workflow validation
-        run: |
-          yamllint -c .yamllint .github/workflows/*.yml
-
-      - name: Validate PR Tests workflow tool ordering
-        run: ./scripts/validate-pr-tests-workflow.sh
 
       - name: Install actionlint
         run: |
@@ -200,14 +159,8 @@ jobs:
           )
           sudo tar -xzf "${TMP_DIR}/${ARCHIVE}" -C /usr/local/bin actionlint
 
-      - name: Run actionlint
-        run: actionlint .github/workflows/*.yml
-
-      - name: Validate cross-file workflow references
-        run: ./scripts/validate-workflow-refs.sh
-
-      - name: Validate GitHub CLI usage in workflows
-        run: ./scripts/validate-gh-cli-usage.sh
+      - name: Run workflow validation
+        run: ./scripts/run-required-checks.sh ci-workflows
 
   devcontainer-validation:
     name: Devcontainer Build Check
