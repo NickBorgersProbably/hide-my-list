@@ -32,7 +32,8 @@ explaining why.
 
 ## Procedure
 
-1. `git diff origin/main...HEAD` — read the full diff.
+1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — read the full diff against
+   the frozen PR base SHA.
 2. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline
    comments. Fold any blocking ones into `blocking_issues[]` with
    `source: "inline_comment"`.
