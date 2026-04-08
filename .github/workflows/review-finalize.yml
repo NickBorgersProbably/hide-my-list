@@ -87,8 +87,11 @@ jobs:
 
           BODY_FILE=$(mktemp)
           {
+            echo "<!-- codex-merge-decision -->"
             echo "<!-- review-pipeline-v2:no-go -->"
-            echo "## Review pipeline v2 — NO-GO"
+            echo "## Merge Decision"
+            echo
+            echo "**Decision: NO-GO**"
             echo
             echo "The autonomous review pipeline could not converge on this PR after cycle ${{ inputs.cycle }}. A human needs to take a look."
             echo
@@ -110,7 +113,7 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
           rm -f "$BODY_FILE"
 
-      - name: Mark GO success
+      - name: Mark GO success and post Merge Decision comment
         if: inputs.verdict == 'GO'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
@@ -118,6 +121,35 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
+
           # Remove any stale needs-human-review label from a prior cycle.
           gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label needs-human-review 2>/dev/null || true
+
+          REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
+
+          # Post a single Merge Decision comment so humans can see the
+          # verdict at a glance. Uses the same `<!-- codex-merge-decision -->`
+          # marker the legacy v1 monolith used so any downstream
+          # automation that scrapes for the marker continues to work.
+          BODY_FILE=$(mktemp)
+          {
+            echo "<!-- codex-merge-decision -->"
+            echo "<!-- review-pipeline-v2:go -->"
+            echo "## Merge Decision"
+            echo
+            echo "**Decision: GO**"
+            echo
+            if [ -n "$REASONS" ]; then
+              echo "### Rationale"
+              echo "$REASONS"
+              echo
+            fi
+            echo "Reviewed at \`${{ inputs.post_fix_sha }}\` (cycle ${{ inputs.cycle }})."
+            echo
+            echo "<sub>Posted by review-pipeline v2.</sub>"
+          } > "$BODY_FILE"
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
+          rm -f "$BODY_FILE"
+
           echo "review-pipeline-v2: GO on cycle ${{ inputs.cycle }}"
