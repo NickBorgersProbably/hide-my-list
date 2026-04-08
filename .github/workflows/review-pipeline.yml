@@ -339,7 +339,7 @@ jobs:
         with:
           ref: main
 
-      - name: Advance review/pipeline claim to terminal
+      - name: Advance review/pipeline claim on reviewed SHA
         uses: ./.github/actions/review-state
         with:
           op: write-status
@@ -347,4 +347,24 @@ jobs:
           context: review/pipeline
           state: success
           description: 'pipeline run completed'
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Advance review/pipeline claim on post-fix SHA
+        # The fixer claims its own new SHA (post-push) before the
+        # synchronize event lands. That claim must also be advanced
+        # to a terminal state at the end of the run, otherwise the
+        # next event for the post-fix SHA sees a leaked pending
+        # claim and dedup refuses to start a fresh run on it.
+        # Skipped when fix was a no-op (post-fix SHA equals reviewed SHA).
+        if: |
+          needs.fix.result == 'success' &&
+          needs.fix.outputs.new_sha != '' &&
+          needs.fix.outputs.new_sha != inputs.reviewed_sha
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ needs.fix.outputs.new_sha }}
+          context: review/pipeline
+          state: success
+          description: 'pipeline run completed (post-fix)'
           github_token: ${{ secrets.WORKFLOW_PAT }}
