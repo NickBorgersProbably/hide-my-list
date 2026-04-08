@@ -44,9 +44,15 @@ on:
         required: true
 
 permissions:
-  contents: write
-  pull-requests: write
-  statuses: write
+  # Read-only GITHUB_TOKEN. The fixer's `git push` uses the
+  # WORKFLOW_PAT-authenticated remote (set up via the PR-branch
+  # actions/checkout step that passes token: secrets.WORKFLOW_PAT),
+  # not GITHUB_TOKEN. Same for the `gh api .../statuses` claim and
+  # any `gh pr` calls. Actions/checkout for the orchestration
+  # workspace only needs read.
+  contents: read
+  pull-requests: read
+  statuses: read
 
 env:
   PR_WORKSPACE_PATH: pr-head

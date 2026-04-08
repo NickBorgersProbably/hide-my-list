@@ -39,8 +39,13 @@ on:
 
 # Read-only by construction. Judge cannot push.
 permissions:
+  # Read-only GITHUB_TOKEN. The verdict commit-status write
+  # authenticates via secrets.WORKFLOW_PAT through review-state.
+  # The judge has no git credentials in scope and structurally
+  # cannot push — that's the property closing the autofix loop
+  # class from #336.
   contents: read
-  statuses: write
+  statuses: read
 
 jobs:
   judge:

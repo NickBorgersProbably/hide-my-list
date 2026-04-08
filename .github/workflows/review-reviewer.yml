@@ -35,9 +35,13 @@ on:
         required: true
 
 permissions:
+  # Read-only GITHUB_TOKEN. Posting GitHub PR Reviews via
+  # review-publish authenticates with secrets.WORKFLOW_PAT, not
+  # GITHUB_TOKEN (rule 2.3). The reviewer-setup composite action
+  # uses GITHUB_TOKEN for actions/checkout only.
   contents: read
-  pull-requests: write
-  statuses: write
+  pull-requests: read
+  statuses: read
 
 env:
   PR_WORKSPACE_PATH: pr-head
