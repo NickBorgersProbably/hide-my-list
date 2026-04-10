@@ -28,19 +28,23 @@ OpenClaw loads these automatically via the `bootstrap-extra-files` hook. We don'
 
 ## Heartbeat
 
-OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json`:
+OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json` under `agents.defaults.heartbeat`:
 
 ```json
-"heartbeat": {
-  "every": "60m",
-  "model": "litellm/claude-sonnet-4-6",
-  "target": "signal"
+"agents": {
+  "defaults": {
+    "heartbeat": {
+      "every": "60m",
+      "model": "litellm/claude-sonnet-4-6",
+      "target": "signal"
+    }
+  }
 }
 ```
 
 Every 60 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks. The `target` field controls where non-`HEARTBEAT_OK` output (such as reminder delivery) is routed; without it, `target` defaults to `"none"` and all heartbeat output is silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
 
-**Our usage:** The heartbeat serves two roles:
+**Our usage:** The heartbeat serves three roles:
 1. **Reminder-delivery backstop:** The isolated `reminder-check` cron only writes `.reminder-signal` — it does not deliver to the user. Heartbeat Check 1 reads stranded signal files and delivers reminders every 60 minutes. (The AGENTS.md startup check provides faster opportunistic delivery when the user is active.)
 2. **Cron system safety net:** Verify that durable cron jobs still match the canonical `CronCreate` specs in `setup/cron/`: if a job expired, heartbeat re-registers it; if a live job drifted from its spec, heartbeat patches it back into compliance. The comparison covers the full effective registration contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, the absence of any direct-delivery `to`, `payload.kind`, and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist.
 3. **OpenClaw config drift backstop:** When `pull-main` brings down a new `setup/openclaw.json.template`, the script drops a repo-root `.config-drift` flag. The next heartbeat uses that signal to compare only an allowlist of live `openclaw.json` behavior fields (`agents.defaults.heartbeat`, `messages`, `commands`, `session`, and optional `channels.signal.defaultTo`) against the template and patches drift with `config.patch`. Instance-specific fields such as gateway auth, provider API keys, channel account IDs, and other deployment-local settings stay untouched.

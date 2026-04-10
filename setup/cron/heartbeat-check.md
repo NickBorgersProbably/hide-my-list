@@ -2,13 +2,17 @@
 
 The heartbeat is not a cron job we create — it's a built-in OpenClaw feature configured in `openclaw.json`.
 
-## Configuration (in openclaw.json)
+## Configuration (in `openclaw.json` under `agents.defaults.heartbeat`)
 
 ```json
-"heartbeat": {
-  "every": "60m",
-  "model": "litellm/claude-sonnet-4-6",
-  "target": "signal"
+"agents": {
+  "defaults": {
+    "heartbeat": {
+      "every": "60m",
+      "model": "litellm/claude-sonnet-4-6",
+      "target": "signal"
+    }
+  }
 }
 ```
 

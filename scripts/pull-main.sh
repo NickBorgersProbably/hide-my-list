@@ -206,7 +206,7 @@ print(body)
     before_pull_head=$(git rev-parse HEAD 2>/dev/null || true)
 
     git checkout -- . 2>/dev/null || true
-    git clean -fd 2>/dev/null || true
+    git clean -fd -e .config-drift 2>/dev/null || true
     if ! git pull origin main 2>/dev/null; then
         echo "Reset pull failed — leaving .pull-dirty" >&2
         return 0
