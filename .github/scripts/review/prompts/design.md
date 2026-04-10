@@ -13,7 +13,12 @@ Focus on:
 
 1. **Intent fulfillment.** Does the PR solve the stated problem? Read
    the linked issue (if any) and compare against the diff. Gaps
-   between intent and delivery are blocking.
+   between intent and delivery are blocking **when the PR's approach
+   is wrong or misses something it could have included**. But when a
+   PR delivers a correct fix for part of the problem and a viable
+   enhancement path exists using the system's own agentic
+   capabilities, that enhancement belongs in a non-blocking note or
+   follow-up issue — not a blocker on the current fix.
 2. **Scope check.** Compare the PR title against the actual diff. If
    the title suggests a narrow fix but the diff introduces new
    abstractions or significant code beyond what the title implies,
@@ -29,7 +34,24 @@ Focus on:
    and the runtime scripts/config they reference. Treat contradictions
    as blocking.
 
-Reference `docs/architecture.md` for system design context.
+**Required context — read before reviewing:**
+
+- Read `docs/architecture.md` for the full system design.
+- **This is an agentic system.** The OpenClaw runtime is an intelligent
+  agent — it reads instructions, uses tools, and takes actions not
+  explicitly coded. It can modify its own config at runtime via
+  platform tools (`config.patch`, `config.apply`,
+  `config.schema.lookup`). Don't apply static-application reasoning
+  ("there's no code path for X, so X can't happen").
+- **`HEARTBEAT.md` is the self-healing pattern.** It runs every 60
+  minutes and already self-heals cron drift, validates environment,
+  and recovers workspace state. When a gap could be closed by adding
+  a heartbeat check, suggest it concretely as a non-blocking note —
+  don't block the PR with a vague demand for "a guard."
+- When suggesting fixes, name the specific mechanism (e.g., "add a
+  heartbeat check that verifies X via `config.schema.lookup` and
+  patches via `config.patch`"), not abstract requirements ("add an
+  in-product remediation path").
 
 ## Procedure
 
