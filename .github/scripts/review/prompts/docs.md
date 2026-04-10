@@ -48,4 +48,8 @@ For each high-confidence blocker, emit a matching `fix_suggestions[]`
 entry — a doc fix is almost always `applicable: "manual"` unless it's
 a literal rename.
 
+Keep `summary` to 500 characters or fewer. The schema validator
+hard-fails longer summaries, so put detail in `blocking_issues[]` or
+`non_blocking_notes[]` instead.
+
 Do NOT push any changes. Do NOT post PR comments yourself.

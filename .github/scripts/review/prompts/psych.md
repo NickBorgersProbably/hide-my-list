@@ -47,6 +47,10 @@ Write your verdict as JSON to `$OUTPUT_PATH` conforming to
 `role: "psych"`. Each `blocking_issues[]` entry needs a stable `id`
 (e.g. `"psy-001"`).
 
+Keep `summary` to 500 characters or fewer. The schema validator
+hard-fails longer summaries, so put detail in `blocking_issues[]` or
+`non_blocking_notes[]` instead.
+
 When you flag something as blocking, cite the research basis or the
 canonical doc you're cross-referencing in the `message` field. Vague
 "this feels wrong" findings are non-blocking notes, not blockers.

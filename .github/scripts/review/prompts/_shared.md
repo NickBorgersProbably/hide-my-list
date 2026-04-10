@@ -48,6 +48,11 @@ fields:
 }
 ```
 
+The `summary` field is hard-capped at 500 characters by the schema
+validator. Keep it tight; put detail in `non_blocking_notes[]` or
+`blocking_issues[]` rather than expanding the summary. Validation will
+fail the job if you exceed this limit.
+
 Each `blocking_issues[]` entry must have a stable `id` (e.g.
 `"sec-001"`); the fixer addresses blockers by namespaced `role/id`
 (e.g. `"security/sec-001"`), so collisions across reviewers are safe.

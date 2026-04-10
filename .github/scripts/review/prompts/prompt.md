@@ -53,4 +53,8 @@ Write your verdict as JSON to `$OUTPUT_PATH` conforming to
 `role: "prompt"`. Each `blocking_issues[]` entry needs a stable `id`
 (e.g. `"prm-001"`).
 
+Keep `summary` to 500 characters or fewer. The schema validator
+hard-fails longer summaries, so put detail in `blocking_issues[]` or
+`non_blocking_notes[]` instead.
+
 Do NOT push any changes. Do NOT post PR comments yourself.
