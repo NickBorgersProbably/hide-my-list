@@ -111,7 +111,7 @@ git pull origin main
 
 The agent reads docs on every interaction, so changes take effect immediately. No restart needed unless `openclaw.json` changed.
 
-When a pull updates `setup/openclaw.json.template`, `scripts/pull-main.sh` now writes `.config-drift` so the next heartbeat can patch the allowlisted live config fields (`agents.defaults.heartbeat`, `messages`, `commands`, `session`, and optional `channels.signal.defaultTo`) via `config.patch`. Secrets and deployment-specific settings still remain manual.
+When a pull updates `setup/openclaw.json.template`, `scripts/pull-main.sh` now writes `.config-drift` so the next heartbeat can patch the allowlisted live config fields (`agents.defaults.heartbeat`, `messages`, `commands`, and `session`) via `config.patch`. Secrets and deployment-specific settings still remain manual.
 
 ## Contributor Hooks
 
@@ -137,7 +137,7 @@ Manual regression playbook:
 ## Troubleshooting
 
 **Reminders not firing:**
-- Check that `heartbeat.target` is set in `openclaw.json` (e.g. `"target": "signal"`). Without it, heartbeat output is silently discarded and reminders never reach the user.
+- Check that `agents.defaults.heartbeat.target` is set in `openclaw.json` (e.g. `"target": "signal"` under `"agents" -> "defaults" -> "heartbeat"`). Without it, heartbeat output is silently discarded and reminders never reach the user.
 - Check that the reminder-check cron is registered (ask the agent to check CronList)
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity

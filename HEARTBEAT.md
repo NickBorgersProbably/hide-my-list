@@ -56,8 +56,8 @@ Detect and repair allowlisted `openclaw.json` drift after a template-changing pu
   - `messages`
   - `commands`
   - `session`
-  - `channels.signal.defaultTo` if that field exists in the template
 - Do not sync instance-specific or secret-bearing fields such as auth tokens, provider API keys, channel accounts, gateway settings, or control UI origins
+- If `setup/openclaw.json.template` is missing or cannot be parsed as JSON, leave `.config-drift` in place and note the failure for operator attention; do not retry repeatedly in the same heartbeat run
 - If any allowlisted values are missing or differ in the live config, compute the minimal patch and apply it with `config.patch`
 - If the patch succeeds, delete `.config-drift` and briefly report which paths were patched
 - If the allowlisted fields already match, delete `.config-drift` and report nothing
