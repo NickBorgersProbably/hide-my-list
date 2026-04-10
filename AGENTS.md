@@ -207,6 +207,14 @@ PRs are reviewed by a multi-agent Codex pipeline. The reviewer roles are the sam
 
 The two pipelines are mutually exclusive via gate jobs: flipping the variable atomically swaps which one runs. There is no shared state to migrate.
 
+### Review prompt file architecture
+
+Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,prompt}.md`) are **self-contained** — each reviewer loads only its own `${role}.md` file at runtime. The Codex CLI does not support markdown includes.
+
+When a constraint applies to all reviewers, it must be added to each prompt file individually. Use identical wording across all files unless the file's structure genuinely requires different phrasing (e.g., inline JSON placeholder vs. prose paragraph). The same applies to `fixer.md` — it is also loaded independently.
+
+This "sibling files with shared contract, loaded independently" pattern recurs throughout the repo (e.g., the OpenClaw spec files). When editing one file in a group, always check whether siblings need the same change.
+
 ## When Making Changes
 
 - Runtime/spec docs define agent behavior — changing those docs changes the system; contributor/CI guidance docs should still be reviewed as infra changes

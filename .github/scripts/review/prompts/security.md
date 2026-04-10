@@ -54,7 +54,10 @@ apply it via your `fix_suggestions[]`.
    the intended specialist reviewers, especially for
    `.github/scripts/review/prompts/*.md`.
 4. Apply the four-area lens above.
-5. Write the JSON artifact to `$OUTPUT_PATH`.
+5. If the diff applies the same logical change across multiple files,
+   verify wording/structure consistency. Unjustified variation is
+   blocking.
+6. Write the JSON artifact to `$OUTPUT_PATH`.
 
 ## Output contract
 
