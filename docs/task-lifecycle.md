@@ -923,7 +923,7 @@ The reward system scales celebrations based on achievement significance:
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection. Instead, the durable `reminder-check` cron job polls for reminders that have reached `Remind At` and delivers them on the next eligible run.
+Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection. Instead, the durable `reminder-check` cron job polls for reminders that have reached `Remind At`, writes the handoff file, and leaves delivery to the next eligible startup check or heartbeat run.
 
 ```mermaid
 flowchart TD
@@ -940,14 +940,16 @@ flowchart TD
     Delivery -->|User interacts: AGENTS.md step 5| Late{>15 min past due?}
     Delivery -->|Heartbeat: Check 1| Late
 
-    Late -->|No| Send[Deliver reminder]
-    Late -->|Yes| SendMissed[Deliver with apology]
+    Late -->|No| Send[message send to channels.signal.defaultTo]
+    Late -->|Yes| SendMissed[message send with missed reminder text]
 
-    Send --> Complete[Mark Completed + reminder_status=sent]
-    SendMissed --> Complete2[Mark Completed + reminder_status=missed]
-
-    Complete --> Done([Done])
-    Complete2 --> Done
+    Send --> Success{Send succeeded?}
+    SendMissed --> Success
+    Success -->|Yes| Complete[complete-reminder sets Completed + reminder_status=sent/missed]
+    Complete --> Cleanup[Delete handoff file after all reminders succeed]
+    Cleanup --> Done([Done])
+    Success -->|No or target invalid| Retry[Leave handoff file in place]
+    Retry --> Wait
 ```
 
 ### Reminder vs. Normal Task
@@ -955,7 +957,7 @@ flowchart TD
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
 | Selection | User requests → AI suggests | Isolated Haiku `reminder-check` writes the reminder handoff file; delivered by heartbeat (60 min) or main-session startup check (next user interaction) |
-| Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent` or `missed`) |
+| Lifecycle | Pending → In Progress → Completed | Pending → handoff written → `message` send succeeds → Completed (`Reminder Status` becomes `sent` or `missed`) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 

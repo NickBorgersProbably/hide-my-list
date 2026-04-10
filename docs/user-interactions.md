@@ -770,20 +770,28 @@ sequenceDiagram
     Note over Cron: Cron exits (NO_REPLY)
     alt User interacts (AGENTS.md step 5)
         Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
-        Delivery->>Signal: Delete handoff file
+        Delivery->>User: `message` send to channels.signal.defaultTo
+        alt Send succeeds
+            Delivery->>Notion: complete-reminder PAGE_ID sent/missed
+            Delivery->>Signal: Delete handoff file after all reminders succeed
+        else Send fails / target invalid
+            Delivery-->>Signal: Leave handoff file in place
+        end
     else Heartbeat runs (Check 1)
         Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
-        Delivery->>Signal: Delete handoff file
+        Delivery->>User: `message` send to channels.signal.defaultTo
+        alt Send succeeds
+            Delivery->>Notion: complete-reminder PAGE_ID sent/missed
+            Delivery->>Signal: Delete handoff file after all reminders succeed
+        else Send fails / target invalid
+            Delivery-->>Signal: Leave handoff file in place
+        end
     end
 ```
 
 The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min).
 
-Both delivery paths must use the `message` tool to proactively send the reminder over Signal with `action: send`, `channel: signal`, and `target: <defaultTo from config>`. They must not rely on a normal assistant reply for delivery. Only after the send succeeds should the agent call `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`; if the send fails, the handoff file is left in place for retry.
+Both delivery paths must use the `message` tool to proactively send the reminder over Signal with `action: send`, `channel: signal`, and `target: channels.signal.defaultTo` from `openclaw.json`. They must not rely on a normal assistant reply for delivery. Only after the send succeeds should the agent call `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`; if the send fails, or if `channels.signal.defaultTo` is missing or invalid, the handoff file is left in place for retry. `TOOLS.md` is the canonical definition of this contract.
 
 ### Reminder Delivery Messages
 

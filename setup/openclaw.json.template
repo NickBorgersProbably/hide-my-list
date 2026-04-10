@@ -98,6 +98,7 @@
     "signal": {
       "enabled": true,
       "account": "{{SIGNAL_PHONE_NUMBER}}",
+      "defaultTo": "{{SIGNAL_DEFAULT_TO}}",
       "cliPath": "signal-cli",
       "dmPolicy": "pairing",
       "groupPolicy": "allowlist"

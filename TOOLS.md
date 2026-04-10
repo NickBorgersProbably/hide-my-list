@@ -25,6 +25,18 @@
 ### Reminder Status Values
 - pending, sent, missed
 
+## Message Tool
+
+Use the OpenClaw `message` tool for proactive outbound delivery that is not part of a normal assistant reply.
+
+### Reminder Delivery Contract
+- `action: send`
+- `channel: signal`
+- `target: channels.signal.defaultTo` from `openclaw.json`
+- message body: the reminder text to deliver
+
+The `message` tool is available in both the main session startup check and heartbeat sessions. Reminder delivery counts as successful only when the tool call succeeds. If `channels.signal.defaultTo` is missing or malformed, skip `complete-reminder` and leave the handoff file in place for retry after config is fixed.
+
 ## State File
 
 `state.json` — read on session start, update after state changes.

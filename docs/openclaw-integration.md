@@ -103,6 +103,7 @@ OpenClaw handles all messaging infrastructure. We don't touch it.
   "signal": {
     "enabled": true,
     "account": "+18883431161",
+    "defaultTo": "+15551234567",
     "cliPath": "signal-cli",
     "dmPolicy": "pairing",
     "groupPolicy": "allowlist"
@@ -116,7 +117,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use the normal main-agent routing path. Cron jobs run as isolated Haiku sessions (query-only, no user delivery). Reminder delivery reaches the user through the heartbeat and the main-session startup check.
+**Our role:** OpenClaw still owns transport mechanics, but reminder delivery has one explicit outbound tool boundary. Interactive conversations use the normal main-agent routing path, where plain assistant replies are delivered by OpenClaw. Cron jobs remain isolated and query-only. For proactive reminder delivery from the main-session startup check and heartbeat, the agent must call the `message` tool with `action: send`, `channel: signal`, and `target: channels.signal.defaultTo`. If that config value is missing or malformed, delivery must fail closed: skip `complete-reminder` and leave the handoff file in place for retry after config is corrected.
 
 ## Model Routing (LiteLLM Proxy)
 

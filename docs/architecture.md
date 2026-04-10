@@ -211,14 +211,22 @@ sequenceDiagram
     Note over Cron: Cron exits (NO_REPLY)
     alt User interacts (AGENTS.md step 5)
         Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
-        Delivery->>Signal: Delete handoff file
+        Delivery->>User: `message` send to channels.signal.defaultTo
+        alt Send succeeds
+            Delivery->>Notion: complete-reminder PAGE_ID sent/missed
+            Delivery->>Signal: Delete handoff file after all reminders succeed
+        else Send fails / target invalid
+            Delivery-->>Signal: Leave handoff file in place
+        end
     else Heartbeat runs (Check 1)
         Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
-        Delivery->>Signal: Delete handoff file
+        Delivery->>User: `message` send to channels.signal.defaultTo
+        alt Send succeeds
+            Delivery->>Notion: complete-reminder PAGE_ID sent/missed
+            Delivery->>Signal: Delete handoff file after all reminders succeed
+        else Send fails / target invalid
+            Delivery-->>Signal: Leave handoff file in place
+        end
     end
 ```
 
@@ -229,10 +237,10 @@ sequenceDiagram
 3. The cron job runs `scripts/check-reminders.sh` to query Notion for pending reminders where `remind_at <= now`.
 4. If due reminders are found, `check-reminders.sh` writes the reminder handoff file in the repo root (default filename: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). The isolated cron session then exits with `NO_REPLY` — it does not deliver reminders.
 5. Reminder delivery happens through two separate mechanisms:
-   - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for the handoff file and proactively sends reminder messages via the `message` tool (`action: send`, `channel: signal`, `target: <defaultTo from config>`).
+   - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for the handoff file and proactively sends reminder messages via the `message` tool (`action: send`, `channel: signal`, `target: channels.signal.defaultTo` from `openclaw.json`; see `TOOLS.md`).
    - **HEARTBEAT.md Check 1** (hourly backstop): the heartbeat reads the handoff file every 60 minutes and proactively sends any stranded reminders the same way. This explicit tool call is required because heartbeat is an isolated session with no active user conversation to reply into.
    - Only after a `message` send succeeds does the delivering session run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` for that reminder, which atomically sets `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
-   - The handoff file is deleted only after every reminder in it has been sent successfully and marked complete; if a send fails, the file stays in place for retry.
+   - The handoff file is deleted only after every reminder in it has been sent successfully and marked complete; if a send fails, or if `channels.signal.defaultTo` is missing or invalid, the file stays in place for retry.
 6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 7. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
