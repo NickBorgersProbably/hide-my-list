@@ -20,7 +20,7 @@ OpenClaw has a concept of "bootstrap files" — markdown files at the workspace 
 | `USER.md` | Context about the human | Per-user: name, timezone, preferences. Gitignored; created from template |
 | `MEMORY.md` | Long-term memory/lessons | Per-user: learned preferences, hard rules, system behaviors. Gitignored; created from template |
 | `TOOLS.md` | Local tool documentation | Notion property names, status values, state file reference |
-| `HEARTBEAT.md` | Periodic health check instructions | Cron job re-registration and drift correction, Notion connectivity, environment checks |
+| `HEARTBEAT.md` | Periodic health check instructions | Reminder-delivery backstop, cron re-registration/spec drift correction, allowlisted OpenClaw config drift correction, Notion connectivity, environment checks, stale dirty-pull recovery |
 
 OpenClaw loads these automatically via the `bootstrap-extra-files` hook. We don't need any special configuration for the agent to find them — just having them at the workspace root is enough.
 

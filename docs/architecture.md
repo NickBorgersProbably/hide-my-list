@@ -243,6 +243,8 @@ This deferred-delivery handoff is also a correctness constraint, not just an imp
 
 **Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. The heartbeat (every 60 min) verifies each cron job still exists and still matches the canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison is against the full `CronCreate` contract, including `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, the absence of any direct-delivery `to`, `payload.kind`, and `timeout-seconds`. `HEARTBEAT.md` is the authoritative comparison checklist. See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for the job definitions.
 
+**Allowlisted OpenClaw config drift:** When `scripts/pull-main.sh` pulls a change to `setup/openclaw.json.template`, it writes a repo-root `.config-drift` flag. On its next run, heartbeat treats that flag as a prompt to reconcile only the allowlisted live `openclaw.json` behavior fields (`agents.defaults.heartbeat`, `messages`, `commands`, and `session`) with the template, leaving deployment-specific and secret-bearing fields untouched.
+
 ## Technology Choices
 
 | Component | Technology | Rationale |
