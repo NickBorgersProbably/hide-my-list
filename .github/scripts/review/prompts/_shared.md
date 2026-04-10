@@ -39,7 +39,7 @@ fields:
   "reviewed_sha": "${REVIEWED_SHA}",
   "cycle": ${REVIEW_CYCLE},
   "decision": "approve | request_changes | comment | abstain",
-  "summary": "<one-paragraph summary, MAX 500 characters>",
+  "summary": "<one-paragraph summary>",
   "blocking_issues": [],
   "non_blocking_notes": [],
   "fix_suggestions": [],

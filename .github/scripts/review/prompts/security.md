@@ -67,13 +67,17 @@ Write your verdict as JSON to `$OUTPUT_PATH` conforming to
   "reviewed_sha": "${REVIEWED_SHA}",
   "cycle": ${REVIEW_CYCLE},
   "decision": "approve | request_changes | comment | abstain",
-  "summary": "<one paragraph, MAX 500 characters>",
+  "summary": "<one paragraph>",
   "blocking_issues": [],
   "non_blocking_notes": [],
   "fix_suggestions": [],
   "followup_issues": []
 }
 ```
+
+Keep `summary` to 500 characters or fewer. The schema validator
+hard-fails longer summaries, so put detail in `blocking_issues[]` or
+`non_blocking_notes[]` instead.
 
 Each `blocking_issues[]` entry needs a stable `id` (e.g. `"sec-001"`).
 For each high-confidence blocker, emit a matching `fix_suggestions[]`
