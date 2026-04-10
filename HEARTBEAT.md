@@ -8,7 +8,11 @@
   HANDOFF_FILE="$(bash -lc 'SCRIPT_DIR=$(cd "$(dirname scripts/check-reminders.sh)" && pwd); ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd); source "$SCRIPT_DIR/load-env.sh" REMINDER_SIGNAL_FILE?; SIGNAL_BASENAME=${REMINDER_SIGNAL_FILE:-.reminder-signal}; case "$SIGNAL_BASENAME" in ""|"."|".."|*/*) echo "invalid REMINDER_SIGNAL_FILE" >&2; exit 1 ;; esac; printf "%s\n" "$ROOT_DIR/$SIGNAL_BASENAME"')"
   ```
 - This file is the reminder handoff written by `scripts/check-reminders.sh`
-- If `HANDOFF_FILE` still exists when heartbeat runs, treat it as undelivered reminder work: read it, send each reminder to the user, run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` based on the file, then delete that handoff file
+- If `HANDOFF_FILE` still exists when heartbeat runs, treat it as undelivered reminder work: read it and proactively deliver each reminder with the `message` tool instead of a normal assistant reply
+- For each reminder delivery, use the `message` tool with `action: send`, `channel: signal`, `target: <defaultTo from config>`, and the reminder text as the message body. Heartbeat runs as an isolated session and has no user conversation to reply into.
+- Only after the `message` tool succeeds for a reminder should you run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` for that reminder
+- Only delete the handoff file after every reminder in it has been sent successfully and marked with `complete-reminder`
+- If any `message` send fails, do not mark that reminder complete and do not delete the handoff file; leave it in place for retry
 - This is the hourly reminder-delivery backstop in the current design. The isolated `reminder-check` cron only writes the handoff file — it does not deliver. Delivery happens here (every 60 min) and opportunistically via the AGENTS.md startup check (on every user interaction).
 
 ### 2. Cron Job Health
