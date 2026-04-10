@@ -24,9 +24,10 @@ Lens:
    and code is blocking — pick whichever is correct and require the
    other to be fixed.
 4. **Index and TOC freshness.** `docs/index.md`, `MEMORY.md`, and
-   the "Key Files" section of `AGENTS.md` should mention any new
-   spec-bearing file. Missing entries are non-blocking notes unless
-   the file was added by this PR.
+   the "Key Files" sections of `AGENTS.md` (OpenClaw spec files) and
+   `DEV-AGENTS.md` (infrastructure/CI files) should mention any new
+   spec-bearing or infra file. Missing entries are non-blocking notes
+   unless the file was added by this PR.
 
 ## Procedure
 
