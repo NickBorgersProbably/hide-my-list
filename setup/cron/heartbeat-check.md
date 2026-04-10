@@ -7,9 +7,12 @@ The heartbeat is not a cron job we create — it's a built-in OpenClaw feature c
 ```json
 "heartbeat": {
   "every": "60m",
-  "model": "litellm/claude-sonnet-4-6"
+  "model": "litellm/claude-sonnet-4-6",
+  "target": "signal"
 }
 ```
+
+The `target` field is required for reminder delivery. Without it, OpenClaw defaults to `"none"` and silently discards all heartbeat output — including reminders. Set it to `"signal"` (or whichever channel your user communicates on) so that non-`HEARTBEAT_OK` output is routed to the user.
 
 ## Behavior
 
