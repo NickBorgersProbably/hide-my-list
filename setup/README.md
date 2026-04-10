@@ -135,6 +135,7 @@ Manual regression playbook:
 ## Troubleshooting
 
 **Reminders not firing:**
+- Check that `heartbeat.target` is set in `openclaw.json` (e.g. `"target": "signal"`). Without it, heartbeat output is silently discarded and reminders never reach the user.
 - Check that the reminder-check cron is registered (ask the agent to check CronList)
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity
