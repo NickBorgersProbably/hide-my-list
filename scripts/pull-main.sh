@@ -21,6 +21,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/load-github-auth.sh"
 
 SIGNAL_FILE="$ROOT_DIR/.pull-dirty"
+CONFIG_DRIFT_FILE="$ROOT_DIR/.config-drift"
 REPO="NickBorgersProbably/hide-my-list"
 
 cd "$ROOT_DIR"
@@ -69,6 +70,19 @@ for path in files:
     result.append({'path': path, 'diff_snippet': snippet})
 print(json.dumps(result))
 " 2>/dev/null || echo '[]'
+}
+
+mark_config_drift_if_template_changed() {
+    local before_head="${1:-}"
+    local after_head="${2:-}"
+
+    if [ -z "$before_head" ] || [ -z "$after_head" ] || [ "$before_head" = "$after_head" ]; then
+        return 0
+    fi
+
+    if git diff --name-only "$before_head" "$after_head" -- setup/openclaw.json.template | grep -q '^setup/openclaw\.json\.template$'; then
+        : > "$CONFIG_DRIFT_FILE"
+    fi
 }
 
 # Write the .pull-dirty signal file.
@@ -188,12 +202,19 @@ print(body)
     fi
 
     # Reset to match remote
+    local before_pull_head
+    before_pull_head=$(git rev-parse HEAD 2>/dev/null || true)
+
     git checkout -- . 2>/dev/null || true
     git clean -fd 2>/dev/null || true
     if ! git pull origin main 2>/dev/null; then
         echo "Reset pull failed — leaving .pull-dirty" >&2
         return 0
     fi
+
+    local after_pull_head
+    after_pull_head=$(git rev-parse HEAD 2>/dev/null || true)
+    mark_config_drift_if_template_changed "$before_pull_head" "$after_pull_head"
 
     # Success — clean up
     rm -f "$SIGNAL_FILE"
@@ -219,9 +240,12 @@ if [ -n "$dirty_all" ]; then
 fi
 
 # 2. Working tree is clean — attempt the pull
+before_pull_head=$(git rev-parse HEAD 2>/dev/null || true)
 pull_output=$(git pull origin main 2>&1) && pull_exit=0 || pull_exit=$?
 
 if [ "$pull_exit" -eq 0 ]; then
+    after_pull_head=$(git rev-parse HEAD 2>/dev/null || true)
+    mark_config_drift_if_template_changed "$before_pull_head" "$after_pull_head"
     # Clean pull — remove any stale signal from a prior run
     rm -f "$SIGNAL_FILE"
     exit 0

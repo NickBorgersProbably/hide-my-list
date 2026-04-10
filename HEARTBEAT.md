@@ -45,6 +45,24 @@ If any field differs from the spec, patch the live job to match with CronUpdate.
 
 If all jobs already match their specs, do not report anything. If any jobs were corrected, briefly note which ones were patched and what drift was fixed.
 
+### 2c. OpenClaw Config Drift Check
+Detect and repair allowlisted `openclaw.json` drift after a template-changing pull.
+
+- The repo-root `.config-drift` file is a cheap signal written by `scripts/pull-main.sh` when a successful pull changed `setup/openclaw.json.template`
+- If `.config-drift` does not exist, skip this check silently
+- If `.config-drift` exists, read the canonical values from `setup/openclaw.json.template` and read the live OpenClaw config with `config.get`
+- Compare only this curated allowlist of application-behavior fields:
+  - `agents.defaults.heartbeat`
+  - `messages`
+  - `commands`
+  - `session`
+  - `channels.signal.defaultTo` if that field exists in the template
+- Do not sync instance-specific or secret-bearing fields such as auth tokens, provider API keys, channel accounts, gateway settings, or control UI origins
+- If any allowlisted values are missing or differ in the live config, compute the minimal patch and apply it with `config.patch`
+- If the patch succeeds, delete `.config-drift` and briefly report which paths were patched
+- If the allowlisted fields already match, delete `.config-drift` and report nothing
+- If `config.get` or `config.patch` fails, leave `.config-drift` in place and note the failure for operator attention; do not retry repeatedly in the same heartbeat run
+
 ### 3. Notion Connectivity
 - Run `scripts/notion-cli.sh query-pending` with a short timeout
 - If it fails, note the error — don't retry aggressively

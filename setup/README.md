@@ -96,7 +96,7 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 |-----|----------|---------|
 | reminder-check | Every 15 min | Poll Notion for due reminders, write the reminder handoff file (delivery via heartbeat/startup check) |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
-| heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction, stranded reminder delivery |
+| heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction, allowlisted `openclaw.json` drift correction, stranded reminder delivery |
 
 Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs run as isolated Haiku sessions (`sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`).
 
@@ -110,6 +110,8 @@ git pull origin main
 ```
 
 The agent reads docs on every interaction, so changes take effect immediately. No restart needed unless `openclaw.json` changed.
+
+When a pull updates `setup/openclaw.json.template`, `scripts/pull-main.sh` now writes `.config-drift` so the next heartbeat can patch the allowlisted live config fields (`agents.defaults.heartbeat`, `messages`, `commands`, `session`, and optional `channels.signal.defaultTo`) via `config.patch`. Secrets and deployment-specific settings still remain manual.
 
 ## Contributor Hooks
 
