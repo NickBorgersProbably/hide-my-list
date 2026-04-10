@@ -44,7 +44,10 @@ If the diff does not touch any prompt or `.md` agent-spec file, set
 3. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline
    comments. Fold blocking ones into `blocking_issues[]` with
    `source: "inline_comment"`.
-4. Write the JSON artifact to `$OUTPUT_PATH`.
+4. If the diff applies the same logical change across multiple files,
+   verify wording/structure consistency. Unjustified variation is
+   blocking.
+5. Write the JSON artifact to `$OUTPUT_PATH`.
 
 ## Output contract
 

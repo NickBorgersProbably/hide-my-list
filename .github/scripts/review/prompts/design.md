@@ -39,7 +39,10 @@ Reference `docs/architecture.md` for system design context.
    comments. Any blocking change requests there must appear in your
    `blocking_issues[]` with `source: "inline_comment"`.
 3. Apply the lens above.
-4. Write the JSON artifact to `$OUTPUT_PATH`.
+4. If the diff applies the same logical change across multiple files,
+   verify wording/structure consistency. Unjustified variation is
+   blocking.
+5. Write the JSON artifact to `$OUTPUT_PATH`.
 
 ## Output contract
 

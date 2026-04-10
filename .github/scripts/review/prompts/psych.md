@@ -38,7 +38,10 @@ explaining why.
    comments. Fold any blocking ones into `blocking_issues[]` with
    `source: "inline_comment"`.
 3. Apply the four-lens framework above.
-4. Write the JSON artifact to `$OUTPUT_PATH`.
+4. If the diff applies the same logical change across multiple files,
+   verify wording/structure consistency. Unjustified variation is
+   blocking.
+5. Write the JSON artifact to `$OUTPUT_PATH`.
 
 ## Output contract
 

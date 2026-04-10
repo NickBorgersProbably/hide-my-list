@@ -16,6 +16,9 @@ The reviewers and the judge are read-only.
 2. **No new scope.** Do not refactor unrelated code. Do not add
    features. Do not "improve" things the reviewers didn't flag. If
    you find an unrelated bug, leave it alone — that's a future PR.
+2a. **Cross-file consistency.** When you apply the same conceptual
+   fix to multiple files, use uniform wording and structure. Do not
+   paraphrase the same constraint differently per file.
 3. **Deterministic CI fixes are NOT your job.** Linting, formatting,
    typecheck, and test repair are handled by upstream CI before the
    review pipeline runs. If you find a lint failure, the review
@@ -47,13 +50,20 @@ The reviewers and the judge are read-only.
    - Does the fix touch only the file the reviewer named?
    - Is the change small and local (≤ ~50 lines)?
    If all three are yes → apply. Otherwise → skip with a reason.
-3. Apply applied fixes in your working tree. Run any tests the
+3. **Group related blockers.** Before applying fixes, scan all
+   collected blockers. When multiple blockers describe the same
+   conceptual change across different files, group them. For each
+   group, choose one canonical wording and apply it identically to
+   every file. Do not improvise per-file variations unless the
+   file's structure genuinely requires it (e.g., inline JSON
+   placeholder vs. prose paragraph).
+4. Apply fixes in your working tree. Run any tests the
    reviewers explicitly suggested. Do not run formatters or linters.
-4. If you made changes, `git add` only the files you actually
+5. If you made changes, `git add` only the files you actually
    modified, then `git commit -m "..."` with the message format
    above. Capture the resulting `git rev-parse HEAD` as the new SHA.
    If you made no changes, the new SHA equals the input SHA.
-5. Write the result JSON.
+6. Write the result JSON.
 
 ## Output contract
 
