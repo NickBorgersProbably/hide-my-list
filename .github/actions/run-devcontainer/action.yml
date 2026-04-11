@@ -90,6 +90,16 @@ runs:
 
         config.pop("build", None)
         config.pop("initializeCommand", None)
+        # mounts in devcontainer.json (e.g. host ~/.claude, ~/.bashrc,
+        # ~/code/util/profile passthroughs for dev machines) depend on
+        # initializeCommand to create placeholder sources when the host
+        # files are missing. Since we strip initializeCommand above, any
+        # mount whose source doesn't exist on the runner would cause
+        # `docker run --mount type=bind ...` to fail with "bind source
+        # path does not exist". Strip mounts too — this CI path never
+        # benefits from host passthroughs anyway (GitHub-hosted runners
+        # don't carry a developer's ~/.claude etc.).
+        config.pop("mounts", None)
 
         config["image"] = image
 
