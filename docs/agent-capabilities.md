@@ -33,8 +33,10 @@ The main agent is the only session type with a confirmed contract for the follow
 - `config.get`, `config.patch`, `config.schema.lookup` for reading and patching `~/.openclaw/openclaw.json`
 - Full cron administration, including manual runs and broader job management beyond heartbeat's narrower drift-correction scope
 - `message` for proactive outbound delivery across configured channels
-- `exec`, `read`, `edit`, `write` for repo files, logs, and scripts
+- `edit` and `write` for repo files and other direct workspace mutation
 - Gateway lifecycle/config tools such as restart and config inspection
+
+`exec` and `read` are also confirmed for heartbeat and isolated cron sessions under narrower scopes. The main agent remains the only session that should assume the broader operator workflows in this section.
 
 ### Operational responsibilities
 
@@ -61,7 +63,7 @@ The heartbeat is a short built-in OpenClaw session configured in `openclaw.json`
 The heartbeat session has a narrower confirmed contract:
 
 - `exec` and `read` for script execution and repo inspection
-- Cron registration tools used by `HEARTBEAT.md` for drift correction and re-registration, specifically the ability to inspect and patch durable cron jobs
+- CronList, CronCreate, CronUpdate, and CronDelete for durable cron inspection, re-registration, drift correction, and stale-job cleanup required by `HEARTBEAT.md`
 
 ### Do not assume
 

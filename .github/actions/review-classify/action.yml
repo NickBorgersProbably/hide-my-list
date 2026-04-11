@@ -22,8 +22,13 @@ description: >
   See agentic-pipeline-learnings.md §1.9 and §1.12: spec-critical
   and reviewer-prompt .md files must NOT be classified as inert docs
   or config just because they end in .md. The classifier carves out
-  AGENTS.md, SOUL.md, TOOLS.md, HEARTBEAT.md, setup/cron/*,
-  design/adhd-priorities.md, and .github/scripts/review/prompts/*.md.
+  AGENTS.md, SOUL.md, TOOLS.md, HEARTBEAT.md, IDENTITY.md,
+  setup/cron/*, design/adhd-priorities.md, docs/ai-prompts.md,
+  docs/task-lifecycle.md, docs/notion-schema.md,
+  docs/architecture.md, docs/agent-capabilities.md,
+  docs/user-interactions.md, docs/user-preferences.md,
+  docs/reward-system.md, docs/openclaw-integration.md, and
+  .github/scripts/review/prompts/*.md.
 
 inputs:
   base_ref:
