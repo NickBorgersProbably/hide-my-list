@@ -91,7 +91,12 @@ jobs:
         id: cap
         env:
           NEXT: ${{ steps.cycle.outputs.cycle }}
-          MAX: '3'
+          # NO-GO retries only: MAX bounds the number of cycles the
+          # fixer gets on a PR whose cycle 1 did not converge. GO
+          # cycles are short-circuited in review-entry.yml after
+          # cycle 1 regardless of MAX — see §1.13 in
+          # docs/agentic-pipeline-learnings.md.
+          MAX: '2'
         run: |
           set -euo pipefail
           if [ "$NEXT" -gt "$MAX" ]; then

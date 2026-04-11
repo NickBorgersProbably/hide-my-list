@@ -138,6 +138,7 @@ jobs:
       head_ref: ${{ steps.resolve.outputs.head_ref }}
       head_repo: ${{ steps.resolve.outputs.head_repo }}
       base_sha: ${{ steps.resolve.outputs.base_sha }}
+      terminal_verdict: ${{ steps.terminal.outputs.terminal_verdict }}
     steps:
       - name: Checkout main (for composite actions)
         uses: actions/checkout@v4
@@ -192,9 +193,47 @@ jobs:
             echo "base_sha=$BASE_SHA"
           } >> "$GITHUB_OUTPUT"
 
+      # Check whether the reviewed SHA has already been cleared GO by a
+      # prior cycle of the v2 pipeline. The finalize job writes the
+      # `All Required Agent Reviews` commit status with state=success
+      # on GO and state=failure on NO-GO (see review-finalize.yml:76-95).
+      # A prior-cycle GO on this exact commit means the pipeline already
+      # cleared it; re-running would only rediscover cross-doc drift the
+      # last cycle's fixer introduced. NO-GO deliberately does NOT
+      # short-circuit — we want the fixer to get additional attempts on
+      # stubborn blockers, bounded by the MAX cycle cap in
+      # review-pipeline.yml. This asymmetry is the point: "stop on
+      # success, keep trying on failure."
+      #
+      # Only applies to `pull_request` events. `issue_comment` (i.e.
+      # `/review`) is the human override and must always force a
+      # fresh cycle — see §1.13 in docs/agentic-pipeline-learnings.md.
+      - name: Check for prior GO verdict on reviewed SHA
+        id: terminal
+        if: |
+          steps.resolve.outputs.reviewed_sha != '' &&
+          github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.resolve.outputs.reviewed_sha }}
+        run: |
+          set -euo pipefail
+          PRIOR=$(gh api "repos/${REPO}/commits/${SHA}/statuses" \
+            --jq '[.[] | select(.context == "All Required Agent Reviews" and .state == "success")] | first | .description // empty')
+          if [ -n "$PRIOR" ]; then
+            echo "review-entry: SHA ${SHA} already cleared GO by a prior cycle (${PRIOR}); skipping re-review (human override: post /review)"
+            echo "terminal_verdict=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "review-entry: SHA ${SHA} has no prior GO verdict; proceeding"
+            echo "terminal_verdict=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: SHA-keyed dedup claim
         id: dedup
-        if: steps.resolve.outputs.reviewed_sha != ''
+        if: |
+          steps.resolve.outputs.reviewed_sha != '' &&
+          steps.terminal.outputs.terminal_verdict != 'true'
         uses: ./.github/actions/review-dedup
         with:
           sha: ${{ steps.resolve.outputs.reviewed_sha }}
@@ -210,7 +249,11 @@ jobs:
   pipeline:
     name: Run review pipeline v2
     needs: [authorize, resolve]
-    if: vars.REVIEW_PIPELINE_V2 == 'true' && needs.authorize.outputs.authorized == 'true' && needs.resolve.outputs.should_run == 'true'
+    if: |
+      vars.REVIEW_PIPELINE_V2 == 'true' &&
+      needs.authorize.outputs.authorized == 'true' &&
+      needs.resolve.outputs.should_run == 'true' &&
+      needs.resolve.outputs.terminal_verdict != 'true'
     uses: ./.github/workflows/review-pipeline.yml
     with:
       pr_number: ${{ needs.resolve.outputs.pr_number }}
