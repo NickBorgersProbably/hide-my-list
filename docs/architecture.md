@@ -9,6 +9,8 @@ title: System Architecture
 
 hide-my-list is an AI-powered task manager where users never directly view their task list. The system uses conversational AI to intake tasks, intelligently label them, and surface the right task at the right time based on user mood, available time, and task urgency.
 
+For the runtime ownership split between the main agent, heartbeat, and isolated cron jobs, see [Agent Capabilities](agent-capabilities.md).
+
 ## High-Level Architecture
 
 ```mermaid
