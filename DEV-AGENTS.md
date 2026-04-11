@@ -24,6 +24,7 @@ These files define how the OpenClaw agent behaves — they *are* the application
 - `HEARTBEAT.md` — Periodic health check procedures
 - `docs/ai-prompts.md` — The prompt architecture (core of the application)
 - `docs/architecture.md` — System design and data flow specification
+- `docs/agent-capabilities.md` — Session roles and runtime tool-boundary source of truth
 - `docs/task-lifecycle.md` — Task states: Pending → In Progress → Completed (with rejection/breakdown flows)
 - `docs/notion-schema.md` — Notion database schema
 - `docs/user-interactions.md` — Conversation patterns and intent detection rules

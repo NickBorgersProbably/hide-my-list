@@ -28,10 +28,10 @@ The main agent is the primary OpenClaw session for hide-my-list. It is the conve
 
 ### Confirmed tool contract
 
-The main agent is the only session type with a confirmed contract for the following operational tools:
+The main agent is the only session type with a confirmed contract for the following higher-authority operational tools:
 
 - `config.get`, `config.patch`, `config.schema.lookup` for reading and patching `~/.openclaw/openclaw.json`
-- Cron management tools for listing, creating, updating, and manually running jobs
+- Full cron administration, including manual runs and broader job management beyond heartbeat's narrower drift-correction scope
 - `message` for proactive outbound delivery across configured channels
 - `exec`, `read`, `edit`, `write` for repo files, logs, and scripts
 - Gateway lifecycle/config tools such as restart and config inspection
@@ -49,6 +49,8 @@ The main agent is responsible for:
 ### Explicit boundary
 
 If a workflow needs `config.get`, `config.patch`, or any other `openclaw.json` mutation, treat that as a **main-agent responsibility**. Heartbeat and isolated cron sessions must not be assumed to have those tools.
+
+Tool availability does not override `AGENTS.md` safety policy. External actions still require user approval, OpenClaw prompt/spec files still go through the GitHub issue -> PR -> review path instead of direct runtime edits, and direct writes remain limited to the `AGENTS.md` allowlist except for the documented dirty-pull recovery path.
 
 ## Heartbeat Session
 
