@@ -14,14 +14,17 @@
   "postCreateCommand": "bash .devcontainer/post-create.sh && bash .githooks/install-hooks.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
   "mounts": [
-    "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached"
+    "source=${localEnv:HOME}/.claude,target=${localEnv:HOME}/.claude,type=bind,readonly,consistency=cached",
+    "source=${localEnv:HOME}/.bashrc,target=${localEnv:HOME}/.bashrc,type=bind,readonly,consistency=cached",
+    "source=${localEnv:HOME}/code/util/profile,target=${localEnv:HOME}/code/util/profile,type=bind,readonly,consistency=cached"
   ],
   "remoteEnv": {
     "OPENAI_API_KEY": "fake-key",
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8",
     "EDITOR": "nano",
-    "CLAUDE_HOST_CONFIG_DIR": "${localEnv:HOME}/.claude"
+    "CLAUDE_HOST_CONFIG_DIR": "${localEnv:HOME}/.claude",
+    "HOST_BASHRC": "${localEnv:HOME}/.bashrc"
   },
   "customizations": {
     "vscode": {
