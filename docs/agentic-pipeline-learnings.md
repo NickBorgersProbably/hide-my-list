@@ -77,6 +77,18 @@ Two meta-lessons span everything below:
 **Before:** Reviewer prompt markdown under `.github/scripts/review/prompts/*.md` was classified as config-only in v2, which would have skipped security, psych, and prompt review and no reviewer called it out.
 **Evidence:** #343, #349
 
+### 1.13 Stop on GO, keep retrying on NO-GO: asymmetric cycle control
+**Why:** Rule 1.4 claims "re-review-loops-from-autofix are impossible by construction" because the fixer claims its output SHA on `review/pipeline` before pushing, so the `synchronize` event hits a `pending` dedup state and exits. That's true only when the synchronize handler runs concurrently with the fixer. In practice, the `review-entry-v2-<head_ref>` concurrency group on `review-entry.yml` serializes the synchronize event behind the still-running cycle. When cycle N's `cleanup-claim` advances the post-fix SHA from `pending` → `success`, the queued cycle N+1 entry passes dedup (which only refuses `pending`) and runs a fresh review on the exact SHA cycle N already finalized. On drift-sensitive PRs (anything touching spec-critical Markdown), cycle N+1's reviewers legitimately find new cross-doc drift introduced by cycle N's fixer — see PR NickBorgersProbably/hide-my-list#397, which burned 3 full cycles with monotonically diminishing blocker counts (6 → 3 → 1).
+
+The fix is split by verdict:
+
+- **GO cycle is terminal.** `review-entry.yml` refuses to dispatch the pipeline when the reviewed SHA already carries an `All Required Agent Reviews = success` commit status (written by `review-finalize.yml:76-95` on GO only). GO means the pipeline is done with this SHA; a fresh cycle would only rediscover drift introduced by the prior fixer. `/review` comments bypass the check (`issue_comment` events are event-gated out) so humans can force a re-review manually.
+- **NO-GO cycle retries.** The `All Required Agent Reviews` status on NO-GO is `failure`, which does not match the GO-only short-circuit, so the `synchronize` event from the fixer's push continues into a fresh cycle. This is deliberate: NO-GO means "fixer could not address all blockers this round," and giving the fixer another attempt sometimes knocks stubborn drift out. The retry is bounded by `MAX` in `review-pipeline.yml` (currently `2`, i.e. up to one NO-GO retry). `cap-exhausted` on NO-GO correctly finalizes the PR as NO-GO with `needs-human-review`; a cycle 2 GO cleanly replaces the cycle 1 NO-GO label.
+
+Why **not** just lower `MAX` to `1`: `cap-exhausted` hard-codes `verdict='NO-GO'` (`review-pipeline.yml:131`). With `MAX=1`, every cycle-1 GO would be followed by a synchronize event firing cycle 2, which caps immediately and stamps NO-GO on the current HEAD — clobbering the cycle 1 GO. Safely lowering `MAX` to 1 would require also rewriting `cap-exhausted` to inherit the parent SHA's verdict, which duplicates what the GO short-circuit already does more cheaply at the entry layer. And `MAX=1` would also remove the NO-GO retry capability described above.
+**Before:** PR #397 posted three full Merge Decisions and ~15 reviewer comments for a single docs-only PR that was already GO at cycle 1. Pipeline cost and reviewer signal-to-noise both suffered.
+**Evidence:** #397
+
 ---
 
 ## 2. CI Runtime Infrastructure
