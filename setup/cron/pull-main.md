@@ -16,7 +16,7 @@ CronCreate:
   timeout-seconds: 60
 ```
 
-This job runs as an isolated Haiku session. It executes the pull script and reports status. Cron spec re-application after pulls is handled by the heartbeat drift correction (HEARTBEAT.md Check 2b), not by this job — an isolated session cannot reliably call CronList/CronUpdate.
+This job runs as an isolated Haiku maintenance session. It executes `scripts/pull-main.sh` and stays silent (`NO_REPLY`). Cron spec re-application after pulls is handled by the heartbeat drift correction (HEARTBEAT.md Check 2b), not by this job — an isolated session cannot reliably call CronList/CronUpdate.
 
 ## Prompt
 
