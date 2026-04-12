@@ -173,11 +173,24 @@ runs:
         # workspace is bind-mounted from host → runner already (via
         # /tmp/runner-work), so files land at a path the subsequent
         # validate / publish / upload-artifact steps can read.
+        # GIT_CONFIG_COUNT / GIT_CONFIG_KEY_* / GIT_CONFIG_VALUE_*:
+        # tell git inside the container to trust /workspace as a
+        # safe.directory without needing to write any config files.
+        # The bind-mounted `.git/` is owned by the runner user
+        # (UID 1001) while the container runs as `ci` (UID 1000);
+        # without this env, every `git status` / `git diff` / etc.
+        # inside the container errors with "detected dubious
+        # ownership" and the agent wastes turns improvising a
+        # workaround. Env-config is read-only and ephemeral, so
+        # it leaves no trace in the workspace.
         docker run --rm \
           --network host \
           --workdir /workspace \
           -v "$WORKSPACE_HOST:/workspace" \
           --env-file "$CI_AGENT_ENV_FILE" \
+          -e GIT_CONFIG_COUNT=1 \
+          -e GIT_CONFIG_KEY_0=safe.directory \
+          -e GIT_CONFIG_VALUE_0=/workspace \
           "$CI_AGENT_IMAGE" \
           -lc '
             set -euo pipefail
