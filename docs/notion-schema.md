@@ -471,7 +471,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
 
-**Used by:** The `check-reminders.sh` script, which the isolated `reminder-check` cron job runs every 15 minutes. If due reminders are found, the script writes the repo-root reminder handoff file (default filename: `.reminder-signal`) for delivery by the heartbeat (HEARTBEAT.md Check 1) or the main-session startup check (AGENTS.md step 5).
+**Used by:** The `check-reminders.sh` script, which the isolated `reminder-check` cron job runs every 15 minutes. If due reminders are found, the script writes the repo-root reminder handoff file (default filename: `.reminder-signal`) for delivery by the heartbeat (HEARTBEAT.md Check 1) or the main-session startup check (AGENTS.md step 5). Before either delivery path sends anything, it validates that the handoff is JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Malformed or failed handoffs stay in place and are not completed or deleted.
 
 ---
 

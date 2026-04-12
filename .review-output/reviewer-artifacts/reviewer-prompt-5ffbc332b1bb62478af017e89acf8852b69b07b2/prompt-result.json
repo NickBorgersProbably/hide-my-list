@@ -1,0 +1,44 @@
+{
+  "schema_version": "1",
+  "role": "prompt",
+  "reviewed_sha": "5ffbc332b1bb62478af017e89acf8852b69b07b2",
+  "cycle": 1,
+  "decision": "request_changes",
+  "summary": "The reminder-delivery prompt updates are directionally good, but the PR leaves two blocking spec gaps: repo docs now disagree on whether delivery depends on `heartbeat.target` versus the `message` tool, and the new handoff-validation language never defines which `status` values are valid for a high-stakes reminder payload.",
+  "blocking_issues": [
+    {
+      "id": "prm-001",
+      "severity": "high",
+      "file": "setup/README.md",
+      "line": 138,
+      "message": "This troubleshooting change says reminder delivery no longer depends on `heartbeat.target` and instead requires Signal `defaultTo`, but the rest of the reminder spec still says the opposite: `docs/openclaw-integration.md:43` and `setup/cron/heartbeat-check.md:15` both state that `heartbeat.target` is required for reminder delivery, and the checked-in `setup/openclaw.json.template` still configures that field. That cross-prompt drift leaves operators with incompatible setup/debug instructions for the same delivery path. Pick one contract and update every reminder-routing doc/template to match it.",
+      "category": "cross_prompt_consistency",
+      "source": "reviewer"
+    },
+    {
+      "id": "prm-002",
+      "severity": "medium",
+      "file": "AGENTS.md",
+      "line": 11,
+      "message": "The new handoff-validation contract is still underspecified for a high-stakes reminder-delivery path. It only says each reminder entry must have `page_id`, `title`, and `status`, but it never states that `status` must be exactly `sent` or `missed`, even though `scripts/notion-cli.sh complete-reminder` rejects any other value. The same wording is repeated in `HEARTBEAT.md:11` and `setup/cron/reminder-check.md:25`. Define the allowed enum and the required behavior for entries with any other status so 'valid reminder' is not left to inference.",
+      "category": "constraint_clarity",
+      "source": "reviewer"
+    }
+  ],
+  "non_blocking_notes": [],
+  "fix_suggestions": [
+    {
+      "id": "prm-001",
+      "applicable": "manual",
+      "patch_hint": "Reconcile the reminder-routing contract across `setup/README.md`, `docs/openclaw-integration.md`, `setup/cron/heartbeat-check.md`, and `setup/openclaw.json.template`. The docs should consistently say whether reminder delivery relies on `message(channel: signal)`, `heartbeat.target`, both, and whether `defaultTo` is actually required.",
+      "confidence": 0.97
+    },
+    {
+      "id": "prm-002",
+      "applicable": "manual",
+      "patch_hint": "In every delivery-path prompt, change the validation language from field presence only to an explicit schema such as: `reminders` must be an array of objects with string `page_id`, non-empty string `title`, and `status` in {`sent`, `missed`}; treat any other value as invalid and do not deliver or complete that entry.",
+      "confidence": 0.98
+    }
+  ],
+  "followup_issues": []
+}

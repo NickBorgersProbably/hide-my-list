@@ -212,14 +212,14 @@ sequenceDiagram
     Script->>Signal: Write reminder handoff file
     Note over Cron: Cron exits (NO_REPLY)
     alt User interacts (AGENTS.md step 5)
-        Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Signal: Validate handoff file
+        Delivery->>User: Send reminder via message tool
+        Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
-        Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Signal: Validate handoff file
+        Delivery->>User: Send reminder via message tool
+        Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     end
 ```
@@ -233,8 +233,8 @@ sequenceDiagram
 5. Reminder delivery happens through two separate mechanisms:
    - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for the handoff file and delivers immediately.
    - **HEARTBEAT.md Check 1** (hourly backstop): the heartbeat reads the handoff file every 60 minutes and delivers any stranded reminders.
-   Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
-6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
+   Both delivery paths first validate the handoff schema: it must be JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status makes the handoff malformed, so the delivering session leaves the file in place, surfaces an error, and does not deliver, complete, or delete anything. For a valid handoff, the delivering session sends each reminder to Signal with the OpenClaw `message` tool (`action: send`, `channel: signal`), then uses `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`, and only then deletes the handoff file.
+6. Reminders more than 15 minutes past due are flagged as `missed` and still delivered with a shame-safe note such as: `This was due a bit ago — [task]. Want to handle it now or reschedule?`
 7. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 
 Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with `model: litellm/claude-haiku-4-5` and `payload.kind: agentTurn`. This is a deliberate design choice: the previous architecture ran both on `sessionTarget: main`, which loaded the full Opus agent context for routine script work and burned ~18M tokens per 6 hours. Isolating cron jobs cuts per-run cost by orders of magnitude. The trade-off for reminders is that delivery is deferred to the next user interaction or heartbeat cycle; in the fully idle case, delivery can take up to about 75 minutes because discovery and delivery happen on separate schedules. If reminder delivery fails after the handoff file is written, the delivering session should fail visibly, leave the file in place, and avoid marking the reminder `sent` or `missed` until delivery actually succeeds.

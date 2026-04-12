@@ -769,19 +769,19 @@ sequenceDiagram
     Scr->>Signal: Write reminder handoff file
     Note over Cron: Cron exits (NO_REPLY)
     alt User interacts (AGENTS.md step 5)
-        Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Signal: Validate handoff file
+        Delivery->>User: Send reminder via message tool
+        Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
-        Delivery->>Signal: Read handoff file
-        Delivery->>User: Deliver reminder
-        Delivery->>Notion: Set Status=Completed and Reminder Status=sent/missed
+        Delivery->>Signal: Validate handoff file
+        Delivery->>User: Send reminder via message tool
+        Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     end
 ```
 
-The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). If delivery fails, the handoff file is left in place for retry.
+The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). Both delivery paths first validate that the handoff is JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status makes the handoff malformed, so the file stays in place and nothing is delivered, completed, or deleted. If delivery fails after validation, the handoff file is left in place for retry.
 
 ### Reminder Delivery Messages
 
@@ -791,7 +791,7 @@ The agent delivers reminders with a brief, casual tone — like a friend tapping
 > "Hey — this is your reminder to email Melanie about availability."
 
 **Missed delivery (>15 minutes past due, flagged as missed):**
-> "I'm late on this one — you had a reminder at 6pm PT to email Melanie. Want to handle it now or reschedule?"
+> "This was due a bit ago — email Melanie about availability. Want to handle it now or reschedule?"
 
 ### Reminder Intake
 
