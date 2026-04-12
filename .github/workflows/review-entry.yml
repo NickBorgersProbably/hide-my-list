@@ -40,7 +40,10 @@ permissions:
   statuses: write
 
 concurrency:
-  group: review-entry-v2-${{ github.event_name == 'issue_comment' && format('pr-{0}', github.event.issue.number) || github.event.pull_request.head.ref }}
+  # Each /review comment gets its own concurrency slot (keyed by comment ID)
+  # so multiple comments on the same PR don't interfere. PR events still
+  # group by branch so rapid pushes collapse into one review.
+  group: review-entry-v2-${{ github.event_name == 'issue_comment' && format('comment-{0}', github.event.comment.id) || github.event.pull_request.head.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -81,6 +84,7 @@ jobs:
               const issue = context.payload.issue;
               const comment = context.payload.comment;
               const body = (comment.body || '').trim();
+              core.info(`issue_comment: comment_id=${comment.id}, author=${comment.user.login}, body_preview=${JSON.stringify(body.slice(0, 80))}`);
 
               if (!issue.pull_request) {
                 reason = 'not-pr-comment';

@@ -112,6 +112,24 @@ runs:
       shell: bash
       run: scripts/ensure-ci-image.sh "${{ inputs.image }}"
 
+    - name: Fetch current PR metadata
+      id: pr-meta
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.workflow_pat }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+      run: |
+        set -euo pipefail
+        # Fetch current PR title and body so reviewers evaluate against
+        # up-to-date metadata, not whatever was set at push time.
+        PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+        PR_TITLE=$(echo "$PR_JSON" | jq -r '.title // ""')
+        PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
+        # Base64 encode to avoid env-file escaping issues with newlines
+        echo "pr_title_b64=$(printf '%s' "$PR_TITLE" | base64 -w0)" >> "$GITHUB_OUTPUT"
+        echo "pr_body_b64=$(printf '%s' "$PR_BODY" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
     - name: Stage env file
       id: stage-env
       shell: bash
@@ -125,6 +143,8 @@ runs:
         WORKFLOW_PAT: ${{ inputs.workflow_pat }}
         EXTRA_ENV: ${{ inputs.extra_env }}
         REPO: ${{ github.repository }}
+        PR_TITLE_B64: ${{ steps.pr-meta.outputs.pr_title_b64 }}
+        PR_BODY_B64: ${{ steps.pr-meta.outputs.pr_body_b64 }}
       run: |
         set -euo pipefail
         # Stage the env file under $RUNNER_TEMP so --env-file can read it.
@@ -147,6 +167,8 @@ runs:
         OUTPUT_PATH=.review-output/${ROLE}-result.json
         OUTPUT_LOG_PATH=.review-output/${ROLE}-output.jsonl
         REPO=${REPO}
+        PR_TITLE_B64=${PR_TITLE_B64}
+        PR_BODY_B64=${PR_BODY_B64}
         EOF
         # Append caller-supplied extras, stripping blank/comment lines.
         if [ -n "$EXTRA_ENV" ]; then

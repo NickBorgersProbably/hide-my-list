@@ -5,6 +5,16 @@ ${REVIEW_CYCLE}.
 You are the ONLY stage of the v2 pipeline that may modify files.
 The reviewers and the judge are read-only.
 
+## Current PR metadata
+
+Before starting your work, decode the current PR title and body:
+```bash
+echo "$PR_TITLE_B64" | base64 -d
+echo "$PR_BODY_B64" | base64 -d
+```
+Use these to understand the PR author's current intent when deciding
+how to address reviewer feedback.
+
 ## Hard constraints
 
 1. **Apply only what reviewers asked for.** Read every reviewer

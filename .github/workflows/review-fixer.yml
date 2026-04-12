@@ -3,10 +3,10 @@ name: Review pipeline v2 — fixer
 # Reusable: invoked from review-pipeline.yml after all reviewers complete.
 # Reads every reviewer artifact, runs the agentic fixer with a NARROW
 # prompt that only addresses substantive findings the reviewers asked
-# for, then claims the resulting SHA on review/pipeline BEFORE pushing
-# (this is what makes the autofix → synchronize loop structurally
-# impossible — the synchronize event GitHub fires for the fixer push
-# lands on an already-claimed SHA in review-dedup and exits).
+# for, then, if it produces a commit, pushes that SHA and claims it on
+# review/pipeline immediately afterward. The GO short-circuit on
+# `All Required Agent Reviews` is what prevents redundant follow-up
+# cycles on already-finalized SHAs.
 #
 # This is the ONLY job in the v2 pipeline that has write permission to
 # the PR branch. All reviewers and the judge are read-only.
@@ -87,6 +87,16 @@ jobs:
         with:
           path: ${{ env.PR_WORKSPACE_PATH }}/.review-output/reviewer-artifacts
           pattern: reviewer-*-${{ inputs.reviewed_sha }}
+
+      - name: Clean stale fixer artifacts from prior runs
+        # Prior pipeline runs may have left fixer-result.json and
+        # fixer-output.jsonl owned by the runner UID (1001). The Codex
+        # fixer runs as UID 1000 inside the container and can't
+        # overwrite them. Remove stale files so the fixer starts clean.
+        run: |
+          rm -f "${PR_WORKSPACE_PATH}/.review-output/fixer-result.json" \
+                "${PR_WORKSPACE_PATH}/.review-output/fixer-output.jsonl" \
+                "${PR_WORKSPACE_PATH}/.review-output/write-test"
 
       - name: Create directories for devcontainer mounts
         run: mkdir -p ~/.config/gh ~/.claude ~/.codex
@@ -182,7 +192,7 @@ jobs:
           jq --arg new_sha "$NEW_SHA" '.new_sha = $new_sha' "$ARTIFACT" > "$TMP"
           mv "$TMP" "$ARTIFACT"
 
-      - name: Claim new SHA, then push
+      - name: Push new SHA, then claim it
         id: push
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
