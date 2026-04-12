@@ -187,6 +187,10 @@ runs:
         set -euo pipefail
 
         WORKSPACE_HOST="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}"
+        # run-in-container.sh lives in the main (action) checkout, not the PR
+        # branch. Mount it separately so PRs that predate the script can find
+        # it. PR workspace is mounted rw at /workspace; script is ro at /.
+        CONTAINER_SCRIPT="${GITHUB_WORKSPACE}/.github/actions/review-codex-run/run-in-container.sh"
 
         # --network host: lets the container reach LiteLLM via the
         # runner's Tailscale connection.
@@ -209,12 +213,13 @@ runs:
           --network host \
           --workdir /workspace \
           -v "$WORKSPACE_HOST:/workspace" \
+          -v "$CONTAINER_SCRIPT:/run-in-container.sh:ro" \
           --env-file "$CI_AGENT_ENV_FILE" \
           -e GIT_CONFIG_COUNT=1 \
           -e GIT_CONFIG_KEY_0=safe.directory \
           -e GIT_CONFIG_VALUE_0=/workspace \
           "$CI_AGENT_IMAGE" \
-          -lc '.github/actions/review-codex-run/run-in-container.sh'
+          -lc '/run-in-container.sh'
 
     - name: Clean up staged env file
       if: always()
