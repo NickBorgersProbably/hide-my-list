@@ -10,9 +10,9 @@ on:
   pull_request_review:
     types: [submitted]
 
-# SECURITY NOTE: This workflow grants the Codex agent access to secrets and write permissions.
+# SECURITY NOTE: This workflow grants the AI agent access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
-# Only repository collaborators, members, and owners can trigger Codex.
+# Only repository collaborators, members, and owners can trigger the agent.
 
 # Prevent duplicate runs for the same issue/PR. New runs cancel in-progress ones.
 concurrency:
@@ -91,7 +91,7 @@ jobs:
               ;;
             *)
               echo "Not authorized: $ACTOR is a $AUTHOR_ASSOC"
-              echo "External users cannot trigger Codex workflows."
+              echo "External users cannot trigger agent workflows."
               echo "This is a security measure to prevent prompt injection attacks."
               echo "authorized=false" >> $GITHUB_OUTPUT
               ;;
@@ -104,7 +104,7 @@ jobs:
       issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
       autoresolve_requested: ${{ steps.detect.outputs.autoresolve_requested }}
     steps:
-      - name: Detect explicit Codex invocation
+      - name: Detect explicit /autoresolve invocation
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -115,10 +115,10 @@ jobs:
         run: |
           set -eu
 
-          # Treat @codex as explicit only when it starts a line.
+          # Treat /autoresolve as explicit only when it starts a line.
           # This avoids triggering on incidental mentions in prose or logs.
           explicit_invocation() {
-            printf '%s\n' "$1" | grep -Eq '^[[:space:]]*@codex([[:space:]]|$|[[:punct:]])'
+            printf '%s\n' "$1" | grep -Eq '^[[:space:]]*/autoresolve([[:space:]]|$|[[:punct:]])'
           }
 
           REQUEST_TEXT=""
