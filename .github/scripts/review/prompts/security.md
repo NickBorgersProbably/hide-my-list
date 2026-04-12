@@ -4,7 +4,7 @@ ${REVIEW_CYCLE}. Read-only review.
 
 ## Current PR metadata
 
-Before review, decode PR title and body:
+Decode current PR title/body before starting:
 ```bash
 echo "$PR_TITLE_B64" | base64 -d
 echo "$PR_BODY_B64" | base64 -d

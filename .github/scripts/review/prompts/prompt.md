@@ -4,13 +4,13 @@ Read-only review.
 
 ## Current PR metadata
 
-Before review, decode current PR title and body:
+Decode current PR title/body before starting:
 ```bash
 echo "$PR_TITLE_B64" | base64 -d
 echo "$PR_BODY_B64" | base64 -d
 ```
-Use decoded title and body for scope checks and intent validation.
-These reflect current PR state, not push-time state.
+Use decoded title/body for scope checks and intent validation.
+Reflects current PR state, not push-time state.
 
 ## Role
 

@@ -4,12 +4,13 @@ Only stage that may modify files. Reviewers + judge = read-only.
 
 ## Current PR metadata
 
-Decode PR title + body before starting:
+Decode current PR title/body before starting:
 ```bash
 echo "$PR_TITLE_B64" | base64 -d
 echo "$PR_BODY_B64" | base64 -d
 ```
-Use to understand author intent when addressing reviewer feedback.
+Use decoded title/body for scope checks and intent validation.
+Reflects current PR state, not push-time state.
 
 ## Hard constraints
 
@@ -27,15 +28,16 @@ Use to understand author intent when addressing reviewer feedback.
    ```bash
    find "${REVIEWER_ARTIFACTS_DIR}" -name '*-result.json'
    ```
-2. Per blocker (`role/id` pair), read `message`, `patch_hint` (from `fix_suggestions[]` if present), `file`/`line`. Decide:
+2. If no reviewer result files exist, or any artifact cannot be parsed well enough to read blockers and fix suggestions safely, do not edit files. Write a no-op fix result to `$OUTPUT_PATH` and stop.
+3. Per blocker (`role/id` pair), read `message`, `patch_hint` (from `fix_suggestions[]` if present), `file`/`line`. If `file` is null, `line` is null, or the blocker description does not bound the change to one named file and one small local edit, skip with reason. Otherwise decide:
    - Safe to apply from description alone?
    - Touches only reviewer-named file?
    - Small + local (≤ ~50 lines)?
    All yes → apply. Otherwise → skip with reason.
-3. **Group related blockers.** Before applying, scan all blockers. Same conceptual change across files → group, pick one canonical wording, apply identically. No per-file improvisation unless file structure genuinely requires (e.g., inline JSON placeholder vs. prose paragraph).
-4. Apply fixes in working tree. Run tests reviewers explicitly suggested. No formatters or linters.
-5. Leave changes unstaged. No `git add`, `git commit`, `git push`. Host step commits working tree + computes new SHA.
-6. Write result JSON. Set `new_sha` to `${REVIEWED_SHA}` — host commit step patches real post-commit SHA before judge reads.
+4. **Group related blockers.** Before applying, scan all blockers. Same conceptual change across files → group, pick one canonical wording, apply identically. No per-file improvisation unless file structure genuinely requires (e.g., inline JSON placeholder vs. prose paragraph).
+5. Apply fixes in working tree. Run tests reviewers explicitly suggested. No formatters or linters.
+6. Leave changes unstaged. No `git add`, `git commit`, `git push`. Host step commits working tree + computes new SHA.
+7. Write result JSON. Set `new_sha` to `${REVIEWED_SHA}` — host commit step patches real post-commit SHA before judge reads.
 
 ## Output contract
 

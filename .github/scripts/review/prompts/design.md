@@ -3,7 +3,7 @@ Reviewed SHA: ${REVIEWED_SHA}, cycle ${REVIEW_CYCLE}. Read-only.
 
 ## Current PR metadata
 
-Decode PR title/body before starting:
+Decode current PR title/body before starting:
 ```bash
 echo "$PR_TITLE_B64" | base64 -d
 echo "$PR_BODY_B64" | base64 -d
