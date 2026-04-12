@@ -1,5 +1,15 @@
 # HEARTBEAT.md
 
+## Operator Alerting
+
+Before running the checks below, resolve the operator alert number from `.env`:
+
+```bash
+OPS_NUMBER="$(bash -lc 'SCRIPT_DIR=$(cd "$(dirname scripts/load-env.sh)" && pwd); source "$SCRIPT_DIR/load-env.sh" OPS_ALERT_SIGNAL_NUMBER?; printf "%s\n" "${OPS_ALERT_SIGNAL_NUMBER:-}"')"
+```
+
+If `OPS_NUMBER` is empty, skip all ops alert steps in the checks below — degrade gracefully. When `OPS_NUMBER` is set, send ops alerts via the OpenClaw `message` tool with `action: send`, `channel: signal`, `target: OPS_NUMBER`. These alerts go to the operator's Signal number, not to the user's thread.
+
 ## Checks (in order)
 
 ### 1. Stranded Reminder Signal
@@ -8,7 +18,7 @@
   HANDOFF_FILE="$(bash -lc 'SCRIPT_DIR=$(cd "$(dirname scripts/check-reminders.sh)" && pwd); ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd); source "$SCRIPT_DIR/load-env.sh" REMINDER_SIGNAL_FILE?; SIGNAL_BASENAME=${REMINDER_SIGNAL_FILE:-.reminder-signal}; case "$SIGNAL_BASENAME" in ""|"."|".."|*/*) echo "invalid REMINDER_SIGNAL_FILE" >&2; exit 1 ;; esac; printf "%s\n" "$ROOT_DIR/$SIGNAL_BASENAME"')"
   ```
 - This file is the reminder handoff written by `scripts/check-reminders.sh`
-- If `HANDOFF_FILE` still exists when heartbeat runs, treat it as undelivered reminder work: read and validate it (must be JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`; any other shape or status makes the handoff malformed. If malformed, leave the file in place and surface an error — do not deliver any entries, call `complete-reminder`, or delete the handoff file). For each valid reminder, send it to Signal using the OpenClaw `message` tool (`action: send`, `channel: signal`), then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` based on the file, then delete that handoff file
+- If `HANDOFF_FILE` still exists when heartbeat runs, treat it as undelivered reminder work: read and validate it (must be JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`; any other shape or status makes the handoff malformed. If malformed, leave the file in place — do not deliver any entries, call `complete-reminder`, or delete the handoff file — and send an ops alert via `message(action: send, channel: signal, target: OPS_NUMBER)` with the error details). For each valid reminder, send it to Signal using the OpenClaw `message` tool (`action: send`, `channel: signal`), then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` based on the file, then delete that handoff file
 - This is the hourly reminder-delivery backstop in the current design. The isolated `reminder-check` cron only writes the handoff file — it does not deliver. Delivery happens here (every 60 min) and opportunistically via the AGENTS.md startup check (on every user interaction).
 
 ### 2. Cron Job Health
@@ -19,7 +29,7 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 | reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh` (query-only; writes the reminder handoff file if reminders due) |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; the script handles dirty-pull recovery |
 
-To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. Both jobs run as isolated Haiku sessions with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, and `timeout-seconds: 60`. Cron jobs should never deliver directly to Signal or any other channel on their own.
+To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`, then send an ops alert via `message(action: send, channel: signal, target: OPS_NUMBER)` noting which job expired and was re-registered. Both jobs run as isolated Haiku sessions with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, and `timeout-seconds: 60`. Cron jobs should never deliver directly to Signal or any other channel on their own.
 
 ### 2b. Cron Spec Drift Check
 For each registered cron job (`reminder-check`, `pull-main`), compare the live job's effective registration against the canonical `CronCreate` spec in `setup/cron/<name>.md`.
@@ -47,15 +57,16 @@ If all jobs already match their specs, do not report anything. If any jobs were 
 
 ### 3. Notion Connectivity
 - Run `scripts/notion-cli.sh query-pending` with a short timeout
-- If it fails, note the error — don't retry aggressively
+- If it fails, send an ops alert via `message(action: send, channel: signal, target: OPS_NUMBER)` with the error — don't retry aggressively
 
 ### 4. Environment Check
 - Verify `.env` exists and contains NOTION_API_KEY and NOTION_DATABASE_ID
+- If either is missing, send an ops alert via `message(action: send, channel: signal, target: OPS_NUMBER)` listing what is absent
 
 ### 5. Dirty Pull Recovery (safety net)
 - If `.pull-dirty` exists and is older than 20 minutes, the pull-main cron may have failed to recover
 - Run `scripts/pull-main.sh --recover-only` to retry after the underlying problem is fixed (for example restoring interactive `gh` authentication, exporting a valid `GH_TOKEN`, or providing token-based auth through repo `.env` `GITHUB_PAT`, which the helper exports as `GH_TOKEN`). The script creates the GitHub issue and resets the repo when recovery can proceed.
-- If recovery still does not complete, note the failure for operator attention
+- If recovery still does not complete, send an ops alert via `message(action: send, channel: signal, target: OPS_NUMBER)` with the failure details
 - Normally the pull-main cron handles recovery automatically. This check is a backstop for cases where GitHub auth was unavailable or the script errored; until either interactive `gh` auth, a valid exported `GH_TOKEN`, or repo `.env` `GITHUB_PAT` is available again, heartbeat will preserve `.pull-dirty` and surface the problem rather than clearing it
 
 That's it. If nothing needs attention, reply HEARTBEAT_OK.

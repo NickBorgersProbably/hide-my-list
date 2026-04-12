@@ -63,7 +63,7 @@ The heartbeat is a short built-in OpenClaw session configured in `openclaw.json`
 The heartbeat session has a narrower confirmed contract:
 
 - `exec` and `read` for script execution and repo inspection
-- `message` for explicit reminder delivery to Signal from `HEARTBEAT.md` Check 1
+- `message` for explicit reminder delivery to Signal (Check 1) and explicit ops alerting to the operator's Signal number (`OPS_ALERT_SIGNAL_NUMBER` from `.env`) on failure paths
 - CronList, CronCreate, CronUpdate, and CronDelete for durable cron inspection, re-registration, drift correction, and stale-job cleanup required by `HEARTBEAT.md`
 
 ### Do not assume
@@ -71,7 +71,7 @@ The heartbeat session has a narrower confirmed contract:
 The repo should currently treat these capabilities as unconfirmed for heartbeat sessions:
 
 - `config.get`, `config.patch`, `config.schema.lookup`
-- broader proactive `message` workflows beyond explicit reminder delivery to Signal
+- broader proactive `message` workflows beyond reminder delivery and ops alerting defined in `HEARTBEAT.md`
 - gateway lifecycle tools
 - general repo-edit/write capabilities as part of routine heartbeat behavior
 

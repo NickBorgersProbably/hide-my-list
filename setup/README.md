@@ -77,6 +77,7 @@
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
 | `GITHUB_PAT` | No | Personal access token used by repo maintenance scripts when `gh auth login` has not been run on the host |
 | `REMINDER_SIGNAL_FILE` | No | Optional reminder handoff filename in the repo root (defaults to `.reminder-signal`) |
+| `OPS_ALERT_SIGNAL_NUMBER` | No | Operator's Signal number for heartbeat ops alerts (Notion down, cron expiry, env missing, dirty-pull failures). If unset, ops alerts are silently skipped. |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
 
 Advanced overrides for self-hosted LiteLLM setups are also supported:
@@ -136,7 +137,7 @@ Manual regression playbook:
 
 **Reminders not firing:**
 - Reminder delivery uses the OpenClaw `message` tool with `channel: signal` — it does not rely on `heartbeat.target` or session reply routing. Verify that the Signal channel is configured and enabled in `openclaw.json`.
-- `heartbeat.target` is optional and only affects where generic non-`HEARTBEAT_OK` heartbeat output is routed. If you want those operator-facing heartbeat messages to land in Signal too, set `heartbeat.target` to `"signal"`.
+- Heartbeat ops alerts (Notion down, cron expiry, dirty-pull failures) are sent explicitly to the operator's Signal number — set `OPS_ALERT_SIGNAL_NUMBER` in `.env` to enable them. This is separate from Caroline's thread.
 - Check that the reminder-check cron is registered (ask the agent to check CronList)
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity

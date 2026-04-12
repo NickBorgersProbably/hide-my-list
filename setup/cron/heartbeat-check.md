@@ -11,7 +11,7 @@ The heartbeat is not a cron job we create — it's a built-in OpenClaw feature c
 }
 ```
 
-Reminder delivery does not depend on `heartbeat.target`. Heartbeat Check 1 sends reminders explicitly with the OpenClaw `message` tool (`action: send`, `channel: signal`). The `target` field only controls where generic non-`HEARTBEAT_OK` heartbeat output is routed; without it, that generic heartbeat text defaults to `"none"` and is silently discarded. Set `heartbeat.target` to `"signal"` only if you also want those operator-facing heartbeat messages routed there.
+Reminder delivery does not depend on `heartbeat.target`. Heartbeat Check 1 sends reminders explicitly with the OpenClaw `message` tool (`action: send`, `channel: signal`). Ops alerts (Notion down, cron expiry, env missing, dirty-pull failures) are sent explicitly via `message(action: send, channel: signal, target: OPS_NUMBER)` to the operator's Signal number (`OPS_ALERT_SIGNAL_NUMBER` in `.env`). The `target` field in `heartbeat` config is not used — keep it absent. This keeps Caroline's thread clean and routes infrastructure failures only to the operator.
 
 ## Behavior
 
