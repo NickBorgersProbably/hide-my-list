@@ -223,7 +223,20 @@ runs:
               echo "::error::review-codex-run: prompt file not found at $REVIEW_PROMPT_PATH"
               exit 1
             fi
-            PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
+            if [ ! -f .github/ci/caveman-rules.md ]; then
+              echo "::error::review-codex-run: caveman rules file not found at .github/ci/caveman-rules.md"
+              exit 1
+            fi
+
+            source .github/ci/versions.env
+            if ! grep -Fq "v${CAVEMAN_VERSION}" .github/ci/caveman-rules.md; then
+              echo "::error::review-codex-run: .github/ci/caveman-rules.md does not match CAVEMAN_VERSION=${CAVEMAN_VERSION}"
+              exit 1
+            fi
+
+            PROMPT_BODY="$(cat .github/ci/caveman-rules.md)
+
+$(cat "$REVIEW_PROMPT_PATH")"
 
             mkdir -p "$(dirname "$OUTPUT_PATH")"
 
