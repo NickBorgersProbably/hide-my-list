@@ -1,0 +1,73 @@
+name: Update AI CLI Versions
+
+on:
+  schedule:
+    # Weekly on Mondays at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-ai-clis:
+    runs-on: [self-hosted, homelab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for AI CLI updates
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # Single source of truth for pinned versions: .github/ci/versions.env.
+          CURRENT_CLAUDE=$(grep -oP 'CLAUDE_CODE_VERSION=\K[0-9.]+' .github/ci/versions.env)
+          CURRENT_CODEX=$(grep -oP 'CODEX_CLI_VERSION=\K[0-9.]+' .github/ci/versions.env)
+
+          LATEST_CLAUDE=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest)
+          GITHUB_HEADERS=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          LATEST_CODEX=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "${GITHUB_HEADERS[@]}" https://api.github.com/repos/openai/codex/releases/latest | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("rust-v"))')
+
+          echo "current_claude=$CURRENT_CLAUDE" >> "$GITHUB_OUTPUT"
+          echo "current_codex=$CURRENT_CODEX" >> "$GITHUB_OUTPUT"
+          echo "latest_claude=$LATEST_CLAUDE" >> "$GITHUB_OUTPUT"
+          echo "latest_codex=$LATEST_CODEX" >> "$GITHUB_OUTPUT"
+
+          if [ "$CURRENT_CLAUDE" != "$LATEST_CLAUDE" ] || [ "$CURRENT_CODEX" != "$LATEST_CODEX" ]; then
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Claude Code: $CURRENT_CLAUDE -> $LATEST_CLAUDE"
+          echo "Codex: $CURRENT_CODEX -> $LATEST_CODEX"
+
+      - name: Update versions.env and Dockerfile
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          sed -i "s/^CLAUDE_CODE_VERSION=.*/CLAUDE_CODE_VERSION=${{ steps.check.outputs.latest_claude }}/" .github/ci/versions.env
+          sed -i "s/^CODEX_CLI_VERSION=.*/CODEX_CLI_VERSION=${{ steps.check.outputs.latest_codex }}/" .github/ci/versions.env
+          sed -i "s/ARG CLAUDE_CODE_VERSION=.*/ARG CLAUDE_CODE_VERSION=${{ steps.check.outputs.latest_claude }}/" .devcontainer/Dockerfile
+          sed -i "s/ARG CODEX_CLI_VERSION=.*/ARG CODEX_CLI_VERSION=${{ steps.check.outputs.latest_codex }}/" .devcontainer/Dockerfile
+
+      - name: Create Pull Request
+        if: steps.check.outputs.needs_update == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # PAT required so the created PR triggers pull_request events (GITHUB_TOKEN suppresses them)
+          token: ${{ secrets.WORKFLOW_PAT }}
+          commit-message: "chore: update AI CLI pins"
+          title: "chore: update AI CLI pins"
+          body: |
+            Automated weekly update of the pinned AI CLI versions.
+
+            Updated in `.github/ci/versions.env` (the single source of
+            truth for both the CI agent image and the devcontainer) and
+            mirrored into `.devcontainer/Dockerfile`'s ARG defaults.
+
+            - **Claude Code:** ${{ steps.check.outputs.current_claude }} → ${{ steps.check.outputs.latest_claude }}
+            - **Codex:** ${{ steps.check.outputs.current_codex }} → ${{ steps.check.outputs.latest_codex }}
+
+            🤖 Generated automatically by the `update-ai-clis` workflow.
+          branch: chore/update-ai-clis
+          delete-branch: true
