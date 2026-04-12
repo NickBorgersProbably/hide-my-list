@@ -84,7 +84,19 @@ runs:
         # container (via -v $GITHUB_WORKSPACE:/workspace), files written
         # there from inside the container are visible to subsequent host
         # steps for upload-artifact and schema validation.
-        mkdir -p "${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
+        #
+        # chmod 777: the runner user (typically UID 1001) creates this
+        # directory, but the container writes to it as the `ci` user
+        # (UID 1000). Without world-write, every reviewer fails with
+        # `PermissionError: [Errno 13] Permission denied:
+        # '.review-output/<role>-result.json'` — see the docs reviewer
+        # log on https://github.com/NickBorgersProbably/hide-my-list/actions/runs/24295328532.
+        # Agents improvise around the permission denial with sudo,
+        # which works on the image (NOPASSWD) but compounds shell
+        # escaping issues and still fails the verify step.
+        OUTPUT_DIR="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
+        mkdir -p "$OUTPUT_DIR"
+        chmod 777 "$OUTPUT_DIR"
 
     - name: Log in to GHCR
       shell: bash
