@@ -1,0 +1,124 @@
+name: Update AI CLI Versions
+
+on:
+  schedule:
+    # Weekly on Mondays at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  update-ai-clis:
+    runs-on: [self-hosted, homelab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for AI CLI updates
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # CI pins live in .github/ci/versions.env and are mirrored into
+          # .devcontainer/Dockerfile for the devcontainer image build.
+          VERSION_RE='^[0-9]+(\.[0-9]+)*$'
+
+          validate_version() {
+            local name=$1
+            local value=$2
+            if [[ ! "$value" =~ $VERSION_RE ]]; then
+              echo "Invalid ${name} version: ${value}" >&2
+              exit 1
+            fi
+          }
+
+          CURRENT_CLAUDE=$(grep -oP 'CLAUDE_CODE_VERSION=\K[0-9.]+' .github/ci/versions.env)
+          CURRENT_CODEX=$(grep -oP 'CODEX_CLI_VERSION=\K[0-9.]+' .github/ci/versions.env)
+
+          LATEST_CLAUDE=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest)
+          GITHUB_HEADERS=(-H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          LATEST_CODEX=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused "${GITHUB_HEADERS[@]}" https://api.github.com/repos/openai/codex/releases/latest | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"].removeprefix("rust-v"))')
+
+          validate_version CURRENT_CLAUDE "$CURRENT_CLAUDE"
+          validate_version CURRENT_CODEX "$CURRENT_CODEX"
+          validate_version LATEST_CLAUDE "$LATEST_CLAUDE"
+          validate_version LATEST_CODEX "$LATEST_CODEX"
+
+          echo "current_claude=$CURRENT_CLAUDE" >> "$GITHUB_OUTPUT"
+          echo "current_codex=$CURRENT_CODEX" >> "$GITHUB_OUTPUT"
+          echo "latest_claude=$LATEST_CLAUDE" >> "$GITHUB_OUTPUT"
+          echo "latest_codex=$LATEST_CODEX" >> "$GITHUB_OUTPUT"
+
+          if [ "$CURRENT_CLAUDE" != "$LATEST_CLAUDE" ] || [ "$CURRENT_CODEX" != "$LATEST_CODEX" ]; then
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Claude Code: $CURRENT_CLAUDE -> $LATEST_CLAUDE"
+          echo "Codex: $CURRENT_CODEX -> $LATEST_CODEX"
+
+      - name: Update versions.env and Dockerfile
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          LATEST_CLAUDE: ${{ steps.check.outputs.latest_claude }}
+          LATEST_CODEX: ${{ steps.check.outputs.latest_codex }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          replacements = {
+              Path(".github/ci/versions.env"): {
+                  "CLAUDE_CODE_VERSION=": os.environ["LATEST_CLAUDE"],
+                  "CODEX_CLI_VERSION=": os.environ["LATEST_CODEX"],
+              },
+              Path(".devcontainer/Dockerfile"): {
+                  "ARG CLAUDE_CODE_VERSION=": os.environ["LATEST_CLAUDE"],
+                  "ARG CODEX_CLI_VERSION=": os.environ["LATEST_CODEX"],
+              },
+          }
+
+          for path, line_replacements in replacements.items():
+              lines = path.read_text().splitlines()
+              seen = {prefix: False for prefix in line_replacements}
+              updated = []
+              for line in lines:
+                  replaced = False
+                  for prefix, value in line_replacements.items():
+                      if line.startswith(prefix):
+                          updated.append(f"{prefix}{value}")
+                          seen[prefix] = True
+                          replaced = True
+                          break
+                  if not replaced:
+                      updated.append(line)
+              missing = [prefix for prefix, found in seen.items() if not found]
+              if missing:
+                  raise SystemExit(f"Missing expected lines in {path}: {', '.join(missing)}")
+              path.write_text("\n".join(updated) + "\n")
+          PY
+
+      - name: Create Pull Request
+        if: steps.check.outputs.needs_update == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # PAT required so the created PR triggers pull_request events (GITHUB_TOKEN suppresses them)
+          token: ${{ secrets.WORKFLOW_PAT }}
+          commit-message: "chore: update AI CLI pins"
+          title: "chore: update AI CLI pins"
+          body: |
+            Automated weekly update of the pinned AI CLI versions.
+
+            Updated in `.github/ci/versions.env` as the CI pin source and
+            mirrored into `.devcontainer/Dockerfile`'s ARG defaults for
+            the devcontainer image build.
+
+            - **Claude Code:** ${{ steps.check.outputs.current_claude }} → ${{ steps.check.outputs.latest_claude }}
+            - **Codex:** ${{ steps.check.outputs.current_codex }} → ${{ steps.check.outputs.latest_codex }}
+
+            🤖 Generated automatically by the `update-ai-clis` workflow.
+          branch: chore/update-ai-clis
+          delete-branch: true
