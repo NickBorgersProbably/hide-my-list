@@ -264,8 +264,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull CI image
-        run: docker pull "${CI_IMAGE}"
+      - name: Ensure CI image
+        run: scripts/ensure-ci-image.sh "${CI_IMAGE}"
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Run Codex
@@ -416,9 +416,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull CI image
+      - name: Ensure CI image
         if: steps.check-existing.outputs.skip != 'true'
-        run: docker pull "${CI_IMAGE}"
+        run: scripts/ensure-ci-image.sh "${CI_IMAGE}"
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
       - name: Resolve issue with Codex

@@ -44,7 +44,12 @@ shells out to `docker run` against the CI image. The other agent
 workflows (`codex`, `codex-diagnose-workflow-failure`,
 `review-coverage-evaluator`) invoke `docker run` inline.
 
-All of them follow the same topology rules learned from the
+All of them call `scripts/ensure-ci-image.sh` before launch. The helper
+tries `docker pull` first and, if the configured tag is missing in GHCR
+or otherwise unavailable, rebuilds the CI image locally from
+`.github/ci/Dockerfile` using the pinned versions in `versions.env`.
+
+They then follow the same topology rules learned from the
 home-automation refactor:
 
 - **Mount sources must be host-visible**. The runner is a container on
