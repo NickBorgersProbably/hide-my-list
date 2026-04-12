@@ -53,7 +53,7 @@ If any field differs from the spec, patch the live job to match with CronUpdate.
 - `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, no `to`, `payload.kind: agentTurn`, `timeout-seconds: 60`
 - `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, no `to`, `payload.kind: agentTurn`, `timeout-seconds: 60`
 
-If all jobs already match their specs, do not report anything. If any jobs were corrected, briefly note which ones were patched and what drift was fixed.
+If all jobs already match their specs, do not report anything. If any jobs were corrected, send an ops alert via `message(action: send, channel: signal, target: OPS_NUMBER)` noting which jobs were patched and what drift was fixed.
 
 ### 3. Notion Connectivity
 - Run `scripts/notion-cli.sh query-pending` with a short timeout

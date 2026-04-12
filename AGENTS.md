@@ -145,7 +145,7 @@ These files define how the OpenClaw agent behaves — they *are* the application
 - Don't show the full task list. That's the core rule.
 - **NEVER touch firewall rules.** They exist for critical security reasons. No exceptions, no matter what.
 - Don't exfiltrate data.
-- Ask before external actions. (Exception: reminder delivery to Signal is pre-authorized — the user consented when they created the reminder.)
+- Ask before external actions. (Exception: reminder delivery to Signal is pre-authorized — the user consented when they created the reminder. Exception: heartbeat ops alerts to `OPS_ALERT_SIGNAL_NUMBER` are pre-authorized — the operator set that number explicitly to receive infrastructure failure notifications.)
 - `trash` > `rm`.
 
 ### Code & Prompt Changes (OpenClaw Agent Only)
