@@ -223,18 +223,19 @@ runs:
               echo "::error::review-codex-run: prompt file not found at $REVIEW_PROMPT_PATH"
               exit 1
             fi
-            if [ ! -f .github/ci/caveman-rules.md ]; then
-              echo "::error::review-codex-run: caveman rules file not found at .github/ci/caveman-rules.md"
-              exit 1
+            # Prepend caveman rules if available (optional — PRs branched
+            # before caveman merged won't have the file).
+            if [ -f .github/ci/caveman-rules.md ] && [ -f .github/ci/versions.env ]; then
+              source .github/ci/versions.env
+              if grep -Fq "v${CAVEMAN_VERSION}" .github/ci/caveman-rules.md; then
+                PROMPT_BODY=$(printf '%s\n\n%s' "$(cat .github/ci/caveman-rules.md)" "$(cat "$REVIEW_PROMPT_PATH")")
+              else
+                echo "::warning::review-codex-run: caveman version mismatch — skipping rules"
+                PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
+              fi
+            else
+              PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
             fi
-
-            source .github/ci/versions.env
-            if ! grep -Fq "v${CAVEMAN_VERSION}" .github/ci/caveman-rules.md; then
-              echo "::error::review-codex-run: .github/ci/caveman-rules.md does not match CAVEMAN_VERSION=${CAVEMAN_VERSION}"
-              exit 1
-            fi
-
-            PROMPT_BODY=$(printf '%s\n\n%s' "$(cat .github/ci/caveman-rules.md)" "$(cat "$REVIEW_PROMPT_PATH")")
 
             mkdir -p "$(dirname "$OUTPUT_PATH")"
 
