@@ -95,10 +95,10 @@ runs:
         set -euo pipefail
         printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
-    - name: Pull CI image
+    - name: Ensure CI image
       if: inputs.pull == 'true'
       shell: bash
-      run: docker pull "${{ inputs.image }}"
+      run: scripts/ensure-ci-image.sh "${{ inputs.image }}"
 
     - name: Stage env file
       id: stage-env

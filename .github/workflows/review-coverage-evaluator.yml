@@ -69,8 +69,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull CI image
-        run: docker pull "${CI_IMAGE}"
+      - name: Ensure CI image
+        run: scripts/ensure-ci-image.sh "${CI_IMAGE}"
 
       - name: Evaluate review coverage with Codex
         env:
