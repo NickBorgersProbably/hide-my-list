@@ -1,15 +1,22 @@
 ---
-name: Run a Codex review prompt in the devcontainer
+name: Run a Codex review prompt in the CI image
 description: >
   Wraps Codex CLI invocation for the v2 review pipeline. Reads the
   reviewer (or fixer) prompt from a standalone markdown file at the
   given path — the prompt is NEVER inlined into YAML, so editing a
   prompt is a normal markdown diff with no escaping concerns.
 
-  Captures Codex output to /tmp/<role>-output.jsonl as an artifact and
-  expects the inner prompt to write a structured JSON artifact at the
-  path passed via the OUTPUT_PATH env var. The caller is responsible
-  for validating that JSON against the appropriate schema.
+  Captures Codex output to <workspace>/.review-output/<role>-output.jsonl
+  and expects the inner prompt to write a structured JSON artifact at
+  <workspace>/.review-output/<role>-result.json (the caller is
+  responsible for validating that JSON against the schema).
+
+  This action spawns `docker run` directly against the CI image
+  (.github/ci/Dockerfile → ghcr.io/nickborgersprobably/hide-my-list-ci:latest),
+  bypassing @devcontainers/cli. The predecessor wrapped the deprecated
+  run-devcontainer composite action, which went through devcontainer-cli
+  and fought the self-hosted runner's shared-docker-socket topology in
+  assorted ways. All topology knobs live in this one action.
 
   Forwards minimal env per agentic-pipeline-learnings §2.2 and uses
   WORKFLOW_PAT as GH_TOKEN per §2.3.
@@ -19,13 +26,16 @@ inputs:
     description: 'Role label used in artifact filenames (e.g. "design", "fixer")'
     required: true
   prompt_path:
-    description: Repo-relative path to the standalone prompt markdown file
+    description: Repo-relative path to the standalone prompt markdown file (relative to workspace_folder)
     required: true
   image:
-    description: Devcontainer image to run inside
-    required: true
+    description: CI image tag (default ghcr.io/nickborgersprobably/hide-my-list-ci:latest)
+    required: false
+    default: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
   workspace_folder:
-    description: Workspace folder containing the PR checkout (passed to run-devcontainer)
+    description: >
+      Workspace folder containing the PR checkout, relative to
+      $GITHUB_WORKSPACE. This is what the container sees as /workspace.
     required: true
   pr_number:
     description: PR number being reviewed
@@ -47,6 +57,10 @@ inputs:
     description: 'Additional KEY=VALUE pairs (newline-separated) to forward'
     required: false
     default: ''
+  pull:
+    description: When 'true' (default), docker pull the image before running
+    required: false
+    default: 'true'
 
 outputs:
   output_artifact:
@@ -59,72 +73,137 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Pre-create output directory on host
+    - name: Pre-create output directory in workspace
       shell: bash
       env:
         WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
       run: |
+        set -euo pipefail
         # Codex writes its result JSON to a path inside the workspace
-        # folder, NOT /tmp, because /tmp inside the devcontainer is
-        # not bind-mounted from /tmp on the host. The workspace folder
-        # IS bind-mounted, so files written there from inside the
-        # container are visible to subsequent host steps.
+        # folder. Because the workspace is bind-mounted into the
+        # container (via -v $GITHUB_WORKSPACE:/workspace), files written
+        # there from inside the container are visible to subsequent host
+        # steps for upload-artifact and schema validation.
         mkdir -p "${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
 
-    - name: Run Codex prompt in devcontainer
-      id: run
-      uses: ./.github/actions/run-devcontainer
-      with:
-        image: ${{ inputs.image }}
-        workspace_folder: ${{ inputs.workspace_folder }}
-        pull: 'true'
-        env: |
-          OPENAI_API_KEY=fake-key
-          GH_TOKEN=${{ inputs.workflow_pat }}
-          REVIEW_ROLE=${{ inputs.role }}
-          REVIEW_PROMPT_PATH=${{ inputs.prompt_path }}
-          REVIEW_READ_ONLY=${{ inputs.read_only }}
-          PR_NUMBER=${{ inputs.pr_number }}
-          REVIEWED_SHA=${{ inputs.reviewed_sha }}
-          REVIEW_CYCLE=${{ inputs.cycle }}
-          OUTPUT_PATH=.review-output/${{ inputs.role }}-result.json
-          OUTPUT_LOG_PATH=.review-output/${{ inputs.role }}-output.jsonl
-          REPO=${{ github.repository }}
-          ${{ inputs.extra_env }}
-        run_cmd: |
-          set -euo pipefail
+    - name: Log in to GHCR
+      shell: bash
+      env:
+        GHCR_USERNAME: ${{ github.actor }}
+        GHCR_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
-          # Source the repo's Codex configuration helper.
-          source .devcontainer/configure-codex.sh
+    - name: Pull CI image
+      if: inputs.pull == 'true'
+      shell: bash
+      run: docker pull "${{ inputs.image }}"
 
-          # Read the prompt body from the standalone markdown file.
-          if [ ! -f "$REVIEW_PROMPT_PATH" ]; then
-            echo "::error::review-codex-run: prompt file not found at $REVIEW_PROMPT_PATH"
-            exit 1
-          fi
-          PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
+    - name: Stage env file
+      id: stage-env
+      shell: bash
+      env:
+        ROLE: ${{ inputs.role }}
+        PROMPT_PATH: ${{ inputs.prompt_path }}
+        READ_ONLY: ${{ inputs.read_only }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        CYCLE: ${{ inputs.cycle }}
+        WORKFLOW_PAT: ${{ inputs.workflow_pat }}
+        EXTRA_ENV: ${{ inputs.extra_env }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        # Stage the env file under $RUNNER_TEMP so --env-file can read it.
+        # (It's client-side in docker, so it only needs to be runner-
+        # visible, but keeping it under $RUNNER_TEMP is consistent with
+        # the other staging files and survives any future daemon-side
+        # requirements.)
+        STAGING_DIR="${RUNNER_TEMP:-/tmp}/ci-agent"
+        mkdir -p "$STAGING_DIR"
+        ENV_FILE="$(mktemp "${STAGING_DIR}/env.XXXXXX")"
+        cat > "$ENV_FILE" <<EOF
+        OPENAI_API_KEY=fake-key
+        GH_TOKEN=${WORKFLOW_PAT}
+        REVIEW_ROLE=${ROLE}
+        REVIEW_PROMPT_PATH=${PROMPT_PATH}
+        REVIEW_READ_ONLY=${READ_ONLY}
+        PR_NUMBER=${PR_NUMBER}
+        REVIEWED_SHA=${REVIEWED_SHA}
+        REVIEW_CYCLE=${CYCLE}
+        OUTPUT_PATH=.review-output/${ROLE}-result.json
+        OUTPUT_LOG_PATH=.review-output/${ROLE}-output.jsonl
+        REPO=${REPO}
+        EOF
+        # Append caller-supplied extras, stripping blank/comment lines.
+        if [ -n "$EXTRA_ENV" ]; then
+          printf '%s\n' "$EXTRA_ENV" | grep -Ev '^\s*(#|$)' >> "$ENV_FILE" || true
+        fi
+        chmod 600 "$ENV_FILE"
+        echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
 
-          # OUTPUT_PATH and OUTPUT_LOG_PATH are workspace-relative;
-          # the workspace is bind-mounted into the container so the
-          # host can read these files after the container exits.
-          mkdir -p "$(dirname "$OUTPUT_PATH")"
+    - name: Run Codex prompt
+      shell: bash
+      env:
+        CI_AGENT_IMAGE: ${{ inputs.image }}
+        CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
+        WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
+      run: |
+        set -euo pipefail
 
-          # The prompt body must instruct Codex to write its structured
-          # result JSON to $OUTPUT_PATH and conform to the appropriate
-          # schema in .github/scripts/review/schema/.
-          timeout 30m codex exec \
-            --json \
-            --dangerously-bypass-approvals-and-sandbox \
-            "$PROMPT_BODY" \
-            < /dev/null 2>&1 \
-            | tee "$OUTPUT_LOG_PATH"
+        WORKSPACE_HOST="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}"
 
-          if [ ! -s "$OUTPUT_PATH" ]; then
-            echo "::error::review-codex-run: prompt did not produce $OUTPUT_PATH"
-            exit 1
-          fi
+        # --network host: lets the container reach LiteLLM via the
+        # runner's Tailscale connection.
+        # -v workspace: the PR checkout. The container writes its
+        # output JSON to .review-output/ inside this workspace; the
+        # workspace is bind-mounted from host → runner already (via
+        # /tmp/runner-work), so files land at a path the subsequent
+        # validate / publish / upload-artifact steps can read.
+        docker run --rm \
+          --network host \
+          --workdir /workspace \
+          -v "$WORKSPACE_HOST:/workspace" \
+          --env-file "$CI_AGENT_ENV_FILE" \
+          "$CI_AGENT_IMAGE" \
+          -lc '
+            set -euo pipefail
 
-          echo "review-codex-run: ${REVIEW_ROLE} produced $OUTPUT_PATH"
+            source .devcontainer/configure-codex.sh
+
+            if [ ! -f "$REVIEW_PROMPT_PATH" ]; then
+              echo "::error::review-codex-run: prompt file not found at $REVIEW_PROMPT_PATH"
+              exit 1
+            fi
+            PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
+
+            mkdir -p "$(dirname "$OUTPUT_PATH")"
+
+            # The prompt body instructs Codex to write its structured
+            # result JSON to $OUTPUT_PATH and conform to the schema in
+            # .github/scripts/review/schema/.
+            timeout 30m codex exec \
+              --json \
+              --dangerously-bypass-approvals-and-sandbox \
+              "$PROMPT_BODY" \
+              < /dev/null 2>&1 \
+              | tee "$OUTPUT_LOG_PATH"
+
+            if [ ! -s "$OUTPUT_PATH" ]; then
+              echo "::error::review-codex-run: prompt did not produce $OUTPUT_PATH"
+              exit 1
+            fi
+
+            echo "review-codex-run: ${REVIEW_ROLE} produced $OUTPUT_PATH"
+          '
+
+    - name: Clean up staged env file
+      if: always()
+      shell: bash
+      env:
+        CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
+      run: rm -f "$CI_AGENT_ENV_FILE"
 
     - name: Echo result paths
       id: paths
@@ -133,6 +212,7 @@ runs:
         ROLE: ${{ inputs.role }}
         WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
       run: |
+        set -euo pipefail
         # Emit absolute host paths so downstream host steps (validate,
         # publish, upload-artifact) can locate the files the container
         # wrote into the workspace bind-mount.

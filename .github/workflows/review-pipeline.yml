@@ -44,9 +44,6 @@ permissions:
   pull-requests: read
   statuses: write
 
-env:
-  DEVCONTAINER_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
-
 jobs:
   gather:
     name: Gather + classify + cycle check
@@ -177,7 +174,7 @@ jobs:
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
-      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
@@ -196,7 +193,7 @@ jobs:
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
-      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
@@ -215,7 +212,7 @@ jobs:
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
-      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
@@ -234,7 +231,7 @@ jobs:
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
-      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
@@ -253,7 +250,7 @@ jobs:
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
-      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
@@ -278,7 +275,7 @@ jobs:
       head_ref: ${{ inputs.head_ref }}
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
-      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-devcontainer
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
