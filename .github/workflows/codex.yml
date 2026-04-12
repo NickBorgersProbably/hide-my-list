@@ -369,7 +369,10 @@ jobs:
           path: /tmp/codex-conversation.jsonl
           retention-days: 7
 
-  # Auto-resolve new issues by opening a PR
+  # Auto-resolve trusted issues by opening a PR.
+  # Entry points:
+  # - issue lifecycle events: opened, reopened, or unlabeled after codex-started
+  # - /autoresolve issue comments on open non-PR issues from trusted original authors
   resolve-issue:
     needs: [authorize, detect_codex_invocation]
     if: |
@@ -381,6 +384,8 @@ jobs:
         )) ||
         (github.event_name == 'issue_comment' &&
          !github.event.issue.pull_request &&
+         github.event.issue.state == 'open' &&
+         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
          needs.detect_codex_invocation.outputs.autoresolve_requested == 'true')
       )
     runs-on: [self-hosted, homelab]

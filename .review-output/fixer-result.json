@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "input_sha": "e3db7c07f7a8401df2dd1663e71d0c32a6169f91",
+  "new_sha": "e3db7c07f7a8401df2dd1663e71d0c32a6169f91",
+  "addressed": [
+    "docs/doc-001",
+    "security/sec-001"
+  ],
+  "skipped": []
+}

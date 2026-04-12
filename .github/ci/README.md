@@ -69,6 +69,24 @@ home-automation refactor:
   runner's Tailscale connection to LiteLLM at
   `https://llm.featherback-mermaid.ts.net/v1`.
 
+## Codex Agent issue-resolution entry points
+
+`.github/workflows/codex.yml` contains a `resolve-issue` job that opens
+PRs for trusted issue-resolution requests. It has two entry points:
+
+- Issue lifecycle events: `opened`, `reopened`, or `unlabeled` after
+  `codex-started`
+- `/autoresolve` issue comments on open non-PR issues from trusted
+  original authors
+
+The comment-command path is intentionally narrower than "any
+collaborator can point Codex at any issue": the commenter still has to
+pass the workflow's collaborator authorization gate, and the underlying
+issue must already have been opened by an `OWNER`, `MEMBER`, or
+`COLLABORATOR`. That preserves the same trust boundary as the
+issue-lifecycle path before the self-hosted resolver reads issue
+content or runs with write-capable credentials.
+
 ## Rebuilding the image locally
 
 ```bash
