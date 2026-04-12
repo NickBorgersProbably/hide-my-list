@@ -80,6 +80,34 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}
 
+      - name: Rebase PR branch onto main
+        # Resolve merge conflicts before the fixer runs so the PR is
+        # merge-ready when it reaches GO. The fixer can't touch .git/
+        # (UID mismatch), so rebase must happen on the host.
+        id: rebase
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        run: |
+          set -euo pipefail
+          git config user.name "hide-my-list-ci[bot]"
+          git config user.email "ci@hide-my-list.local"
+          git fetch origin main
+
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "Already up to date with main; no rebase needed"
+            echo "status=clean" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "PR branch is behind main; attempting rebase..."
+          if git rebase origin/main; then
+            echo "Rebase succeeded cleanly"
+            echo "status=rebased" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Rebase has conflicts — aborting rebase and continuing without merge resolution"
+            git rebase --abort
+            echo "status=conflicts" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download all reviewer artifacts into workspace
         # Must be inside the workspace folder so the devcontainer can
         # see them — host /tmp is NOT bind-mounted into the container.
@@ -87,6 +115,16 @@ jobs:
         with:
           path: ${{ env.PR_WORKSPACE_PATH }}/.review-output/reviewer-artifacts
           pattern: reviewer-*-${{ inputs.reviewed_sha }}
+
+      - name: Clean stale fixer artifacts from prior runs
+        # Prior pipeline runs may have left fixer-result.json and
+        # fixer-output.jsonl owned by the runner UID (1001). The Codex
+        # fixer runs as UID 1000 inside the container and can't
+        # overwrite them. Remove stale files so the fixer starts clean.
+        run: |
+          rm -f "${PR_WORKSPACE_PATH}/.review-output/fixer-result.json" \
+                "${PR_WORKSPACE_PATH}/.review-output/fixer-output.jsonl" \
+                "${PR_WORKSPACE_PATH}/.review-output/write-test"
 
       - name: Create directories for devcontainer mounts
         run: mkdir -p ~/.config/gh ~/.claude ~/.codex
