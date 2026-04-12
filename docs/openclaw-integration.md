@@ -35,11 +35,12 @@ OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json
 ```json
 "heartbeat": {
   "every": "60m",
-  "model": "litellm/claude-sonnet-4-6"
+  "model": "litellm/claude-sonnet-4-6",
+  "target": "signal"
 }
 ```
 
-Every 60 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks. Reminder delivery does not rely on `heartbeat.target`; Check 1 sends reminders explicitly with the OpenClaw `message` tool (`action: send`, `channel: signal`). The `target` field only controls where generic non-`HEARTBEAT_OK` heartbeat output is routed; without it, that generic heartbeat text defaults to `"none"` and is silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
+Every 60 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks. Reminder delivery does not rely on `heartbeat.target`; Check 1 sends reminders explicitly with the OpenClaw `message` tool (`action: send`, `channel: signal`). The `target` field only controls where generic non-`HEARTBEAT_OK` heartbeat output is routed; without it, that generic heartbeat text defaults to `"none"` and is silently discarded, so the production template keeps `target: "signal"` for operator-facing alerts ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
 
 **Our usage:** The heartbeat serves two roles:
 1. **Reminder-delivery backstop:** The isolated `reminder-check` cron only writes `.reminder-signal` — it does not deliver to the user. Heartbeat Check 1 reads stranded signal files, validates them, and delivers reminders to Signal with the `message` tool every 60 minutes. (The AGENTS.md startup check provides faster opportunistic delivery when the user is active.)
