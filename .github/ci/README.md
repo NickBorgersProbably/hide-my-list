@@ -69,7 +69,7 @@ home-automation refactor:
   runner's Tailscale connection to LiteLLM at
   `https://llm.featherback-mermaid.ts.net/v1`.
 
-## Codex Agent issue-resolution entry points
+## Issue Resolution Agent issue-resolution entry points
 
 `.github/workflows/codex.yml` contains a `resolve-issue` job that opens
 PRs for trusted issue-resolution requests. It has two entry points:

@@ -20,7 +20,7 @@ on:
   workflow_run:
     workflows:
       - "PR Tests"
-      - "Codex Agent"
+      - "Issue Resolution Agent"
       - "Codex Code Review"
       - "Deploy to GitHub Pages"
       - "Review Coverage Evaluator"
@@ -77,7 +77,7 @@ jobs:
           fi
 
           # Skip diagnosis for THIS workflow only to avoid infinite loops
-          # Other Codex workflows (Codex Agent, Codex Code Review) should be diagnosed
+          # Other Codex workflows (Issue Resolution Agent, Codex Code Review) should be diagnosed
           if [[ "$WORKFLOW_NAME" == "Codex Diagnose Workflow Failure" ]]; then
             echo "Skipping diagnosis of diagnosis workflow to prevent infinite loops"
             echo "should_diagnose=false" >> $GITHUB_OUTPUT
