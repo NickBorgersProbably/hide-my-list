@@ -1,22 +1,18 @@
-name: Codex Agent
+name: Issue Resolution Agent
 
 on:
   issue_comment:
     types: [created]
-  pull_request_review_comment:
-    types: [created]
   issues:
     types: [opened, reopened, unlabeled]
-  pull_request_review:
-    types: [submitted]
 
 # SECURITY NOTE: This workflow grants the AI agent access to secrets and write permissions.
 # Authorization checks are implemented to prevent prompt injection from untrusted users.
 # Only repository collaborators, members, and owners can trigger the agent.
 
-# Prevent duplicate runs for the same issue/PR. New runs cancel in-progress ones.
+# Prevent duplicate runs for the same issue. New runs cancel in-progress ones.
 concurrency:
-  group: codex-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  group: autoresolve-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -24,7 +20,7 @@ env:
   CI_IMAGE: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
 
 jobs:
-  # Security gate: Check if the actor is authorized to trigger Codex
+  # Security gate: Check if the actor is authorized
   # This prevents prompt injection attacks from untrusted external users
   authorize:
     runs-on: ubuntu-latest
@@ -43,14 +39,6 @@ jobs:
             issue_comment)
               AUTHOR_ASSOC="${{ github.event.comment.author_association }}"
               ACTOR="${{ github.event.comment.user.login }}"
-              ;;
-            pull_request_review_comment)
-              AUTHOR_ASSOC="${{ github.event.comment.author_association }}"
-              ACTOR="${{ github.event.comment.user.login }}"
-              ;;
-            pull_request_review)
-              AUTHOR_ASSOC="${{ github.event.review.author_association }}"
-              ACTOR="${{ github.event.review.user.login }}"
               ;;
             issues)
               if [ "${{ github.event.action }}" = "unlabeled" ]; then
@@ -97,58 +85,20 @@ jobs:
               ;;
           esac
 
-  detect_codex_invocation:
+  detect_autoresolve:
     runs-on: ubuntu-latest
     outputs:
-      codex_requested: ${{ steps.detect.outputs.codex_requested }}
-      issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
       autoresolve_requested: ${{ steps.detect.outputs.autoresolve_requested }}
+      issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
     steps:
-      - name: Detect explicit /autoresolve invocation
+      - name: Detect /autoresolve command
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
-          REVIEW_BODY: ${{ github.event.review.body }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           set -eu
-
-          # Treat /autoresolve as explicit only when it starts a line.
-          # This avoids triggering on incidental mentions in prose or logs.
-          explicit_invocation() {
-            printf '%s\n' "$1" | grep -Eq '^[[:space:]]*/autoresolve([[:space:]]|$|[[:punct:]])'
-          }
-
-          REQUEST_TEXT=""
-          INVOCATION_TEXT=""
-
-          case "$EVENT_NAME" in
-            issue_comment|pull_request_review_comment)
-              REQUEST_TEXT="${COMMENT_BODY:-}"
-              INVOCATION_TEXT="$REQUEST_TEXT"
-              ;;
-            pull_request_review)
-              REQUEST_TEXT="${REVIEW_BODY:-}"
-              INVOCATION_TEXT="$REQUEST_TEXT"
-              ;;
-            issues)
-              REQUEST_TEXT="${ISSUE_TITLE:-}"
-              if [ -n "${ISSUE_BODY:-}" ]; then
-                REQUEST_TEXT="${REQUEST_TEXT}"$'\n\n'"${ISSUE_BODY}"
-              fi
-              INVOCATION_TEXT="$REQUEST_TEXT"
-              ;;
-            *)
-              ;;
-          esac
-
-          if explicit_invocation "$INVOCATION_TEXT"; then
-            echo "codex_requested=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "codex_requested=false" >> "$GITHUB_OUTPUT"
-          fi
 
           # Detect /autoresolve command (issue comments only)
           autoresolve_invocation() {
@@ -162,219 +112,13 @@ jobs:
           fi
 
           printf 'issue_title_b64=%s\n' "$(printf '%s' "${ISSUE_TITLE:-}" | base64 -w0)" >> "$GITHUB_OUTPUT"
-  preflight:
-    needs: authorize
-    if: needs.authorize.outputs.authorized == 'true'
-    runs-on: ubuntu-latest
-    outputs:
-      is_pr: ${{ steps.pr-context.outputs.is_pr }}
-      pr_number: ${{ steps.pr-context.outputs.pr_number }}
-      pr_head_ref: ${{ steps.pr-context.outputs.pr_head_ref }}
-      should_run: ${{ steps.pr-context.outputs.should_run }}
-      skip_reason: ${{ steps.pr-context.outputs.skip_reason }}
-      checkout_ref: ${{ steps.pr-context.outputs.checkout_ref }}
-    steps:
-      - name: Get PR context
-        id: pr-context
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Determine whether this run targets an active PR and which ref is safe to check out.
-          IS_PR="false"
-          PR_HEAD_REF=""
-          PR_NUMBER=""
-          SHOULD_RUN="true"
-          SKIP_REASON=""
-          CHECKOUT_REF="${{ github.event.repository.default_branch }}"
-
-          if [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
-            IS_PR="true"
-            PR_NUMBER="${{ github.event.pull_request.number }}"
-          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
-            IS_PR="true"
-            PR_NUMBER="${{ github.event.pull_request.number }}"
-          elif [ "${{ github.event_name }}" = "issue_comment" ]; then
-            # Check if the issue is actually a PR
-            if [ -n "${{ github.event.issue.pull_request }}" ]; then
-              IS_PR="true"
-              PR_NUMBER="${{ github.event.issue.number }}"
-            fi
-          fi
-
-          if [ "$IS_PR" = "true" ]; then
-            PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER})
-            PR_STATE=$(printf '%s' "$PR_JSON" | jq -r '.state')
-            PR_MERGED_AT=$(printf '%s' "$PR_JSON" | jq -r '.merged_at // empty')
-            PR_HEAD_REF=$(printf '%s' "$PR_JSON" | jq -r '.head.ref // empty')
-
-            if [ "$PR_STATE" != "open" ] || [ -n "$PR_MERGED_AT" ]; then
-              SHOULD_RUN="false"
-              SKIP_REASON="PR #${PR_NUMBER} is not active (state=${PR_STATE}, merged_at=${PR_MERGED_AT:-not-merged})"
-            elif [ -z "$PR_HEAD_REF" ]; then
-              SHOULD_RUN="false"
-              SKIP_REASON="PR #${PR_NUMBER} does not have a head branch ref"
-            else
-              HEAD_EXISTS=$(gh api "repos/${{ github.repository }}/git/matching-refs/heads/${PR_HEAD_REF}" --jq 'length > 0')
-              if [ "$HEAD_EXISTS" = "true" ]; then
-                CHECKOUT_REF="$PR_HEAD_REF"
-              else
-                SHOULD_RUN="false"
-                SKIP_REASON="PR #${PR_NUMBER} head branch '${PR_HEAD_REF}' no longer exists on origin"
-              fi
-            fi
-          fi
-
-          echo "is_pr=$IS_PR" >> $GITHUB_OUTPUT
-          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "pr_head_ref=$PR_HEAD_REF" >> $GITHUB_OUTPUT
-          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
-          echo "skip_reason=$SKIP_REASON" >> $GITHUB_OUTPUT
-          echo "checkout_ref=$CHECKOUT_REF" >> $GITHUB_OUTPUT
-          echo "Detected: IS_PR=$IS_PR, PR_NUMBER=$PR_NUMBER, PR_HEAD_REF=$PR_HEAD_REF, SHOULD_RUN=$SHOULD_RUN, CHECKOUT_REF=$CHECKOUT_REF"
-
-  codex:
-    needs: [authorize, detect_codex_invocation, preflight]
-    if: |
-      needs.authorize.outputs.authorized == 'true' &&
-      needs.preflight.outputs.should_run == 'true' &&
-      needs.detect_codex_invocation.outputs.codex_requested == 'true'
-    runs-on: [self-hosted, homelab]
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      actions: read
-      packages: read
-
-    steps:
-      - name: Add eyes reaction to acknowledge comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "${{ github.event_name }}" = "issue_comment" ]; then
-            gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
-              -f content='eyes' || echo "Warning: reaction failed"
-          elif [ "${{ github.event_name }}" = "pull_request_review_comment" ]; then
-            gh api repos/${{ github.repository }}/pulls/comments/${{ github.event.comment.id }}/reactions \
-              -f content='eyes' || echo "Warning: reaction failed"
-          elif [ "${{ github.event_name }}" = "pull_request_review" ]; then
-            echo "Note: GitHub API does not support reactions on PR reviews"
-          fi
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
-          ref: ${{ needs.preflight.outputs.checkout_ref }}
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Ensure CI image
-        run: scripts/ensure-ci-image.sh "${CI_IMAGE}"
-
-      # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      - name: Run Codex
-        env:
-          OPENAI_API_KEY: ${{ vars.AI_API_KEY }}
-          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
-          EVENT_NAME: ${{ github.event_name }}
-          COMMENT_ID: ${{ github.event.comment.id }}
-          REVIEW_ID: ${{ github.event.review.id }}
-          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          IS_PR: ${{ needs.preflight.outputs.is_pr }}
-          PR_HEAD_REF: ${{ needs.preflight.outputs.pr_head_ref }}
-        run: |
-          set -euo pipefail
-
-          STAGING_ROOT="${RUNNER_TEMP:-/tmp}/ci-agent"
-          mkdir -p "$STAGING_ROOT"
-          OUTPUT_STAGING=$(mktemp -d "${STAGING_ROOT}/codex.XXXXXX")
-          chmod 777 "$OUTPUT_STAGING"
-
-          docker run --rm \
-            --network host \
-            --workdir /workspace \
-            -v "${{ github.workspace }}:/workspace" \
-            -v "$OUTPUT_STAGING:/output" \
-            -e OPENAI_API_KEY \
-            -e GH_TOKEN \
-            -e EVENT_NAME \
-            -e COMMENT_ID \
-            -e REVIEW_ID \
-            -e ISSUE_NUMBER \
-            -e REPO \
-            -e IS_PR \
-            -e PR_HEAD_REF \
-            "${CI_IMAGE}" \
-            -lc '
-              set -euo pipefail
-              source .devcontainer/configure-codex.sh
-
-              # Fetch comment/review/issue body via API (same pattern as
-              # before — avoids docker env-var escaping for multi-line
-              # content with special characters).
-              case "$EVENT_NAME" in
-                issue_comment)
-                  COMMENT_BODY=$(gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" --jq ".body // \"\"")
-                  ;;
-                pull_request_review_comment)
-                  COMMENT_BODY=$(gh api "repos/${REPO}/pulls/comments/${COMMENT_ID}" --jq ".body // \"\"")
-                  ;;
-                pull_request_review)
-                  COMMENT_BODY=$(gh api "repos/${REPO}/pulls/${ISSUE_NUMBER}/reviews/${REVIEW_ID}" --jq ".body // \"\"")
-                  ;;
-                issues)
-                  COMMENT_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq ".body // \"\"")
-                  ;;
-                *)
-                  echo "Unsupported event type: ${EVENT_NAME}" >&2
-                  exit 1
-                  ;;
-              esac
-              export COMMENT_BODY
-
-              if [ "$IS_PR" = "true" ]; then
-                PROMPT_FILE=.github/ci/prompts/codex-comment-pr.md
-              else
-                PROMPT_FILE=.github/ci/prompts/codex-comment-issue.md
-              fi
-              PROMPT=$(envsubst < "$PROMPT_FILE")
-
-              timeout 60m codex exec \
-                --json \
-                --dangerously-bypass-approvals-and-sandbox \
-                "$PROMPT" \
-                < /dev/null 2>&1 \
-                | tee /output/codex-conversation.jsonl
-            '
-
-          mkdir -p /tmp
-          cp "$OUTPUT_STAGING/codex-conversation.jsonl" /tmp/codex-conversation.jsonl 2>/dev/null || true
-          rm -rf "$OUTPUT_STAGING"
-
-      - name: Upload Codex conversation log
-        uses: actions/upload-artifact@v4
-        if: always() && needs.preflight.outputs.should_run == 'true'
-        continue-on-error: true
-        with:
-          name: codex-conversation-log
-          path: /tmp/codex-conversation.jsonl
-          retention-days: 7
 
   # Auto-resolve trusted issues by opening a PR.
   # Entry points:
   # - issue lifecycle events: opened, reopened, or unlabeled after codex-started
   # - /autoresolve issue comments on open non-PR issues from trusted original authors
   resolve-issue:
-    needs: [authorize, detect_codex_invocation]
+    needs: [authorize, detect_autoresolve]
     if: |
       needs.authorize.outputs.authorized == 'true' && (
         (github.event_name == 'issues' && (
@@ -386,7 +130,7 @@ jobs:
          !github.event.issue.pull_request &&
          github.event.issue.state == 'open' &&
          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
-         needs.detect_codex_invocation.outputs.autoresolve_requested == 'true')
+         needs.detect_autoresolve.outputs.autoresolve_requested == 'true')
       )
     runs-on: [self-hosted, homelab]
     permissions:
@@ -448,7 +192,7 @@ jobs:
           OPENAI_API_KEY: ${{ vars.AI_API_KEY }}
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE_B64: ${{ needs.detect_codex_invocation.outputs.issue_title_b64 }}
+          ISSUE_TITLE_B64: ${{ needs.detect_autoresolve.outputs.issue_title_b64 }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
