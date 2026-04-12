@@ -39,6 +39,7 @@ These files support the development pipeline and are not part of the OpenClaw ag
 
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
+- `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run`
 - `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract and guardrail document
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates or reuses the canonical deduplicated GitHub Actions failure issue for the diagnosis workflow
 - `scripts/check-doc-links.sh` — Internal documentation link validator used by local hooks and CI doc checks
