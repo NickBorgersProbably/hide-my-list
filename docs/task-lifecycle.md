@@ -941,7 +941,7 @@ flowchart TD
     Delivery -->|Heartbeat: Check 1| Late
 
     Late -->|No| Send[Deliver reminder]
-    Late -->|Yes| SendMissed[Deliver with apology]
+    Late -->|Yes| SendMissed[Deliver late note + reschedule option]
 
     Send --> Complete[Mark Completed + reminder_status=sent]
     SendMissed --> Complete2[Mark Completed + reminder_status=missed]
@@ -959,7 +959,7 @@ flowchart TD
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery is separated from the cron query. The isolated `reminder-check` cron writes the handoff file and exits. Delivery happens through the heartbeat (HEARTBEAT.md Check 1, every 60 min) or the main-session startup check (AGENTS.md step 5, on every user interaction). If delivery fails, the handoff file is left in place for retry.
+Reminder delivery is separated from the cron query. The isolated `reminder-check` cron writes the handoff file and exits. Delivery happens through the heartbeat (HEARTBEAT.md Check 1, every 60 min) or the main-session startup check (AGENTS.md step 5, on every user interaction). Both delivery paths first validate that the handoff is JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status makes the handoff malformed, so the file stays in place and nothing is delivered or completed. For valid late reminders, the user-facing copy stays brief and nonjudgmental: `This was due a bit ago — [task]. Want to handle it now or reschedule?` If delivery fails, the handoff file is left in place for retry.
 
 ### Timezone Handling
 

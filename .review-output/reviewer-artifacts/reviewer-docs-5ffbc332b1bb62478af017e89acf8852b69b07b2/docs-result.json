@@ -1,0 +1,44 @@
+{
+  "schema_version": "1",
+  "role": "docs",
+  "reviewed_sha": "5ffbc332b1bb62478af017e89acf8852b69b07b2",
+  "cycle": 1,
+  "decision": "request_changes",
+  "summary": "Reminder-delivery docs are inconsistent after this PR. The repo now has two conflicting contracts for whether heartbeat delivery depends on `heartbeat.target`, and the new handoff-validation + explicit `message(channel: signal)` flow was only updated in a subset of the reminder-spec docs.",
+  "blocking_issues": [
+    {
+      "id": "doc-001",
+      "severity": "high",
+      "file": "docs/openclaw-integration.md",
+      "line": 43,
+      "message": "This PR changes reminder delivery to explicit `message`-tool sends to Signal (`AGENTS.md:11`, `HEARTBEAT.md:11`, `setup/README.md:138`, `docs/agent-capabilities.md:66`), but `docs/openclaw-integration.md:43` and `setup/cron/heartbeat-check.md:15` still say `heartbeat.target` is required for reminder delivery and that reminders are discarded without it. Those statements now contradict each other on a core runtime contract.",
+      "category": "cross_doc_contradiction",
+      "source": "reviewer"
+    },
+    {
+      "id": "doc-002",
+      "severity": "high",
+      "file": "docs/architecture.md",
+      "line": 232,
+      "message": "The new reminder-delivery contract was only partially propagated. Changed files now require validating the handoff JSON and sending each reminder via the OpenClaw `message` tool with `channel: signal` before calling `complete-reminder` (`AGENTS.md:11`, `HEARTBEAT.md:11`, `setup/cron/reminder-check.md:25`). But `docs/architecture.md:232`, `docs/task-lifecycle.md:962`, `docs/notion-schema.md:474`, and `docs/user-interactions.md:784` still describe the older generic flow with no validation/error-handling step and no explicit Signal/message-tool delivery. Since these docs are part of the runtime spec, they need one consistent contract.",
+      "category": "cross_doc_contradiction",
+      "source": "reviewer"
+    }
+  ],
+  "non_blocking_notes": [],
+  "fix_suggestions": [
+    {
+      "id": "doc-001",
+      "applicable": "manual",
+      "patch_hint": "Choose one heartbeat-delivery rule and apply it consistently across `setup/README.md`, `docs/openclaw-integration.md`, and `setup/cron/heartbeat-check.md`. If reminder delivery now uses `message(channel: signal)`, remove the claim that `heartbeat.target` is required for reminders and recast `target` as optional/recommended only for normal heartbeat reply routing.",
+      "confidence": 0.98
+    },
+    {
+      "id": "doc-002",
+      "applicable": "manual",
+      "patch_hint": "Update the remaining reminder-flow specs (`docs/architecture.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/user-interactions.md`, and any mirrored diagrams/text) so they all state the same sequence: validate the handoff JSON, send each reminder to Signal via the OpenClaw `message` tool, call `complete-reminder` only after successful delivery, and leave malformed/failed handoffs in place for retry or operator attention.",
+      "confidence": 0.97
+    }
+  ],
+  "followup_issues": []
+}

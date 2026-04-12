@@ -64,8 +64,7 @@
       },
       "heartbeat": {
         "every": "60m",
-        "model": "litellm/claude-sonnet-4-6",
-        "target": "signal"
+        "model": "litellm/claude-sonnet-4-6"
       },
       "maxConcurrent": 4,
       "subagents": {

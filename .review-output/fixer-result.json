@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "input_sha": "5ffbc332b1bb62478af017e89acf8852b69b07b2",
+  "new_sha": "5ffbc332b1bb62478af017e89acf8852b69b07b2",
+  "addressed": [
+    "design/d-001",
+    "docs/doc-001",
+    "docs/doc-002",
+    "prompt/prm-001",
+    "prompt/prm-002",
+    "psych/psy-001",
+    "security/sec-001"
+  ],
+  "skipped": []
+}
