@@ -102,6 +102,7 @@ jobs:
     outputs:
       codex_requested: ${{ steps.detect.outputs.codex_requested }}
       issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
+      autoresolve_requested: ${{ steps.detect.outputs.autoresolve_requested }}
     steps:
       - name: Detect explicit Codex invocation
         id: detect
@@ -147,6 +148,17 @@ jobs:
             echo "codex_requested=true" >> "$GITHUB_OUTPUT"
           else
             echo "codex_requested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Detect /autoresolve command (issue comments only)
+          autoresolve_invocation() {
+            printf '%s\n' "$1" | grep -Eq '^[[:space:]]*/autoresolve([[:space:]]|$)'
+          }
+
+          if [ "$EVENT_NAME" = "issue_comment" ] && autoresolve_invocation "${COMMENT_BODY:-}"; then
+            echo "autoresolve_requested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "autoresolve_requested=false" >> "$GITHUB_OUTPUT"
           fi
 
           printf 'issue_title_b64=%s\n' "$(printf '%s' "${ISSUE_TITLE:-}" | base64 -w0)" >> "$GITHUB_OUTPUT"
@@ -357,15 +369,24 @@ jobs:
           path: /tmp/codex-conversation.jsonl
           retention-days: 7
 
-  # Auto-resolve new issues by opening a PR
+  # Auto-resolve trusted issues by opening a PR.
+  # Entry points:
+  # - issue lifecycle events: opened, reopened, or unlabeled after codex-started
+  # - /autoresolve issue comments on open non-PR issues from trusted original authors
   resolve-issue:
     needs: [authorize, detect_codex_invocation]
     if: |
-      needs.authorize.outputs.authorized == 'true' &&
-      github.event_name == 'issues' && (
-        github.event.action == 'opened' ||
-        github.event.action == 'reopened' ||
-        (github.event.action == 'unlabeled' && github.event.label.name == 'codex-started')
+      needs.authorize.outputs.authorized == 'true' && (
+        (github.event_name == 'issues' && (
+          github.event.action == 'opened' ||
+          github.event.action == 'reopened' ||
+          (github.event.action == 'unlabeled' && github.event.label.name == 'codex-started')
+        )) ||
+        (github.event_name == 'issue_comment' &&
+         !github.event.issue.pull_request &&
+         github.event.issue.state == 'open' &&
+         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
+         needs.detect_codex_invocation.outputs.autoresolve_requested == 'true')
       )
     runs-on: [self-hosted, homelab]
     permissions:
