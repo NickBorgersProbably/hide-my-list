@@ -39,6 +39,9 @@ home-automation/
 .devcontainer/ssh_config
 .devcontainer/setup-ssh.sh
 
+# Review pipeline working directory (ephemeral artifacts)
+.review-output/
+
 # Editor/IDE
 .idea/
 .vscode/
