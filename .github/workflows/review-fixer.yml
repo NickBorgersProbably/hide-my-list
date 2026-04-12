@@ -128,6 +128,60 @@ jobs:
             -s .github/scripts/review/schema/fix-result-v1.json \
             -d "$ARTIFACT"
 
+      # Commit the fixer's working-tree changes from the host runner
+      # rather than from inside the CI container. The container runs
+      # as UID 1000 (`ci` user) and the bind-mounted workspace's
+      # `.git/` directory is owned by the runner UID (1001), so any
+      # git-write operation from inside the container fails with
+      # "cannot update the ref 'HEAD': unable to append to
+      # '.git/logs/HEAD': Permission denied". Doing the commit on
+      # the host means git ops run as the workspace owner, which
+      # "just works". The fixer prompt has been updated to leave
+      # the working tree unstaged and set new_sha to REVIEWED_SHA;
+      # this step computes the real new_sha and patches it into the
+      # artifact so the downstream push step reads a consistent SHA.
+      - name: Commit fixer working-tree changes
+        id: commit
+        env:
+          ARTIFACT: ${{ steps.run.outputs.result_json }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "fixer produced no working-tree changes; no commit needed"
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Build the commit message from the fixer's addressed[] list.
+          # Matches the wording the old in-container commit used.
+          ADDRESSED=$(jq -r '.addressed | join(", ")' "$ARTIFACT")
+          if [ -z "$ADDRESSED" ]; then
+            echo "::error::fixer has working-tree changes but addressed[] is empty"
+            git status --short
+            exit 1
+          fi
+
+          git config user.name "hide-my-list-ci[bot]"
+          git config user.email "ci@hide-my-list.local"
+          git add -A
+          git commit -m "review-pipeline-v2: apply fixes for ${ADDRESSED}" \
+                     -m "Addresses blockers requested by the reviewers."
+
+          NEW_SHA=$(git rev-parse HEAD)
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+          echo "new_sha=${NEW_SHA}" >> "$GITHUB_OUTPUT"
+
+          # Patch the fixer-result.json so the downstream Claim step
+          # (and the judge) read the real post-commit SHA instead of
+          # the placeholder the agent wrote. $ARTIFACT is an absolute
+          # host path emitted by the review-codex-run action.
+          TMP=$(mktemp)
+          jq --arg new_sha "$NEW_SHA" '.new_sha = $new_sha' "$ARTIFACT" > "$TMP"
+          mv "$TMP" "$ARTIFACT"
+
       - name: Claim new SHA, then push
         id: push
         env:
