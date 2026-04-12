@@ -224,7 +224,7 @@ runs:
               exit 1
             fi
             # Prepend caveman rules if available (optional — PRs branched
-            # before caveman merged won't have the file).
+            # before caveman merged will not have the file).
             if [ -f .github/ci/caveman-rules.md ] && [ -f .github/ci/versions.env ]; then
               source .github/ci/versions.env
               if grep -Fq "v${CAVEMAN_VERSION}" .github/ci/caveman-rules.md; then
