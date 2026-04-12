@@ -234,9 +234,7 @@ runs:
               exit 1
             fi
 
-            PROMPT_BODY="$(cat .github/ci/caveman-rules.md)
-
-$(cat "$REVIEW_PROMPT_PATH")"
+            PROMPT_BODY=$(printf '%s\n\n%s' "$(cat .github/ci/caveman-rules.md)" "$(cat "$REVIEW_PROMPT_PATH")")
 
             mkdir -p "$(dirname "$OUTPUT_PATH")"
 
