@@ -182,6 +182,7 @@ runs:
       env:
         CI_AGENT_IMAGE: ${{ inputs.image }}
         CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
+        ACTION_PATH_HOST: ${{ github.action_path }}
         WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
       run: |
         set -euo pipefail
@@ -208,13 +209,14 @@ runs:
         docker run --rm \
           --network host \
           --workdir /workspace \
+          -v "$ACTION_PATH_HOST:/trusted-action:ro" \
           -v "$WORKSPACE_HOST:/workspace" \
           --env-file "$CI_AGENT_ENV_FILE" \
           -e GIT_CONFIG_COUNT=1 \
           -e GIT_CONFIG_KEY_0=safe.directory \
           -e GIT_CONFIG_VALUE_0=/workspace \
           "$CI_AGENT_IMAGE" \
-          -lc '.github/actions/review-codex-run/run-in-container.sh'
+          -lc '/trusted-action/run-in-container.sh'
 
     - name: Clean up staged env file
       if: always()

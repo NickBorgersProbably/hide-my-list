@@ -9,7 +9,20 @@ if [ ! -f "$REVIEW_PROMPT_PATH" ]; then
   exit 1
 fi
 
-PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
+# Prepend caveman rules if available (optional: branches cut before
+# caveman merged will not have the file or version pin).
+if [ -f .github/ci/caveman-rules.md ] && [ -f .github/ci/versions.env ]; then
+  # shellcheck disable=SC1091
+  source .github/ci/versions.env
+  if [ -n "${CAVEMAN_VERSION:-}" ] && grep -Fq "v${CAVEMAN_VERSION}" .github/ci/caveman-rules.md; then
+    PROMPT_BODY=$(printf '%s\n\n%s' "$(cat .github/ci/caveman-rules.md)" "$(cat "$REVIEW_PROMPT_PATH")")
+  else
+    echo "::warning::review-codex-run: caveman version mismatch - skipping rules"
+    PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
+  fi
+else
+  PROMPT_BODY=$(cat "$REVIEW_PROMPT_PATH")
+fi
 
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 
