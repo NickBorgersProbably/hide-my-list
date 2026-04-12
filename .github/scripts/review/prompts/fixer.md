@@ -23,19 +23,28 @@ The reviewers and the judge are read-only.
    typecheck, and test repair are handled by upstream CI before the
    review pipeline runs. If you find a lint failure, the review
    pipeline shouldn't have started; abort and report.
-4. **Single commit.** If you make changes, make exactly one commit
-   with a message listing the namespaced blocker ids you addressed,
-   e.g.:
-
-   ```
-   review-pipeline-v2: apply fixes for security/sec-001, docs/doc-003
-
-   Addresses blockers requested by the security and docs reviewers.
-   ```
-
-5. **Do NOT push.** The workflow that invoked you handles the push
-   AFTER it claims the new SHA on `review/pipeline`. You only stage
-   the commit locally.
+4. **Do NOT touch `.git/`.** Do not run `git add`, `git commit`,
+   `git push`, `git config`, `git rebase`, or any other command that
+   writes under `.git/`. The pipeline commits and pushes after you
+   exit — the host runner owns `.git/` and is the only context with
+   write permission on it. Running git-write commands inside this
+   container fails with "cannot update the ref 'HEAD'" because the
+   bind-mounted `.git/` directory is owned by a different UID, and
+   forcing the commit from here leaves `.git/config` in a state the
+   runner cleanup step can't recover from (see PR #409 for the
+   analogous `.review-output/` permissions issue).
+5. **Read-only git is fine.** `git diff`, `git log`, `git status`,
+   `git show`, `git ls-files` etc. all work — they just read. The
+   container entrypoint already sets `safe.directory=/workspace` so
+   you don't need to add it yourself. Use these freely to understand
+   the diff, inspect files, and decide what to fix.
+6. **One logical fix batch, staged as working-tree changes.** Apply
+   fixes to the working tree (write files, edit text). Do NOT stage
+   them with `git add` — leave the changes unstaged. The host step
+   that runs after you captures every working-tree change (via
+   `git add -A`) and commits them as one commit. The commit message
+   it uses is built from your `addressed[]` list in the output JSON,
+   so list every blocker you actually addressed.
 
 ## Procedure
 
@@ -59,11 +68,12 @@ The reviewers and the judge are read-only.
    placeholder vs. prose paragraph).
 4. Apply fixes in your working tree. Run any tests the
    reviewers explicitly suggested. Do not run formatters or linters.
-5. If you made changes, `git add` only the files you actually
-   modified, then `git commit -m "..."` with the message format
-   above. Capture the resulting `git rev-parse HEAD` as the new SHA.
-   If you made no changes, the new SHA equals the input SHA.
-6. Write the result JSON.
+5. Leave your changes unstaged. Do NOT run `git add`, `git commit`,
+   or `git push`. The host step that runs after you commits whatever
+   is in the working tree and computes the new SHA itself.
+6. Write the result JSON. Set `new_sha` to `${REVIEWED_SHA}` — the
+   host commit step will patch the real post-commit SHA into the
+   JSON before the judge reads it.
 
 ## Output contract
 
@@ -74,13 +84,17 @@ Write your fix-result as JSON to `$OUTPUT_PATH` conforming to
 {
   "schema_version": "1",
   "input_sha": "${REVIEWED_SHA}",
-  "new_sha": "<git rev-parse HEAD after your commit, or ${REVIEWED_SHA} if no-op>",
+  "new_sha": "${REVIEWED_SHA}",
   "addressed": ["security/sec-001", "docs/doc-003"],
   "skipped": [
     { "id": "design/d-002", "reason": "fix touches three files; out of fixer scope" }
   ]
 }
 ```
+
+Always set `new_sha` to `${REVIEWED_SHA}` — the host commit step
+overwrites it with the real post-commit SHA before the judge reads
+the file.
 
 `addressed[]` and `skipped[].id` MUST be namespaced as
 `<role>/<id>`. The judge fails closed on bare ids — this prevents
