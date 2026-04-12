@@ -781,7 +781,7 @@ sequenceDiagram
     end
 ```
 
-The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). If delivery fails, the handoff file is left in place for retry.
+The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). Both paths should use the OpenClaw `message` tool with `action: send` and `channel: signal` so reminders always route to Signal instead of the current conversation. If delivery fails, the handoff file is left in place for retry.
 
 ### Reminder Delivery Messages
 

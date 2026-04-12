@@ -233,7 +233,7 @@ sequenceDiagram
 5. Reminder delivery happens through two separate mechanisms:
    - **AGENTS.md step 5** (opportunistic): every time the user starts a conversation, the main session checks for the handoff file and delivers immediately.
    - **HEARTBEAT.md Check 1** (hourly backstop): the heartbeat reads the handoff file every 60 minutes and delivers any stranded reminders.
-   Both delivery paths use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
+   Both delivery paths send the reminder with the OpenClaw `message` tool targeting `channel: signal`, then use `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
 6. Reminders more than 15 minutes past due are flagged as `missed` but still delivered with a note.
 7. The cron job only fires when the agent is idle — it won't interrupt the user mid-task, which is better for ADHD focus.
 

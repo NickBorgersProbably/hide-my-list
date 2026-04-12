@@ -12,7 +12,7 @@ The heartbeat is not a cron job we create — it's a built-in OpenClaw feature c
 }
 ```
 
-The `target` field is required for reminder delivery. Without it, OpenClaw defaults to `"none"` and silently discards all heartbeat output — including reminders. Set it to `"signal"` (or whichever channel your user communicates on) so that non-`HEARTBEAT_OK` output is routed to the user.
+The `target` field is still useful for routing non-`HEARTBEAT_OK` heartbeat output. Without it, OpenClaw defaults to `"none"` and silently discards plain heartbeat output. Reminder delivery itself should not rely on that default routing: `HEARTBEAT.md` should send reminders with the OpenClaw `message` tool targeting `channel: signal`.
 
 ## Behavior
 

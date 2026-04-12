@@ -482,8 +482,8 @@ Tracks whether a scheduled reminder has been delivered.
 | Value | Description | Trigger |
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
-| `sent` | Successfully delivered to user | Delivering session confirms delivery after the handoff-file reminder flow surfaces the reminder |
-| `missed` | Delivered after being more than 15 minutes late | Delivering session confirms late delivery using the scheduler's missed flag |
+| `sent` | Successfully delivered to user | Delivering session confirms delivery after sending the reminder through the OpenClaw `message` tool on `channel: signal` |
+| `missed` | Delivered after being more than 15 minutes late | Delivering session confirms late delivery after sending through the OpenClaw `message` tool on `channel: signal` using the scheduler's missed flag |
 
 **Note:** When a reminder is marked `sent` or `missed`, the task's main `Status` is also updated to `Completed` since the reminder action (notifying the user) is done.
 

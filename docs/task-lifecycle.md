@@ -959,7 +959,7 @@ flowchart TD
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery is separated from the cron query. The isolated `reminder-check` cron writes the handoff file and exits. Delivery happens through the heartbeat (HEARTBEAT.md Check 1, every 60 min) or the main-session startup check (AGENTS.md step 5, on every user interaction). If delivery fails, the handoff file is left in place for retry.
+Reminder delivery is separated from the cron query. The isolated `reminder-check` cron writes the handoff file and exits. Delivery happens through the heartbeat (HEARTBEAT.md Check 1, every 60 min) or the main-session startup check (AGENTS.md step 5, on every user interaction). Both delivery paths should use the OpenClaw `message` tool with `action: send` and `channel: signal` so the reminder reaches Signal even if the current session is on another surface. If delivery fails, the handoff file is left in place for retry.
 
 ### Timezone Handling
 

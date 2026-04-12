@@ -40,7 +40,7 @@ OpenClaw's heartbeat is a built-in periodic trigger configured in `openclaw.json
 }
 ```
 
-Every 60 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks. The `target` field controls where non-`HEARTBEAT_OK` output (such as reminder delivery) is routed; without it, `target` defaults to `"none"` and all heartbeat output is silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
+Every 60 minutes, OpenClaw creates a short agent session that reads `HEARTBEAT.md` and executes the checks defined there. It uses a lighter model (Sonnet instead of Opus) since these are routine operational tasks. The `target` field controls where non-`HEARTBEAT_OK` heartbeat output is routed; without it, `target` defaults to `"none"` and all plain heartbeat output is silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)). Reminder delivery itself should use the OpenClaw `message` tool with explicit Signal routing instead of relying on the heartbeat session's default output target.
 
 **Our usage:** The heartbeat serves two roles:
 1. **Reminder-delivery backstop:** The isolated `reminder-check` cron only writes `.reminder-signal` — it does not deliver to the user. Heartbeat Check 1 reads stranded signal files and delivers reminders every 60 minutes. (The AGENTS.md startup check provides faster opportunistic delivery when the user is active.)
@@ -123,7 +123,7 @@ The primary deployed surface today is Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use the normal main-agent routing path. Cron jobs run as isolated Haiku sessions (query-only, no user delivery). Reminder delivery reaches the user through the heartbeat and the main-session startup check.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use the normal main-agent routing path. Cron jobs run as isolated Haiku sessions (query-only, no user delivery). Reminder delivery reaches the user through the heartbeat and the main-session startup check, and both delivery paths should use the OpenClaw `message` tool with `channel: signal` instead of replying into whichever session is currently active.
 
 ## Model Routing (LiteLLM Proxy)
 
