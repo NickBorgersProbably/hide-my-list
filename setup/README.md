@@ -77,6 +77,7 @@
 | `OPENAI_API_KEY` | No | For AI-generated reward images |
 | `GITHUB_PAT` | No | Personal access token used by repo maintenance scripts when `gh auth login` has not been run on the host |
 | `REMINDER_SIGNAL_FILE` | No | Optional reminder handoff filename in the repo root (defaults to `.reminder-signal`) |
+| `OPS_ALERT_SIGNAL_NUMBER` | Yes | Separate Signal recipient for heartbeat ops alerts (Notion failures, cron drift/expiry, dirty-pull recovery problems, malformed reminder handoffs) |
 | `CODEX_MODEL` | No | Overrides the Codex CLI model (defaults to `gpt-5.4` for the shared LiteLLM proxy) |
 
 Advanced overrides for self-hosted LiteLLM setups are also supported:
@@ -96,7 +97,7 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 |-----|----------|---------|
 | reminder-check | Every 15 min | Poll Notion for due reminders, write the reminder handoff file (delivery via heartbeat/startup check) |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
-| heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction, stranded reminder delivery |
+| heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
 
 Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs run as isolated Haiku sessions (`sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`).
 
@@ -136,11 +137,16 @@ Manual regression playbook:
 
 **Reminders not firing:**
 - Reminder delivery uses the OpenClaw `message` tool with `channel: signal` — it does not rely on `heartbeat.target` or session reply routing. Verify that the Signal channel is configured and enabled in `openclaw.json`.
-- `heartbeat.target` is optional and only affects where generic non-`HEARTBEAT_OK` heartbeat output is routed. If you want those operator-facing heartbeat messages to land in Signal too, set `heartbeat.target` to `"signal"`.
+- `heartbeat.target` should stay unset or `"none"`. Heartbeat operator alerts use explicit `message(..., channel: signal, target: OPS_ALERT_SIGNAL_NUMBER)` routing instead of generic heartbeat output.
 - Check that the reminder-check cron is registered (ask the agent to check CronList)
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity
 - If you overrode `REMINDER_SIGNAL_FILE`, verify it is just a filename and that the repo root is writable
+
+**Heartbeat ops alerts not arriving:**
+- Verify `.env` contains `OPS_ALERT_SIGNAL_NUMBER` and that it points to the intended operator Signal recipient
+- Keep `heartbeat.target` unset or `"none"`; the supported delivery path is the explicit `message` call from `HEARTBEAT.md`, not generic heartbeat reply routing
+- Confirm the Signal channel itself is configured and healthy in `openclaw.json`
 
 **Agent not responding:**
 - Check `openclaw status` for channel health

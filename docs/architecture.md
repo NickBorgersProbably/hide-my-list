@@ -60,7 +60,7 @@ There is no standalone server. The OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when the chat is idle
 
-Interactive conversations are surface-agnostic. Durable cron jobs run as isolated Haiku sessions for cost efficiency — they execute scripts and write handoff files, but do not deliver user-facing messages. Reminder delivery reaches the user through the heartbeat (every 60 min) and the main-session startup check (AGENTS.md step 5, on every user interaction). All cron jobs should stay silent when there is nothing actionable.
+Interactive conversations are surface-agnostic. Durable cron jobs run as isolated Haiku sessions for cost efficiency — they execute scripts and write handoff files, but do not deliver user-facing messages. Reminder delivery reaches the user through the heartbeat (every 60 min) and the main-session startup check (AGENTS.md step 5, on every user interaction). Heartbeat-detected operational failures use a separate explicit Signal target from `.env` (`OPS_ALERT_SIGNAL_NUMBER`) so raw ops diagnostics do not land in the ADHD support thread. All cron jobs should stay silent when there is nothing actionable.
 
 ## Component Architecture
 
@@ -252,7 +252,7 @@ This deferred-delivery handoff is also a correctness constraint, not just an imp
 | Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
-| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); reminder delivery via heartbeat + main-session startup check |
+| Messaging | OpenClaw Surfaces | Interactive chat can be multi-channel (web, Signal, Telegram, Discord); reminder delivery via heartbeat + main-session startup check; heartbeat ops alerts use a separate Signal recipient |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, while self-hosted Codex reviewers inherit the homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Isolated Haiku cron every 15 min writes `.reminder-signal`; heartbeat (60 min) + startup check deliver |
@@ -269,6 +269,7 @@ This deferred-delivery handoff is also a correctness constraint, not just an imp
 | `OPENAI_API_KEY` | OpenAI API key for reward image generation |
 | `GITHUB_PAT` | Optional personal access token used by GitHub-maintenance scripts when `gh` is not already authenticated |
 | `REMINDER_SIGNAL_FILE` | Repo-root reminder handoff filename (default: `.reminder-signal`) |
+| `OPS_ALERT_SIGNAL_NUMBER` | Separate Signal recipient for heartbeat ops alerts |
 
 ## Prerequisites
 

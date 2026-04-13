@@ -29,6 +29,7 @@ if [ ! -f "$ROOT_DIR/.env" ]; then
     echo "Create it with:"
     echo "  NOTION_API_KEY=ntn_..."
     echo "  NOTION_DATABASE_ID=..."
+    echo "  OPS_ALERT_SIGNAL_NUMBER=+15551234567"
     echo "  OPENAI_API_KEY=sk-...  (optional, for reward images)"
     exit 1
 fi
@@ -42,6 +43,10 @@ if [ -z "${NOTION_API_KEY:-}" ]; then
 fi
 if [ -z "${NOTION_DATABASE_ID:-}" ]; then
     echo "ERROR: NOTION_DATABASE_ID not set in .env"
+    exit 1
+fi
+if [ -z "${OPS_ALERT_SIGNAL_NUMBER:-}" ]; then
+    echo "ERROR: OPS_ALERT_SIGNAL_NUMBER not set in .env"
     exit 1
 fi
 
