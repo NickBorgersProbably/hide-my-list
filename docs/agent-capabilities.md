@@ -19,7 +19,7 @@ Those sessions do not have the same responsibilities, and they should not be ass
 | Session | Trigger | User-facing | Primary responsibility |
 |---------|---------|-------------|------------------------|
 | Main agent | User message / normal conversation startup | Yes | Run the product, manage tasks, handle operator actions that need richer tools |
-| Heartbeat session | Built-in OpenClaw heartbeat every 60 minutes | Usually no; may deliver reminders | Backstop operational health and stranded reminder delivery |
+| Heartbeat session | Built-in OpenClaw heartbeat every 60 minutes | Usually no; may deliver reminders or operator alerts | Backstop operational health, stranded reminder delivery, and explicit ops alerting |
 | Isolated cron session | Durable cron schedule in `setup/cron/` | No | Cheap script-first background work with narrow scope |
 
 ## Main Agent
@@ -63,7 +63,7 @@ The heartbeat is a short built-in OpenClaw session configured in `openclaw.json`
 The heartbeat session has a narrower confirmed contract:
 
 - `exec` and `read` for script execution and repo inspection
-- `message` for explicit reminder delivery to Signal from `HEARTBEAT.md` Check 1
+- `message` for explicit reminder delivery to Signal from `HEARTBEAT.md` Check 1 and explicit ops alerts to the separate operator Signal recipient from heartbeat failure paths
 - CronList, CronCreate, CronUpdate, and CronDelete for durable cron inspection, re-registration, drift correction, and stale-job cleanup required by `HEARTBEAT.md`
 
 ### Do not assume
@@ -71,7 +71,7 @@ The heartbeat session has a narrower confirmed contract:
 The repo should currently treat these capabilities as unconfirmed for heartbeat sessions:
 
 - `config.get`, `config.patch`, `config.schema.lookup`
-- broader proactive `message` workflows beyond explicit reminder delivery to Signal
+- broader proactive `message` workflows beyond the explicit reminder-delivery and operator-alert flows documented in `HEARTBEAT.md`
 - gateway lifecycle tools
 - general repo-edit/write capabilities as part of routine heartbeat behavior
 
@@ -86,6 +86,7 @@ The heartbeat is responsible for:
 - verifying that durable cron jobs still exist and still match the canonical specs in `setup/cron/`
 - checking Notion connectivity and basic environment health
 - retrying dirty-pull recovery when `.pull-dirty` indicates the isolated cron could not finish the recovery path
+- routing heartbeat-discovered operational failures and drift repairs to the separate operator Signal recipient configured in `.env`
 
 ### Explicit boundary
 
