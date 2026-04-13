@@ -9,7 +9,7 @@
   ```
 - Send every ops alert explicitly with the OpenClaw `message` tool using `action: send`, `channel: signal`, and `target: OPS_ALERT_SIGNAL_NUMBER`.
 - Use this explicit route for operator-facing failures or corrections such as malformed reminder handoffs, cron expiry/drift repair, Notion connectivity failures, missing required env vars, and dirty-pull recovery problems.
-- If `OPS_ALERT_SIGNAL_NUMBER` is missing or empty, treat that itself as an environment failure and mention it in the heartbeat reply because the explicit alert route is unavailable.
+- Treat `OPS_ALERT_SIGNAL_NUMBER` as a hard required env prerequisite. Do not rely on heartbeat reply routing as a fallback ops-alert path.
 
 ## Checks (in order)
 
@@ -62,7 +62,8 @@ If all jobs already match their specs, do not report anything. If any jobs were 
 
 ### 4. Environment Check
 - Verify `.env` exists and contains `NOTION_API_KEY`, `NOTION_DATABASE_ID`, and `OPS_ALERT_SIGNAL_NUMBER`
-- If any required variable is missing, send an explicit ops alert to `OPS_ALERT_SIGNAL_NUMBER` if possible; if the missing variable is `OPS_ALERT_SIGNAL_NUMBER`, mention that directly in the heartbeat reply because the explicit alert route is unavailable
+- If `NOTION_API_KEY` or `NOTION_DATABASE_ID` is missing, send an explicit ops alert to `OPS_ALERT_SIGNAL_NUMBER`
+- If `OPS_ALERT_SIGNAL_NUMBER` is missing, fail the environment check and keep the heartbeat result concise; ops alerts are unavailable until the env is fixed
 
 ### 5. Dirty Pull Recovery (safety net)
 - If `.pull-dirty` exists and is older than 20 minutes, the pull-main cron may have failed to recover
