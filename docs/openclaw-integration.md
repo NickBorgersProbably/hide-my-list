@@ -84,7 +84,7 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 
 **7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. Heartbeat catches this, re-registers missing jobs. Also corrects spec drift from manual hotfixes or stale re-registration prompts by comparing live job against canonical `CronCreate` block and patching mismatched fields. Platform constraint worked around, not feature chosen.
 
-**Current registration contract:** Both `reminder-check` and `pull-main` run as isolated Haiku sessions with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, `timeout-seconds: 60`. Deliberate: separates cheap query work from user-facing delivery. Previous architecture used `sessionTarget: main` — loaded full Opus context (~200k tokens) for routine script work. Isolated Haiku cuts per-run cost by orders of magnitude. Reminder delivery handled by heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) and main-session startup check (AGENTS.md step 5, every user interaction). Fully idle worst-case delivery latency: ~75 min — up to 15 min for `reminder-check` to write handoff, then up to 60 min for heartbeat if no user interaction first. Cron prompts end with `NO_REPLY` — never produce user-facing output. Until OpenClaw exposes post-delivery acknowledgment hook, this split flow = durability boundary keeping failed deliveries retryable.
+**Current registration contract:** Both `reminder-check` and `pull-main` run as isolated cron sessions with `sessionTarget: isolated`, `model: litellm/gemma4`, `payload.kind: agentTurn`, `timeout-seconds: 60`. Deliberate: separates cheap query work from user-facing delivery. Previous architecture used `sessionTarget: main` — loaded full Opus context (~200k tokens) for routine script work. Isolated cron cuts per-run cost by orders of magnitude. Reminder delivery handled by heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) and main-session startup check (AGENTS.md step 5, every user interaction). Fully idle worst-case delivery latency: ~75 min — up to 15 min for `reminder-check` to write handoff, then up to 60 min for heartbeat if no user interaction first. Cron prompts end with `NO_REPLY` — never produce user-facing output. Until OpenClaw exposes post-delivery acknowledgment hook, this split flow = durability boundary keeping failed deliveries retryable.
 
 Isolated cron sessions intentionally narrow. Script runners, not substitute for main agent or heartbeat control paths. Detailed ownership split in [Agent Capabilities](agent-capabilities.md).
 
@@ -95,7 +95,7 @@ For production, use these timings unless clear reason to pay for tighter polling
 | Mechanism | Recommended cadence | Why |
 |-----------|---------------------|-----|
 | Heartbeat | Every 60 minutes | Reminder-delivery backstop plus cron expiry, spec drift, and Notion/env health |
-| `reminder-check` | Every 15 minutes | Isolated Haiku query; writes `.reminder-signal` for heartbeat/startup delivery |
+| `reminder-check` | Every 15 minutes | Isolated cron query; writes `.reminder-signal` for heartbeat/startup delivery |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps workspace fresh |
 
 Core principle: `reminder-check` controls when due reminders discovered; heartbeat part of idle-user delivery path. 15-min polling + hourly heartbeat = default production cost/latency tradeoff. Exact-time delivery not guaranteed in current deferred-delivery architecture; fully idle worst-case ~75 min unless user interacts sooner.
@@ -122,7 +122,7 @@ Primary deployed surface: Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use normal main-agent routing. Cron jobs = isolated Haiku sessions (query-only, no user delivery). Reminder delivery reaches user through heartbeat and main-session startup check.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use normal main-agent routing. Cron jobs = isolated cron sessions (query-only, no user delivery). Reminder delivery reaches user through heartbeat and main-session startup check.
 
 ## Model Routing (LiteLLM Proxy)
 
@@ -144,7 +144,7 @@ OpenClaw supports multiple model providers. We route through LiteLLM proxy on Ta
 
 - **Primary model:** Claude Opus 4.6 (conversations, task management)
 - **Heartbeat model:** Claude Sonnet 4.6 (routine checks, cheaper)
-- **Cron model:** Claude Haiku 4.5 (isolated cron — reminder polling, workspace sync)
+- **Cron model:** Gemma 4 (isolated cron — reminder polling, workspace sync)
 - **Fallback chain:** Opus → Sonnet → GPT-5.4
 
 **Our role:** No direct interaction with model selection. Prompts in `docs/ai-prompts.md` model-agnostic. OpenClaw picks model from config.
