@@ -756,7 +756,7 @@ Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (
 
 ```mermaid
 sequenceDiagram
-    participant Cron as Isolated Haiku Cron
+    participant Cron as Isolated Gemma Cron
     participant Scr as check-reminders.sh
     participant Notion as Notion API
     participant Signal as .reminder-signal
@@ -781,7 +781,7 @@ sequenceDiagram
     end
 ```
 
-The `reminder-check` cron runs as an isolated Haiku session — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). Both delivery paths first validate that the handoff is JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status makes the handoff malformed, so the file stays in place and nothing is delivered, completed, or deleted. If delivery fails after validation, the handoff file is left in place for retry.
+The `reminder-check` cron runs as an isolated cron session on `litellm/gemma4` — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). Both delivery paths first validate that the handoff is JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status makes the handoff malformed, so the file stays in place and nothing is delivered, completed, or deleted. If delivery fails after validation, the handoff file is left in place for retry.
 
 ### Reminder Delivery Messages
 

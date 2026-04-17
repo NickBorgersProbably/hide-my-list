@@ -30,7 +30,7 @@ Verify that durable cron jobs are registered. If any are missing, re-register th
 | reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh` (query-only; writes the reminder handoff file if reminders due) |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; the script handles dirty-pull recovery |
 
-To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. Both jobs run as isolated Haiku sessions with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, and `timeout-seconds: 60`. Cron jobs should never deliver directly to Signal or any other channel on their own. If any job had to be re-created, send an explicit ops alert to `OPS_ALERT_SIGNAL_NUMBER` naming the missing job(s).
+To check: use CronList. If a job is missing (7-day auto-expiry), re-create it with CronCreate (durable: true) using the schedule, prompt, and options from `setup/cron/`. Both jobs run as isolated sessions with `sessionTarget: isolated`, `model: litellm/gemma4`, `payload.kind: agentTurn`, and `timeout-seconds: 60`. Cron jobs should never deliver directly to Signal or any other channel on their own. If any job had to be re-created, send an explicit ops alert to `OPS_ALERT_SIGNAL_NUMBER` naming the missing job(s).
 
 ### 2b. Cron Spec Drift Check
 For each registered cron job (`reminder-check`, `pull-main`), compare the live job's effective registration against the canonical `CronCreate` spec in `setup/cron/<name>.md`.
@@ -43,7 +43,7 @@ At minimum, compare and correct these fields:
 - `schedule`
 - `prompt`
 - `sessionTarget` (canonical: `isolated` for both jobs)
-- `model` (canonical: `litellm/claude-haiku-4-5` for both jobs)
+- `model` (canonical: `litellm/gemma4` for both jobs)
 - direct-delivery routing field: live `to` if present (should not exist)
 - payload field: canonical `payload.kind`
 - `timeout-seconds`
@@ -51,8 +51,8 @@ At minimum, compare and correct these fields:
 If a stale `pipeline-monitor` cron is still registered, delete it with CronDelete — that job has been removed.
 
 If any field differs from the spec, patch the live job to match with CronUpdate. If CronUpdate cannot safely change an identity field such as `name` or `durable`, delete and re-create the job from the spec instead of leaving drift in place. Preserve the intended durable registration contract from the spec:
-- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, no `to`, `payload.kind: agentTurn`, `timeout-seconds: 60`
-- `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, no `to`, `payload.kind: agentTurn`, `timeout-seconds: 60`
+- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model: litellm/gemma4`, no `to`, `payload.kind: agentTurn`, `timeout-seconds: 60`
+- `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model: litellm/gemma4`, no `to`, `payload.kind: agentTurn`, `timeout-seconds: 60`
 
 If all jobs already match their specs, do not report anything. If any jobs were corrected, briefly note which ones were patched and what drift was fixed, and send that summary as an explicit ops alert to `OPS_ALERT_SIGNAL_NUMBER`. If drift could not be corrected safely, send an explicit ops alert describing the failure.
 
