@@ -10,13 +10,13 @@ CronCreate:
   durable: true
   name: "reminder-check"
   sessionTarget: isolated
-  model: litellm/claude-haiku-4-5
+  model: litellm/gemma4
   payload:
     kind: agentTurn
   timeout-seconds: 60
 ```
 
-This job runs as an isolated Haiku session. It is query-only: it runs the check script, which writes the reminder handoff file (default filename: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if any reminders are due, and then exits. It does not deliver reminders to the user.
+This job runs as an isolated cron session on `litellm/gemma4`. It is query-only: it runs the check script, which writes the reminder handoff file (default filename: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if any reminders are due, and then exits. It does not deliver reminders to the user.
 
 **Reminder delivery** is handled separately by two mechanisms:
 1. **AGENTS.md step 5** (opportunistic): every time the user interacts, the main session checks for the handoff file and delivers immediately.
@@ -24,7 +24,7 @@ This job runs as an isolated Haiku session. It is query-only: it runs the check 
 
 Both delivery paths validate the handoff file before sending anything: it must be JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status makes the handoff malformed, so the delivering session leaves the file in place, does not deliver any entries, does not call `complete-reminder`, and does not delete the handoff file. For a valid handoff, the delivering session sends each reminder to Signal using the OpenClaw `message` tool (`action: send`, `channel: signal`), then calls `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set Notion `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`.
 
-This separation is a deliberate design choice. The previous architecture ran reminder-check on `sessionTarget: main`, which loaded the full Opus agent context (~200k tokens) for a job that 95% of the time just runs a script and finds nothing. Moving to isolated Haiku cuts per-run cost by orders of magnitude. The trade-off is that fully idle worst-case delivery latency is now up to about 75 minutes: up to 15 minutes for this cron to write the handoff file, then up to another 60 minutes for heartbeat to deliver it if the user does not interact first. In practice, many reminders still deliver on the next user interaction. The current system already can't interrupt mid-conversation (cron only fires when the REPL is idle), so the practical difference is small.
+This separation is a deliberate design choice. The previous architecture ran reminder-check on `sessionTarget: main`, which loaded the full Opus agent context (~200k tokens) for a job that 95% of the time just runs a script and finds nothing. Moving to isolated cron sessions on `litellm/gemma4` cuts per-run cost by orders of magnitude. The trade-off is that fully idle worst-case delivery latency is now up to about 75 minutes: up to 15 minutes for this cron to write the handoff file, then up to another 60 minutes for heartbeat to deliver it if the user does not interact first. In practice, many reminders still deliver on the next user interaction. The current system already can't interrupt mid-conversation (cron only fires when the REPL is idle), so the practical difference is small.
 
 The handoff file is also the current durability boundary. OpenClaw does not currently provide a post-announce delivery acknowledgment hook, so an announce-only cron flow cannot safely call `complete-reminder` before delivery without risking permanent reminder loss if the turn crashes after the Notion PATCH but before user-facing delivery completes. Until that hook exists, this job stays query-only.
 
