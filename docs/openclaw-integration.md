@@ -136,7 +136,8 @@ OpenClaw supports multiple model providers. We route through a LiteLLM proxy on 
       "baseUrl": "https://llm.featherback-mermaid.ts.net/v1",
       "models": [
         { "id": "claude-opus-4-6", ... },
-        { "id": "claude-sonnet-4-6", ... }
+        { "id": "claude-sonnet-4-6", ... },
+        { "id": "gemma4", ... }
       ]
     }
   }
