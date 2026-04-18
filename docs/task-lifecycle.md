@@ -23,8 +23,8 @@ stateDiagram-v2
     Breakdown --> Pending: Sub-tasks created (hidden)
 
     Intake --> ReminderPending: Reminder task detected
-    ReminderPending --> ReminderSent: Next eligible poll after remind_at
-    ReminderPending --> ReminderMissed: >15 min past due
+    ReminderPending --> ReminderSent: Delivered after remind_at via startup check or heartbeat
+    ReminderPending --> ReminderMissed: Delivered >15 min late via startup check or heartbeat
     ReminderSent --> Completed: Reminder delivered
     ReminderMissed --> Completed: Late reminder delivered
 
@@ -915,7 +915,7 @@ flowchart TD
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow separate lifecycle from normal tasks. Not surfaced through task selection. Durable `reminder-check` cron polls for reminders that reached `Remind At` and delivers on next eligible run.
+Reminder tasks follow separate lifecycle from normal tasks. Not surfaced through task selection. Durable `reminder-check` cron only discovers reminders that reached `Remind At`, writes the reminder handoff file, and leaves delivery to the next eligible startup check or heartbeat run.
 
 ```mermaid
 flowchart TD
