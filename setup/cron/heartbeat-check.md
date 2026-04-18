@@ -11,7 +11,7 @@ Heartbeat = built-in OpenClaw feature, not a cron job. Configured in `openclaw.j
 }
 ```
 
-Reminder delivery does not depend on `heartbeat.target`. Heartbeat Check 1 sends reminders explicitly with the OpenClaw `message` tool (`action: send`, `channel: signal`). `target` controls where generic non-`HEARTBEAT_OK` output routes; without it, defaults to `"none"`, silently discarded. Keep `heartbeat.target` unset or `"none"`. Ops alerts use explicit `message(..., channel: signal, target: OPS_ALERT_SIGNAL_NUMBER)` from `HEARTBEAT.md` — not generic heartbeat reply routing.
+Reminder delivery does not depend on `heartbeat.target`. Heartbeat Check 1 sends reminders explicitly with the OpenClaw `message` tool (`action: send`, `channel: signal`). `target` controls where generic non-`HEARTBEAT_OK` output routes; without it, defaults to `"none"`, silently discarded. Keep `heartbeat.target` unset or `"none"`. Ops alerts use explicit `message(..., channel: signal, target: "<resolved number>")` from `HEARTBEAT.md` after heartbeat resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` — not generic heartbeat reply routing.
 
 ## Behavior
 

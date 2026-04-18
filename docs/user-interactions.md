@@ -769,7 +769,7 @@ sequenceDiagram
     end
 ```
 
-`reminder-check` cron runs as isolated Haiku session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (HEARTBEAT.md Check 1, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, nothing delivered/completed/deleted. Delivery failure = file stays for retry.
+`reminder-check` cron runs as isolated Haiku session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (HEARTBEAT.md Check 1, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, and nothing is delivered/completed/deleted. Main-session startup check surfaces/logs the error locally. Heartbeat also sends an ops alert to the Signal recipient it resolves from `OPS_ALERT_SIGNAL_NUMBER`. Delivery failure = file stays for retry.
 
 ### Reminder Delivery Messages
 
