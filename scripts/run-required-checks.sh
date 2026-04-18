@@ -164,6 +164,8 @@ run_doc_validation() {
   local -a doc_targets=()
 
   run_doc_link_check
+  echo "=== Validating model-id references ==="
+  "$REPO_ROOT/scripts/validate-model-refs.sh"
   mapfile -t doc_targets < <(build_doc_targets)
 
   if [ "${#doc_targets[@]}" -eq 0 ]; then

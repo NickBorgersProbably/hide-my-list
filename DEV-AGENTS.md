@@ -52,6 +52,7 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
 - `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
+- `scripts/validate-model-refs.sh` — Enforces that every `litellm/<id>` reference in spec files resolves in `setup/openclaw.json.template`
 - `setup/` — Cron + setup docs
 
 ## Safety
