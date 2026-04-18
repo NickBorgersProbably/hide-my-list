@@ -135,17 +135,20 @@ OpenClaw supports multiple model providers. We route through LiteLLM proxy on Ta
       "baseUrl": "https://llm.featherback-mermaid.ts.net/v1",
       "models": [
         { "id": "claude-opus-4-6", ... },
-        { "id": "claude-sonnet-4-6", ... }
+        { "id": "claude-sonnet-4-6", ... },
+        { "id": "claude-haiku-4-5", ... }
       ]
     }
   }
 }
 ```
 
+Canonical model list lives in `setup/openclaw.json.template`. `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in classifier-listed spec files resolves against that list and that cron-model references in cron-contract sections across sibling docs agree with `setup/cron/reminder-check.md` + `setup/cron/pull-main.md`.
+
 - **Primary model:** Claude Opus 4.6 (conversations, task management)
 - **Heartbeat model:** Claude Sonnet 4.6 (routine checks, cheaper)
 - **Cron model:** Claude Haiku 4.5 (isolated cron — reminder polling, workspace sync)
-- **Fallback chain:** Opus → Sonnet → GPT-5.4
+- **Codex CLI model:** GPT-5.4, configured separately in `.codex/config.toml` via `.devcontainer/configure-codex.sh`; not served through the OpenClaw models array above.
 
 **Our role:** No direct interaction with model selection. Prompts in `docs/ai-prompts.md` model-agnostic. OpenClaw picks model from config.
 

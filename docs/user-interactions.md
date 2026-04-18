@@ -769,7 +769,7 @@ sequenceDiagram
     end
 ```
 
-`reminder-check` cron runs as isolated Haiku session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, nothing delivered/completed/deleted. Delivery failure = file stays for retry.
+`reminder-check` cron runs as isolated Haiku session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. Delivery failure = file stays for retry.
 
 ### Reminder Delivery Messages
 
@@ -790,14 +790,14 @@ AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 
 **Confirmation message style:**
-> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next reminder check after that."
+> "Got it — I'll queue a reminder for 6pm PT to email Melanie. You'll usually hear from me within an hour of that — up to ~75 min if things are quiet — so treat it as a check-in, not a stopwatch."
 
 User timezone defaults to US Central. AI converts timezone references (PT, CT, ET) to UTC offsets at intake.
 
 ### Reminder vs. Deadline
 
 Different concepts:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, next reminder check
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification arriving on the next user conversation or hourly heartbeat after 6pm (typically within an hour of the target, up to ~75 min if the session stays idle)
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.

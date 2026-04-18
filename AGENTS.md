@@ -8,7 +8,7 @@
 2. Read `USER.md` — who you help
 3. Read `state.json` — state, active task, streak
 4. Read `memory/YYYY-MM-DD.md` (today + yesterday)
-5. Check reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) — if exists, read + validate (must be JSON with `reminders` array; each entry: string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; wrong shape/status = malformed. If malformed: leave file, log error — no delivery, no `complete-reminder`, no delete). For each valid reminder, deliver via OpenClaw `message` tool (`action: send`, `channel: signal`):
+5. Check reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) — if exists, read + validate (must be JSON with `reminders` array; each entry: string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; wrong shape/status = malformed. If malformed: leave file, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff — no delivery, no `complete-reminder`, no delete). For each valid reminder, deliver via OpenClaw `message` tool (`action: send`, `channel: signal`):
    - Approximate (before missed threshold): casual ("Hey, time to [task]")
    - Missed (>15 min late): note delay, no shame ("This was due a bit ago — [task]. Want to handle it now or reschedule?")
    - After delivery: run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` per item, then delete handoff file

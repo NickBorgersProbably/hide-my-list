@@ -25,6 +25,7 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `docs/heartbeat-checks.md` — Authoritative heartbeat check list (stranded reminders, cron health, drift, Notion connectivity, dirty-pull recovery)
 - `docs/ai-prompts.md` — Prompt architecture (core of app)
 - `docs/architecture.md` — System design + data flow spec
+- `docs/openclaw-integration.md` — OpenClaw runtime mapping, model routing, cron registration contract
 - `docs/agent-capabilities.md` — Session roles + runtime tool-boundary source of truth
 - `docs/task-lifecycle.md` — Task states: Pending → In Progress → Completed (with rejection/breakdown flows)
 - `docs/notion-schema.md` — Notion database schema
@@ -52,6 +53,8 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
 - `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
+- `scripts/validate-model-refs.sh` — Enforces that every `litellm/<id>` reference in spec files resolves in `setup/openclaw.json.template`
+- `scripts/validate-spec-catalog.sh` — Enforces that every `docs/*.md` spec file registered in the classifier's `is_spec_md()` is also listed in `docs/index.md` and this file's Key Files section
 - `setup/` — Cron + setup docs
 
 ## Safety
