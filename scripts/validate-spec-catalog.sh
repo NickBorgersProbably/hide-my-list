@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Validate that every spec file registered in the review-classify action's
-# is_spec_md() list is also registered in docs/index.md (public TOC) and
-# DEV-AGENTS.md Key Files (contributor catalog).
+# Validate that every docs/*.md spec file registered in the review-classify
+# action's is_spec_md() list is also registered in docs/index.md (public TOC)
+# and DEV-AGENTS.md Key Files (contributor catalog). Other is_spec_md()
+# entries (AGENTS.md, SOUL.md, setup/cron/*, etc.) are out of scope.
 #
 # Background: when a spec file is split (e.g. HEARTBEAT.md -> docs/heartbeat-checks.md)
 # the new file often gets added to some catalogs but not others, leading to

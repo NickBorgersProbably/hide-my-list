@@ -53,7 +53,7 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
 - `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
 - `scripts/validate-model-refs.sh` — Enforces that every `litellm/<id>` reference in spec files resolves in `setup/openclaw.json.template`
-- `scripts/validate-spec-catalog.sh` — Enforces that every spec file registered in the classifier's `is_spec_md()` is also listed in `docs/index.md` and this file's Key Files section
+- `scripts/validate-spec-catalog.sh` — Enforces that every `docs/*.md` spec file registered in the classifier's `is_spec_md()` is also listed in `docs/index.md` and this file's Key Files section
 - `setup/` — Cron + setup docs
 
 ## Safety
