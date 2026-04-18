@@ -13,7 +13,7 @@ CronCreate:
   model: litellm/claude-haiku-4-5
   payload:
     kind: agentTurn
-  timeout-seconds: 60
+  timeout-seconds: 300
 ```
 
 Isolated Haiku session. Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
@@ -39,5 +39,6 @@ Reply with ONLY: NO_REPLY
 
 - Cron auto-expires after 7 days. Heartbeat (`docs/heartbeat-checks.md` Checks 2/2b) re-registers if missing, patches if drifted.
 - 15-min polling = recommended cost/latency balance. Affects discovery only; idle delivery still depends on heartbeat or next interaction.
+- 5-minute timeout leaves enough room for slower full-workspace isolated sessions instead of forcing guaranteed retries on larger contexts.
 - Cron fires only when REPL idle. Mid-conversation → script waits. Better for ADHD — no mid-task interrupts.
 - `check-reminders.sh` queries Notion, writes `.reminder-signal`. Delivery not this job's responsibility.

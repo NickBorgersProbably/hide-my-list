@@ -74,7 +74,7 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 | Job | Schedule | Replaces |
 |-----|----------|----------|
 | `reminder-check` | `*/15 * * * *` | `reminder-daemon.sh` (bash while-loop) |
-| `pull-main` | `*/10 * * * *` | Manual `git pull origin main` hygiene; cron drift correction now through heartbeat |
+| `pull-main` | `*/30 * * * *` | Manual `git pull origin main` hygiene; cron drift correction now through heartbeat |
 
 **Why better than daemons:**
 - No PID files, no silent death, no orphaned processes
@@ -84,7 +84,7 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 
 **7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. Heartbeat catches this, re-registers missing jobs. Also corrects spec drift from manual hotfixes or stale re-registration prompts by comparing live job against canonical `CronCreate` block and patching mismatched fields. Platform constraint worked around, not feature chosen.
 
-**Current registration contract:** Both `reminder-check` and `pull-main` run as isolated Haiku sessions with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, `timeout-seconds: 60`. Deliberate: separates cheap query work from user-facing delivery. Previous architecture used `sessionTarget: main` — loaded full Opus context (~200k tokens) for routine script work. Isolated Haiku cuts per-run cost by orders of magnitude. Reminder delivery handled by heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) and main-session startup check (AGENTS.md step 5, every user interaction). Fully idle worst-case delivery latency: ~75 min — up to 15 min for `reminder-check` to write handoff, then up to 60 min for heartbeat if no user interaction first. Cron prompts end with `NO_REPLY` — never produce user-facing output. Until OpenClaw exposes post-delivery acknowledgment hook, this split flow = durability boundary keeping failed deliveries retryable.
+**Current registration contract:** Both `reminder-check` and `pull-main` run as isolated Haiku sessions with `sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, `timeout-seconds: 300`. `reminder-check` stays on `*/15`; `pull-main` runs on `*/30` to cut maintenance-session queue pressure without materially changing workspace freshness. Deliberate: separates cheap query work from user-facing delivery. Previous architecture used `sessionTarget: main` — loaded full Opus context (~200k tokens) for routine script work. Isolated Haiku cuts per-run cost by orders of magnitude, but larger workspace injections can still take multiple minutes on slower models, so the 5-minute timeout avoids retry pileups. Reminder delivery handled by heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) and main-session startup check (AGENTS.md step 5, every user interaction). Fully idle worst-case delivery latency: ~75 min — up to 15 min for `reminder-check` to write handoff, then up to 60 min for heartbeat if no user interaction first. Cron prompts end with `NO_REPLY` — never produce user-facing output. Until OpenClaw exposes post-delivery acknowledgment hook, this split flow = durability boundary keeping failed deliveries retryable.
 
 Isolated cron sessions intentionally narrow. Script runners, not substitute for main agent or heartbeat control paths. Detailed ownership split in [Agent Capabilities](agent-capabilities.md).
 
@@ -96,7 +96,7 @@ For production, use these timings unless clear reason to pay for tighter polling
 |-----------|---------------------|-----|
 | Heartbeat | Every 60 minutes | Reminder-delivery backstop plus cron expiry, spec drift, and Notion/env health |
 | `reminder-check` | Every 15 minutes | Isolated Haiku query; writes `.reminder-signal` for heartbeat/startup delivery |
-| `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps workspace fresh |
+| `pull-main` | Every 30 minutes | Cheap script-only sync path; keeps workspace fresh without unnecessary maintenance churn |
 
 Core principle: `reminder-check` controls when due reminders discovered; heartbeat part of idle-user delivery path. 15-min polling + hourly heartbeat = default production cost/latency tradeoff. Exact-time delivery not guaranteed in current deferred-delivery architecture; fully idle worst-case ~75 min unless user interacts sooner.
 

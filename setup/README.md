@@ -96,10 +96,10 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 | Job | Schedule | Purpose |
 |-----|----------|---------|
 | reminder-check | Every 15 min | Poll Notion for due reminders, write the reminder handoff file (delivery via heartbeat/startup check) |
-| pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
+| pull-main | Every 30 min | Pull `origin/main` and recover from dirty tracked-file states |
 | heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
 
-Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs run as isolated cron sessions (`sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`).
+Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs run as isolated cron sessions (`sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`, `timeout-seconds: 300`).
 
 Production recommendation: keep `reminder-check` at 15-minute cadence and heartbeat hourly as the default production cost/latency tradeoff for routine or low-stakes reminders. In the fully idle case, reminder delivery can take up to about 75 minutes under this deferred-delivery design, so exact-time reminders are not guaranteed unless the architecture changes.
 
