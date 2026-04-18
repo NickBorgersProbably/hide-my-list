@@ -16,7 +16,15 @@ cd "$(dirname "$0")"
 # contributor's machine. post-create.sh uses `-s` (non-empty) guards
 # before wiring anything in, so empty placeholders are installed but
 # never activated.
+# SSH_AUTH_SOCK must exist — devcontainer.json mounts it and Docker fails cryptically if missing
+if [ -z "${SSH_AUTH_SOCK:-}" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
+  echo "ERROR: SSH_AUTH_SOCK is not set or not a socket. Start your SSH agent first (e.g. eval \"\$(ssh-agent -s)\")."
+  exit 1
+fi
+
 [ -e "$HOME/.claude"           ] || mkdir -p "$HOME/.claude"
+[ -e "$HOME/.gitconfig"        ] || touch    "$HOME/.gitconfig"
+[ -e "$HOME/.claude.json"      ] || touch    "$HOME/.claude.json"
 [ -e "$HOME/.bashrc"           ] || touch    "$HOME/.bashrc"
 [ -d "$HOME/code/util"         ] || mkdir -p "$HOME/code/util"
 [ -e "$HOME/code/util/profile" ] || touch    "$HOME/code/util/profile"
@@ -35,8 +43,3 @@ elif command -v security &>/dev/null; then
         > .claude-credentials 2>/dev/null || true
 fi
 
-CLAUDE_CONFIG="$HOME/.claude.json"
-if [ -f "$CLAUDE_CONFIG" ]; then
-    cp "$CLAUDE_CONFIG" .claude-config
-    chmod 600 .claude-config
-fi
