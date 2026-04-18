@@ -7,7 +7,7 @@ Decode current PR title/body before starting:
 echo "$PR_TITLE_B64" | base64 -d
 echo "$PR_BODY_B64" | base64 -d
 ```
-Use decoded title/body for scope checks and intent validation.
+Decoded title/body → scope checks + intent validation.
 Reflects current PR state, not push-time state.
 
 ## Role

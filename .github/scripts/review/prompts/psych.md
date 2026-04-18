@@ -24,11 +24,11 @@ Lens:
 3. **Reward and dopamine timing.** Reward delivery: immediate, novel, proportional. Cross-check `docs/reward-system.md`.
 4. **Task selection / breakdown.** Time-estimate accuracy bias, overwhelm management, energy-mood matching. Cross-check `docs/ai-prompts.md` modules 3, 5, 7.
 
-Diff is purely infrastructure or CI with no user-facing behavior change → set `decision: abstain` with one-line `summary` explaining why.
+Pure infra/CI diff, no user-facing change → set `decision: abstain`, one-line `summary`.
 
 ## Procedure
 
-1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — read full diff against frozen PR base SHA.
+1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — full diff against frozen PR base SHA.
 2. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline comments. Fold blocking ones into `blocking_issues[]` with `source: "inline_comment"`.
 3. Apply four-lens framework.
 4. Same logical change across multiple files → verify wording/structure consistency. Unjustified variation is blocking.
@@ -38,8 +38,8 @@ Diff is purely infrastructure or CI with no user-facing behavior change → set 
 
 Write verdict as JSON to `$OUTPUT_PATH` conforming to `.github/scripts/review/schema/reviewer-v1.json`. Use `role: "psych"`. Each `blocking_issues[]` entry needs stable `id` (e.g. `"psy-001"`).
 
-Keep `summary` ≤500 chars. Schema validator hard-fails longer summaries — put detail in `blocking_issues[]` or `non_blocking_notes[]`.
+`summary` ≤500 chars. Schema validator hard-fails longer — put detail in `blocking_issues[]` or `non_blocking_notes[]`.
 
-Blocking flag requires research basis or canonical doc cited in `message`. Vague "feels wrong" findings = non-blocking notes, not blockers.
+Blocking flag requires research basis or canonical doc cited in `message`. Vague "feels wrong" = non-blocking note, not blocker.
 
-Do NOT push changes. Do NOT post PR comments.
+No pushing. No PR comments.

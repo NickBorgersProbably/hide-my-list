@@ -32,9 +32,13 @@ CLAUDE_CRED_FILE="$REPO_ROOT/.devcontainer/.claude-credentials"
 if [ -s "$CLAUDE_CRED_FILE" ]; then
   echo "Setting up Claude Code credentials..."
   mkdir -p "$HOME/.claude"
-  cp "$CLAUDE_CRED_FILE" "$HOME/.claude/.credentials.json"
-  chmod 600 "$HOME/.claude/.credentials.json"
-  echo "Claude Code credentials configured."
+  if [ ! -f "$HOME/.claude/.credentials.json" ]; then
+    cp "$CLAUDE_CRED_FILE" "$HOME/.claude/.credentials.json"
+    chmod 600 "$HOME/.claude/.credentials.json"
+    echo "Claude Code credentials configured."
+  else
+    echo "Claude Code credentials already present (via bind mount)."
+  fi
   rm -f "$CLAUDE_CRED_FILE"
 else
   echo "Warning: No Claude credentials found; Claude Code credentials not available."
