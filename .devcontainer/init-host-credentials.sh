@@ -16,11 +16,6 @@ cd "$(dirname "$0")"
 # contributor's machine. post-create.sh uses `-s` (non-empty) guards
 # before wiring anything in, so empty placeholders are installed but
 # never activated.
-# SSH_AUTH_SOCK must exist — devcontainer.json mounts it and Docker fails cryptically if missing
-if [ -z "${SSH_AUTH_SOCK:-}" ] || [ ! -S "$SSH_AUTH_SOCK" ]; then
-  echo "ERROR: SSH_AUTH_SOCK is not set or not a socket. Start your SSH agent first (e.g. eval \"\$(ssh-agent -s)\")."
-  exit 1
-fi
 
 [ -e "$HOME/.claude"           ] || mkdir -p "$HOME/.claude"
 [ -e "$HOME/.gitconfig"        ] || touch    "$HOME/.gitconfig"
@@ -42,4 +37,3 @@ elif command -v security &>/dev/null; then
     security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null \
         > .claude-credentials 2>/dev/null || true
 fi
-

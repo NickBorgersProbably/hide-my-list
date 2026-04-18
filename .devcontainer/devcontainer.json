@@ -14,10 +14,9 @@
   "postCreateCommand": "bash .devcontainer/post-create.sh && bash .githooks/install-hooks.sh",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
   "mounts": [
-    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude,target=/tmp/devcontainer-host/.claude,type=bind,readonly,consistency=cached",
     "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly,consistency=cached",
-    "source=${localEnv:HOME}/.claude.json,target=/home/vscode/.claude.json,type=bind,consistency=cached",
-    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent.sock,type=bind",
+    "source=${localEnv:HOME}/.claude.json,target=/tmp/devcontainer-host/.claude.json,type=bind,readonly,consistency=cached",
     "source=${localEnv:HOME}/.bashrc,target=${localEnv:HOME}/.bashrc,type=bind,readonly,consistency=cached",
     "source=${localEnv:HOME}/code/util/profile,target=${localEnv:HOME}/code/util/profile,type=bind,readonly,consistency=cached"
   ],
@@ -26,7 +25,8 @@
     "TERM": "xterm-256color",
     "LANG": "en_US.UTF-8",
     "EDITOR": "nano",
-    "SSH_AUTH_SOCK": "/ssh-agent.sock",
+    "CLAUDE_HOST_CONFIG_DIR": "/tmp/devcontainer-host/.claude",
+    "CLAUDE_HOST_CONFIG_FILE": "/tmp/devcontainer-host/.claude.json",
     "HOST_BASHRC": "${localEnv:HOME}/.bashrc",
     "HOST_HOME": "${localEnv:HOME}"
   },

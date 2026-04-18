@@ -37,7 +37,7 @@ if [ -s "$CLAUDE_CRED_FILE" ]; then
     chmod 600 "$HOME/.claude/.credentials.json"
     echo "Claude Code credentials configured."
   else
-    echo "Claude Code credentials already present (via bind mount)."
+    echo "Claude Code credentials already present; leaving existing file in place."
   fi
   rm -f "$CLAUDE_CRED_FILE"
 else
@@ -59,11 +59,40 @@ if [ -n "${HOST_HOME:-}" ] && [ "$HOST_HOME" != "$HOME" ]; then
   echo "Symlinked $HOST_HOME/.claude → $HOME/.claude for hook path resolution"
 fi
 
+# Merge host Claude Code config into the container-local baseline. The image
+# seeds hasCompletedOnboarding in $HOME/.claude.json; a non-empty host file can
+# add user-specific settings without shadowing that baseline.
+if [ -n "${CLAUDE_HOST_CONFIG_FILE:-}" ] \
+   && [ -s "$CLAUDE_HOST_CONFIG_FILE" ]; then
+  if python3 -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' \
+    "$CLAUDE_HOST_CONFIG_FILE" >/dev/null 2>&1; then
+    echo "Merging Claude Code config from host..."
+    EXISTING_CONFIG="$HOME/.claude.json"
+    python3 -c '
+import json
+import sys
+
+host_path, container_path = sys.argv[1], sys.argv[2]
+with open(container_path, encoding="utf-8") as fh:
+    container = json.load(fh)
+with open(host_path, encoding="utf-8") as fh:
+    host = json.load(fh)
+host.update(container)
+with open(container_path, "w", encoding="utf-8") as fh:
+    json.dump(host, fh, indent=2)
+    fh.write("\n")
+' "$CLAUDE_HOST_CONFIG_FILE" "$EXISTING_CONFIG"
+    chmod 600 "$EXISTING_CONFIG"
+    echo "Claude Code config merged."
+  else
+    echo "Warning: Host Claude Code config is not valid JSON; keeping container default."
+  fi
+fi
+
 # Link developer's host ~/.claude user-level customizations into the container.
-# The host directory is bind-mounted read-only at the same absolute path via
-# devcontainer.json; this just links the three pieces we want into the
-# container user's $HOME/.claude. Missing pieces (or an empty mount on a CI
-# runner) are a no-op.
+# devcontainer.json bind-mounts the host directory read-only at a staging path,
+# then this links the three supported items into the container user's
+# $HOME/.claude. Missing pieces (or an empty mount on a CI runner) are a no-op.
 if [ -n "${CLAUDE_HOST_CONFIG_DIR:-}" ] \
    && [ -d "$CLAUDE_HOST_CONFIG_DIR" ] \
    && [ "$CLAUDE_HOST_CONFIG_DIR" != "$HOME/.claude" ]; then
