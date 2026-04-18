@@ -109,37 +109,6 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 | NEED_HELP | `docs/ai-prompts.md` (Module 7: Breakdown Assistance) — confidence detection, response levels |
 | CHECK_IN | `docs/ai-prompts.md` (Module 6: Check-In Handling) — timing, shame-safe templates |
 
-## Architecture
-
-- **Runtime**: OpenClaw agent (no standalone server)
-- **Storage**: Notion database via API
-- **Scripts**: `scripts/` — Notion CLI helpers + infra tooling
-- **Docs**: `docs/` — runtime behavior specs; contributor/CI guidance where noted
-- **Design**: `design/` — ADHD-informed design priorities
-- **OpenClaw integration**: `docs/openclaw-integration.md`
-
-## Key Files
-
-### OpenClaw Prompt & Spec Files
-
-These files define OpenClaw agent behavior — they *are* the app. Change one = change agent. "Code & Prompt Changes" restrictions below apply to these when OpenClaw agent runs.
-
-- `AGENTS.md` — Agent instructions (this file)
-- `SOUL.md` — Personality + core identity
-- `IDENTITY.md` — Identity metadata
-- `TOOLS.md` — Available tools + property references
-- `HEARTBEAT.md` — Periodic health check procedures
-- `docs/ai-prompts.md` — Prompt architecture (core of app)
-- `docs/architecture.md` — System design + data flow spec
-- `docs/agent-capabilities.md` — Session roles + runtime tool-boundary source of truth
-- `docs/task-lifecycle.md` — Task states: Pending → In Progress → Completed (rejection/breakdown flows)
-- `docs/notion-schema.md` — Notion database schema
-- `docs/user-interactions.md` — Conversation patterns + intent detection rules
-- `docs/user-preferences.md` — Personalization behavior spec
-- `docs/reward-system.md` — Multi-channel reward behavior spec
-- `design/adhd-priorities.md` — Core design principles from ADHD research
-- `scripts/notion-cli.sh` — Notion API helper for task CRUD
-
 ## Safety
 
 - Don't show full task list. Core rule.
@@ -152,7 +121,7 @@ These files define OpenClaw agent behavior — they *are* the app. Change one = 
 
 Restrictions apply to **OpenClaw runtime agent** only — not Claude Code sessions, Codex CI agents, or human contributors.
 
-- For user-requested code/prompt/docs/design changes: **never directly edit OpenClaw prompt & spec files** (see list above).
+- For user-requested code/prompt/docs/design changes: **never directly edit OpenClaw prompt & spec files** (bootstrap: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, HEARTBEAT.md; heartbeat spec: docs/heartbeat-checks.md; runtime docs: docs/ai-prompts.md, docs/architecture.md, docs/agent-capabilities.md, docs/task-lifecycle.md, docs/notion-schema.md, docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md; design/adhd-priorities.md; scripts/notion-cli.sh).
 - All prompt/spec changes: GitHub issues → PR → review pipeline.
 - **File issues** describing problem + proposed fix. Don't implement prompt/spec changes directly.
 - Infra & CI files outside restriction — but OpenClaw agent should still file issues; CI changes warrant review.

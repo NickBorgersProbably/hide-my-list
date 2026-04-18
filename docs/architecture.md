@@ -232,7 +232,7 @@ sequenceDiagram
 4. Due reminders found → `check-reminders.sh` writes reminder handoff file in repo root (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). Isolated cron exits `NO_REPLY` — no reminder delivery.
 5. Delivery via two mechanisms:
    - **AGENTS.md step 5** (opportunistic): every user conversation start, main session checks handoff file, delivers immediately.
-   - **HEARTBEAT.md Check 1** (hourly backstop): heartbeat reads handoff file every 60 min, delivers stranded reminders.
+   - **heartbeat Check 1** (hourly backstop, `docs/heartbeat-checks.md`): heartbeat reads handoff file every 60 min, delivers stranded reminders.
    Both paths validate handoff schema first: must be JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed; delivering session leaves file in place, surfaces error, delivers/completes/deletes nothing. Valid handoff: each reminder sent to Signal via OpenClaw `message` tool (`action: send`, `channel: signal`), then `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` atomically sets `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`, then deletes handoff file.
 6. Reminders >15 min past due flagged `missed`, still delivered with shame-safe note: `This was due a bit ago — [task]. Want to handle it now or reschedule?`
 7. Cron only fires when agent idle — won't interrupt mid-task. Better for ADHD focus.
@@ -243,7 +243,7 @@ Deferred-delivery handoff = correctness constraint, not just implementation deta
 
 **Timezone handling:** AI converts user times (e.g., "6pm PT", "3pm Central") to full ISO 8601 with timezone offsets at intake. Check script compares against UTC — no timezone conversion at check time.
 
-**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. Heartbeat (every 60 min) verifies each job exists and matches canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison against full `CronCreate` contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `timeout-seconds`. `HEARTBEAT.md` = authoritative comparison checklist. See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for job definitions.
+**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. Heartbeat (every 60 min) verifies each job exists and matches canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison against full `CronCreate` contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `timeout-seconds`. `docs/heartbeat-checks.md` = authoritative comparison checklist (HEARTBEAT.md is a bootstrap stub that delegates to it). See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for job definitions.
 
 ## Technology Choices
 

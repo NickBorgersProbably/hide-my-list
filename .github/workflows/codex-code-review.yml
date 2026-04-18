@@ -1126,7 +1126,7 @@ jobs:
             **DOCS-AS-SPEC CONSISTENCY CHECKLIST**
             ${SPEC_CHECK_DIRECTIVE}
             Checklist (complete each item when SPEC required):
-            1. Identify the canonical sources for each changed behavior (docs/ai-prompts.md, docs/task-lifecycle.md, docs/notion-schema.md, AGENTS.md, HEARTBEAT.md, TOOLS.md, setup/cron/*.md, and the runtime scripts/config they reference).
+            1. Identify the canonical sources for each changed behavior (docs/ai-prompts.md, docs/heartbeat-checks.md, docs/task-lifecycle.md, docs/notion-schema.md, AGENTS.md, HEARTBEAT.md, TOOLS.md, setup/cron/*.md, and the runtime scripts/config they reference).
             2. Cross-check every changed behavior claim against those canonical sources and the actual runtime scripts/config (e.g., reminder cron flows, state transitions, Notion property values).
             3. Treat contradictions or drift across docs/scripts as BLOCKING. Call them out explicitly with the conflicting sources.
 

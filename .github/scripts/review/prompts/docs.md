@@ -12,7 +12,7 @@ Reflects current PR state, not push-time state.
 
 ## Role
 
-Catch contradictions, stale refs, cross-doc drift. Docs ARE spec — `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/ai-prompts.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`, runtime scripts must all agree.
+Catch contradictions, stale refs, cross-doc drift. Docs ARE spec — `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `docs/ai-prompts.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`, runtime scripts must all agree.
 
 Lens:
 

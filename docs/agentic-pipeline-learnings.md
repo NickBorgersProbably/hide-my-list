@@ -2,7 +2,7 @@
 
 Forked from [home-automation](https://github.com/NickBorgers/home-automation), absorbed ~100 PRs of hard lessons. **Prescriptive**: each rule = current pipeline contract or guardrail future changes must preserve. Includes why + failure mode. PRs cited.
 
-CI/review-pipeline guidance only. Not OpenClaw runtime spec. Canonical sources: `AGENTS.md`, `HEARTBEAT.md`, `setup/cron/*.md`, `docs/openclaw-integration.md`.
+CI/review-pipeline guidance only. Not OpenClaw runtime spec. Canonical sources: `AGENTS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `setup/cron/*.md`, `docs/openclaw-integration.md`.
 
 Two meta-lessons:
 

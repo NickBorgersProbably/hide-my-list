@@ -2,14 +2,14 @@
 
 Defines runtime roles in hide-my-list's OpenClaw deployment. Answers which session does which work.
 
-Use as source of truth when updating `AGENTS.md`, `HEARTBEAT.md`, `setup/cron/`, or any operational doc assuming tool contract.
+Use as source of truth when updating `AGENTS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `setup/cron/`, or any operational doc assuming tool contract.
 
 ## Why This Exists
 
 hide-my-list runs multiple OpenClaw session types:
 
 - **main agent** — user talks to
-- built-in **heartbeat** session runs `HEARTBEAT.md`
+- built-in **heartbeat** session runs `HEARTBEAT.md` (stub; reads full checks from `docs/heartbeat-checks.md`)
 - isolated **durable cron sessions** like `reminder-check` and `pull-main`
 
 Sessions have different responsibilities and different tools. Config patching belongs to main agent unless another session's access explicitly confirmed.
@@ -56,15 +56,15 @@ Tool availability does not override `AGENTS.md` safety policy. External actions 
 
 ## Heartbeat Session
 
-Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md`. Runs every 60 minutes with lighter model than main agent.
+Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md` (bootstrap stub that delegates to `docs/heartbeat-checks.md`). Runs every 60 minutes with lighter model than main agent.
 
 ### Confirmed tool contract
 
 Narrower confirmed contract:
 
 - `exec` and `read` for script execution and repo inspection
-- `message` for explicit reminder delivery to Signal from `HEARTBEAT.md` Check 1
-- CronList, CronCreate, CronUpdate, CronDelete for durable cron inspection, re-registration, drift correction, stale-job cleanup required by `HEARTBEAT.md`
+- `message` for explicit reminder delivery to Signal from heartbeat Check 1 (`docs/heartbeat-checks.md`)
+- CronList, CronCreate, CronUpdate, CronDelete for durable cron inspection, re-registration, drift correction, stale-job cleanup defined in `docs/heartbeat-checks.md`
 
 ### Do not assume
 
@@ -147,4 +147,4 @@ That means:
 - cron drift correction belongs to heartbeat, not isolated cron jobs
 - `openclaw.json` drift repair belongs to main agent unless heartbeat config tool access explicitly confirmed
 
-If platform changes and new tools become available to heartbeat or isolated cron, update this document first, then update `HEARTBEAT.md` or `setup/cron/` to rely on new contract.
+If platform changes and new tools become available to heartbeat or isolated cron, update this document first, then update `docs/heartbeat-checks.md` or `setup/cron/` to rely on new contract.
