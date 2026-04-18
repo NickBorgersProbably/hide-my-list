@@ -7,7 +7,7 @@ title: User Interactions
 
 ## Overview
 
-All interactions in hide-my-list happen through natural language conversation. The AI determines user intent from their message and responds appropriately. This document details all conversation flows and user journeys.
+All interactions in hide-my-list happen via natural language. AI determines intent from message and responds. This doc covers all conversation flows.
 
 ## Intent Detection
 
@@ -81,12 +81,7 @@ sequenceDiagram
     AI->>U: "Got it — focus work, ~30 min, moderate priority.<br/>Plan: 1) Read intro, 2) Check numbers, 3) Note concerns, 4) Draft feedback"
 ```
 
-> **Decision Fatigue Prevention:** The system strongly prefers inference over
-> questions. All labels (urgency, time, work type) are always inferred from
-> context and keywords — never asked about. When the task itself is too vague to
-> identify (e.g., "do the thing"), the system may ask up to 3 simple clarifying
-> questions, one at a time. The user can also correct after the fact ("actually
-> that's urgent") but is never forced to decide on labels.
+> **Decision Fatigue Prevention:** System prefers inference over questions. All labels (urgency, time, work type) inferred from context — never asked. When task too vague to identify (e.g., "do the thing"), up to 3 simple clarifying questions, one at a time. User can correct after ("actually that's urgent") but never forced to decide on labels.
 > See [Issue #11](https://github.com/NickBorgersProbably/hide-my-list/issues/11).
 
 ### Intake Flow (Inference-First, Questions as Last Resort)
@@ -253,7 +248,7 @@ sequenceDiagram
 
 ### Reward Delivery System
 
-The completion flow triggers a multi-channel reward system designed to maximize dopamine delivery:
+Completion triggers multi-channel reward system to maximize dopamine delivery:
 
 ```mermaid
 flowchart TD
@@ -383,9 +378,7 @@ flowchart TD
 
 ### Rejection Escalation (Shame-Safe)
 
-> **Shame Prevention:** Multiple rejections are the highest-risk moment for
-> rejection-triggered shame. Each escalation step must explicitly normalize the
-> experience. Never frame rejection accumulation as a problem.
+> **Shame Prevention:** Multiple rejections = highest-risk shame moment. Each escalation must explicitly normalize. Never frame rejection accumulation as problem.
 
 ```mermaid
 flowchart TD
@@ -404,12 +397,9 @@ flowchart TD
 
 ## Flow 5: Cannot Finish (Task Breakdown)
 
-When a user indicates they cannot finish a task, it signals the task was too large and needs to be broken down into smaller sub-tasks. **Critically, the AI must first acknowledge their progress, then ask what they accomplished** to understand what remains.
+User says cannot finish → task too large, needs sub-tasks. **AI must first acknowledge progress, then ask what they accomplished** to understand what remains.
 
-> **Shame Prevention:** "Cannot finish" is a high-risk moment. The user is telling
-> you they couldn't do something. Always lead with acknowledging effort and reframe
-> the situation: they didn't fail — they discovered the task's real size. That's
-> valuable information.
+> **Shame Prevention:** "Cannot finish" is high-risk. User admitting they couldn't do something. Always lead with acknowledging effort and reframe: they didn't fail — they discovered task's real size. Valuable info.
 
 ```mermaid
 sequenceDiagram
@@ -492,10 +482,10 @@ flowchart LR
 ```
 
 **Key Principles:**
-- Sub-task breakdown is NEVER shown to the user as a full list
-- Each sub-task should be completable in one sitting (typically 15-90 min)
-- The AI presents only the current actionable sub-task
-- Parent task only completes when all sub-tasks are done
+- Sub-task breakdown NEVER shown to user as full list
+- Each sub-task completable in one sitting (15-90 min)
+- AI presents only current actionable sub-task
+- Parent task completes only when all sub-tasks done
 
 ### Cannot Finish Response Templates (Shame-Safe)
 
@@ -510,7 +500,7 @@ flowchart LR
 
 ## Flow 6: Breakdown Assistance (On-Demand Help)
 
-A core principle of hide-my-list: **users interpret vague goals as infinite, and thus avoid them.** The agent must always be ready to help users understand exactly what to do next. This flow handles when users need help starting or continuing a task.
+Core principle: **users interpret vague goals as infinite, so avoid them.** Agent must always help users know exactly what to do next.
 
 ```mermaid
 sequenceDiagram
@@ -551,7 +541,7 @@ flowchart TD
 
 ### Proactive Assistance Triggers
 
-The agent should proactively offer breakdown assistance when it detects:
+Agent proactively offers breakdown when it detects:
 
 | Signal | Agent Response |
 |--------|----------------|
@@ -583,11 +573,11 @@ flowchart LR
     Level1 --> Level2 --> Level3 --> Level4
 ```
 
-The agent adjusts detail level based on user signals:
-- Confident user → Level 1-2
-- Uncertain user → Level 2-3
-- Stuck user → Level 3-4
-- Very stuck user → Level 4 with encouragement
+Agent adjusts detail by user signals:
+- Confident → Level 1-2
+- Uncertain → Level 2-3
+- Stuck → Level 3-4
+- Very stuck → Level 4 + encouragement
 
 ### Assistance Conversation Examples
 
@@ -624,7 +614,7 @@ AI: "Here's the full breakdown:
 
 ## Flow 7: Check-In Follow-Up
 
-When a user accepts a task, the agent records the acceptance in Notion and stores timing metadata in `state.json`. OpenClaw's optional `task-check-in` cron job re-enters the conversation if the task runs long. If the cron job is not configured, proactive check-ins are disabled.
+User accepts task → agent records in Notion + stores timing metadata in `state.json`. OpenClaw's optional `task-check-in` cron re-enters conversation if task runs long. If cron not configured, proactive check-ins disabled.
 
 ```mermaid
 sequenceDiagram
@@ -722,9 +712,7 @@ flowchart TD
 
 ### Check-In Response Templates (Shame-Safe)
 
-> **Shame Prevention:** Check-ins can feel like surveillance. Keep the tone
-> curious and warm — a friend checking in, not a manager following up.
-> Never imply the user should have finished by now.
+> **Shame Prevention:** Check-ins can feel like surveillance. Tone = curious, warm — friend checking in, not manager. Never imply user should have finished by now.
 
 | Scenario | AI Response |
 |----------|-------------|
@@ -739,24 +727,24 @@ flowchart TD
 
 ### OpenClaw Scheduling
 
-There is no browser timer. Use OpenClaw infrastructure instead:
+No browser timer. Use OpenClaw infrastructure:
 
-- **Recommended cron:** `task-check-in` running every 5 minutes, durable.
-- **Session payload:** Prompt should instruct the agent to load `state.json` and evaluate `check_in_due_at`.
-- **Early exit:** If the due time has not been reached, reply `CHECK_IN_SKIPPED` for observability.
+- **Recommended cron:** `task-check-in` every 5 minutes, durable.
+- **Session payload:** Prompt instructs agent to load `state.json` and evaluate `check_in_due_at`.
+- **Early exit:** If due time not reached, reply `CHECK_IN_SKIPPED` for observability.
 - **State fields:** `active_task.id`, `active_task.title`, `active_task.time_estimate`, `active_task.started_at`, `active_task.check_in_due_at`, `active_task.check_in_count`.
 
-If the cron is not configured, the agent should not attempt proactive check-ins. The rest of the flow remains valid for future deployment.
+If cron not configured, agent must not attempt proactive check-ins. Rest of flow valid for future deployment.
 
 ---
 
 ## Flow 8: Scheduled Reminder Delivery
 
-Reminders are tasks with a specific wall-clock delivery time. Unlike check-ins (which are based on active-task state and optional OpenClaw scheduling), reminders fire proactively even when the chat is idle.
+Reminders = tasks with specific wall-clock delivery time. Unlike check-ins (active-task state + optional OpenClaw), reminders fire proactively even when chat idle.
 
 ```mermaid
 sequenceDiagram
-    participant Cron as Isolated Gemma Cron
+    participant Cron as Isolated Haiku Cron
     participant Scr as check-reminders.sh
     participant Notion as Notion API
     participant Signal as .reminder-signal
@@ -781,13 +769,13 @@ sequenceDiagram
     end
 ```
 
-The `reminder-check` cron runs as an isolated cron session on `litellm/gemma4` — it is query-only and does not deliver reminders. Delivery happens through two paths: the main-session startup check (AGENTS.md step 5, on every user interaction) and the heartbeat (HEARTBEAT.md Check 1, every 60 min). Both delivery paths first validate that the handoff is JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status makes the handoff malformed, so the file stays in place and nothing is delivered, completed, or deleted. If delivery fails after validation, the handoff file is left in place for retry.
+`reminder-check` cron runs as isolated Haiku session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (HEARTBEAT.md Check 1, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, nothing delivered/completed/deleted. Delivery failure = file stays for retry.
 
 ### Reminder Delivery Messages
 
-The agent delivers reminders with a brief, casual tone — like a friend tapping your shoulder:
+Agent delivers reminders brief, casual — friend tapping your shoulder:
 
-**Approximate delivery (next eligible poll after the scheduled time, before the missed threshold):**
+**Approximate delivery (next eligible poll after scheduled time, before missed threshold):**
 > "Hey — this is your reminder to email Melanie about availability."
 
 **Missed delivery (>15 minutes past due, flagged as missed):**
@@ -795,7 +783,7 @@ The agent delivers reminders with a brief, casual tone — like a friend tapping
 
 ### Reminder Intake
 
-During task intake, the AI detects reminder-style language and sets:
+AI detects reminder-style language and sets:
 - `is_reminder = true`
 - `remind_at` = full ISO 8601 timestamp with timezone
 - `reminder_status = pending`
@@ -804,15 +792,15 @@ During task intake, the AI detects reminder-style language and sets:
 **Confirmation message style:**
 > "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next reminder check after that."
 
-The user's timezone defaults to US Central. The AI converts timezone references (PT, CT, ET) to UTC offsets at intake time.
+User timezone defaults to US Central. AI converts timezone references (PT, CT, ET) to UTC offsets at intake.
 
 ### Reminder vs. Deadline
 
-Reminders and deadlines are different:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, on the next reminder check
+Different concepts:
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, next reminder check
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
-The key signal is notification intent: the user wants to be *told* to do something at a specific time, not just have it prioritized.
+Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.
 
 ---
 

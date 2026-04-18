@@ -1,100 +1,100 @@
 # DEV-AGENTS.md — hide-my-list
 
-Development agent context for Claude Code, Codex, and human contributors. The OpenClaw runtime agent's instructions are in `AGENTS.md` — edits to that file change application behavior.
+Dev agent context for Claude Code, Codex, human contributors. OpenClaw runtime instructions in `AGENTS.md` — edits there change app behavior.
 
 ## Architecture
 
 - **Runtime**: OpenClaw agent (no standalone server)
 - **Storage**: Notion database via API
-- **Scripts**: `scripts/` — Notion CLI helpers and infrastructure tooling
-- **Docs**: `docs/` — mostly runtime behavior specs, plus contributor/CI guidance where explicitly noted
-- **Design**: `design/` — ADHD-informed design priorities and principles
-- **OpenClaw integration**: See `docs/openclaw-integration.md` for how this maps to the platform
+- **Scripts**: `scripts/` — Notion CLI helpers + infra tooling
+- **Docs**: `docs/` — runtime behavior specs, contributor/CI guidance where noted
+- **Design**: `design/` — ADHD-informed design priorities
+- **OpenClaw integration**: See `docs/openclaw-integration.md`
 
 ## Key Files
 
 ### OpenClaw Prompt & Spec Files
 
-These files define how the OpenClaw agent behaves — they *are* the application. Changing one changes the agent.
+Define OpenClaw agent behavior — *are* the application. Change one = change agent.
 
-- `AGENTS.md` — OpenClaw runtime agent instructions (bootstrap file, auto-loaded by OpenClaw)
-- `SOUL.md` — Agent personality and core identity
+- `AGENTS.md` — OpenClaw runtime agent instructions (bootstrap, auto-loaded)
+- `SOUL.md` — Agent personality + core identity
 - `IDENTITY.md` — Agent identity metadata
-- `TOOLS.md` — Available tools and property references
+- `TOOLS.md` — Available tools + property references
 - `HEARTBEAT.md` — Periodic health check procedures
-- `docs/ai-prompts.md` — The prompt architecture (core of the application)
-- `docs/architecture.md` — System design and data flow specification
-- `docs/agent-capabilities.md` — Session roles and runtime tool-boundary source of truth
+- `docs/ai-prompts.md` — Prompt architecture (core of app)
+- `docs/architecture.md` — System design + data flow spec
+- `docs/agent-capabilities.md` — Session roles + runtime tool-boundary source of truth
 - `docs/task-lifecycle.md` — Task states: Pending → In Progress → Completed (with rejection/breakdown flows)
 - `docs/notion-schema.md` — Notion database schema
-- `docs/user-interactions.md` — Conversation patterns and intent detection rules
+- `docs/user-interactions.md` — Conversation patterns + intent detection rules
 - `docs/user-preferences.md` — Personalization behavior spec
 - `docs/reward-system.md` — Multi-channel reward behavior spec
 - `design/adhd-priorities.md` — Core design principles grounded in ADHD research
-- `scripts/notion-cli.sh` — Notion API helper for task CRUD operations
+- `scripts/notion-cli.sh` — Notion API helper for task CRUD
 
 ### Infrastructure & CI Files
 
-These files support the development pipeline and are not part of the OpenClaw agent prompt. They can be edited directly via PRs by any contributor or agent (Claude Code, Codex, etc.).
+Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contributor or agent (Claude Code, Codex, etc.).
 
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
 - `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run`
-- `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract and guardrail document
-- `scripts/create-deduped-workflow-failure-issue.sh` — Creates or reuses the canonical deduplicated GitHub Actions failure issue for the diagnosis workflow
-- `scripts/check-doc-links.sh` — Internal documentation link validator used by local hooks and CI doc checks
-- `scripts/get-latest-merge-decision-comment.sh` — Fetches the latest trusted merge-decision PR comment with retry logic to tolerate GitHub comment propagation lag
+- `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract + guardrail doc
+- `scripts/create-deduped-workflow-failure-issue.sh` — Creates/reuses canonical deduplicated GH Actions failure issue for diagnosis workflow
+- `scripts/check-doc-links.sh` — Internal doc link validator for local hooks + CI doc checks
+- `scripts/get-latest-merge-decision-comment.sh` — Fetches latest trusted merge-decision PR comment with retry for GitHub comment propagation lag
 - `scripts/pull-main.sh` — Branch sync helper
-- `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, and workflow validations
+- `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, workflow validations
 - `scripts/security-update.sh` — Security update automation
 - `scripts/validate-gh-cli-usage.sh` — GitHub CLI workflow usage validation
 - `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
 - `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
-- `setup/` — Cron and setup documentation
+- `setup/` — Cron + setup docs
 
 ## Safety
 
-- **NEVER touch firewall rules.** They exist for critical security reasons. No exceptions, no matter what.
+- **NEVER touch firewall rules.** Critical security. No exceptions.
 - Don't exfiltrate data.
 - `trash` > `rm`.
 
 ### Code & Prompt Changes — Scope
 
-The "Code & Prompt Changes" restriction in `AGENTS.md` applies **only to the OpenClaw runtime agent**. It does **not** apply to Claude Code sessions, Codex CI agents, or human contributors. Development agents can edit any file via the normal PR flow.
+"Code & Prompt Changes" restriction in `AGENTS.md` applies **only to OpenClaw runtime agent**. Not Claude Code, Codex CI, or human contributors. Dev agents edit any file via normal PR flow.
 
-However, treat OpenClaw prompt & spec file edits with care — they change live application behavior. The psych reviewer will validate user-facing changes against ADHD research.
+Treat OpenClaw prompt + spec file edits with care — change live app behavior. Psych reviewer validates user-facing changes against ADHD research.
 
 ## Review Pipeline
 
-PRs are reviewed by a multi-agent Codex pipeline. The reviewer roles are the same in both versions; only the orchestration differs.
+PRs reviewed by multi-agent Codex pipeline. Roles same in both versions; orchestration differs.
 
 **Reviewer roles** (both versions):
-1. Design Review — validates intent fulfillment and design quality, and runs a docs-as-spec consistency check whenever spec-critical files change
-2. Security & Infrastructure Review — script safety, credential handling, workflow permissions, and GitHub Actions/runtime correctness for CI orchestration changes
+1. Design Review — validates intent + design quality; runs docs-as-spec consistency check on spec-critical changes
+2. Security & Infrastructure Review — script safety, credential handling, workflow permissions, GH Actions/runtime correctness
 3. Psych Research Review — validates against ADHD clinical research
-4. Prompt Engineering Review — validates prompt clarity, constraints, and cross-prompt consistency
-5. Documentation Consistency Review — checks docs for contradictions, stale references, and cross-doc consistency
-6. Judge / Merge Decision — synthesizes all reviews into a verdict
+4. Prompt Engineering Review — validates prompt clarity, constraints, cross-prompt consistency
+5. Documentation Consistency Review — contradictions, stale refs, cross-doc consistency
+6. Judge / Merge Decision — synthesizes all reviews into verdict
 
-**Active version** is selected by the repo variable `REVIEW_PIPELINE_V2`:
+**Active version** selected by repo variable `REVIEW_PIPELINE_V2`:
 
-- **v1 — `vars.REVIEW_PIPELINE_V2 != 'true'`** (default). Lives in `.github/workflows/codex-code-review.yml`. The merge-decision agent itself reads PR comments, applies fixes, pushes commits, and emits one of three verdicts: **GO-CLEAN**, **GO-WITH-RESERVATIONS** (applied fixes, triggers exactly one re-review), or **NO-GO** (closes the PR and creates a follow-up issue).
-- **v2 — `vars.REVIEW_PIPELINE_V2 == 'true'`**. Lives in `.github/workflows/review-entry.yml` and dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. The judge is a deterministic Node script (`.github/scripts/review/aggregate.mjs`) running with `permissions: contents: read` — it cannot push, by construction. The fixer runs *after* reviewers and *before* the judge, pushes any new commit first, then claims that SHA on `review/pipeline` immediately after the push because GitHub will not accept a status for an unpublished commit, and is the only stage with write permission. Verdicts are binary **GO** / **NO-GO**; NO-GO labels the PR `needs-human-review` and stops without closing or auto-creating issues. Reviewer prompts are standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 and §1.5 for the design decisions and the rules they obsolete from v1.
+- **v1 — `vars.REVIEW_PIPELINE_V2 != 'true'`** (default). Lives in `.github/workflows/codex-code-review.yml`. Merge-decision agent reads PR comments, applies fixes, pushes commits, emits one of three verdicts: **GO-CLEAN**, **GO-WITH-RESERVATIONS** (fixes applied, triggers exactly one re-review), **NO-GO** (closes PR + creates follow-up issue).
+- **v2 — `vars.REVIEW_PIPELINE_V2 == 'true'`**. Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. Judge = deterministic Node script (`.github/scripts/review/aggregate.mjs`) with `permissions: contents: read` — cannot push by construction. Fixer runs after reviewers, before judge; pushes new commit first, then claims that SHA on `review/pipeline` immediately after push (GitHub rejects status for unpublished commit); only stage with write permission. Verdicts binary **GO** / **NO-GO**; NO-GO labels PR `needs-human-review`, stops without closing or auto-creating issues. Reviewer prompts = standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 + §1.5 for design decisions + obsoleted v1 rules.
 
-The two pipelines are mutually exclusive via gate jobs: flipping the variable atomically swaps which one runs. There is no shared state to migrate.
+Two pipelines mutually exclusive via gate jobs: flip variable = atomically swap which runs. No shared state to migrate.
 
 ### Review prompt file architecture
 
-Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,prompt}.md`) are **self-contained** — each reviewer loads only its own `${role}.md` file at runtime. The Codex CLI does not support markdown includes.
+Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,prompt}.md`) **self-contained** — each reviewer loads only its own `${role}.md` at runtime. Codex CLI doesn't support markdown includes.
 
-When a constraint applies to all reviewers, it must be added to each prompt file individually. Use identical wording across all files unless the file's structure genuinely requires different phrasing (e.g., inline JSON placeholder vs. prose paragraph). The same applies to `fixer.md` — it is also loaded independently.
+Constraint applies to all reviewers → add to each prompt file individually. Use identical wording across files unless structure requires different phrasing (e.g., inline JSON placeholder vs. prose). Same applies to `fixer.md` — loaded independently.
 
-This "sibling files with shared contract, loaded independently" pattern recurs throughout the repo (e.g., the OpenClaw spec files). When editing one file in a group, always check whether siblings need the same change.
+"Sibling files with shared contract, loaded independently" pattern recurs throughout repo (e.g., OpenClaw spec files). Editing one file in group → check if siblings need same change.
 
 ## When Making Changes
 
-- Runtime/spec docs define agent behavior — changing those docs changes the system; contributor/CI guidance docs should still be reviewed as infra changes
-- The psych reviewer will validate user-facing changes against ADHD research
-- `config_only` infrastructure/CI changes skip the psych review automatically; prompt-bearing reviewer/config markdown still follows the specialist review path
-- All changes go through PR with the full review pipeline
+- Runtime/spec docs define agent behavior — changing those docs changes system; contributor/CI guidance still reviewed as infra changes
+- Psych reviewer validates user-facing changes against ADHD research
+- `config_only` infra/CI changes skip psych review automatically; prompt-bearing reviewer/config markdown follows specialist review path
+- All changes go through PR with full review pipeline

@@ -52,3 +52,4 @@ home-automation/
 .DS_Store
 Thumbs.db
 .github-pat
+*.original.md
