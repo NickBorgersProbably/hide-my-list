@@ -112,6 +112,25 @@ git pull origin main
 
 The agent reads docs on every interaction, so changes take effect immediately. No restart needed unless `openclaw.json` changed.
 
+### Upgrading from Haiku-based cron config
+
+If your `~/.openclaw/openclaw.json` was deployed before this change, it still defines `claude-haiku-4-5` as the cron model and does not include a `gemma4` entry. The heartbeat drift check will try to re-register `reminder-check` and `pull-main` with `litellm/gemma4` — if that model is not in your live config, cron re-registration fails and reminders and workspace sync stop working.
+
+Before the next heartbeat runs, add this entry to the `models` array in `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "id": "gemma4",
+  "name": "Gemma 4",
+  "reasoning": false,
+  "input": ["text"],
+  "contextWindow": 200000,
+  "maxTokens": 4096
+}
+```
+
+After editing `openclaw.json`, restart the agent for the new model to be available.
+
 ## Contributor Hooks
 
 Install hooks in every worktree before committing:
