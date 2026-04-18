@@ -145,7 +145,7 @@ Manual regression playbook:
 
 **Heartbeat ops alerts not arriving:**
 - Verify `.env` contains `OPS_ALERT_SIGNAL_NUMBER` and that it points to the intended operator Signal recipient
-- Keep `heartbeat.target` unset or `"none"`; the supported delivery path is the explicit `message` call from `HEARTBEAT.md`, not generic heartbeat reply routing
+- Keep `heartbeat.target` unset or `"none"`; the supported delivery path is the explicit `message` call from `docs/heartbeat-checks.md` Check 1, not generic heartbeat reply routing
 - Confirm the Signal channel itself is configured and healthy in `openclaw.json`
 
 **Agent not responding:**

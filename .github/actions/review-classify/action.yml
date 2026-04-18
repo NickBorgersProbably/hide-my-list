@@ -24,10 +24,11 @@ description: >
   or config just because they end in .md. The classifier carves out
   AGENTS.md, SOUL.md, TOOLS.md, HEARTBEAT.md, IDENTITY.md,
   setup/cron/*, design/adhd-priorities.md, docs/ai-prompts.md,
-  docs/task-lifecycle.md, docs/notion-schema.md,
-  docs/architecture.md, docs/agent-capabilities.md,
-  docs/user-interactions.md, docs/user-preferences.md,
-  docs/reward-system.md, docs/openclaw-integration.md, and
+  docs/heartbeat-checks.md, docs/task-lifecycle.md,
+  docs/notion-schema.md, docs/architecture.md,
+  docs/agent-capabilities.md, docs/user-interactions.md,
+  docs/user-preferences.md, docs/reward-system.md,
+  docs/openclaw-integration.md, and
   .github/scripts/review/prompts/*.md.
 
 inputs:
@@ -92,7 +93,7 @@ runs:
             AGENTS.md|SOUL.md|TOOLS.md|HEARTBEAT.md|IDENTITY.md) return 0 ;;
             setup/cron/*) return 0 ;;
             design/adhd-priorities.md) return 0 ;;
-            docs/ai-prompts.md|docs/task-lifecycle.md|docs/notion-schema.md|docs/architecture.md|docs/agent-capabilities.md|docs/user-interactions.md|docs/user-preferences.md|docs/reward-system.md|docs/openclaw-integration.md) return 0 ;;
+            docs/ai-prompts.md|docs/heartbeat-checks.md|docs/task-lifecycle.md|docs/notion-schema.md|docs/architecture.md|docs/agent-capabilities.md|docs/user-interactions.md|docs/user-preferences.md|docs/reward-system.md|docs/openclaw-integration.md) return 0 ;;
             *) return 1 ;;
           esac
         }

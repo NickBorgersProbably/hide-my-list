@@ -10,6 +10,7 @@ An AI-powered task manager where users never directly view their task list. The 
 ## Documentation
 
 - [Agent Capabilities](agent-capabilities.md) - Session roles, tool boundaries, and operational ownership across main agent, heartbeat, and isolated cron
+- [Heartbeat Checks](heartbeat-checks.md) - Authoritative heartbeat check list (stranded reminders, cron health, drift correction, Notion connectivity, dirty-pull recovery)
 - [Architecture](architecture.md) - System architecture, components, and data flow
 - [Agentic Pipeline Learnings](agentic-pipeline-learnings.md) - Prescriptive lessons from the agentic review and CI pipeline
 - [OpenClaw Integration](openclaw-integration.md) - How the repo maps onto the OpenClaw runtime

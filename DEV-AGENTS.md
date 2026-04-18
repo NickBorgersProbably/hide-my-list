@@ -21,7 +21,8 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `SOUL.md` — Agent personality + core identity
 - `IDENTITY.md` — Agent identity metadata
 - `TOOLS.md` — Available tools + property references
-- `HEARTBEAT.md` — Periodic health check procedures
+- `HEARTBEAT.md` — Bootstrap stub; delegates to `docs/heartbeat-checks.md` (keeps per-turn context small)
+- `docs/heartbeat-checks.md` — Authoritative heartbeat check list (stranded reminders, cron health, drift, Notion connectivity, dirty-pull recovery)
 - `docs/ai-prompts.md` — Prompt architecture (core of app)
 - `docs/architecture.md` — System design + data flow spec
 - `docs/agent-capabilities.md` — Session roles + runtime tool-boundary source of truth

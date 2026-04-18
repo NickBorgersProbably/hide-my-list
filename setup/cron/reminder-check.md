@@ -20,7 +20,7 @@ Isolated Haiku session. Query-only: runs check script, writes handoff file (defa
 
 **Reminder delivery** — two mechanisms:
 1. **AGENTS.md step 5** (opportunistic): main session checks handoff file on every user interaction.
-2. **HEARTBEAT.md Check 1** (hourly backstop): heartbeat reads handoff file every 60 min, delivers stranded reminders.
+2. **heartbeat Check 1** (hourly backstop, `docs/heartbeat-checks.md`): heartbeat reads handoff file every 60 min, delivers stranded reminders.
 
 Both paths validate before sending: must be JSON with `reminders` array, each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Malformed → leave file, no delivery, no `complete-reminder` call, no delete. Valid → send each via OpenClaw `message` tool (`action: send`, `channel: signal`), then call `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set Notion `Status → Completed`, `Reminder Status → sent|missed`, `Completed At`.
 
@@ -37,7 +37,7 @@ Reply with ONLY: NO_REPLY
 
 ## Notes
 
-- Cron auto-expires after 7 days. HEARTBEAT.md re-registers if missing, patches if drifted.
+- Cron auto-expires after 7 days. Heartbeat (`docs/heartbeat-checks.md` Checks 2/2b) re-registers if missing, patches if drifted.
 - 15-min polling = recommended cost/latency balance. Affects discovery only; idle delivery still depends on heartbeat or next interaction.
 - Cron fires only when REPL idle. Mid-conversation → script waits. Better for ADHD — no mid-task interrupts.
 - `check-reminders.sh` queries Notion, writes `.reminder-signal`. Delivery not this job's responsibility.
