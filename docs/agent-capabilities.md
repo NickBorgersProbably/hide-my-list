@@ -63,7 +63,7 @@ Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTB
 Narrower confirmed contract:
 
 - `exec` and `read` for script execution and repo inspection
-- `message` for explicit reminder delivery to Signal from heartbeat Check 1 (`docs/heartbeat-checks.md`)
+- `message` for explicit reminder delivery to Signal from heartbeat Check 1 (`docs/heartbeat-checks.md`), and for ops-alert messages to the Signal recipient heartbeat resolves from `OPS_ALERT_SIGNAL_NUMBER` when critical failures require operator attention (malformed reminder handoff, Notion connectivity failure, persistent dirty-pull recovery failure)
 - CronList, CronCreate, CronUpdate, CronDelete for durable cron inspection, re-registration, drift correction, stale-job cleanup defined in `docs/heartbeat-checks.md`
 
 ### Do not assume
@@ -71,7 +71,7 @@ Narrower confirmed contract:
 Treat these as unconfirmed for heartbeat sessions:
 
 - `config.get`, `config.patch`, `config.schema.lookup`
-- broader proactive `message` workflows beyond explicit reminder delivery to Signal
+- broader proactive `message` workflows beyond explicit reminder delivery and confirmed ops alerts to Signal
 - gateway lifecycle tools
 - general repo-edit/write as routine heartbeat behavior
 
