@@ -8,7 +8,7 @@
   HANDOFF_FILE="$(bash -lc 'SCRIPT_DIR=$(cd "$(dirname scripts/check-reminders.sh)" && pwd); ROOT_DIR=$(cd "$SCRIPT_DIR/.." && pwd); source "$SCRIPT_DIR/load-env.sh" REMINDER_SIGNAL_FILE?; SIGNAL_BASENAME=${REMINDER_SIGNAL_FILE:-.reminder-signal}; case "$SIGNAL_BASENAME" in ""|"."|".."|*/*) echo "invalid REMINDER_SIGNAL_FILE" >&2; exit 1 ;; esac; printf "%s\n" "$ROOT_DIR/$SIGNAL_BASENAME"')"
   ```
 - File = reminder handoff written by `scripts/check-reminders.sh`
-- If `HANDOFF_FILE` exists at heartbeat time: treat as undelivered. Read + validate (must be JSON with `reminders` array; each entry needs string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; any other shape/status = malformed → leave file, surface error, skip delivery/`complete-reminder`/delete). For each valid reminder: send via OpenClaw `message` tool (`action: send`, `channel: signal`), run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`, delete handoff file.
+- If `HANDOFF_FILE` exists at heartbeat time: treat as undelivered. Read + validate (must be JSON with `reminders` array; each entry needs string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; any other shape/status = malformed → leave file, send ops alert via `message` tool (`action: send`, `channel: signal`, `target: OPS_ALERT_SIGNAL_NUMBER`) describing the malformed handoff, skip delivery/`complete-reminder`/delete). For each valid reminder: send via OpenClaw `message` tool (`action: send`, `channel: signal`), run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`, delete handoff file.
 - Hourly delivery backstop. Isolated `reminder-check` cron only writes handoff — no delivery. Delivery here (every 60 min) + opportunistically via AGENTS.md startup check.
 
 ### 2. Cron Job Health
@@ -47,7 +47,7 @@ All match → report nothing. Any corrected → note which + what drift fixed.
 
 ### 3. Notion Connectivity
 - Run `scripts/notion-cli.sh query-pending` with short timeout
-- Fails → note error, no aggressive retry
+- Fails → send ops alert via `message` tool (`action: send`, `channel: signal`, `target: OPS_ALERT_SIGNAL_NUMBER`) with error detail, no aggressive retry
 
 ### 4. Environment Check
 - Verify `.env` exists + contains NOTION_API_KEY and NOTION_DATABASE_ID
@@ -55,7 +55,7 @@ All match → report nothing. Any corrected → note which + what drift fixed.
 ### 5. Dirty Pull Recovery (safety net)
 - `.pull-dirty` exists + older than 20 min → pull-main cron may have failed recovery
 - Run `scripts/pull-main.sh --recover-only` after fixing underlying problem (restore interactive `gh` auth, export valid `GH_TOKEN`, or provide `GITHUB_PAT` in repo `.env` — helper exports as `GH_TOKEN`). Script creates GitHub issue + resets repo when recovery can proceed.
-- Recovery still fails → note for operator
+- Recovery still fails → send ops alert via `message` tool (`action: send`, `channel: signal`, `target: OPS_ALERT_SIGNAL_NUMBER`) describing the failure
 - Normally pull-main cron handles recovery. This backstop for cases where GitHub auth was unavailable or script errored; until `gh` auth, valid `GH_TOKEN`, or `GITHUB_PAT` available, heartbeat preserves `.pull-dirty` + surfaces problem
 
 Nothing needs attention → reply HEARTBEAT_OK.
