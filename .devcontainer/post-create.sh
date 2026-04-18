@@ -37,43 +37,62 @@ if [ -s "$CLAUDE_CRED_FILE" ]; then
     chmod 600 "$HOME/.claude/.credentials.json"
     echo "Claude Code credentials configured."
   else
-    echo "Claude Code credentials already present (via bind mount)."
+    echo "Claude Code credentials already present; leaving existing file in place."
   fi
   rm -f "$CLAUDE_CRED_FILE"
 else
   echo "Warning: No Claude credentials found; Claude Code credentials not available."
 fi
 
-# Merge host Claude Code config into container config (written by initializeCommand)
-# The container .claude.json has hasCompletedOnboarding from the Dockerfile;
-# the host .claude.json has oauthAccount info.
-CLAUDE_CONFIG_FILE="$REPO_ROOT/.devcontainer/.claude-config"
-if [ -s "$CLAUDE_CONFIG_FILE" ]; then
-  echo "Merging Claude Code config from host..."
-  EXISTING_CONFIG="$HOME/.claude.json"
-  if [ -s "$EXISTING_CONFIG" ]; then
-    python3 -c "
-import json, sys
-host = json.load(open(sys.argv[1]))
-container = json.load(open(sys.argv[2]))
+# Create $HOME/.claude/tmp so Claude Code's hook runner (which sets TMPDIR to
+# that path) can call mktemp without failing.
+mkdir -p "$HOME/.claude/tmp"
+
+# When the host username differs from the container username (e.g., host user
+# "nborgers" → container user "vscode"), hook paths stored in settings.json use
+# the host home prefix (e.g., /home/nborgers/.claude/hooks/...) which doesn't
+# exist inside the container. Symlink the host home's .claude into place so
+# those absolute paths resolve.
+if [ -n "${HOST_HOME:-}" ] && [ "$HOST_HOME" != "$HOME" ]; then
+  sudo mkdir -p "$HOST_HOME"
+  sudo ln -sfn "$HOME/.claude" "$HOST_HOME/.claude"
+  echo "Symlinked $HOST_HOME/.claude → $HOME/.claude for hook path resolution"
+fi
+
+# Merge host Claude Code config into the container-local baseline. The image
+# seeds hasCompletedOnboarding in $HOME/.claude.json; a non-empty host file can
+# add user-specific settings without shadowing that baseline.
+if [ -n "${CLAUDE_HOST_CONFIG_FILE:-}" ] \
+   && [ -s "$CLAUDE_HOST_CONFIG_FILE" ]; then
+  if python3 -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' \
+    "$CLAUDE_HOST_CONFIG_FILE" >/dev/null 2>&1; then
+    echo "Merging Claude Code config from host..."
+    EXISTING_CONFIG="$HOME/.claude.json"
+    python3 -c '
+import json
+import sys
+
+host_path, container_path = sys.argv[1], sys.argv[2]
+with open(container_path, encoding="utf-8") as fh:
+    container = json.load(fh)
+with open(host_path, encoding="utf-8") as fh:
+    host = json.load(fh)
 host.update(container)
-json.dump(host, open(sys.argv[2], 'w'), indent=2)
-" "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
+with open(container_path, "w", encoding="utf-8") as fh:
+    json.dump(host, fh, indent=2)
+    fh.write("\n")
+' "$CLAUDE_HOST_CONFIG_FILE" "$EXISTING_CONFIG"
+    chmod 600 "$EXISTING_CONFIG"
+    echo "Claude Code config merged."
   else
-    cp "$CLAUDE_CONFIG_FILE" "$EXISTING_CONFIG"
+    echo "Warning: Host Claude Code config is not valid JSON; keeping container default."
   fi
-  chmod 600 "$EXISTING_CONFIG"
-  echo "Claude Code config merged."
-  rm -f "$CLAUDE_CONFIG_FILE"
-else
-  echo "Warning: No Claude config found; skipping config merge."
 fi
 
 # Link developer's host ~/.claude user-level customizations into the container.
-# The host directory is bind-mounted read-only at the same absolute path via
-# devcontainer.json; this just links the three pieces we want into the
-# container user's $HOME/.claude. Missing pieces (or an empty mount on a CI
-# runner) are a no-op.
+# devcontainer.json bind-mounts the host directory read-only at a staging path,
+# then this links the three supported items into the container user's
+# $HOME/.claude. Missing pieces (or an empty mount on a CI runner) are a no-op.
 if [ -n "${CLAUDE_HOST_CONFIG_DIR:-}" ] \
    && [ -d "$CLAUDE_HOST_CONFIG_DIR" ] \
    && [ "$CLAUDE_HOST_CONFIG_DIR" != "$HOME/.claude" ]; then
