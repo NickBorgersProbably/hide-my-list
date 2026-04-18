@@ -166,6 +166,8 @@ run_doc_validation() {
   run_doc_link_check
   echo "=== Validating model-id references ==="
   "$REPO_ROOT/scripts/validate-model-refs.sh"
+  echo "=== Validating spec catalog consistency ==="
+  "$REPO_ROOT/scripts/validate-spec-catalog.sh"
   mapfile -t doc_targets < <(build_doc_targets)
 
   if [ "${#doc_targets[@]}" -eq 0 ]; then
