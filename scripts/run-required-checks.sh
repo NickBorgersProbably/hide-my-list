@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 readonly SCRIPT_PATH_PATTERN='^(scripts/.*\.sh|setup/.*\.sh|\.githooks/(install-hooks\.sh|pre-commit|pre-push))$'
 readonly SCRIPT_TRIGGER_PATH_PATTERN='^(scripts/.*|setup/.*\.sh|\.githooks/.*)$'
 readonly DOC_PATH_PATTERN='^(docs/.*\.md|design/.*\.md|setup/.*\.md|README\.md|AGENTS\.md)$'
-readonly DOC_HELPER_PATH_PATTERN='^(scripts/check-doc-links\.sh|scripts/lint-mermaid-rendering\.sh|scripts/validate-mermaid\.sh)$'
+readonly DOC_HELPER_PATH_PATTERN='^(scripts/check-doc-links\.sh|scripts/lint-mermaid-rendering\.sh|scripts/validate-mermaid\.sh|scripts/validate-model-refs\.sh|scripts/validate-spec-catalog\.sh)$'
 readonly WORKFLOW_PATH_PATTERN='^(\.github/workflows/.*\.ya?ml|\.github/actions/.*\.ya?ml|\.github/actionlint\.yaml|\.yamllint|\.githooks/(install-hooks\.sh|pre-commit|pre-push)|scripts/validate-gh-cli-usage\.sh|scripts/validate-pr-tests-workflow\.sh|scripts/validate-workflow-refs\.sh)$'
 readonly CANONICAL_RUNNER='scripts/run-required-checks.sh'
 

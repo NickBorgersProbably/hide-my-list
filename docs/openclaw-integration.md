@@ -143,7 +143,7 @@ OpenClaw supports multiple model providers. We route through LiteLLM proxy on Ta
 }
 ```
 
-Canonical model list lives in `setup/openclaw.json.template`. `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in spec files resolves against that list and that cron-model references across sibling specs agree with `setup/cron/reminder-check.md` + `setup/cron/pull-main.md`.
+Canonical model list lives in `setup/openclaw.json.template`. `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in classifier-listed spec files resolves against that list and that cron-model references in cron-contract sections across sibling docs agree with `setup/cron/reminder-check.md` + `setup/cron/pull-main.md`.
 
 - **Primary model:** Claude Opus 4.6 (conversations, task management)
 - **Heartbeat model:** Claude Sonnet 4.6 (routine checks, cheaper)

@@ -456,7 +456,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task created with `is_reminder = true`. AI parses time reference (including timezone like "6pm PT") and converts to full ISO 8601.
 
-**Used by:** `check-reminders.sh`, run by isolated `reminder-check` cron every 15 min. Due reminders found → script writes repo-root handoff file (default: `.reminder-signal`) for delivery by heartbeat (Check 1 in `docs/heartbeat-checks.md`) or main-session startup (AGENTS.md step 5). Both paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Malformed/failed handoffs stay in place, not completed or deleted.
+**Used by:** `check-reminders.sh`, run by isolated `reminder-check` cron every 15 min. Due reminders found → script writes repo-root handoff file (default: `.reminder-signal`) for delivery by heartbeat (Check 1 in `docs/heartbeat-checks.md`) or main-session startup (AGENTS.md step 5). Both paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Malformed handoffs stay in place, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), and do not deliver, complete, or delete anything. Delivery failures also leave the handoff in place until retry succeeds.
 
 ---
 

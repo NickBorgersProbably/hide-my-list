@@ -26,6 +26,14 @@ for f in "$CLASSIFIER" "$INDEX" "$CATALOG"; do
   fi
 done
 
+extract_key_files_section() {
+  awk '
+    /^## Key Files$/ {in_section=1; next}
+    in_section && /^## / {in_section=0}
+    in_section {print}
+  ' "$CATALOG"
+}
+
 # Extract docs/*.md spec files from the classifier's is_spec_md() case block.
 mapfile -t spec_docs < <(
   awk '/^[[:space:]]*is_spec_md\(\)/{in_fn=1; next} in_fn && /^[[:space:]]*\}/{in_fn=0} in_fn' "$CLASSIFIER" \
@@ -38,6 +46,12 @@ if (( ${#spec_docs[@]} == 0 )); then
   exit 1
 fi
 
+key_files_section="$(extract_key_files_section)"
+if [[ -z "$key_files_section" ]]; then
+  echo "ERROR: could not extract Key Files section from $CATALOG" >&2
+  exit 1
+fi
+
 missing=()
 for doc in "${spec_docs[@]}"; do
   if [[ ! -f "$doc" ]]; then
@@ -45,10 +59,10 @@ for doc in "${spec_docs[@]}"; do
     continue
   fi
   base="$(basename "$doc")"
-  if ! grep -qF "$base" "$INDEX"; then
+  if ! grep -qF "]($base)" "$INDEX"; then
     missing+=("$doc: not linked from $INDEX")
   fi
-  if ! grep -qF "$doc" "$CATALOG"; then
+  if ! grep -qF -- "- \`$doc\`" <<<"$key_files_section"; then
     missing+=("$doc: not listed in $CATALOG Key Files")
   fi
 done

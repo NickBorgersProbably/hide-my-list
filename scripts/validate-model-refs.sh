@@ -2,15 +2,12 @@
 # Validate cross-spec consistency of `litellm/<id>` model references.
 #
 # Two invariants:
-#   1) Template membership: every `litellm/<id>` reference in any spec
-#      file must resolve in setup/openclaw.json.template's models array.
+#   1) Template membership: every `litellm/<id>` reference in each spec
+#      file registered by review-classify's is_spec_md() must resolve in
+#      setup/openclaw.json.template's models array.
 #   2) Cross-spec agreement: the canonical cron-model contract lives in
-#      setup/cron/reminder-check.md + setup/cron/pull-main.md. Other spec
-#      files that describe cron (setup/README.md, docs/architecture.md,
-#      docs/openclaw-integration.md, docs/heartbeat-checks.md, HEARTBEAT.md)
-#      must only reference model ids from the canonical set. The heartbeat
-#      model (from setup/cron/heartbeat-check.md) is also allowed because
-#      openclaw-integration.md documents it.
+#      setup/cron/reminder-check.md + setup/cron/pull-main.md. Other docs'
+#      cron-contract sections must match that canonical model.
 #
 # Background: model ids drift across spec files on every rename. Earlier
 # version of this check only enforced (1), so it silently passed when
@@ -23,8 +20,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 TEMPLATE="setup/openclaw.json.template"
+CLASSIFIER=".github/actions/review-classify/action.yml"
 if [[ ! -f "$TEMPLATE" ]]; then
   echo "ERROR: $TEMPLATE not found" >&2
+  exit 1
+fi
+if [[ ! -f "$CLASSIFIER" ]]; then
+  echo "ERROR: $CLASSIFIER not found" >&2
   exit 1
 fi
 
@@ -33,22 +35,68 @@ extract_litellm_refs() {
   grep -oE 'litellm/[A-Za-z0-9._-]+' "$1" | sort -u
 }
 
+extract_classifier_spec_patterns() {
+  awk '/^[[:space:]]*is_spec_md\(\)/{in_fn=1; next} in_fn && /^[[:space:]]*\}/{in_fn=0} in_fn' "$CLASSIFIER" \
+    | grep -oE '[A-Za-z0-9./*-]+\.md' \
+    | sort -u
+}
+
+build_membership_check_files() {
+  local pattern path
+
+  shopt -s nullglob
+  while IFS= read -r pattern; do
+    [[ -z "$pattern" ]] && continue
+    case "$pattern" in
+      *'*'*)
+        for path in $pattern; do
+          [[ -f "$path" ]] && printf '%s\n' "$path"
+        done
+        ;;
+      *)
+        [[ -f "$pattern" ]] && printf '%s\n' "$pattern"
+        ;;
+    esac
+  done < <(extract_classifier_spec_patterns)
+  shopt -u nullglob
+}
+
+extract_cron_contract_refs() {
+  local spec="$1"
+
+  case "$spec" in
+    "setup/README.md")
+      grep -F 'Both jobs run as isolated cron sessions' "$spec" | grep -oE 'litellm/[A-Za-z0-9._-]+' | sort -u
+      ;;
+    "docs/architecture.md")
+      grep -F "Both \`reminder-check\` and \`pull-main\` use" "$spec" | grep -oE 'litellm/[A-Za-z0-9._-]+' | sort -u
+      ;;
+    "docs/openclaw-integration.md")
+      grep -F "**Current registration contract:** Both \`reminder-check\` and \`pull-main\` run as isolated Haiku sessions" "$spec" \
+        | grep -oE 'litellm/[A-Za-z0-9._-]+' \
+        | sort -u
+      ;;
+    "docs/heartbeat-checks.md")
+      awk '/^### 2\. Cron Job Health/{in_section=1} /^### 3\./{in_section=0} in_section {print}' "$spec" \
+        | grep -oE 'litellm/[A-Za-z0-9._-]+' \
+        | sort -u
+      ;;
+    *)
+      extract_litellm_refs "$spec"
+      ;;
+  esac
+}
+
 # --- Invariant 1: template membership -----------------------------------
 
 template_ids="$(grep -oE '"id":[[:space:]]*"[^"]+"' "$TEMPLATE" | sed -E 's/.*"([^"]+)"$/\1/' | sort -u)"
 
-membership_check_files=(
-  "HEARTBEAT.md"
-  "docs/architecture.md"
-  "docs/openclaw-integration.md"
-  "docs/heartbeat-checks.md"
-  "setup/README.md"
-)
-for f in setup/cron/*.md; do
-  # Skip caveman-compression backups.
-  case "$f" in *.original.md) continue ;; esac
-  membership_check_files+=("$f")
-done
+mapfile -t membership_check_files < <(build_membership_check_files)
+
+if (( ${#membership_check_files[@]} == 0 )); then
+  echo "ERROR: no spec markdown files extracted from $CLASSIFIER is_spec_md()" >&2
+  exit 1
+fi
 
 missing=()
 for spec in "${membership_check_files[@]}"; do
@@ -68,9 +116,8 @@ canonical_cron_sources=(
   "setup/cron/reminder-check.md"
   "setup/cron/pull-main.md"
 )
-canonical_heartbeat_source="setup/cron/heartbeat-check.md"
 
-for f in "${canonical_cron_sources[@]}" "$canonical_heartbeat_source"; do
+for f in "${canonical_cron_sources[@]}"; do
   if [[ ! -f "$f" ]]; then
     echo "ERROR: canonical source missing: $f" >&2
     exit 1
@@ -82,7 +129,6 @@ mapfile -t canonical_cron_refs < <(
     extract_litellm_refs "$f"
   done | sort -u
 )
-mapfile -t canonical_heartbeat_refs < <(extract_litellm_refs "$canonical_heartbeat_source")
 
 if (( ${#canonical_cron_refs[@]} == 0 )); then
   echo "ERROR: no litellm/<id> found in canonical cron sources (${canonical_cron_sources[*]})" >&2
@@ -95,31 +141,28 @@ if (( ${#canonical_cron_refs[@]} > 1 )); then
 fi
 
 canonical_cron_ref="${canonical_cron_refs[0]}"
-allowed_cron_context=("${canonical_cron_refs[@]}" "${canonical_heartbeat_refs[@]}")
 
-# Sibling spec files that describe cron / heartbeat behavior. Any
-# `litellm/<id>` they name must appear in the allowed set above.
 sibling_files=(
   "setup/README.md"
   "docs/architecture.md"
   "docs/openclaw-integration.md"
   "docs/heartbeat-checks.md"
-  "HEARTBEAT.md"
 )
 
 drift=()
 for spec in "${sibling_files[@]}"; do
   [[ -f "$spec" ]] || continue
+  found_ref=0
   while IFS= read -r ref; do
     [[ -z "$ref" ]] && continue
-    ok=0
-    for allowed in "${allowed_cron_context[@]}"; do
-      if [[ "$ref" == "$allowed" ]]; then ok=1; break; fi
-    done
-    if (( ok == 0 )); then
+    found_ref=1
+    if [[ "$ref" != "$canonical_cron_ref" ]]; then
       drift+=("$spec: references $ref, but canonical cron model is $canonical_cron_ref (from ${canonical_cron_sources[*]})")
     fi
-  done < <(extract_litellm_refs "$spec")
+  done < <(extract_cron_contract_refs "$spec")
+  if (( found_ref == 0 )); then
+    drift+=("$spec: cron-contract section missing canonical $canonical_cron_ref reference")
+  fi
 done
 
 if (( ${#missing[@]} > 0 || ${#drift[@]} > 0 )); then
@@ -136,4 +179,4 @@ if (( ${#missing[@]} > 0 || ${#drift[@]} > 0 )); then
   exit 1
 fi
 
-echo "Model references consistent: canonical cron model = $canonical_cron_ref; all sibling specs agree"
+echo "Model references consistent: classifier-listed spec refs resolve in template; canonical cron model = $canonical_cron_ref"

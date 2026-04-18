@@ -25,6 +25,7 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `docs/heartbeat-checks.md` — Authoritative heartbeat check list (stranded reminders, cron health, drift, Notion connectivity, dirty-pull recovery)
 - `docs/ai-prompts.md` — Prompt architecture (core of app)
 - `docs/architecture.md` — System design + data flow spec
+- `docs/openclaw-integration.md` — OpenClaw runtime mapping, model routing, cron registration contract
 - `docs/agent-capabilities.md` — Session roles + runtime tool-boundary source of truth
 - `docs/task-lifecycle.md` — Task states: Pending → In Progress → Completed (with rejection/breakdown flows)
 - `docs/notion-schema.md` — Notion database schema
