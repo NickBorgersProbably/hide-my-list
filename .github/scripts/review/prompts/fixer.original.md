@@ -14,13 +14,13 @@ Reflects current PR state, not push-time state.
 
 ## Hard constraints
 
-1. **Apply only what reviewers asked for.** Read every reviewer artifact under `${REVIEWER_ARTIFACTS_DIR}` (one subdir per role, each with `*-result.json`). Per `blocking_issues[]` + high-confidence `fix_suggestions[]`: decide if fix safe. Apply what you can.
-2. **No new scope.** No unrelated refactors, features, improvements. Unrelated bugs → leave, future PR.
-2a. **Cross-file consistency.** Same fix across files = uniform wording + structure. No per-file paraphrasing.
+1. **Apply only what reviewers asked for.** Read every reviewer artifact under `${REVIEWER_ARTIFACTS_DIR}` (one subdir per role, each with `*-result.json`). For each `blocking_issues[]` entry and each high-confidence `fix_suggestions[]` entry, decide if fix is safe. Apply what you can.
+2. **No new scope.** No unrelated refactors, features, or improvements. Unrelated bugs → leave alone, future PR.
+2a. **Cross-file consistency.** Same conceptual fix across files = uniform wording + structure. No per-file paraphrasing.
 3. **Deterministic CI fixes NOT your job.** Lint/format/typecheck/test repair = upstream CI. Lint failure found → abort + report.
-4. **Do NOT touch `.git/`.** No `git add`, `git commit`, `git push`, `git config`, `git rebase`, or any git-write command. Pipeline commits + pushes after exit — host runner owns `.git/`. Git-write inside container fails ("cannot update the ref 'HEAD'") — `.git/` bind-mounted under different UID, forcing commit corrupts `.git/config` for runner cleanup (see PR #409).
+4. **Do NOT touch `.git/`.** No `git add`, `git commit`, `git push`, `git config`, `git rebase`, or any git-write command. Pipeline commits + pushes after exit — host runner owns `.git/`. Running git-write inside container fails ("cannot update the ref 'HEAD'") — `.git/` bind-mounted under different UID, forcing commit corrupts `.git/config` for runner cleanup (see PR #409).
 5. **Read-only git fine.** `git diff`, `git log`, `git status`, `git show`, `git ls-files` all work. Container entrypoint sets `safe.directory=/workspace` — no need to add. Use freely.
-6. **One logical fix batch, unstaged.** Write files, edit text. No `git add` — leave unstaged. Host step captures all working-tree changes via `git add -A`, commits as one. Commit message built from your `addressed[]` list — list every blocker actually addressed.
+6. **One logical fix batch, unstaged.** Write files, edit text. Do NOT `git add` — leave unstaged. Host step captures all working-tree changes via `git add -A`, commits as one. Commit message built from your `addressed[]` list — list every blocker actually addressed.
 
 ## Procedure
 
@@ -28,13 +28,13 @@ Reflects current PR state, not push-time state.
    ```bash
    find "${REVIEWER_ARTIFACTS_DIR}" -name '*-result.json'
    ```
-2. No reviewer result files, or artifact unparseable → no edits. Write no-op fix result to `$OUTPUT_PATH` and stop.
-3. Per blocker (`role/id` pair), read `message`, `patch_hint` (from `fix_suggestions[]` if present), `file`/`line`. If `file` null, `line` null, or blocker doesn't bound change to one named file + one small local edit → skip with reason. Otherwise:
-   - Safe from description alone?
+2. If no reviewer result files exist, or any artifact cannot be parsed well enough to read blockers and fix suggestions safely, do not edit files. Write a no-op fix result to `$OUTPUT_PATH` and stop.
+3. Per blocker (`role/id` pair), read `message`, `patch_hint` (from `fix_suggestions[]` if present), `file`/`line`. If `file` is null, `line` is null, or the blocker description does not bound the change to one named file and one small local edit, skip with reason. Otherwise decide:
+   - Safe to apply from description alone?
    - Touches only reviewer-named file?
    - Small + local (≤ ~50 lines)?
    All yes → apply. Otherwise → skip with reason.
-4. **Group related blockers.** Scan all blockers first. Same conceptual change across files → group, pick canonical wording, apply identically. No per-file improvisation unless structure requires (e.g., inline JSON placeholder vs. prose paragraph).
+4. **Group related blockers.** Before applying, scan all blockers. Same conceptual change across files → group, pick one canonical wording, apply identically. No per-file improvisation unless file structure genuinely requires (e.g., inline JSON placeholder vs. prose paragraph).
 5. Apply fixes in working tree. Run tests reviewers explicitly suggested. No formatters or linters.
 6. Leave changes unstaged. No `git add`, `git commit`, `git push`. Host step commits working tree + computes new SHA.
 7. Write result JSON. Set `new_sha` to `${REVIEWED_SHA}` — host commit step patches real post-commit SHA before judge reads.

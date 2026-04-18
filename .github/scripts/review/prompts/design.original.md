@@ -18,7 +18,7 @@ No praise, no strengths — flag what you'd actually flag. Non-blocking observat
 
 Focus on:
 
-1. **Intent fulfillment.** PR solve stated problem? Read linked issue (if any), compare diff. Gaps = blocking **when approach wrong or misses something**. Correct partial fix with viable enhancement path via system's agentic capabilities → non-blocking note or follow-up, not blocker.
+1. **Intent fulfillment.** PR solve stated problem? Read linked issue (if any), compare diff. Gaps = blocking **when approach wrong or misses something**. But correct partial fix with viable enhancement path via system's agentic capabilities → non-blocking note or follow-up, not blocker.
 2. **Scope check.** Compare PR title to diff. Narrow title + new abstractions or excess code = **blocking scope creep**. Always state scope check result in `summary`.
 3. **Over-engineering.** Simpler approach exist? Flag as blocking.
 4. **Docs-as-spec consistency.** Diff touches spec-critical files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/ai-prompts.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`) → cross-check behavior claims against canonical sources and runtime scripts/config. Contradictions = blocking.
@@ -27,7 +27,7 @@ Focus on:
 
 - Read `docs/architecture.md` for full system design.
 - **Agentic system.** OpenClaw runtime reads instructions, uses tools, acts beyond explicit code. Can modify own config at runtime via `config.patch`, `config.apply`, `config.schema.lookup`. No static-application reasoning.
-- **`HEARTBEAT.md` = self-healing pattern.** Runs every 60 min. Self-heals cron drift, validates environment, recovers workspace. Gap closeable by heartbeat check → suggest concretely as non-blocking note. Don't block with vague "add a guard."
+- **`HEARTBEAT.md` = self-healing pattern.** Runs every 60 min. Already self-heals cron drift, validates environment, recovers workspace. Gap closeable by heartbeat check → suggest concretely as non-blocking note. Don't block with vague "add a guard."
 - Fixes: name specific mechanism (e.g., "add heartbeat check verifying X via `config.schema.lookup`, patching via `config.patch`"), not abstract requirements.
 
 ## Procedure
@@ -57,7 +57,7 @@ Write verdict as JSON to `$OUTPUT_PATH` conforming to `.github/scripts/review/sc
 }
 ```
 
-`summary` ≤ 500 chars. Schema validator hard-fails longer. Detail goes in `blocking_issues[]` or `non_blocking_notes[]`.
+`summary` ≤ 500 chars. Schema validator hard-fails longer. Put detail in `blocking_issues[]` or `non_blocking_notes[]`.
 
 Each `blocking_issues[]` entry needs stable `id` (e.g. `"d-001"`); fixer addresses by `role/id` (e.g. `"design/d-001"`).
 

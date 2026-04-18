@@ -7,7 +7,7 @@ title: Notion Schema
 
 ## Overview
 
-hide-my-list uses Notion as database, Notion API for all CRUD. Zero DB setup, visual backup, rich querying.
+hide-my-list uses Notion as its database, leveraging Notion's API for all CRUD operations. This approach provides zero database setup, a visual backup interface, and rich querying capabilities.
 
 ## Database Structure
 
@@ -63,7 +63,7 @@ erDiagram
 ## Property Definitions
 
 ### Title (title)
-Main task description as entered by user.
+The main task description as entered by the user.
 
 ```mermaid
 flowchart LR
@@ -71,15 +71,15 @@ flowchart LR
 ```
 
 **Constraints:**
-- Required
-- Max 200 chars (app-enforced)
+- Required field
+- Maximum 200 characters (enforced by application)
 - Plain text only
 
 ---
 
 ### Status (select)
 
-Tracks task lifecycle.
+Tracks task lifecycle state.
 
 ```mermaid
 stateDiagram-v2
@@ -100,15 +100,15 @@ stateDiagram-v2
 | `completed` | Finished | User marks done |
 | `has_subtasks` | Parent task with hidden sub-tasks | Complex task or CANNOT_FINISH |
 
-**Note:** No "rejected" status. Rejected tasks return to `pending` with rejection notes appended.
+**Note:** There is no "rejected" status. Rejected tasks return to `pending` with rejection notes appended.
 
-**Note:** Tasks with `has_subtasks` never suggested directly. Only pending sub-tasks surfaced.
+**Note:** Tasks with `has_subtasks` status are never directly suggested to users. Only their pending sub-tasks are surfaced.
 
 ---
 
 ### WorkType (select)
 
-Categorizes work nature.
+Categorizes the nature of the work required.
 
 ```mermaid
 flowchart TD
@@ -153,7 +153,7 @@ flowchart TD
 
 ### Urgency (number)
 
-0-100 time sensitivity. **Static** — no auto-increase.
+0-100 scale indicating time sensitivity. **Static** - does not auto-increase.
 
 ```mermaid
 flowchart LR
@@ -182,7 +182,7 @@ flowchart LR
 
 ### TimeEstimate (number)
 
-Estimated minutes to complete.
+Estimated minutes to complete the task.
 
 ```mermaid
 flowchart LR
@@ -211,7 +211,7 @@ flowchart LR
 
 ### EnergyRequired (select)
 
-Cognitive/physical energy needed.
+Indicates cognitive/physical energy needed.
 
 ```mermaid
 flowchart TD
@@ -233,7 +233,7 @@ flowchart TD
 
 ### CreatedAt (date)
 
-Auto-populated on creation.
+Timestamp when task was added. Auto-populated on creation.
 
 ```
 Format: ISO 8601 (2025-01-04T10:30:00Z)
@@ -243,7 +243,7 @@ Format: ISO 8601 (2025-01-04T10:30:00Z)
 
 ### CompletedAt (date)
 
-Set on completion. Null until then.
+Timestamp when task was marked complete. Null until completion.
 
 ```mermaid
 flowchart LR
@@ -255,7 +255,7 @@ flowchart LR
 
 ### RejectionCount (number)
 
-Times user rejected this task. Starts at 0.
+Number of times user rejected this task when suggested. Starts at 0.
 
 ```mermaid
 flowchart LR
@@ -263,16 +263,16 @@ flowchart LR
     R1 --> R3["3+ rejections<br/>Consider deprioritizing"]
 ```
 
-**Score impact:**
+**Impact on Selection:**
 - 0 rejections: No penalty
-- 1-2: -0.05
-- 3+: -0.10
+- 1-2 rejections: -0.05 from score
+- 3+ rejections: -0.10 from score
 
 ---
 
 ### RejectionNotes (rich text)
 
-Append-only log with timestamps.
+Append-only log of rejection reasons with timestamps.
 
 ```
 Format:
@@ -281,13 +281,16 @@ Format:
 [2025-01-06 09:00] Waiting on Sarah's input
 ```
 
-**Used for:** Pattern detection, blocking dependencies, learning preferences.
+**Used for:**
+- Pattern detection (always rejected at certain times)
+- Identifying blocking dependencies
+- Learning user preferences
 
 ---
 
 ### AIContext (rich text)
 
-Original intake conversation for reference.
+Stores the original intake conversation for reference.
 
 ```
 Format:
@@ -297,13 +300,16 @@ User: She needs feedback by Friday
 AI: Added - focused work, ~30 min, moderate urgency.
 ```
 
-**Used for:** Debugging labels, context on suggestion, improving intake prompts.
+**Used for:**
+- Debugging label assignments
+- Providing context when task is suggested
+- Improving future intake prompts
 
 ---
 
 ### InlineSteps (rich text)
 
-Numbered action steps for simple tasks (not requiring hidden sub-tasks).
+Stores the numbered action steps for simple tasks (those not requiring hidden sub-tasks).
 
 ```
 Format:
@@ -312,14 +318,17 @@ Format:
 3. Note any follow-ups needed
 ```
 
-**Core Principle:** Vague goals feel infinite — users avoid them. Concrete steps make every task feel achievable.
+**Core Principle:** Users interpret vague goals as infinite, and thus avoid them. By always providing concrete steps, we make every task feel achievable.
 
-**Used for:** Showing what to do on accept, on-demand breakdown, step-by-step guidance.
+**Used for:**
+- Showing users exactly what to do when they accept a task
+- Providing on-demand breakdown assistance
+- Guiding users through task completion step-by-step
 
 **When populated:**
-- All tasks with `time_estimate` ≤ 60 min
-- All standalone tasks (no `parent_task_id`)
-- Even "simple" tasks like "Call mom"
+- All tasks with `time_estimate` ≤ 60 minutes
+- All standalone tasks (no parent_task_id)
+- Even "simple" tasks like "Call mom" get inline steps
 
 **Example values:**
 
@@ -333,7 +342,7 @@ Format:
 
 ### ParentTaskId (relation)
 
-Links sub-tasks to parent. Null for standalone.
+Links sub-tasks to their parent task. Null for standalone tasks.
 
 ```mermaid
 flowchart TD
@@ -353,32 +362,35 @@ flowchart TD
 ```
 
 **Constraints:**
-- Self-referential relation
-- Null for parents and standalones
+- Self-referential relation to same database
+- Null for parent tasks and standalone tasks
 - Set on sub-task creation
 
-**Note:** Internal only — never exposed to users.
+**Note:** This relation is used internally and never exposed to users.
 
 ---
 
 ### Sequence (number)
 
-Sub-task order within parent. Determines next suggestion.
+Order of sub-task within its parent. Determines which sub-task to offer next.
 
 | Value | Meaning |
 |-------|---------|
 | 1 | First sub-task (offered first) |
 | 2 | Second sub-task |
-| 3+ | Subsequent |
+| 3+ | Subsequent sub-tasks |
 | null | Not a sub-task |
 
-**Used for:** Next sub-task suggestion, logical order, skipping blocked steps.
+**Used for:**
+- Determining next sub-task to suggest after completion
+- Maintaining logical order of work
+- Skipping to later sub-tasks if earlier ones are blocked
 
 ---
 
 ### ProgressNotes (rich text)
 
-Tracks accomplishments, especially during CANNOT_FINISH.
+Tracks what the user accomplished, especially during CANNOT_FINISH events.
 
 ```
 Format:
@@ -387,113 +399,118 @@ Format:
 [2025-01-05 09:00] Sub-task 1 completed
 ```
 
-**Used for:** Understanding remaining work, creating accurate sub-tasks, context on resume.
+**Used for:**
+- Understanding what work remains after CANNOT_FINISH
+- Creating accurate sub-tasks for remaining work
+- Providing context when resuming work
 
 ### StartedAt (date)
 
-Set when user accepts and begins task. Used for:
-- Actual duration calc (with CompletedAt)
-- Initiation rewards
-- Per-user time estimation for time blindness compensation (Issue #6)
+Timestamp set when the user accepts and begins a task. Used for:
+- Calculating actual task duration (with CompletedAt)
+- Triggering initiation rewards
+- Building per-user time estimation data for time blindness compensation (Issue #6)
 
 ### StepsCompleted (number)
 
-Count of sub-steps finished. Used for:
-- First-step rewards (0→1)
-- Partial progress tracking during CANNOT_FINISH
-- Sub-task completion encouragement
+Count of sub-steps the user has completed within the current task. Used for:
+- Triggering first-step rewards (when incrementing from 0 to 1)
+- Tracking partial progress during CANNOT_FINISH events
+- Providing encouragement on sub-task completion
 
 ### ResumeCount (number)
 
-Times user returned after stepping away. Used for:
-- "Back at it" rewards (re-starting is hard)
-- Work pattern understanding (frequent breaks vs. sustained)
-- Escalating resume messages (1st, 2nd, 3rd+)
+Number of times the user has returned to a task after stepping away. Used for:
+- Triggering "back at it" rewards (re-starting is hard)
+- Understanding user work patterns (frequent breaks vs. sustained sessions)
+- Selecting escalating resume reward messages (1st, 2nd, 3rd+)
 
-Incremented by resume detection (see [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)) when ALL:
-1. Task `status = in_progress`
-2. Gap ≥ 15 min since last user message
+Incremented by the resume detection mechanism (see [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)) when ALL of:
+1. Task has `status = in_progress`
+2. Gap ≥ 15 minutes since last user message
 3. No resume already recorded for this gap (checked via `last_resumed_at`)
 
 ---
 
 ### LastResumedAt (date)
 
-Most recent resume detection timestamp. De-dup guard — prevents multiple resume events per inactivity gap.
+Timestamp of the most recent resume detection for this task. Used as a de-duplication guard to prevent multiple resume events from firing for the same inactivity gap.
 
 ```
 Format: ISO 8601 (2025-01-04T10:30:00Z)
 ```
 
 **Set when:** Resume detection fires (all three conditions met)
-**Checked by:** Resume detection gate — if `last_resumed_at` falls after gap start, resume already recorded, skip
-**Reset when:** Never — each resume overwrites with new timestamp
+**Checked by:** Resume detection gate — if `last_resumed_at` falls after the start of the current gap, resume has already been recorded and does not fire again
+**Reset when:** Never reset — each resume overwrites with the new timestamp
 
-See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection) for full detection mechanism.
+See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection) for the full detection mechanism.
 
 ---
 
 ### IsReminder (checkbox)
 
-Flags task as time-specific reminder, not normal work item. Not surfaced in normal task selection. Becomes eligible at `Remind At`, delivered by scheduled reminder system on next `reminder-check` poll.
+Boolean flag indicating this task is a time-specific reminder rather than a normal work item. Reminder tasks are not surfaced through the normal task selection flow. They become eligible at `Remind At` and are delivered proactively by the scheduled reminder system on the next eligible `reminder-check` poll.
 
 | Value | Description |
 |-------|-------------|
-| `true` | Timed reminder |
+| `true` | This task is a timed reminder |
 | `false` | Normal task (default) |
 
-**Set when:** AI detects reminder language during intake (e.g., "remind me at 6pm", "ping me at 3pm to call Sarah").
+**Set when:** AI detects reminder-style language during task intake (e.g., "remind me at 6pm", "ping me at 3pm to call Sarah").
 
 ---
 
 ### RemindAt (date)
 
-Wall-clock time reminder becomes due. Full ISO 8601 with timezone for comparison against current time.
+The wall-clock time at which the reminder becomes due. Stored as a full ISO 8601 timestamp with timezone offset so the scheduled reminder check can compare against the current time.
 
 ```
 Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 ```
 
-**Set when:** Task created with `is_reminder = true`. AI parses time reference (including timezone like "6pm PT") and converts to full ISO 8601.
+**Set when:** Task is created with `is_reminder = true`. The AI parses the user's time reference (including timezone like "6pm PT" or "3pm CT") and converts it to a full ISO 8601 timestamp.
 
-**Used by:** `check-reminders.sh`, run by isolated `reminder-check` cron every 15 min. Due reminders found → script writes repo-root handoff file (default: `.reminder-signal`) for delivery by heartbeat (HEARTBEAT.md Check 1) or main-session startup (AGENTS.md step 5). Both paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Malformed/failed handoffs stay in place, not completed or deleted.
+**Used by:** The `check-reminders.sh` script, which the isolated `reminder-check` cron job runs every 15 minutes. If due reminders are found, the script writes the repo-root reminder handoff file (default filename: `.reminder-signal`) for delivery by the heartbeat (HEARTBEAT.md Check 1) or the main-session startup check (AGENTS.md step 5). Before either delivery path sends anything, it validates that the handoff is JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Malformed or failed handoffs stay in place and are not completed or deleted.
 
 ---
 
 ### ReminderStatus (select)
 
-Tracks reminder delivery.
+Tracks whether a scheduled reminder has been delivered.
 
 | Value | Description | Trigger |
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
-| `sent` | Delivered successfully | Delivering session confirms after handoff-file flow |
-| `missed` | Delivered 15+ min late | Delivering session confirms via scheduler's missed flag |
+| `sent` | Successfully delivered to user | Delivering session confirms delivery after the handoff-file reminder flow surfaces the reminder |
+| `missed` | Delivered after being more than 15 minutes late | Delivering session confirms late delivery using the scheduler's missed flag |
 
-**Note:** When marked `sent` or `missed`, task `Status` also → `Completed` — reminder action (notifying user) done.
+**Note:** When a reminder is marked `sent` or `missed`, the task's main `Status` is also updated to `Completed` since the reminder action (notifying the user) is done.
 
-**Design constraint:** Isolated `reminder-check` cron does not set `Reminder Status` directly. OpenClaw exposes no post-announce delivery hook — pre-delivery mutation would drop reminder from `pending` query before confirmed delivery.
+**Design constraint:** The isolated `reminder-check` cron does not set `Reminder Status` directly. OpenClaw currently exposes no post-announce delivery acknowledgment hook, so pre-delivery status mutation would remove a reminder from the `pending` query set before delivery was confirmed.
 
 ---
 
 ## User Preferences Properties
 
-Personalized settings for task execution success. See [user-preferences.md](./user-preferences.md) for full docs.
+The User Preferences table stores personalized settings that help create an environment for success during task execution. See [user-preferences.md](./user-preferences.md) for full documentation.
 
 ### PreferredBeverage (select)
 
+User's preferred drink when working on tasks.
+
 | Value | Description |
 |-------|-------------|
-| `tea` | Hot tea (default for social/creative) |
-| `coffee` | Coffee (default for focus) |
-| `water` | Water or no preference |
-| `none` | No beverage prompts |
+| `tea` | Hot tea (default for social/creative tasks) |
+| `coffee` | Coffee (default for focus tasks) |
+| `water` | Water or no specific preference |
+| `none` | User prefers no beverage prompts |
 
 ---
 
 ### ComfortSpot (rich text)
 
-Favorite working location(s).
+Description of the user's favorite working location(s).
 
 ```
 Examples:
@@ -503,13 +520,13 @@ Examples:
 - "Patio when weather is nice"
 ```
 
-**Used for:** Environment setup in task breakdowns.
+**Used for:** Suggesting environment setup in task breakdowns.
 
 ---
 
 ### TransitionRitual (rich text)
 
-Between-task activity.
+Brief activity the user prefers between tasks.
 
 ```
 Examples:
@@ -519,7 +536,7 @@ Examples:
 - "Pet the cat"
 ```
 
-**Used for:** Suggesting breaks, helping user reset.
+**Used for:** Suggesting breaks between tasks and helping user reset.
 
 ---
 
@@ -530,15 +547,15 @@ Music preference during focused work.
 | Value | Description |
 |-------|-------------|
 | `lo-fi` | Lo-fi beats, ambient electronic |
-| `classical` | Classical, instrumentals |
-| `silence` | Quiet environment |
-| `none` | No music suggestions |
+| `classical` | Classical music, instrumentals |
+| `silence` | Prefers quiet environment |
+| `none` | No music suggestions needed |
 
 ---
 
 ### BreakActivity (rich text)
 
-Preferred post-task activity.
+Preferred activity after completing tasks.
 
 ```
 Examples:
@@ -552,7 +569,7 @@ Examples:
 
 ### Work Type Preferences (rich text - JSON)
 
-Four fields with work-type-specific preferences:
+Four fields storing JSON objects with work-type-specific preferences:
 
 **FocusPrefs:**
 ```json
@@ -599,7 +616,7 @@ Four fields with work-type-specific preferences:
 
 ### TaskPatterns (rich text - JSON)
 
-Preferences for recurring task types.
+Preferences for specific recurring task types.
 
 ```json
 {
@@ -623,7 +640,7 @@ Preferences for recurring task types.
 
 ### TimePrefs (rich text - JSON)
 
-Time-of-day preferences.
+Preferences that vary by time of day.
 
 ```json
 {
@@ -649,7 +666,7 @@ Time-of-day preferences.
 
 ### EnergyPrefs (rich text - JSON)
 
-Adjustments by current energy level.
+Adjustments based on user's current energy level.
 
 ```json
 {
@@ -693,7 +710,7 @@ erDiagram
 
 ### Parent Task Completion
 
-Parent auto-moves to `completed` when all sub-tasks complete:
+A parent task automatically moves to `completed` when all its sub-tasks are completed:
 
 ```mermaid
 flowchart TD
@@ -718,7 +735,7 @@ sequenceDiagram
     Notion-->>Agent: 200 OK with page ID
 ```
 
-**Required on Create:**
+**Required Fields on Create:**
 - Title
 - Status: `pending`
 - WorkType
@@ -832,14 +849,14 @@ flowchart TD
 2. Click "New integration"
 3. Name: `hide-my-list`
 4. Capabilities: Read, Update, Insert content
-5. Copy "Internal Integration Token"
+5. Copy the "Internal Integration Token"
 
 ### 2. Create Database
 
-1. Create new Notion page
-2. Add full-page database (table view)
-3. Add properties matching schema above
-4. Copy database ID from URL
+1. Create a new Notion page
+2. Add a full-page database (table view)
+3. Add properties matching the schema above
+4. Copy the database ID from the URL
 
 ```
 URL: https://notion.so/abc123...?v=xyz
@@ -848,10 +865,10 @@ Database ID: abc123...
 
 ### 3. Share with Integration
 
-1. Open database page
-2. Click "Share" top right
-3. Invite integration by name
-4. Grant "Can edit"
+1. Open the database page
+2. Click "Share" in the top right
+3. Invite your integration by name
+4. Grant "Can edit" access
 
 ### 4. Configure Environment
 
@@ -862,7 +879,9 @@ cp .env.template .env
 # NOTION_DATABASE_ID="abc123..."
 ```
 
-`.env` is canonical source of truth. Exported shell vars supported as optional overrides for manual/ad hoc runs.
+For normal runtime operation, `.env` is the canonical source of truth. Exported
+shell variables are still supported as optional overrides for manual or ad hoc
+script runs.
 
 ## Sample Data
 
@@ -913,4 +932,4 @@ flowchart TD
 | Write analysis | focus | 70 | 60 | high | pending | Q4 report | 3 |
 | Edit and finalize | focus | 70 | 30 | medium | pending | Q4 report | 4 |
 
-**User Experience:** User asks for task, sees: "How about drafting the outline for the Q4 report? Should take about 30 minutes." Never sees parent or full breakdown.
+**User Experience:** When the user asks for a task, they see: "How about drafting the outline for the Q4 report? Should take about 30 minutes." They never see the parent task or full breakdown.

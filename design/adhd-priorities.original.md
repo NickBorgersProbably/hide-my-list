@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Analyzes 8 open ADHD feature requests (Issues #5-#12) through ADHD psychology research. Classifies each as **foundational** (must shape core architecture day one) or **additive** (layer on later). Goal: embed right data structures, interaction patterns, extensibility points so ADHD accommodations are native, not retrofitted.
+This document analyzes the eight open ADHD feature requests (Issues #5-#12) through the lens of ADHD psychology research, classifying each as **foundational** (must shape core architecture from day one) or **additive** (can be layered on later). The goal is to ensure the hello world implementation embeds the right data structures, interaction patterns, and extensibility points so that critical ADHD accommodations are not retrofitted but native.
 
 ---
 
@@ -10,7 +10,7 @@ Analyzes 8 open ADHD feature requests (Issues #5-#12) through ADHD psychology re
 
 ### Foundational Features (Must Shape Core Architecture)
 
-Address most disabling ADHD symptoms. Require data structures, interaction patterns, or architectural decisions expensive to retrofit.
+These features address the most disabling ADHD symptoms and require data structures, interaction patterns, or architectural decisions that are expensive to retrofit.
 
 | Priority | Issue | Feature | Core ADHD Mechanism |
 |----------|-------|---------|---------------------|
@@ -21,7 +21,7 @@ Address most disabling ADHD symptoms. Require data structures, interaction patte
 
 ### Additive Features (Can Be Layered On Later)
 
-Enhance experience without fundamental architectural changes. Extend patterns from foundational features.
+These features enhance the experience but do not require fundamental architectural changes. They extend patterns established by foundational features.
 
 | Priority | Issue | Feature | Core ADHD Mechanism |
 |----------|-------|---------|---------------------|
@@ -34,15 +34,15 @@ Enhance experience without fundamental architectural changes. Extend patterns fr
 
 ## Interaction Patterns Required from Day One
 
-**Zero-question intake as default:** First task intake works with zero clarifying questions. AI infers everything, confirms with accept/reject. Too vague → up to 3 questions max, last resort only.
+**Zero-question intake as default:** The very first task intake experience should work with zero clarifying questions. The AI infers everything and confirms with accept/reject options. When a task is too vague to infer, up to 3 clarifying questions may be asked as a last resort.
 
-**Shame-free messaging as hard constraint:** Every response template and AI prompt reviewed against RSD criteria. Never:
+**Shame-free messaging as a hard constraint:** Every response template and AI prompt must be reviewed against RSD criteria. The system should never:
 - Use "you should have," "you didn't," or "you failed"
-- Imply deadline missed or user behind
+- Imply a deadline was missed or the user is behind
 - Frame task rejection as negative
 - Use countdown language that creates pressure
 
-**Celebrate starting, not just finishing:** First time user accepts task, system acknowledges initiation effort with brief warm response distinct from completion celebration.
+**Celebrate starting, not just finishing:** The first time a user accepts a task, the system should acknowledge the effort of initiation with a brief, warm response distinct from the completion celebration.
 
 ## AI Prompt Constraints
 

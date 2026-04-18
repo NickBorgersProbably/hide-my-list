@@ -1,6 +1,6 @@
 # Cron Job: pull-main
 
-Keeps the local workspace in sync with origin/main. The cron run is script-driven for Git hygiene: `scripts/pull-main.sh` handles clean pulls plus dirty-state recovery (GitHub issue creation + repo reset) without task-specific agent reasoning.
+Keeps workspace synced with origin/main. Script-driven for Git hygiene: `scripts/pull-main.sh` handles clean pulls + dirty-state recovery (GitHub issue creation + repo reset) without agent reasoning.
 
 ## Registration
 
@@ -16,7 +16,7 @@ CronCreate:
   timeout-seconds: 60
 ```
 
-This job runs as an isolated Haiku maintenance session. It executes `scripts/pull-main.sh` and stays silent (`NO_REPLY`). Cron spec re-application after pulls is handled by the heartbeat drift correction (HEARTBEAT.md Check 2b), not by this job — an isolated session cannot reliably call CronList/CronUpdate.
+Isolated Haiku maintenance session. Executes `scripts/pull-main.sh`, stays silent (`NO_REPLY`). Cron spec re-application after pulls handled by heartbeat drift correction (HEARTBEAT.md Check 2b), not this job — isolated session can't reliably call CronList/CronUpdate.
 
 ## Prompt
 
@@ -40,8 +40,8 @@ If `HEAD` advanced during this invocation, reply with ONLY: NO_REPLY.
 
 ## Notes
 
-- The script handles Git-state recovery: clean pulls stay silent, and dirty pulls create a GitHub issue (preserving local changes) before resetting the repo.
-- If interactive `gh` auth is missing, the script falls back to `GITHUB_PAT` from the repo `.env` by exporting `GH_TOKEN`. If neither auth path is available, it leaves `.pull-dirty` in place for the HEARTBEAT backstop (section 5) to retry via `scripts/pull-main.sh --recover-only` after auth is restored. Until then, heartbeat only preserves the signal and surfaces the problem for operator attention.
-- Cron jobs auto-expire after 7 days. HEARTBEAT.md remains the safety net: it re-registers missing jobs and patches any drift.
-- Post-pull cron spec re-application is handled by heartbeat drift correction within its next 60-minute cycle. This delay is acceptable because cron spec changes are rare operational events, not user-facing.
-- The GitHub issue preserves local changes for PR-based review before they're incorporated back into the system. This enforces the design principle that structural/prompt changes go through external review.
+- Script handles Git-state recovery: clean pulls silent, dirty pulls create GitHub issue (preserving local changes) then reset repo.
+- If `gh` auth missing, falls back to `GITHUB_PAT` from `.env` via `GH_TOKEN`. If neither available, leaves `.pull-dirty` for HEARTBEAT backstop (section 5) to retry via `scripts/pull-main.sh --recover-only` after auth restored. Until then, heartbeat preserves signal + surfaces problem for operator.
+- Cron jobs auto-expire after 7 days. HEARTBEAT.md safety net re-registers missing jobs + patches drift.
+- Post-pull cron spec re-application handled by heartbeat within next 60-minute cycle. Delay acceptable — cron spec changes rare, not user-facing.
+- GitHub issue preserves local changes for PR-based review before incorporation. Enforces design principle: structural/prompt changes go through external review.

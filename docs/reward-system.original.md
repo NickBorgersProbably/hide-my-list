@@ -7,7 +7,7 @@ title: Reward System
 
 ## Overview
 
-Reward system = core hide-my-list component. Dopamine-inducing positive reinforcement on task completion/progress. Multiple reward channels — system-generated + interpersonal — create motivation loop.
+The reward system is a core component of hide-my-list designed to provide dopamine-inducing positive reinforcement when users complete tasks or make progress. By leveraging multiple reward channels—both system-generated and interpersonal—we create a powerful motivation loop that keeps users engaged and productive.
 
 ## Reward Philosophy
 
@@ -34,7 +34,7 @@ mindmap
         Break recommendations
 ```
 
-Principle: **completing tasks should feel genuinely rewarding**. Achieved via:
+The reward system operates on the principle that **completing tasks should feel genuinely rewarding**. We achieve this through:
 
 1. **Immediate gratification** - Instant visual/audio feedback
 2. **Social reinforcement** - Loved ones acknowledge achievements
@@ -42,12 +42,14 @@ Principle: **completing tasks should feel genuinely rewarding**. Achieved via:
 
 ### Shame-Safe Reward Principles
 
-> **Shame Prevention:** Reward system must never create implicit comparison between "good" sessions (many completions) and "bad" sessions (few or none). Rewards celebrate what happened, never highlight what didn't.
+> **Shame Prevention:** The reward system must never create an implicit comparison
+> between "good" sessions (many completions) and "bad" sessions (few or none).
+> Rewards celebrate what happened, never highlight what didn't.
 
 - **Celebrate effort, not just results** — "You showed up and tried today. That counts."
-- **Never reference streak breaks negatively** — streak ends: don't mention. Just start fresh.
-- **Partial progress is real progress** — sub-task completion deserves acknowledgment
-- **Safe exits get warmth, not silence** — "See you next time" beats no response
+- **Never reference streak breaks negatively** — if a streak ends, don't mention it. Just start fresh.
+- **Partial progress is real progress** — completing sub-tasks deserves acknowledgment
+- **Safe exits get warmth, not silence** — "See you next time" is better than no response
 - **No guilt-inducing comparisons** — never "You did 3 tasks yesterday but only 1 today"
 
 ---
@@ -111,7 +113,7 @@ flowchart TB
 
 ### Emoji Celebrations
 
-Emoji-loaded congratulations messages scaling with achievement significance.
+Emoji-loaded congratulations messages that scale with achievement significance.
 
 ```mermaid
 flowchart LR
@@ -137,7 +139,10 @@ flowchart LR
 
 #### Initiation Reward Templates (Issue #7)
 
-> **Design principle:** Starting harder than finishing for ADHD brains. Initiation rewards acknowledge this truth. Feel like genuine encouragement from someone who understands, not participation trophies. Keep brief — user about to start working.
+> **Design principle:** Starting is harder than finishing for ADHD brains.
+> Initiation rewards acknowledge this truth. They should feel like genuine
+> encouragement from someone who understands, not participation trophies.
+> Keep them brief — the user is about to start working.
 
 ```mermaid
 flowchart TD
@@ -165,12 +170,15 @@ flowchart TD
     Cap --> Intensity
 ```
 
-Initiation rewards use **same scoring algorithm** as completion rewards
+Initiation rewards use the **same scoring algorithm** as completion rewards
 (see [Reward Scaling Algorithm](#reward-scaling-algorithm)), with two
 initiation-specific adjustments:
 
-1. **`initiation_base_weight`** — multiplier (default `0.4`) on base score, keeping initiation rewards inherently lighter.
-2. **`initiation_ceiling`** — intensity cap (default `Medium / 50`) preventing initiation rewards from reaching `High` or `Epic`, preserving those tiers for completion.
+1. **`initiation_base_weight`** — a multiplier (default `0.4`) applied to the
+   base score, keeping initiation rewards inherently lighter.
+2. **`initiation_ceiling`** — an intensity cap (default `Medium / 50`) that
+   prevents initiation rewards from ever reaching `High` or `Epic`, preserving
+   those tiers for completion.
 
 | Trigger | Base-Weight | Ceiling | Example Messages |
 |---------|-------------|---------|------------------|
@@ -181,10 +189,11 @@ initiation-specific adjustments:
 
 **Important design constraints:**
 - Initiation rewards must be **briefer and lighter** than completion rewards
-- Never celebrate starting so much it diminishes completion celebration
+- Never celebrate starting so much that it diminishes the completion celebration
 - Tone is **acknowledgment of difficulty**, not generic cheerleading
 - "You started" validates that starting is genuinely hard — don't trivialize it
-- First-time users always get initiation reward; returning users: vary frequency to avoid habituation (see Issue #12 for novelty)
+- First-time users should always get an initiation reward; for returning users,
+  vary frequency to avoid habituation (see Issue #12 for novelty)
 
 #### Completion Celebration Message Templates
 
@@ -203,14 +212,14 @@ initiation-specific adjustments:
 
 ### AI-Generated Celebration Images
 
-Every completion gets **unique, AI-generated celebration image** via OpenAI's `gpt-image-1` model. Novelty ADHD brains crave — no two celebrations identical, prevents habituation, maintains dopamine response.
+Every completion gets a **unique, AI-generated celebration image** via OpenAI's `gpt-image-1` model. This provides the novelty that ADHD brains crave — no two celebrations look the same, preventing habituation and maintaining dopamine response.
 
 #### Why AI-Generated Images
 
-- **Novelty**: ADHD brains habituate to repeated stimuli. Every AI image unique, no predictability.
-- **Dopamine**: Novel visual stimuli trigger stronger dopamine than familiar ones.
-- **Personalization**: Prompts incorporate user context, streaks, preferences.
-- **Scalability**: No static image library to curate/maintain.
+- **Novelty**: ADHD brains habituate to repeated stimuli. Every AI-generated image is unique, preventing predictability.
+- **Dopamine**: Novel visual stimuli trigger stronger dopamine release than familiar ones.
+- **Personalization**: Prompts can incorporate user context, streaks, and preferences.
+- **Scalability**: No need to curate and maintain a static image library.
 
 ```mermaid
 flowchart TD
@@ -257,7 +266,7 @@ Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
 
 #### Theme Pools by Intensity
 
-Each intensity level has 5+ thematic prompts. Random theme selected each time for variety.
+Each intensity level has a pool of 5+ thematic prompts. A random theme is selected each time, ensuring variety.
 
 | Intensity | Theme Style | Examples |
 |-----------|-------------|---------|
@@ -268,7 +277,7 @@ Each intensity level has 5+ thematic prompts. Random theme selected each time fo
 
 #### Streak Enhancements
 
-Streak count modifies generated image:
+Streak count modifies the generated image:
 
 | Streak | Visual Enhancement |
 |--------|--------------------|
@@ -278,12 +287,12 @@ Streak count modifies generated image:
 
 #### Novelty Mechanics (Issue #12)
 
-Image generation system inherently addresses novelty:
+The image generation system inherently addresses novelty concerns:
 
 1. **Random theme selection** — each intensity has 5+ themes, randomly chosen
-2. **AI variation** — same prompt produces different images each time
+2. **AI variation** — even the same prompt produces different images each time
 3. **Streak-responsive** — visual elements change as streaks grow
-4. **Expandable pools** — new themes added to script without code changes
+4. **Expandable pools** — new themes can be added to the script without code changes
 
 Future enhancements:
 - Seasonal/holiday theme injection
@@ -292,7 +301,7 @@ Future enhancements:
 
 #### Graceful Degradation — Offline Fallback Rewards
 
-If image generation unavailable (API outage, missing key, network error, malformed response), script **does not fail silently**. Suggests fun non-digital real-life reward from pool of 12:
+If image generation is unavailable for any reason (API outage, missing API key, network error, malformed response), the script **does not fail silently**. Instead, it suggests a fun, non-digital real-life reward drawn from a pool of 12 suggestions:
 
 - Favorite snack, cupcake, ice cream, chocolate
 - 30 minutes of a favorite video game
@@ -301,7 +310,7 @@ If image generation unavailable (API outage, missing key, network error, malform
 - Mini dance party, calling a friend, watching a show
 - Ordering favorite takeout
 
-Fallback writes suggestion to `.txt` file (instead of `.png`) and exits successfully — reward pipeline always delivers something. Prevents "expected reward didn't arrive" anti-pattern from Hallowell-Ratey's ADHD framework.
+The fallback writes the suggestion to a `.txt` file (instead of `.png`) and exits successfully, so the reward pipeline always delivers something positive. This prevents the "expected reward didn't arrive" anti-pattern identified in Hallowell-Ratey's ADHD framework.
 
 #### Environment Variables
 
@@ -311,15 +320,15 @@ Fallback writes suggestion to `.txt` file (instead of `.png`) and exits successf
 
 #### Image Archive & Collection
 
-Every generated reward image auto-archived to `rewards/` with metadata:
+Every generated reward image is automatically archived to `rewards/` with metadata:
 
 - **File naming**: `YYYY-MM-DD_HHMMSS_<intensity>.png`
-- **Manifest log**: `rewards/manifest.log` tracks timestamp, intensity, task title, file path
-- **Persistent**: Images survive across sessions — celebration history preserved
+- **Manifest log**: `rewards/manifest.log` tracks timestamp, intensity, task title, and file path
+- **Persistent**: Images survive across sessions — your celebration history is preserved
 
 #### Weekly Recap Video
 
-`scripts/generate-weekly-recap.sh` compiles all reward images from past week into card-flip transition video:
+`scripts/generate-weekly-recap.sh` compiles all reward images from the past week into a card-flip transition video:
 
 ```bash
 # Generate recap of past 7 days (default)
@@ -331,11 +340,11 @@ Every generated reward image auto-archived to `rewards/` with metadata:
 
 Features:
 - **Card-flip transitions** between images (fadegrays, circlecrop, radial, etc.)
-- **Variety in transitions** — each cut uses different style
-- **Fade-out ending** for polished finish
+- **Variety in transitions** — each cut uses a different style
+- **Fade-out ending** for a polished finish
 - **Output**: `rewards/weekly-recap-YYYY-MM-DD.mp4`
 
-Recap = tangible accomplishment record — scrolling a week of unique celebration images is itself a reward.
+The recap serves as a tangible record of accomplishment — scrolling through a week of unique celebration images is itself a reward.
 
 ```mermaid
 flowchart LR
@@ -373,7 +382,7 @@ flowchart LR
 
 ### Music Playback (Home Audio Integration)
 
-Home automation plays celebratory music on task completion.
+Leverage home automation systems to play celebratory music when tasks are completed.
 
 ```mermaid
 flowchart TB
@@ -457,7 +466,7 @@ flowchart LR
 
 ### Text Significant Other
 
-Auto-notify loved one on task completion — external positive reinforcement + social accountability.
+Automatically notify a loved one when the user completes tasks, creating external positive reinforcement and social accountability.
 
 ```mermaid
 flowchart TD
@@ -546,7 +555,7 @@ flowchart TD
 
 ### Outing Suggestions
 
-After completing tasks (especially difficult), suggest fun activities aligned with user interests — creates anticipation + self-reward.
+After completing tasks (especially difficult ones), suggest fun activities aligned with user interests to create anticipation and self-reward.
 
 ```mermaid
 flowchart TD
@@ -667,7 +676,8 @@ flowchart TD
 
 ### Score Calculation
 
-Same formula for **both** initiation and completion rewards. Initiation triggers apply weight + ceiling to keep lighter.
+The same formula is used for **both** initiation and completion rewards.
+Initiation triggers apply a weight and ceiling to keep them lighter.
 
 ```
 # --- Shared base calculation (initiation + completion) ---
@@ -692,9 +702,13 @@ initiation_score = min(initiation_ceiling, max(0, weighted_score - diminishing))
 ```
 
 **Why two adjustments?**
-- `initiation_base_weight` scales down task-difficulty component — user hasn't done work yet, only started.
-- `initiation_ceiling` guarantees no initiation reward ever reaches `High` or `Epic`, keeping those tiers exclusively for completion. Starting never feels more rewarding than finishing.
-- `streak_bonus` kept at full value for initiation — building a *starting* streak is genuinely hard for ADHD, deserves recognition.
+- `initiation_base_weight` scales down the task-difficulty component because
+  the user hasn't done the work yet — only started it.
+- `initiation_ceiling` guarantees that no initiation reward ever reaches `High`
+  or `Epic`, keeping those tiers exclusively for completion. This ensures
+  starting a task never feels more rewarding than finishing one.
+- `streak_bonus` is kept at full value for initiation because building a
+  *starting* streak is genuinely hard for ADHD and deserves recognition.
 
 ---
 
@@ -812,7 +826,8 @@ stateDiagram-v2
 
 ## Agent Commands
 
-Capabilities exposed via conversation commands, not HTTP endpoints. OpenClaw agent handles directly.
+These capabilities are exposed through conversation commands, not HTTP endpoints.
+The OpenClaw agent handles them directly during conversation.
 
 | Command | Purpose |
 |---------|---------|

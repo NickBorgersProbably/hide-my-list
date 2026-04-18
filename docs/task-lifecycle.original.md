@@ -7,7 +7,7 @@ title: Task Lifecycle
 
 ## Overview
 
-Task in hide-my-list moves through states from creation to completion. Doc details each phase.
+A task in hide-my-list goes through several states from creation to completion. This document details each phase of that journey.
 
 ## Complete Task Lifecycle
 
@@ -59,19 +59,19 @@ stateDiagram-v2
 
 | State | Description | Notion Status |
 |-------|-------------|---------------|
-| Intake | Task captured, AI inferring labels (up to 3 clarifying questions if vague) | N/A (not yet saved) |
+| Intake | Task being captured, AI inferring labels (may ask up to 3 clarifying questions if too vague) | N/A (not yet saved) |
 | Labeling | AI assigning work type, urgency, time estimate | N/A (not yet saved) |
 | Complexity | AI evaluating if task needs breakdown | N/A (not yet saved) |
 | Breakdown | AI creating sub-tasks (hidden from user) | N/A (parent) / `pending` (sub-tasks) |
 | Pending | Task saved, waiting to be selected | `pending` |
-| Selected | Task suggested, awaiting response | `pending` |
-| In Progress | User actively working | `in_progress` |
-| Check-In | System following up on progress | `in_progress` |
+| Selected | Task suggested to user, awaiting response | `pending` |
+| In Progress | User actively working on task | `in_progress` |
+| Check-In | System following up on task progress | `in_progress` |
 | Rejected | User declined, giving feedback | `pending` |
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
-| Cannot Finish | User indicates task too large | `in_progress` (triggers breakdown) |
-| Reminder Pending | Reminder waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
-| Reminder Sent | Reminder delivered on time | `Completed` (reminder_status=sent) |
+| Cannot Finish | User indicates task is too large | `in_progress` (triggers breakdown) |
+| Reminder Pending | Reminder task waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
+| Reminder Sent | Reminder delivered to user on time | `Completed` (reminder_status=sent) |
 | Reminder Missed | Reminder >15 min late, delivered with apology | `Completed` (reminder_status=missed) |
 | Completed | Task finished | `Completed` |
 
@@ -158,11 +158,11 @@ flowchart TD
 
 ## Phase 2.5: Sub-task Generation (All Tasks)
 
-After labeling, AI **always** generates actionable sub-tasks for every task. Core principle: **users interpret vague goals as infinite, thus avoid them.** Clear sub-tasks upfront give users defined path forward.
+After labeling, the AI **always** generates a series of actionable sub-tasks for every task. This is a core principle: **users interpret vague goals as infinite, and thus avoid them.** By providing clear, specific sub-tasks upfront, we give users a defined path forward.
 
-**Key Principle:** Every task, no matter how simple, gets explicit sub-tasks defining exactly what "done" looks like.
+**Key Principle:** Every task, no matter how simple it appears, gets explicit sub-tasks that define exactly what "done" looks like.
 
-**Key Enhancement:** Sub-tasks personalized from user preferences to create success environment. First 1-2 steps focus on preparation and comfort.
+**Key Enhancement:** Sub-tasks are personalized based on user preferences to create an environment for success. The first 1-2 steps focus on preparation and comfort.
 
 ```mermaid
 flowchart TD
@@ -203,7 +203,7 @@ flowchart LR
 
 ### Personalized Prep Steps
 
-System fetches user preferences and injects into breakdown prompt, enabling personalized "environment for success" steps.
+Before generating core task steps, the system fetches user preferences and injects them into the breakdown prompt. This enables personalized "environment for success" steps.
 
 ```mermaid
 flowchart TD
@@ -265,8 +265,8 @@ flowchart TD
 
 ### Sub-task Structure
 
-When task breaks down, system creates:
-- **Parent task**: Original task description (status: `has_subtasks`)
+When a task is broken down, the system creates:
+- **Parent task**: The original task description (status: `has_subtasks`)
 - **Sub-tasks**: Actionable pieces (status: `pending`, linked to parent)
 
 ```mermaid
@@ -288,14 +288,14 @@ flowchart TD
     P --> S4
 ```
 
-**User Experience:** When task suggested, user sees actionable first step + brief summary of full task:
+**User Experience:** When a task is suggested, the user sees the actionable first step along with a brief summary of what completing the full task involves:
 
 - For inline steps: "How about calling mom? Here's the plan: 1) Find a quiet spot, 2) Make the call, 3) Note any follow-ups. Should take about 15 minutes."
 - For hidden sub-tasks: "How about drafting the outline for the Q4 report? This is the first of 4 steps to complete the full report. Should take about 30 minutes."
 
 ### On-Demand Breakdown Assistance
 
-Agent must always stand ready to help users break down tasks further. When user starts task or expresses hesitation, agent proactively offers specific approach suggestions.
+The agent must always stand ready to help users further break down tasks. When a user starts a task or expresses hesitation, the agent proactively offers specific suggestions for how to approach the work.
 
 ```mermaid
 flowchart TD
@@ -315,10 +315,10 @@ flowchart TD
 ```
 
 **Key Behaviors:**
-- Agent never assumes user knows next step
+- Agent never assumes user knows what to do next
 - Agent always has specific, concrete next actions ready
-- If user stuck, agent proactively offers smaller sub-tasks
-- User never figures out "how" alone
+- If user seems stuck, agent proactively offers smaller sub-tasks
+- User should never have to figure out "how" on their own
 
 ### Task Reframing
 
@@ -431,7 +431,7 @@ stateDiagram-v2
 
 ### Step Completion and `steps_completed` Tracking
 
-When user completes a sub-step (inline or sub-task), system increments `steps_completed` and checks whether to fire first-step reward.
+When a user completes a sub-step (inline step or sub-task), the system increments `steps_completed` and checks whether to fire a first-step reward.
 
 ```mermaid
 flowchart TD
@@ -452,7 +452,10 @@ flowchart TD
     NextStep --> Working([User continues working])
 ```
 
-> **First-Step Rewards (Issue #7):** Completing first step = critical momentum point for ADHD brains. Reward lighter than task completion but acknowledges progress: "First step down. You're rolling." Bridges gap between initiation reward (accepting) and completion celebration.
+> **First-Step Rewards (Issue #7):** Completing the first step is a critical
+> momentum point for ADHD brains. The reward is lighter than task completion
+> but acknowledges progress: "First step down. You're rolling." This bridges
+> the gap between the initiation reward (accepting) and completion celebration.
 
 ### Step Tracking Examples
 
@@ -466,13 +469,16 @@ flowchart TD
 
 ### Task Initiation Rewards
 
-When user accepts task, system provides brief **initiation reward** acknowledging starting is hardest part.
+When a user accepts a task, the system provides a brief **initiation reward** acknowledging that starting is the hardest part.
 
-> **Task Initiation Rewards (Issue #7):** Starting harder than finishing for ADHD brains. Acceptance triggers brief acknowledgment: "You're in. That's the hardest part." Lighter than completion celebrations — encouragement, not party.
+> **Task Initiation Rewards (Issue #7):** Starting is harder than finishing for
+> ADHD brains. The moment of acceptance triggers a brief acknowledgment:
+> "You're in. That's the hardest part." This is lighter than completion
+> celebrations — encouragement, not a party.
 
 ## Phase 5: Check-In Follow-Up
 
-After acceptance, agent records timing metadata and (optionally) relies on OpenClaw cron to prompt follow-ups. No browser timer exists.
+After acceptance, the agent records timing metadata and (optionally) relies on an OpenClaw cron job to prompt follow-ups. No browser timer exists.
 
 ```mermaid
 flowchart TD
@@ -551,13 +557,13 @@ flowchart TD
 
 ### Maximum Check-Ins
 
-System limits check-ins to 3 per task session to avoid nagging:
+The system limits check-ins to 3 per task session to avoid nagging:
 
 1. **1st check-in**: Friendly inquiry
 2. **2nd check-in**: Brief follow-up
-3. **3rd check-in**: Suggest break, stop checking in
+3. **3rd check-in**: Suggest taking a break, stop checking in
 
-If user returns and re-accepts same task, check-in count resets when `state.json.active_task` recreated.
+If the user returns later and re-accepts the same task, the check-in count resets when `state.json.active_task` is recreated.
 
 ## Phase 6: Rejection Handling
 
@@ -610,11 +616,11 @@ flowchart LR
 
 ## Phase 5.1: Resume Detection
 
-When user returns after stepping away while task is `in_progress`, system detects **resume event** and provides encouragement. Re-engaging after break is psychologically harder than starting fresh — system explicitly acknowledges this.
+When a user returns to a conversation after stepping away while a task is `in_progress`, the system detects this as a **resume event** and provides encouragement. Re-engaging after a break is psychologically harder than starting fresh — the system explicitly acknowledges this.
 
 ### Single Trigger Model
 
-Resume detection uses **single gate** — all conditions must be met simultaneously. No alternate trigger paths or override mechanisms.
+Resume detection uses a **single gate** — all conditions must be met simultaneously. There are no alternate trigger paths or override mechanisms.
 
 ```mermaid
 flowchart TD
@@ -633,19 +639,19 @@ flowchart TD
     CheckDuration -->|> 24 hours| AskConfirm([Ask: continue or abandon?])
 ```
 
-**Why single gate:** PR #50 attempted three-signal approach (session boundary, explicit phrase, inactivity gap) where some signals could bypass time threshold. Three of four reviewers identified contradiction producing unreliable behavior. Single-gate eliminates ambiguity: every resume goes through same conditions, every time.
+**Why a single gate:** PR #50 attempted a three-signal approach (session boundary, explicit phrase, inactivity gap) where some signals could bypass the time threshold. Three of four reviewers identified this as a contradiction that produces unreliable behavior. The single-gate model eliminates ambiguity: every resume event goes through the same conditions, every time.
 
 ### Trigger Conditions (ALL required)
 
 | # | Condition | Source | Rationale |
 |---|-----------|--------|-----------|
 | 1 | At least one task has `status = in_progress` | Notion query | No resume without active work |
-| 2 | Gap ≥ 15 minutes since last user message | Conversation platform timestamp | Filters normal pauses (bathroom, snack, quick interruption) |
+| 2 | Gap ≥ 15 minutes since last user message | Conversation platform timestamp | Filters out normal pauses (bathroom, snack, quick interruption) |
 | 3 | No resume already recorded for this gap | `last_resumed_at` field | Prevents duplicate detection within same re-engagement |
 
 **What about session boundaries and explicit phrases?**
-- New conversation session naturally involves time gap — if ≥ 15 min, resume fires. If not, no resume needed (user barely left).
-- Phrases like "I'm back" or "resuming" treated as normal messages. If after 15+ min gap, resume fires. System doesn't parse intent — gap speaks for itself.
+- A new conversation session naturally involves a time gap — if it's ≥ 15 minutes, resume fires. If not, no resume is needed (the user barely left).
+- Phrases like "I'm back" or "resuming" are treated as normal messages. If they arrive after a 15+ minute gap, resume fires. The system does not need to parse intent to detect a resume — the gap speaks for itself.
 
 ### Gap Duration Behavior
 
@@ -689,7 +695,7 @@ flowchart TD
 
 ### Resume Rewards
 
-Resume rewards are **light-medium intensity** — heavier than initiation rewards (re-starting harder than starting) but lighter than completion rewards.
+Resume rewards are **light-medium intensity** — heavier than initiation rewards (because re-starting is harder than starting) but lighter than completion rewards.
 
 | Resume # | Message Examples | Intensity |
 |----------|------------------|-----------|
@@ -697,13 +703,13 @@ Resume rewards are **light-medium intensity** — heavier than initiation reward
 | 2nd | "Back again — that's persistence." | Light-medium |
 | 3rd+ | "You keep coming back to this. That takes real grit." | Light-medium |
 
-> **Shame-safe:** Resume messages always celebrate return, never reference absence.
-> Never say "You were gone for X hours" or "It's been a while." Gap logged
-> internally for analytics but never surfaced to user.
+> **Shame-safe:** Resume messages always celebrate the return, never reference the absence.
+> Never say "You were gone for X hours" or "It's been a while." The gap is logged
+> internally for analytics but never surfaced to the user.
 
 ### State Restoration on Resume
 
-When resume fires, system restores task context:
+When resume fires, the system restores task context:
 
 | Action | Purpose |
 |--------|---------|
@@ -711,14 +717,14 @@ When resume fires, system restores task context:
 | Set `last_resumed_at` to now | De-duplication guard for this gap |
 | Append to `progress_notes`: `[timestamp] Resumed (gap: Xm)` | Internal audit trail |
 | Reset check-in count to 0 | Fresh check-in cycle after break |
-| Set new check-in due time (based on remaining estimate) | Proactive follow-up without stale timers |
+| Set new check-in due time (based on remaining estimate) | Proactive follow-up without carrying over stale timers |
 | Remind user of `steps_completed` and last progress note | Help user regain context (4+ hour gaps only) |
 
 ### De-duplication Guards
 
-**Problem:** Without guards, resume could fire multiple times for same gap — e.g., user sends several messages quickly after returning.
+**Problem:** Without guards, a resume could be detected multiple times for the same gap — e.g., if the user sends several messages in quick succession after returning.
 
-**Solution:** `last_resumed_at` timestamp acts as de-duplication key.
+**Solution:** The `last_resumed_at` timestamp acts as a de-duplication key.
 
 ```mermaid
 flowchart TD
@@ -733,10 +739,10 @@ flowchart TD
 **Concrete example:**
 1. User sends message at 10:00
 2. User goes silent
-3. User returns at 10:30 — gap 30 min, `last_resumed_at` null or before 10:00 → **resume fires**, sets `last_resumed_at = 10:30`
-4. User sends message at 10:31 — gap from 10:30 is 1 min → **no resume** (gap < 15 min)
+3. User returns at 10:30 — gap is 30 min, `last_resumed_at` is null or before 10:00 → **resume fires**, sets `last_resumed_at = 10:30`
+4. User sends another message at 10:31 — gap from 10:30 is 1 min → **no resume** (gap < 15 min from most recent message)
 5. User goes silent again
-6. User returns at 11:15 — gap 44 min from 10:31, `last_resumed_at` is 10:30 (before 10:31) → **resume fires again**
+6. User returns at 11:15 — gap is 44 min from 10:31, `last_resumed_at` is 10:30 (before 10:31) → **resume fires again**
 
 ### Multiple In-Progress Tasks
 
@@ -758,9 +764,9 @@ flowchart TD
 ```
 
 **Rules for multiple in-progress tasks:**
-- Resume reward fires **once** (per session), not once per task
-- User chooses which task to resume — system does not auto-select
-- Unchosen tasks remain `in_progress` (user may resume later)
+- Resume reward fires **once** (for the session), not once per task
+- The user chooses which task to resume — the system does not auto-select
+- Tasks the user doesn't choose remain `in_progress` (they may resume those later)
 - If user says "neither," all in-progress tasks return to `pending`
 
 ### False-Positive Mitigation
@@ -769,7 +775,7 @@ flowchart TD
 |------|------------|--------------|
 | Micro-breaks (< 15 min) trigger resume | 15-minute floor | Filters bathroom breaks, snack runs, quick interruptions |
 | Stale tasks auto-resume after days | >24h confirmation prompt | User explicitly confirms intent to continue |
-| Duplicate resume for same gap | `last_resumed_at` de-dup guard | One resume per inactivity gap |
+| Duplicate resume for same gap | `last_resumed_at` de-dup guard | Only one resume per inactivity gap |
 | Multiple tasks get separate resume rewards | Single reward per session return | One acknowledgment regardless of task count |
 | Unearned reward from false detection | Light-medium intensity only | Resume rewards are encouragement, not celebration — low blast radius if wrong |
 
@@ -787,7 +793,7 @@ Resume detection requires these fields on each task:
 
 ## Phase 5.5: Cannot Finish (Re-breakdown)
 
-When user indicates they cannot finish, system gathers progress and creates new sub-tasks for remaining work.
+When a user indicates they cannot finish a task, the system gathers progress information and creates new sub-tasks for the remaining work.
 
 ```mermaid
 flowchart TD
@@ -803,7 +809,7 @@ flowchart TD
 
 ### Progress Gathering
 
-AI must always ask what user accomplished before breaking down remaining work:
+The AI must always ask what the user accomplished before breaking down remaining work:
 
 ```mermaid
 sequenceDiagram
@@ -829,13 +835,13 @@ sequenceDiagram
 |----------|--------|
 | First CANNOT_FINISH | Ask progress → Break into 3-5 sub-tasks |
 | Second CANNOT_FINISH | Break current sub-task into 2-3 smaller pieces |
-| Third+ CANNOT_FINISH | Ask what specific part blocks → Create atomic tasks |
+| Third+ CANNOT_FINISH | Ask what specific part is blocking → Create atomic tasks |
 
 ### Learning from Cannot Finish
 
-Each CANNOT_FINISH teaches system:
+Each CANNOT_FINISH signal teaches the system:
 - Original time estimates may be too aggressive
-- Task scope underestimated
+- Task scope was underestimated
 - Future similar tasks should be pre-broken
 
 ```mermaid
@@ -904,6 +910,8 @@ flowchart TD
 
 ### Reward Intensity Scaling
 
+The reward system scales celebrations based on achievement significance:
+
 | Trigger | Intensity | Rewards Activated |
 |---------|-----------|-------------------|
 | Initiation only | Lightest | Brief encouragement, no image |
@@ -915,7 +923,7 @@ flowchart TD
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow separate lifecycle from normal tasks. Not surfaced through task selection. Durable `reminder-check` cron polls for reminders that reached `Remind At` and delivers on next eligible run.
+Reminder tasks follow a separate lifecycle from normal tasks. They are not surfaced through task selection. Instead, the durable `reminder-check` cron job polls for reminders that have reached `Remind At` and delivers them on the next eligible run.
 
 ```mermaid
 flowchart TD
@@ -946,16 +954,16 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | Isolated Haiku `reminder-check` writes reminder handoff file; delivered by heartbeat (60 min) or main-session startup check (next user interaction) |
+| Selection | User requests → AI suggests | Isolated Haiku `reminder-check` writes the reminder handoff file; delivered by heartbeat (60 min) or main-session startup check (next user interaction) |
 | Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent` or `missed`) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Reminder delivery separated from cron query. Isolated `reminder-check` cron writes handoff file and exits. Delivery through heartbeat (HEARTBEAT.md Check 1, every 60 min) or main-session startup check (AGENTS.md step 5, on every user interaction). Both paths first validate handoff is JSON with `reminders` array where each entry is object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status = malformed handoff — file stays, nothing delivered or completed. For valid late reminders, user-facing copy stays brief and nonjudgmental: `This was due a bit ago — [task]. Want to handle it now or reschedule?` If delivery fails, handoff file left in place for retry.
+Reminder delivery is separated from the cron query. The isolated `reminder-check` cron writes the handoff file and exits. Delivery happens through the heartbeat (HEARTBEAT.md Check 1, every 60 min) or the main-session startup check (AGENTS.md step 5, on every user interaction). Both delivery paths first validate that the handoff is JSON with a `reminders` array where each entry is an object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status makes the handoff malformed, so the file stays in place and nothing is delivered or completed. For valid late reminders, the user-facing copy stays brief and nonjudgmental: `This was due a bit ago — [task]. Want to handle it now or reschedule?` If delivery fails, the handoff file is left in place for retry.
 
 ### Timezone Handling
 
-AI converts user-specified times to full ISO 8601 timestamps at intake:
+The AI converts user-specified times to full ISO 8601 timestamps at intake:
 - User's default timezone: US Central (America/Chicago, UTC-6/UTC-5)
 - "6pm PT" → `2025-01-04T18:00:00-08:00`
 - "3pm" (no TZ) → `2025-01-04T15:00:00-06:00` (default Central)

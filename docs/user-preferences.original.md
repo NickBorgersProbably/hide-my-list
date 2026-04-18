@@ -2,7 +2,7 @@
 
 ## Overview
 
-Preference system tracks user comforts, rituals, preferences to create success environment for different task types. Generates personalized steps, not generic breakdowns — acknowledges what helps each user perform best.
+The user preferences system tracks individual user comforts, rituals, and preferences that help create an environment for success when approaching different types of tasks. Rather than generic task breakdowns, the system generates personalized steps that acknowledge what helps each user perform their best.
 
 ## Core Philosophy
 
@@ -31,7 +31,7 @@ mindmap
       Deep breaths
 ```
 
-**Key Insight:** Users start/complete more tasks when environment feels supportive. Personalized prep step like "Make a cup of tea" cuts activation energy needed to begin.
+**Key Insight:** Users are more likely to start (and complete) tasks when the environment feels supportive. A personalized "prep step" like "Make a cup of tea" can reduce the activation energy needed to begin.
 
 ---
 
@@ -67,7 +67,7 @@ flowchart TB
 
 ### 1. General Preferences
 
-Universal comforts across all task types.
+Universal comforts that apply across all task types.
 
 | Preference | Example Values | Usage |
 |------------|----------------|-------|
@@ -79,7 +79,7 @@ Universal comforts across all task types.
 
 ### 2. Work Type Preferences
 
-Preferences tied to four work types.
+Specific preferences tied to the four work types.
 
 ```mermaid
 flowchart TD
@@ -114,7 +114,7 @@ flowchart TD
 
 ### 3. Task Pattern Preferences
 
-Preferences for recurring task patterns.
+Preferences for specific recurring task patterns.
 
 | Pattern | Preference | Example |
 |---------|------------|---------|
@@ -209,7 +209,7 @@ erDiagram
 
 ## Preference Learning
 
-System learns via explicit input and implicit observation.
+The system learns preferences through explicit input and implicit observation.
 
 ### Explicit Learning
 
@@ -268,7 +268,7 @@ flowchart LR
 
 ### Task Breakdown Enhancement
 
-Preferences injected as LLM context when generating breakdowns.
+When generating task breakdowns, user preferences are injected as context for the LLM.
 
 ```mermaid
 flowchart TD
@@ -299,6 +299,8 @@ flowchart TD
 ```
 
 ### Context Block Format
+
+The preference context is added to LLM prompts when generating breakdowns:
 
 ```
 USER CONTEXT:
@@ -333,7 +335,7 @@ The first 1-2 steps should focus on environment setup and mental preparation.
 
 ## Time & Energy Context
 
-Preferences vary by time of day and energy level.
+Preferences can vary by time of day and energy level.
 
 ### Time-of-Day Preferences
 
@@ -437,7 +439,7 @@ flowchart TD
 
 ### Learning Preferences Naturally
 
-System learns via natural conversation:
+The system learns preferences through natural conversation:
 
 ```
 User: "I need to call the dentist"
@@ -476,11 +478,11 @@ AI: "Noted - tea before calls it is! 🍵"
 
 | Control | Description |
 |---------|-------------|
-| View preferences | User sees all stored preferences |
-| Edit preferences | User modifies any preference |
-| Delete preferences | User clears all learned preferences |
-| Pause learning | User disables implicit learning |
-| Opt-out of prep steps | User requests "just the task" |
+| View preferences | User can see all stored preferences |
+| Edit preferences | User can modify any preference |
+| Delete preferences | User can clear all learned preferences |
+| Pause learning | User can disable implicit learning |
+| Opt-out of prep steps | User can request "just the task" |
 
 ### Data Minimization
 
@@ -495,10 +497,10 @@ AI: "Noted - tea before calls it is! 🍵"
 
 ### Environmental Integration
 
-- Connect smart home for automatic environment setup
+- Connect to smart home for automatic environment setup
 - Dim lights for focus work
 - Play preferred music automatically
-- Adjust thermostat by task type
+- Adjust thermostat based on task type
 
 ### Partner Preferences
 

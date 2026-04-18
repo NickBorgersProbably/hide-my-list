@@ -7,7 +7,7 @@ title: AI Prompts
 
 ## Overview
 
-hide-my-list uses Claude API for all AI features: intent detection, task intake, label inference, task selection, rejection handling. Doc covers prompt architecture and strategies.
+hide-my-list uses Claude API for all AI-powered features: intent detection, task intake, label inference, task selection, and rejection handling. This document details the prompt architecture and strategies.
 
 ## Prompt Architecture
 
@@ -120,7 +120,7 @@ Message: "{user_message}"
 Intent:
 ```
 
-**Note:** CHECK_IN never inferred from user messages. Reserved system intent for OpenClaw-driven follow-up. Default workspace does **not** auto-register `task-check-in` cron yet; operator must add one before autonomous check-ins occur. Until then, only explicit runtime triggers (manual cron run, developer testing) enter Module 6. Normal user replies like "I'm back" still go through standard intent flow.
+**Note:** CHECK_IN is never inferred from user messages. It is a reserved system intent for an OpenClaw-driven follow-up. The default workspace does **not** auto-register a `task-check-in` cron job yet; an operator must add one before autonomous check-ins occur. Until then, only explicit runtime triggers (manual cron run, developer testing) should enter Module 6. Normal user replies like "I'm back" still go through the standard intent flow.
 
 ### Intent Detection Examples
 
@@ -173,7 +173,15 @@ flowchart TD
     Breakdown --> Save
 ```
 
-> **Decision Fatigue Prevention (Issue #11):** Intake flow strongly prefers inference over questions. Every field inferred from context, keywords, defaults when possible. When task genuinely too vague to act on (e.g., "do the thing", "handle that"), system may ask up to **3 clarifying questions per task**, **one at a time**. Each question depletes limited executive function — questions are last resort, not default. Research: 82% of ADHD participants report frequent decision-making difficulties; 58% experience decision paralysis weekly.
+> **Decision Fatigue Prevention (Issue #11):** The intake flow strongly prefers
+> inference over questions. Every field should be inferred from context, keywords,
+> and reasonable defaults whenever possible. However, when the task description is
+> genuinely too vague to act on (e.g., "do the thing", "handle that"), the system
+> may ask up to **3 clarifying questions per task**, asked **one at a time**. Each
+> question is a decision point that depletes limited executive function resources
+> — so questions are a last resort, not a default. Research shows 82% of ADHD
+> participants report frequent decision-making difficulties, and 58% experience
+> decision paralysis at least once a week.
 
 ### Task Intake Prompt
 
@@ -355,7 +363,7 @@ IMPORTANT:
 
 ### Storage Decision Rules
 
-All tasks get sub-tasks. Decision only about HOW to store:
+All tasks get sub-tasks. The decision is only about HOW to store them:
 
 ```mermaid
 flowchart TD
@@ -465,7 +473,10 @@ flowchart TD
 
 ### Inference Defaults (Questions as Last Resort)
 
-> **Design principle:** Every question = decision point. Decision points deplete executive function. Infer aggressively, let user correct. When task too vague to identify, ask up to 3 simple questions — one at a time — then fall back to best-guess.
+> **Design principle:** Every question is a decision point. Decision points deplete
+> executive function. We infer aggressively and let the user correct if needed.
+> When the task itself is too vague to identify, we may ask up to 3 simple
+> clarifying questions — one at a time — before falling back to best-guess inference.
 
 ```mermaid
 flowchart TD
@@ -496,25 +507,28 @@ flowchart TD
 | independent | 20 min | Filing, organizing, errands |
 
 **User Corrections:**
-If user says "actually that's urgent" or "that'll take longer", update task. Reactive correction, not proactive questioning — preserves executive function.
+If the user says "actually that's urgent" or "that'll take longer", update the task.
+This is reactive correction, not proactive questioning — it preserves executive function.
 
-**Clarifying Questions (when task identity unclear):**
-If task too vague to determine what it IS (not its labels), system may ask up to 3 simple questions, one at a time:
+**Clarifying Questions (when task identity is unclear):**
+If the task description is too vague to determine what the task IS (not its labels),
+the system may ask up to 3 simple clarifying questions, one at a time:
 
 | Question # | Behavior |
 |------------|----------|
 | 1 | Ask one simple question about what the task is |
-| 2 | Ask follow-up if still unclear |
+| 2 | Ask a follow-up if still unclear |
 | 3 | Final question — after this, infer and save regardless |
 | 4+ | Never reached — save with best guess after question 3 |
 
-Questions should be low-effort: prefer yes/no or short-answer. Never ask about labels (urgency, time, type) — always infer those.
+Questions should be low-effort: prefer yes/no or short-answer format.
+Never ask about labels (urgency, time, type) — always infer those.
 
 ---
 
 ## User Preferences Context
 
-When generating task breakdowns, user preferences assembled into context block injected into prompt. Enables personalized prep steps for success environment.
+When generating task breakdowns, user preferences are assembled into a context block that is injected into the prompt. This enables personalized prep steps that create an environment for success.
 
 ### Preference Context Block Format
 
@@ -545,7 +559,7 @@ The first 1-2 steps should focus on environment setup and mental preparation.
 
 ### Example Context Blocks
 
-**For social task (phone call) in afternoon:**
+**For a social task (phone call) in the afternoon:**
 ```
 USER_PREFERENCES_CONTEXT:
 This user has the following preferences:
@@ -571,7 +585,7 @@ When generating sub-tasks, include personalized prep steps that align with these
 The first 1-2 steps should focus on environment setup and mental preparation.
 ```
 
-**For focus task (writing) in morning:**
+**For a focus task (writing) in the morning:**
 ```
 USER_PREFERENCES_CONTEXT:
 This user has the following preferences:
@@ -600,7 +614,7 @@ The first 1-2 steps should focus on environment setup and mental preparation.
 
 ### Preference Fallbacks
 
-When user preferences not set, system uses sensible defaults:
+When user preferences are not set, the system uses sensible defaults:
 
 | Work Type | Default Prep Steps |
 |-----------|-------------------|
@@ -775,7 +789,9 @@ OUTPUT (JSON):
 
 ### Rejection Response Templates (Shame-Safe)
 
-> **Shame Prevention:** Every rejection response must reinforce that rejecting tasks is helpful, not failure. User gives info about what works. Say so.
+> **Shame Prevention:** Every rejection response must reinforce that rejecting
+> tasks is helpful, not a failure. The user is giving you information about what
+> works for them. Say so.
 
 | Category | Response Template |
 |----------|-------------------|
@@ -787,7 +803,9 @@ OUTPUT (JSON):
 
 ### Escalation After Multiple Rejections (Shame-Aware)
 
-> **Critical shame protection.** Multiple rejections = highest-risk shame moment. User may feel "broken." Every escalation must explicitly normalize.
+> **Critical shame protection.** Multiple rejections are the highest-risk moment
+> for shame. The user may feel "broken" for not wanting any tasks. Every
+> escalation step must explicitly normalize the experience.
 
 ```mermaid
 flowchart TD
@@ -806,7 +824,7 @@ flowchart TD
 
 ### Emotional Distress Detection
 
-Watch for frustration, shame, or overwhelm signals:
+The system should watch for signals of frustration, shame, or overwhelm:
 
 | Signal | Pattern | Response |
 |--------|---------|----------|
@@ -815,13 +833,14 @@ Watch for frustration, shame, or overwhelm signals:
 | Withdrawal | Increasingly short responses, long pauses | Offer exit ramp: "We can pick this up later. I'll be here." |
 | Overwhelm | "too much", "I can't handle this" | "Let's pause. You don't have to do anything right now. The tasks aren't going anywhere." |
 
-**Important:** Never be patronizing. Keep casual tone. Normalization should feel like friend who gets it, not therapist delivering script.
+**Important:** Never be patronizing. Keep the same casual tone. Normalization
+should feel like a friend who gets it, not a therapist delivering a script.
 
 ---
 
 ## Module 5: Cannot Finish Handling
 
-When user indicates they cannot finish a task, understand what was accomplished and break down what remains.
+When a user indicates they cannot finish a task, we need to understand what was accomplished and break down what remains.
 
 ```mermaid
 flowchart TD
@@ -874,7 +893,10 @@ OUTPUT (JSON):
 
 ### Progress Question Templates (Shame-Safe)
 
-> **Shame Prevention:** "Cannot finish" = second highest shame-risk moment. User says they couldn't do something — lead with progress acknowledgment, never with what's left undone. Reframe as learning task's real size.
+> **Shame Prevention:** "Cannot finish" is the second highest-risk moment for
+> shame after multiple rejections. The user is telling you they couldn't do
+> something — always lead with acknowledging their progress, never with what's
+> left undone. Reframe the situation as learning the task's real size.
 
 | Scenario | Question |
 |----------|----------|
@@ -939,13 +961,13 @@ sequenceDiagram
 | Coding task | Design → Implement → Test → Refactor |
 | Creative task | Brainstorm → Draft → Iterate → Polish |
 
-**Key Principle:** CANNOT_FINISH signals original breakdown left tasks too large. New breakdown should create smaller, more achievable chunks.
+**Key Principle:** When a CANNOT_FINISH occurs, it indicates the original breakdown (if any) left tasks too large. The new breakdown should create smaller, more achievable chunks.
 
 ---
 
 ## Module 6: Check-In Handling
 
-Check-in module designed for OpenClaw's durable cron job `task-check-in`, which wakes agent to confirm progress on active task. No frontend timer. Timing tracked in `state.json` and Notion. If cron not configured, skip module.
+The check-in module is designed for OpenClaw's durable cron job `task-check-in`, which wakes the agent to confirm progress on the active task. There is no frontend timer. Timing is tracked in `state.json` and Notion. If the cron job is not configured, skip this module.
 
 ```mermaid
 sequenceDiagram
@@ -970,8 +992,8 @@ sequenceDiagram
 
 ### Runtime Data
 
-When user accepts task:
-- Update Notion `Started At` to current timestamp.
+When a user accepts a task:
+- Update Notion `Started At` to the current timestamp.
 - Write to `state.json.active_task`:
   - `id`, `title`, `time_estimate`, `energy`
   - `started_at` (ISO 8601, UTC)
@@ -979,9 +1001,9 @@ When user accepts task:
   - `check_in_count` = 0
 - Set `conversation_state = "active"`.
 
-**When configured:** run `task-check-in` cron every 5 minutes. Each invocation:
+**When configured:** run the `task-check-in` cron every 5 minutes. Each invocation should:
 1. Load `state.json.active_task`. If empty, exit.
-2. If task status in Notion no longer `In Progress`, clear active task and exit.
+2. If the task status in Notion is no longer `In Progress`, clear active task and exit.
 3. If `now < check_in_due_at`, exit (no ping yet).
 4. Otherwise, set `conversation_state = "checking_in"` and call this module.
 
@@ -1041,7 +1063,10 @@ OUTPUT (JSON):
 
 ### Check-In Message Templates (Shame-Safe)
 
-> **Shame Prevention:** Check-ins = potential shame trigger — user may feel caught for not finishing on time. Keep check-ins curious and warm, never supervisory. Tone: "friend checking in," not "manager following up."
+> **Shame Prevention:** Check-ins are a potential shame trigger — the user may
+> feel caught or judged for not finishing on time. Keep check-ins curious and
+> warm, never supervisory. The tone is "friend checking in," not "manager
+> following up."
 
 | Scenario | Example Message |
 |----------|-----------------|
@@ -1054,7 +1079,7 @@ OUTPUT (JSON):
 
 ### Check-In Timing
 
-Store all timings in UTC:
+Store all timings in UTC for consistency:
 
 | Event | How to calculate | Where stored |
 |-------|------------------|--------------|
@@ -1095,7 +1120,7 @@ flowchart TD
     Custom --> Increment --> DoneLoop
 ```
 
-If `check_in_count` reaches 3 without completion, clear `check_in_due_at` and deliver "take a break" message. Further follow-ups require user to re-accept task.
+If `check_in_count` reaches 3 without completion, clear `check_in_due_at` and deliver the "take a break" message. Further follow-ups require the user to re-accept the task.
 
 ### State Updates After Each Check-In
 
@@ -1110,13 +1135,13 @@ If `check_in_count` reaches 3 without completion, clear `check_in_due_at` and de
 
 ### Exiting Without Action
 
-If cron fires and no check-in due (no active task, already completed, or window not reached), respond `CHECK_IN_SKIPPED` in session log and ensure `conversation_state` returns to `idle`. Prevents false positives, keeps cron idempotent.
+If the cron fires and no check-in is due (no active task, already completed, or window not reached), respond `CHECK_IN_SKIPPED` in the session log and ensure `conversation_state` returns to `idle`. This prevents false positives and keeps the cron idempotent.
 
 ---
 
 ## Module 7: Breakdown Assistance (NEED_HELP)
 
-When user signals need help starting or continuing a task, agent provides specific, actionable guidance. Core principle: **users interpret vague goals as infinite and avoid them.**
+When a user signals they need help starting or continuing a task, the agent provides specific, actionable guidance. The core principle: **users interpret vague goals as infinite, and thus avoid them.**
 
 ```mermaid
 flowchart TD
@@ -1182,7 +1207,7 @@ OUTPUT (JSON):
 
 ### Proactive Assistance Triggers
 
-Agent should detect hesitation and proactively offer help:
+The agent should detect hesitation and proactively offer help:
 
 ```mermaid
 flowchart TD
@@ -1272,7 +1297,7 @@ flowchart LR
     Validate --> Fallback["Fallback to text parsing"]
 ```
 
-AI outputs JSON blocks that can be parsed:
+The AI is instructed to output JSON blocks that can be parsed:
 
 ```
 AI Response format:
@@ -1352,10 +1377,10 @@ flowchart LR
     end
 ```
 
-Each task stores prompt version used for creation, enabling:
+Each task stores the prompt version used for its creation, enabling:
 - A/B testing of prompt changes
 - Performance comparison between versions
-- Rollback if new prompts perform worse
+- Rollback capability if new prompts perform worse
 
 ---
 
