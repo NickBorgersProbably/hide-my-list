@@ -26,7 +26,7 @@ Focus on:
 **Required context — read before reviewing:**
 
 - Read `docs/architecture.md` for full system design.
-- **Agentic system.** OpenClaw runtime reads instructions, uses tools, acts beyond explicit code. Can modify own config at runtime via `config.patch`, `config.apply`, `config.schema.lookup`. No static-application reasoning.
+- **Agentic system.** OpenClaw runtime reads instructions, uses tools, acts beyond explicit code. Can modify own config at runtime via `config.patch`, `config.schema.lookup`. No static-application reasoning.
 - **`HEARTBEAT.md` = self-healing pattern.** Runs every 60 min. Self-heals cron drift, validates environment, recovers workspace. Gap closeable by heartbeat check → suggest concretely as non-blocking note. Don't block with vague "add a guard."
 - Fixes: name specific mechanism (e.g., "add heartbeat check verifying X via `config.schema.lookup`, patching via `config.patch`"), not abstract requirements.
 
