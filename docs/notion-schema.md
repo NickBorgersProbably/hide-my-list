@@ -435,7 +435,7 @@ See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)
 
 ### IsReminder (checkbox)
 
-Flags task as time-specific reminder, not normal work item. Not surfaced in normal task selection. Becomes eligible at `Remind At`, delivered by scheduled reminder system on next `reminder-check` poll.
+Flags task as time-specific reminder, not normal work item. Not surfaced in normal task selection. Becomes eligible at `Remind At`; `reminder-check` cron only discovers due reminders and writes handoff file. Delivery happens on next user conversation start (AGENTS.md step 5) or hourly heartbeat backstop (HEARTBEAT.md Check 1) — see `docs/architecture.md` §Reminders.
 
 | Value | Description |
 |-------|-------------|

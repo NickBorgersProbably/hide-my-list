@@ -790,14 +790,14 @@ AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 
 **Confirmation message style:**
-> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It should come through on the next reminder check after that."
+> "Got it — I'll queue a reminder for 6pm PT to email Melanie. It'll come through shortly after that."
 
 User timezone defaults to US Central. AI converts timezone references (PT, CT, ET) to UTC offsets at intake.
 
 ### Reminder vs. Deadline
 
 Different concepts:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm, next reminder check
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification shortly after 6pm (delivery deferred to next user conversation or hourly heartbeat)
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.
