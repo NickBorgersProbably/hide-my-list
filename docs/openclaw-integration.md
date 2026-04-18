@@ -22,7 +22,7 @@ OpenClaw "bootstrap files" = markdown at workspace root, loaded at session start
 | `USER.md` | Context about the human | Per-user: name, timezone, preferences. Gitignored; created from template |
 | `MEMORY.md` | Long-term memory/lessons | Per-user: learned preferences, hard rules, system behaviors. Gitignored; created from template |
 | `TOOLS.md` | Local tool documentation | Notion property names, status values, state file reference |
-| `HEARTBEAT.md` | Periodic health check instructions | Cron job re-registration and drift correction, Notion connectivity, environment checks |
+| `HEARTBEAT.md` | Periodic health check instructions | Stub that delegates to `docs/heartbeat-checks.md` — keeps bootstrap payload small while heartbeat session reads the full check list on demand |
 
 OpenClaw loads via `bootstrap-extra-files` hook automatically. No special config needed — workspace root placement enough.
 
@@ -43,7 +43,7 @@ Every 60 min, OpenClaw creates short agent session, reads `HEARTBEAT.md`, execut
 
 **Our usage:** Two roles:
 1. **Reminder-delivery backstop:** Isolated `reminder-check` cron only writes `.reminder-signal` — no user delivery. Heartbeat Check 1 reads stranded signal files, validates, delivers to Signal via `message` tool every 60 min. (AGENTS.md startup check provides faster opportunistic delivery when user active.)
-2. **Cron safety net:** Verify durable cron jobs still match canonical `CronCreate` specs in `setup/cron/`: expired jobs get re-registered; drifted jobs get patched back. Comparison covers full effective registration contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `timeout-seconds`. `HEARTBEAT.md` = authoritative comparison checklist.
+2. **Cron safety net:** Verify durable cron jobs still match canonical `CronCreate` specs in `setup/cron/`: expired jobs get re-registered; drifted jobs get patched back. Comparison covers full effective registration contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `timeout-seconds`. `docs/heartbeat-checks.md` = authoritative comparison checklist (HEARTBEAT.md is a bootstrap stub that delegates to it).
 
 Heartbeat intentionally not place to assume `config.patch` access. Config mutation = main-agent responsibility unless heartbeat support explicitly confirmed and documented in [Agent Capabilities](agent-capabilities.md).
 
@@ -63,7 +63,7 @@ OpenClaw runtime features still run normally:
 - Cron registrations and task records live in OpenClaw-owned runtime state outside repo checkout.
 - Messaging, session lifecycle, hooks = platform responsibilities.
 
-One repo-mutating runtime exception: dirty-pull recovery in `scripts/pull-main.sh` — preserve local diff in GitHub issue, reset workspace to match remote so GitHub-reviewed branch stays source of truth. Normal `pull-main` cron path is script-managed; `HEARTBEAT.md` = retry backstop if `.pull-dirty` persists after auth or recovery failure. Exception exists to reduce merge conflicts and recover safely, not bypass GitHub process.
+One repo-mutating runtime exception: dirty-pull recovery in `scripts/pull-main.sh` — preserve local diff in GitHub issue, reset workspace to match remote so GitHub-reviewed branch stays source of truth. Normal `pull-main` cron path is script-managed; heartbeat (`docs/heartbeat-checks.md` Check 5) = retry backstop if `.pull-dirty` persists after auth or recovery failure. Exception exists to reduce merge conflicts and recover safely, not bypass GitHub process.
 
 ## Cron (Durable Scheduled Jobs)
 
