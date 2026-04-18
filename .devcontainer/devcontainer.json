@@ -27,7 +27,8 @@
     "LANG": "en_US.UTF-8",
     "EDITOR": "nano",
     "SSH_AUTH_SOCK": "/ssh-agent.sock",
-    "HOST_BASHRC": "${localEnv:HOME}/.bashrc"
+    "HOST_BASHRC": "${localEnv:HOME}/.bashrc",
+    "HOST_HOME": "${localEnv:HOME}"
   },
   "customizations": {
     "vscode": {

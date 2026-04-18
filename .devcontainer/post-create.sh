@@ -44,6 +44,20 @@ else
   echo "Warning: No Claude credentials found; Claude Code credentials not available."
 fi
 
+# Create $HOME/.claude/tmp so Claude Code's hook runner (which sets TMPDIR to
+# that path) can call mktemp without failing.
+mkdir -p "$HOME/.claude/tmp"
+
+# When the host username differs from the container username (e.g., host user
+# "nborgers" → container user "vscode"), hook paths stored in settings.json use
+# the host home prefix (e.g., /home/nborgers/.claude/hooks/...) which doesn't
+# exist inside the container. Symlink the host home's .claude into place so
+# those absolute paths resolve.
+if [ -n "${HOST_HOME:-}" ] && [ "$HOST_HOME" != "$HOME" ]; then
+  sudo mkdir -p "$HOST_HOME"
+  sudo ln -sfn "$HOME/.claude" "$HOST_HOME/.claude"
+  echo "Symlinked $HOST_HOME/.claude → $HOME/.claude for hook path resolution"
+fi
 
 # Link developer's host ~/.claude user-level customizations into the container.
 # The host directory is bind-mounted read-only at the same absolute path via
