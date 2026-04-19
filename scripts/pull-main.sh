@@ -120,7 +120,30 @@ recover_dirty_pull() {
     # Build the issue body
     local issue_body
     issue_body=$(SIGNAL_JSON="$signal_json" python3 -c "
-import json, os
+import json, os, re, subprocess
+from pathlib import Path
+
+
+def git_show_head(path):
+    try:
+        return subprocess.run(
+            ['git', 'show', f'HEAD:{path}'],
+            capture_output=True, text=True, check=True, timeout=10
+        ).stdout
+    except Exception:
+        return ''
+
+
+def extract_cron_model(text):
+    match = re.search(r'^\s+model:\s+(litellm/[A-Za-z0-9._-]+)', text, re.MULTILINE)
+    return match.group(1) if match else ''
+
+
+def extract_cheap_tier(template_text):
+    try:
+        return json.loads(template_text).get('modelTiers', {}).get('cheap', '')
+    except Exception:
+        return ''
 
 signal = json.loads(os.environ['SIGNAL_JSON'])
 reason = signal.get('reason', 'unknown')
@@ -141,10 +164,49 @@ body = f'''## Dirty pull detected
 
 if reason == 'uncommitted_tracked_changes':
     files = signal.get('dirty_files', [])
+    dirty_paths = {f.get('path', '') for f in files}
     for f in files:
         body += f\"### {f['path']}\n\"
         snippet = f.get('diff_snippet', '(no diff)')
         body += f\"\`\`\`diff\n{snippet}\n\`\`\`\n\n\"
+
+    if dirty_paths & {
+        'setup/cron/pull-main.md',
+        'setup/cron/reminder-check.md',
+        'setup/openclaw.json.template',
+    }:
+        head_template = git_show_head('setup/openclaw.json.template')
+        head_cheap_tier = extract_cheap_tier(head_template)
+        head_pull_model = extract_cron_model(git_show_head('setup/cron/pull-main.md'))
+        head_reminder_model = extract_cron_model(git_show_head('setup/cron/reminder-check.md'))
+        dirty_models = []
+
+        for path in (
+            'setup/cron/pull-main.md',
+            'setup/cron/reminder-check.md',
+        ):
+            if path not in dirty_paths:
+                continue
+            try:
+                worktree_model = extract_cron_model(Path(path).read_text())
+            except Exception:
+                worktree_model = ''
+            if worktree_model:
+                dirty_models.append((path, worktree_model))
+
+        body += '## Canonical repo contract at HEAD\n\n'
+        if head_cheap_tier:
+            body += f'- modelTiers.cheap: {head_cheap_tier}\n'
+        if head_pull_model:
+            body += f'- setup/cron/pull-main.md: {head_pull_model}\n'
+        if head_reminder_model:
+            body += f'- setup/cron/reminder-check.md: {head_reminder_model}\n'
+        if dirty_models:
+            body += '\n**Dirty worktree values captured before reset:**\n'
+            for path, model in dirty_models:
+                body += f'- {path}: {model}\n'
+        if head_cheap_tier:
+            body += '\nReview note: cron-spec model changes should normally stay aligned with modelTiers.cheap.\n\n'
 
 elif reason == 'merge_conflict':
     body += f\"**Error output:**\n\`\`\`\n{signal.get('error_output', '(none)')}\n\`\`\`\n\n\"
