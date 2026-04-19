@@ -5,7 +5,7 @@
 - **OpenClaw** installed and configured (`openclaw setup`)
 - **Notion** database created with the schema from `docs/notion-schema.md`
 - **Signal** account configured if Signal will be one of the interactive messaging surfaces
-- **LiteLLM proxy** (or direct Anthropic API access) for model routing
+- **LiteLLM proxy** for the default model routing (`gemma4-small` cheap tier plus Anthropic-backed medium/expensive tiers)
 
 ## Quick Start
 
@@ -112,6 +112,8 @@ Model assignments use a tier system defined in `setup/openclaw.json.template` un
 | `expensive` | Primary interactive agent | `claude-opus-4-6` |
 | `medium` | Heartbeat, fallback | `claude-sonnet-4-6` |
 | `cheap` | Isolated cron jobs | `gemma4-small` |
+
+Default setup assumes LiteLLM fronts every configured model. If you want a direct Anthropic-only install, that is a custom setup: remap `modelTiers.cheap` to an Anthropic model you can access, then update the cron `model:` lines and agent defaults to match before first run.
 
 To remap tiers to your available models:
 
