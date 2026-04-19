@@ -42,8 +42,8 @@ flowchart TB
     Messaging <-->|OpenClaw routing| AI
     AI <-->|CRUD operations| Scripts
     Scripts <-->|REST API| Notion
-    ReminderCron -->|Isolated Cron: query reminders| Scripts
-    PullMainCron -->|Isolated Cron: pull workspace| Scripts
+    ReminderCron -->|Isolated cheap-tier: query reminders| Scripts
+    PullMainCron -->|Isolated cheap-tier: pull workspace| Scripts
     Heartbeat -->|Health checks + reminder delivery| AI
 ```
 
@@ -60,7 +60,7 @@ No standalone server. OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when chat is idle
 
-Interactive conversations: surface-agnostic. Durable cron jobs: isolated cron sessions for cost efficiency — execute scripts, write handoff files, no user-facing messages. Reminder delivery via heartbeat (every 60 min) and main-session startup check (AGENTS.md step 5, on every user interaction). All cron jobs silent when nothing actionable.
+Interactive conversations: surface-agnostic. Durable cron jobs: isolated cheap-tier sessions for cost efficiency — execute scripts, write handoff files, no user-facing messages. Reminder delivery via heartbeat (every 60 min) and main-session startup check (AGENTS.md step 5, on every user interaction). All cron jobs silent when nothing actionable.
 
 ## Component Architecture
 
@@ -199,7 +199,7 @@ OpenClaw agent: stateless between messages — no persistent process checks cloc
 
 ```mermaid
 sequenceDiagram
-    participant Cron as Isolated Cron<br/>(every 15 min)
+    participant Cron as Isolated Cheap-Tier Cron<br/>(every 15 min)
     participant Script as check-reminders.sh
     participant Notion as Notion API
     participant Signal as .reminder-signal
@@ -227,7 +227,7 @@ sequenceDiagram
 **How it works:**
 
 1. At task intake, AI detects reminder language (e.g., "remind me at 6pm PT to call Sarah"), sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), `reminder_status = pending`.
-2. Durable cron (`reminder-check`) runs every 15 min as isolated cron session via OpenClaw native scheduling.
+2. Durable cron (`reminder-check`) runs every 15 min as isolated cheap-tier session via OpenClaw native scheduling.
 3. Cron runs `scripts/check-reminders.sh` — queries Notion for pending reminders where `remind_at <= now`.
 4. Due reminders found → `check-reminders.sh` writes reminder handoff file in repo root (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). Isolated cron exits `NO_REPLY` — no reminder delivery.
 5. Delivery via two mechanisms:
@@ -237,7 +237,7 @@ sequenceDiagram
 6. Reminders >15 min past due flagged `missed`, still delivered with shame-safe note: `This was due a bit ago — [task]. Want to handle it now or reschedule?`
 7. Cron only fires when agent idle — won't interrupt mid-task. Better for ADHD focus.
 
-Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with `model: litellm/gemma4-small` and `payload.kind: agentTurn`. Deliberate design: previous architecture ran both on `sessionTarget: main`, loaded full Opus context for routine script work, burned ~18M tokens per 6 hours. Isolated cron on `litellm/gemma4-small` cuts per-run cost by orders of magnitude. Trade-off: delivery deferred to next user interaction or heartbeat; fully idle case = up to ~75 min delay (discovery and delivery on separate schedules). If reminder delivery fails after handoff file written: fail visibly, leave file, don't mark `sent` or `missed` until delivery succeeds.
+Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the cheap-tier model (per `modelTiers` in `setup/openclaw.json.template`) and `payload.kind: agentTurn`. Deliberate design: previous architecture ran both on `sessionTarget: main`, loaded full Opus context for routine script work, burned ~18M tokens per 6 hours. Isolated cheap-tier cron cuts per-run cost by orders of magnitude. Trade-off: delivery deferred to next user interaction or heartbeat; fully idle case = up to ~75 min delay (discovery and delivery on separate schedules). If reminder delivery fails after handoff file written: fail visibly, leave file, don't mark `sent` or `missed` until delivery succeeds.
 
 Deferred-delivery handoff = correctness constraint, not just implementation detail. OpenClaw has no post-announce delivery acknowledgment hook. Announce-only cron would mutate Notion before platform confirms delivery — cron crash or transport failure drops reminders permanently by moving them out of `pending` query set before delivery completes.
 
@@ -255,7 +255,7 @@ Deferred-delivery handoff = correctness constraint, not just implementation deta
 | Messaging | OpenClaw Surfaces | Interactive chat multi-channel (web, Signal, Telegram, Discord); reminder delivery via heartbeat + main-session startup check |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, self-hosted Codex reviewers inherit homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
-| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Isolated cron every 15 min writes `.reminder-signal`; heartbeat (60 min) + startup check deliver |
+| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Isolated cheap-tier cron every 15 min writes `.reminder-signal`; heartbeat (60 min) + startup check deliver |
 | Workspace Sync | OpenClaw durable cron + pull-main.sh | Isolated cron every 10 min keeps workspace current, recovers dirty pulls |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |

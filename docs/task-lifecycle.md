@@ -946,7 +946,7 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | Isolated cron `reminder-check` writes reminder handoff file; delivered by heartbeat (60 min) or main-session startup check (next user interaction) |
+| Selection | User requests → AI suggests | Isolated cheap-tier `reminder-check` writes reminder handoff file; delivered by heartbeat (60 min) or main-session startup check (next user interaction) |
 | Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent` or `missed`) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |

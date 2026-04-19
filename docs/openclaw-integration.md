@@ -35,11 +35,11 @@ OpenClaw heartbeat = built-in periodic trigger configured in `openclaw.json`:
 ```json
 "heartbeat": {
   "every": "60m",
-  "model": "litellm/claude-sonnet-4-6"
+  "model": "litellm/<medium-tier model>"
 }
 ```
 
-Every 60 min, OpenClaw creates short agent session, reads `HEARTBEAT.md`, executes checks. Uses lighter model (Sonnet not Opus) — routine operational tasks. Reminder delivery not via `heartbeat.target`; Check 1 sends reminders explicitly with OpenClaw `message` tool (`action: send`, `channel: signal`). `target` field only controls where generic non-`HEARTBEAT_OK` output routes; without it, defaults to `"none"`, silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
+Every 60 min, OpenClaw creates short agent session, reads `HEARTBEAT.md`, executes checks. Uses the lighter medium-tier model from `setup/openclaw.json.template` (`agents.defaults.heartbeat.model`, which must match `modelTiers.medium`) for routine operational tasks. Reminder delivery not via `heartbeat.target`; Check 1 sends reminders explicitly with OpenClaw `message` tool (`action: send`, `channel: signal`). `target` field only controls where generic non-`HEARTBEAT_OK` output routes; without it, defaults to `"none"`, silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
 
 **Our usage:** Two roles:
 1. **Reminder-delivery backstop:** Isolated `reminder-check` cron only writes `.reminder-signal` — no user delivery. Heartbeat Check 1 reads stranded signal files, validates, delivers to Signal via `message` tool every 60 min. (AGENTS.md startup check provides faster opportunistic delivery when user active.)
@@ -84,7 +84,7 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 
 **7-day expiry problem:** Recurring cron jobs auto-expire after 7 days. Heartbeat catches this, re-registers missing jobs. Also corrects spec drift from manual hotfixes or stale re-registration prompts by comparing live job against canonical `CronCreate` block and patching mismatched fields. Platform constraint worked around, not feature chosen.
 
-**Current registration contract:** Both `reminder-check` and `pull-main` run as isolated cron sessions with `sessionTarget: isolated`, `model: litellm/gemma4-small`, `payload.kind: agentTurn`, `timeout-seconds: 60`. Deliberate: separates cheap query work from user-facing delivery. Previous architecture used `sessionTarget: main` — loaded full Opus context (~200k tokens) for routine script work. Isolated cron on `litellm/gemma4-small` cuts per-run cost by orders of magnitude. Reminder delivery handled by heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) and main-session startup check (AGENTS.md step 5, every user interaction). Fully idle worst-case delivery latency: ~75 min — up to 15 min for `reminder-check` to write handoff, then up to 60 min for heartbeat if no user interaction first. Cron prompts end with `NO_REPLY` — never produce user-facing output. Until OpenClaw exposes post-delivery acknowledgment hook, this split flow = durability boundary keeping failed deliveries retryable.
+**Current registration contract:** Both `reminder-check` and `pull-main` run as isolated cheap-tier sessions with `sessionTarget: isolated`, the concrete `model:` value from the canonical `CronCreate` blocks in `setup/cron/` (those lines must match `modelTiers.cheap` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, `timeout-seconds: 60`. Deliberate: separates cheap query work from user-facing delivery. Previous architecture used `sessionTarget: main` — loaded full Opus context (~200k tokens) for routine script work. Isolated cheap-tier cron cuts per-run cost by orders of magnitude. Reminder delivery handled by heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) and main-session startup check (AGENTS.md step 5, every user interaction). Fully idle worst-case delivery latency: ~75 min — up to 15 min for `reminder-check` to write handoff, then up to 60 min for heartbeat if no user interaction first. Cron prompts end with `NO_REPLY` — never produce user-facing output. Until OpenClaw exposes post-delivery acknowledgment hook, this split flow = durability boundary keeping failed deliveries retryable.
 
 Isolated cron sessions intentionally narrow. Script runners, not substitute for main agent or heartbeat control paths. Detailed ownership split in [Agent Capabilities](agent-capabilities.md).
 
@@ -95,7 +95,7 @@ For production, use these timings unless clear reason to pay for tighter polling
 | Mechanism | Recommended cadence | Why |
 |-----------|---------------------|-----|
 | Heartbeat | Every 60 minutes | Reminder-delivery backstop plus cron expiry, spec drift, and Notion/env health |
-| `reminder-check` | Every 15 minutes | Isolated cron query; writes `.reminder-signal` for heartbeat/startup delivery |
+| `reminder-check` | Every 15 minutes | Isolated cheap-tier query; writes `.reminder-signal` for heartbeat/startup delivery |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps workspace fresh |
 
 Core principle: `reminder-check` controls when due reminders discovered; heartbeat part of idle-user delivery path. 15-min polling + hourly heartbeat = default production cost/latency tradeoff. Exact-time delivery not guaranteed in current deferred-delivery architecture; fully idle worst-case ~75 min unless user interacts sooner.
@@ -122,7 +122,7 @@ Primary deployed surface: Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use normal main-agent routing. Cron jobs = isolated cron sessions (query-only, no user delivery). Reminder delivery reaches user through heartbeat and main-session startup check.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Interactive conversations use normal main-agent routing. Cron jobs = isolated cheap-tier sessions (query-only, no user delivery). Reminder delivery reaches user through heartbeat and main-session startup check.
 
 ## Model Routing (LiteLLM Proxy)
 
@@ -134,20 +134,20 @@ OpenClaw supports multiple model providers. We route through LiteLLM proxy on Ta
     "litellm": {
       "baseUrl": "https://llm.featherback-mermaid.ts.net/v1",
       "models": [
-        { "id": "claude-opus-4-6", ... },
-        { "id": "claude-sonnet-4-6", ... },
-        { "id": "gemma4-small", ... }
+        { "id": "<expensive-tier model>", ... },
+        { "id": "<medium-tier model>", ... },
+        { "id": "<cheap-tier model>", ... }
       ]
     }
   }
 }
 ```
 
-Canonical model list lives in `setup/openclaw.json.template`. `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in classifier-listed spec files resolves against that list and that cron-model references in cron-contract sections across sibling docs agree with `setup/cron/reminder-check.md` + `setup/cron/pull-main.md`.
+Canonical model list and tier mappings live in `setup/openclaw.json.template` (see `modelTiers`). `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in classifier-listed spec files resolves against that list, that tier mappings are consistent with agent config (including `agents.defaults.heartbeat.model` matching `modelTiers.medium`), and that cron specs plus sibling docs stay aligned with the cheap tier contract.
 
-- **Primary model:** Claude Opus 4.6 (conversations, task management)
-- **Heartbeat model:** Claude Sonnet 4.6 (routine checks, cheaper)
-- **Cron model:** Gemma 4 Small (isolated cron — reminder polling, workspace sync)
+- **Primary model (expensive tier):** Whatever `modelTiers.expensive` maps to for conversations and task management
+- **Heartbeat model (medium tier):** Whatever `modelTiers.medium` maps to for routine checks and fallback
+- **Cron model (cheap tier):** Whatever `modelTiers.cheap` maps to for isolated cron work such as reminder polling and workspace sync
 - **Codex CLI model:** GPT-5.4, configured separately in `.codex/config.toml` via `.devcontainer/configure-codex.sh`; not served through the OpenClaw models array above.
 
 **Our role:** No direct interaction with model selection. Prompts in `docs/ai-prompts.md` model-agnostic. OpenClaw picks model from config.
