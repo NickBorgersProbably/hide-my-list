@@ -196,6 +196,7 @@ check_contract_window \
   'never need updating when models change' \
   "customization section"
 
+# shellcheck disable=SC2016  # backticks are literal grep anchors, not command substitution
 check_contract_window \
   "docs/architecture.md" \
   'Both `reminder-check` and `pull-main` use `sessionTarget: isolated`' \
