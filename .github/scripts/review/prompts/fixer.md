@@ -40,11 +40,12 @@ Reflects current PR state, not push-time state.
    All yes → apply. Otherwise → skip with reason.
 
    **Grouped** (multi-file, same conceptual fix):
-   - Every file in the group explicitly named by a reviewer?
+   - Every blocker in the group has non-null `file` and `line`? Any unanchored blocker in the group → remove it from grouped handling and skip it unless it later passes the single-file gate; if no anchored uniform subset remains, skip group with reason.
+   - Every file in the grouped subset explicitly named by a reviewer?
    - Each per-file change small + local (≤ ~30 lines per file)?
    - Total group diff ≤ ~100 lines?
-   - Same mechanical change pattern across all files (wording swap, add/remove line, etc.) — not different logic per file?
-   All yes → pick canonical wording, apply uniformly across all files. No per-file improvisation unless structure requires (e.g., inline JSON placeholder vs. prose paragraph). Otherwise → skip group with reason.
+   - Same mechanical change pattern across all files (wording swap, add/remove line, etc.) — not different logic per file? If one file breaks uniformity, split it out, reevaluate the remaining files as a grouped subset, and treat the split file as an individual blocker under the single-file gate.
+   All yes → pick canonical wording, apply uniformly across all files. No per-file improvisation unless structure requires (e.g., inline JSON placeholder vs. prose paragraph). Otherwise → skip only the blocker or subset that fails, with reason.
 5. Apply fixes in working tree. Run tests reviewers explicitly suggested. No formatters or linters.
 6. Leave changes unstaged. No `git add`, `git commit`, `git push`. Host step commits working tree + computes new SHA.
 7. Write result JSON. Set `new_sha` to `${REVIEWED_SHA}` — host commit step patches real post-commit SHA before judge reads.
