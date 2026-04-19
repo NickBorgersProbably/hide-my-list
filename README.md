@@ -47,6 +47,11 @@ cp ~/.openclaw/workspace/.env.template ~/.openclaw/workspace/.env
 cd ~/.openclaw/workspace && bash setup/bootstrap.sh
 ```
 
+When you create `~/.openclaw/openclaw.json`, set
+`agents.defaults.envelopeTimezone` to the same IANA timezone identifier used in
+`USER.md` (for example, `America/Chicago`). Without it, relative dates like
+"tomorrow" are resolved against UTC.
+
 See [setup/README.md](setup/README.md) for full setup instructions.
 
 ## Git hooks

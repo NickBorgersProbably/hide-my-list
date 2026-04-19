@@ -51,12 +51,34 @@
    bash setup/bootstrap.sh
    ```
 
+   Before continuing, make sure `USER.md` has the correct timezone line for the
+   user, including the IANA TZ identifier in parentheses, such as
+   `America/Chicago`.
+
 5. Configure OpenClaw:
    ```bash
    # Copy and customize the config template
    cp setup/openclaw.json.template ~/.openclaw/openclaw.json
    # Edit ~/.openclaw/openclaw.json — replace all {{PLACEHOLDER}} values
    ```
+
+   `agents.defaults.envelopeTimezone` is a required first-setup field. Set it to
+   the same IANA timezone identifier from `USER.md`.
+
+   Example:
+   ```json
+   {
+     "agents": {
+       "defaults": {
+         "envelopeTimezone": "America/Chicago"
+       }
+     }
+   }
+   ```
+
+   Without `envelopeTimezone`, OpenClaw injects `Current time:` in UTC, so the
+   agent can misread relative dates like "tomorrow" when the user's local date
+   differs from UTC.
 
 6. Start the gateway:
    ```bash
@@ -171,6 +193,13 @@ Manual regression playbook:
 **Agent not responding:**
 - Check `openclaw status` for channel health
 - Check gateway logs: `openclaw logs`
+
+**Relative dates land on the wrong day:**
+- Confirm `USER.md` has the correct IANA timezone identifier in the `Timezone`
+  line
+- Confirm `~/.openclaw/openclaw.json` sets `agents.defaults.envelopeTimezone` to
+  that same identifier
+- Restart the gateway after changing `openclaw.json`
 
 **Cron jobs disappeared:**
 - They auto-expire after 7 days. The next heartbeat (every 60 min) will re-register them.
