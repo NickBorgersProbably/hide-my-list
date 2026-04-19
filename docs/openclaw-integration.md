@@ -28,6 +28,22 @@ OpenClaw loads via `bootstrap-extra-files` hook automatically. No special config
 
 **What we don't use:** `BOOT.md` (one-time gateway startup script). Could auto-register cron jobs, but heartbeat handles re-registration and `setup/bootstrap.sh` handles initial setup.
 
+## Envelope Timezone
+
+OpenClaw also reads `agents.defaults.envelopeTimezone` from `openclaw.json`.
+For hide-my-list, set that field during first setup to the same IANA timezone
+identifier stored in `USER.md` (for example, `America/Chicago`).
+
+Why it matters: OpenClaw injects a `Current time:` line into each prompt. If
+`envelopeTimezone` is unset, that line stays UTC-only, and the agent can reason
+about relative dates like "tomorrow" against the wrong calendar day for users
+outside UTC.
+
+Canonical setup path:
+- Put the user's timezone in `USER.md`
+- Copy that same TZ identifier into `setup/openclaw.json.template` when creating
+  `~/.openclaw/openclaw.json`
+
 ## Heartbeat
 
 OpenClaw heartbeat = built-in periodic trigger configured in `openclaw.json`:

@@ -80,6 +80,7 @@
         ]
       },
       "workspace": "{{OPENCLAW_HOME}}/workspace",
+      "envelopeTimezone": "{{TZ_IDENTIFIER}}",
       "compaction": {
         "mode": "safeguard"
       },

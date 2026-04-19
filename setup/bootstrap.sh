@@ -93,6 +93,11 @@ else
     echo "MEMORY.md already exists, skipping"
 fi
 
+USER_TZ_IDENTIFIER=""
+if [ -f "$ROOT_DIR/USER.md" ]; then
+    USER_TZ_IDENTIFIER="$(sed -n 's/^- \*\*Timezone:\*\* .* (\([^()]*\))$/\1/p' "$ROOT_DIR/USER.md" | head -n 1)"
+fi
+
 # --- Directories ---
 
 mkdir -p "$ROOT_DIR/memory"
@@ -123,6 +128,13 @@ if [ -f "$OPENCLAW_HOME/openclaw.json" ]; then
 else
     echo "NOTE: openclaw.json template is at setup/openclaw.json.template"
     echo "Copy it to $OPENCLAW_HOME/openclaw.json and fill in the {{PLACEHOLDER}} values."
+    echo "IMPORTANT: set agents.defaults.envelopeTimezone to the TZ identifier from USER.md."
+    if [ -n "$USER_TZ_IDENTIFIER" ]; then
+        echo "  Use: \"$USER_TZ_IDENTIFIER\""
+    else
+        echo "  Example: \"America/Chicago\""
+    fi
+    echo "  Without it, OpenClaw injects Current time in UTC and relative dates like \"tomorrow\" can land on the wrong day."
 fi
 echo ""
 
