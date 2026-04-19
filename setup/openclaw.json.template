@@ -69,7 +69,7 @@
   "modelTiers": {
     "expensive": "claude-opus-4-6",
     "medium": "claude-sonnet-4-6",
-    "cheap": "claude-haiku-4-5"
+    "cheap": "gemma4-small"
   },
   "agents": {
     "defaults": {

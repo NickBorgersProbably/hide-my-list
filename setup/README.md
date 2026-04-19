@@ -111,7 +111,7 @@ Model assignments use a tier system defined in `setup/openclaw.json.template` un
 |------|------|---------|
 | `expensive` | Primary interactive agent | `claude-opus-4-6` |
 | `medium` | Heartbeat, fallback | `claude-sonnet-4-6` |
-| `cheap` | Isolated cron jobs | `claude-haiku-4-5` |
+| `cheap` | Isolated cron jobs | `gemma4-small` |
 
 To remap tiers to your available models:
 

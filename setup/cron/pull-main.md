@@ -10,7 +10,7 @@ CronCreate:
   durable: true
   name: "pull-main"
   sessionTarget: isolated
-  model: litellm/claude-haiku-4-5  # must match modelTiers.cheap
+  model: litellm/gemma4-small  # must match modelTiers.cheap
   payload:
     kind: agentTurn
   timeout-seconds: 60
