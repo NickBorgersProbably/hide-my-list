@@ -72,7 +72,7 @@ extract_cron_contract_refs() {
       grep -F "Both \`reminder-check\` and \`pull-main\` use" "$spec" | grep -oE 'litellm/[A-Za-z0-9._-]+' | sort -u
       ;;
     "docs/openclaw-integration.md")
-      grep -F "**Current registration contract:** Both \`reminder-check\` and \`pull-main\` run as isolated Haiku sessions" "$spec" \
+      grep -F "**Current registration contract:** Both \`reminder-check\` and \`pull-main\` run as isolated cron sessions" "$spec" \
         | grep -oE 'litellm/[A-Za-z0-9._-]+' \
         | sort -u
       ;;
