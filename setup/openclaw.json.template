@@ -58,6 +58,11 @@
       }
     }
   },
+  "modelTiers": {
+    "expensive": "claude-opus-4-6",
+    "medium": "claude-sonnet-4-6",
+    "cheap": "claude-haiku-4-5"
+  },
   "agents": {
     "defaults": {
       "model": {

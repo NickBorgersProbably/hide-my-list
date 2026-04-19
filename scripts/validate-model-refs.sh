@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Validate cross-spec consistency of `litellm/<id>` model references.
+# Validate cross-spec consistency of model references using tier-based mapping.
 #
-# Two invariants:
+# Three invariants:
 #   1) Template membership: every `litellm/<id>` reference in each spec
 #      file registered by review-classify's is_spec_md() must resolve in
 #      setup/openclaw.json.template's models array.
-#   2) Cross-spec agreement: the canonical cron-model contract lives in
-#      setup/cron/reminder-check.md + setup/cron/pull-main.md. Other docs'
-#      cron-contract sections must match that canonical model.
+#   2) Tier-config consistency: modelTiers in the template must match
+#      agents.defaults (expensive=primary, medium=heartbeat+fallback).
+#   3) Cron-tier agreement: cron spec files must use the cheap-tier model
+#      from modelTiers, and sibling docs must reference "cheap-tier" in
+#      their cron-contract sections.
 #
-# Background: model ids drift across spec files on every rename. Earlier
-# version of this check only enforced (1), so it silently passed when
-# setup/README.md said `litellm/gemma4` while cron specs said
-# `litellm/claude-haiku-4-5`. The cross-spec check catches that.
+# Model tier mapping lives in setup/openclaw.json.template under modelTiers.
+# Fork users change those three values + ensure IDs exist in models[].
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +29,24 @@ if [[ ! -f "$CLASSIFIER" ]]; then
   echo "ERROR: $CLASSIFIER not found" >&2
   exit 1
 fi
+
+# --- Parse modelTiers from template ---------------------------------------
+
+extract_tier() {
+  # $1 = tier name (expensive, medium, cheap)
+  # Matches "tierName": "model-id" on the same line
+  local val
+  val="$(grep -E "\"$1\"[[:space:]]*:" "$TEMPLATE" | head -1 | sed -E 's/.*:[[:space:]]*"([^"]+)".*/\1/')"
+  if [[ -z "$val" ]]; then
+    echo "ERROR: modelTiers.$1 not found in $TEMPLATE" >&2
+    exit 1
+  fi
+  printf '%s' "$val"
+}
+
+tier_expensive="$(extract_tier expensive)"
+tier_medium="$(extract_tier medium)"
+tier_cheap="$(extract_tier cheap)"
 
 extract_litellm_refs() {
   # $1 = file; prints one `litellm/<id>` token per line
@@ -61,32 +79,6 @@ build_membership_check_files() {
   shopt -u nullglob
 }
 
-extract_cron_contract_refs() {
-  local spec="$1"
-
-  case "$spec" in
-    "setup/README.md")
-      grep -F 'Both jobs run as isolated cron sessions' "$spec" | grep -oE 'litellm/[A-Za-z0-9._-]+' | sort -u
-      ;;
-    "docs/architecture.md")
-      grep -F "Both \`reminder-check\` and \`pull-main\` use" "$spec" | grep -oE 'litellm/[A-Za-z0-9._-]+' | sort -u
-      ;;
-    "docs/openclaw-integration.md")
-      grep -F "**Current registration contract:** Both \`reminder-check\` and \`pull-main\` run as isolated Haiku sessions" "$spec" \
-        | grep -oE 'litellm/[A-Za-z0-9._-]+' \
-        | sort -u
-      ;;
-    "docs/heartbeat-checks.md")
-      awk '/^### 2\. Cron Job Health/{in_section=1} /^### 3\./{in_section=0} in_section {print}' "$spec" \
-        | grep -oE 'litellm/[A-Za-z0-9._-]+' \
-        | sort -u
-      ;;
-    *)
-      extract_litellm_refs "$spec"
-      ;;
-  esac
-}
-
 # --- Invariant 1: template membership -----------------------------------
 
 template_ids="$(grep -oE '"id":[[:space:]]*"[^"]+"' "$TEMPLATE" | sed -E 's/.*"([^"]+)"$/\1/' | sort -u)"
@@ -110,7 +102,31 @@ for spec in "${membership_check_files[@]}"; do
   done < <(extract_litellm_refs "$spec")
 done
 
-# --- Invariant 2: cross-spec cron-model agreement -----------------------
+# --- Invariant 2: tier-config consistency --------------------------------
+
+tier_errors=()
+
+# Check that each tier model exists in the models array
+for tier_name in expensive medium cheap; do
+  tier_val="$(extract_tier "$tier_name")"
+  if ! grep -qx "$tier_val" <<<"$template_ids"; then
+    tier_errors+=("modelTiers.$tier_name = $tier_val (not in $TEMPLATE models[].id)")
+  fi
+done
+
+# Check agents.defaults.model.primary matches expensive tier
+primary_model="$(grep -oE '"primary":[[:space:]]*"litellm/[^"]+"' "$TEMPLATE" | grep -oE 'litellm/[^"]+' | head -1)"
+if [[ "$primary_model" != "litellm/$tier_expensive" ]]; then
+  tier_errors+=("agents.defaults.model.primary = $primary_model, expected litellm/$tier_expensive (expensive tier)")
+fi
+
+# Check agents.defaults.heartbeat.model matches medium tier
+heartbeat_model="$(grep -oE '"model":[[:space:]]*"litellm/[^"]+"' "$TEMPLATE" | tail -1 | grep -oE 'litellm/[^"]+')"
+if [[ "$heartbeat_model" != "litellm/$tier_medium" ]]; then
+  tier_errors+=("agents.defaults.heartbeat.model = $heartbeat_model, expected litellm/$tier_medium (medium tier)")
+fi
+
+# --- Invariant 3: cron-tier agreement -----------------------------------
 
 canonical_cron_sources=(
   "setup/cron/reminder-check.md"
@@ -124,24 +140,21 @@ for f in "${canonical_cron_sources[@]}"; do
   fi
 done
 
-mapfile -t canonical_cron_refs < <(
-  for f in "${canonical_cron_sources[@]}"; do
-    extract_litellm_refs "$f"
-  done | sort -u
-)
+# Cron specs must reference modelTiers.cheap (no hardcoded model IDs)
+cron_errors=()
 
-if (( ${#canonical_cron_refs[@]} == 0 )); then
-  echo "ERROR: no litellm/<id> found in canonical cron sources (${canonical_cron_sources[*]})" >&2
-  exit 1
-fi
-if (( ${#canonical_cron_refs[@]} > 1 )); then
-  echo "ERROR: canonical cron sources disagree on model id — got: ${canonical_cron_refs[*]}" >&2
-  echo "Fix: reminder-check.md and pull-main.md must reference the same litellm/<id>." >&2
-  exit 1
-fi
+for f in "${canonical_cron_sources[@]}"; do
+  # Check that the model: line references modelTiers.cheap, not a literal ID
+  if ! grep -qF 'modelTiers.cheap' "$f"; then
+    cron_errors+=("$f: model: line should reference modelTiers.cheap, not a hardcoded model ID")
+  fi
+  # Ensure no literal litellm/ model ID on the model: line
+  if grep -E '^\s+model:\s+litellm/' "$f" >/dev/null 2>&1; then
+    cron_errors+=("$f: model: line has hardcoded litellm/ ID — should use <resolve from modelTiers.cheap> instead")
+  fi
+done
 
-canonical_cron_ref="${canonical_cron_refs[0]}"
-
+# Sibling docs must reference "cheap-tier" in cron-contract sections
 sibling_files=(
   "setup/README.md"
   "docs/architecture.md"
@@ -149,34 +162,42 @@ sibling_files=(
   "docs/heartbeat-checks.md"
 )
 
-drift=()
+check_sibling_tier_ref() {
+  local spec="$1"
+  # All sibling docs must reference tiers, not hardcoded model IDs.
+  # Accept either "cheap-tier" prose or "modelTiers.cheap" notation.
+  grep -qE 'cheap-tier|modelTiers\.cheap|modelTiers' "$spec"
+}
+
 for spec in "${sibling_files[@]}"; do
   [[ -f "$spec" ]] || continue
-  found_ref=0
-  while IFS= read -r ref; do
-    [[ -z "$ref" ]] && continue
-    found_ref=1
-    if [[ "$ref" != "$canonical_cron_ref" ]]; then
-      drift+=("$spec: references $ref, but canonical cron model is $canonical_cron_ref (from ${canonical_cron_sources[*]})")
-    fi
-  done < <(extract_cron_contract_refs "$spec")
-  if (( found_ref == 0 )); then
-    drift+=("$spec: cron-contract section missing canonical $canonical_cron_ref reference")
+  if ! check_sibling_tier_ref "$spec"; then
+    cron_errors+=("$spec: cron-contract section missing cheap-tier language (should reference tier, not hardcoded model ID)")
   fi
 done
 
-if (( ${#missing[@]} > 0 || ${#drift[@]} > 0 )); then
-  if (( ${#missing[@]} > 0 )); then
-    echo "ERROR: model-id references missing from $TEMPLATE:" >&2
-    for m in "${missing[@]}"; do echo "  - $m" >&2; done
-  fi
-  if (( ${#drift[@]} > 0 )); then
-    echo "ERROR: cross-spec cron-model drift:" >&2
-    for d in "${drift[@]}"; do echo "  - $d" >&2; done
-  fi
+# --- Report results ------------------------------------------------------
+
+all_errors=()
+if (( ${#missing[@]} > 0 )); then
+  all_errors+=("Model-id references missing from $TEMPLATE:")
+  for m in "${missing[@]}"; do all_errors+=("  - $m"); done
+fi
+if (( ${#tier_errors[@]} > 0 )); then
+  all_errors+=("Tier-config consistency errors:")
+  for t in "${tier_errors[@]}"; do all_errors+=("  - $t"); done
+fi
+if (( ${#cron_errors[@]} > 0 )); then
+  all_errors+=("Cron-tier agreement errors:")
+  for c in "${cron_errors[@]}"; do all_errors+=("  - $c"); done
+fi
+
+if (( ${#all_errors[@]} > 0 )); then
+  echo "ERROR: model reference validation failed:" >&2
+  for e in "${all_errors[@]}"; do echo "$e" >&2; done
   echo "" >&2
-  echo "Fix: either correct the drifted reference or update the canonical sources (setup/cron/*.md)." >&2
+  echo "Fix: update modelTiers in $TEMPLATE, then ensure cron specs and docs match." >&2
   exit 1
 fi
 
-echo "Model references consistent: classifier-listed spec refs resolve in template; canonical cron model = $canonical_cron_ref"
+echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap); cron specs reference modelTiers.cheap"

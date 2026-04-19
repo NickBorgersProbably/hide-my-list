@@ -99,9 +99,27 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
 | heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
 
-Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs run as isolated cron sessions (`sessionTarget: isolated`, `model: litellm/claude-haiku-4-5`, `payload.kind: agentTurn`).
+Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs run as isolated cron sessions (`sessionTarget: isolated`, cheap-tier model per `modelTiers` in `setup/openclaw.json.template`, `payload.kind: agentTurn`).
 
 Production recommendation: keep `reminder-check` at 15-minute cadence and heartbeat hourly as the default production cost/latency tradeoff for routine or low-stakes reminders. In the fully idle case, reminder delivery can take up to about 75 minutes under this deferred-delivery design, so exact-time reminders are not guaranteed unless the architecture changes.
+
+## Customizing Model Tiers (Forks)
+
+Model assignments use a tier system defined in `setup/openclaw.json.template` under `modelTiers`:
+
+| Tier | Role | Default |
+|------|------|---------|
+| `expensive` | Primary interactive agent | `claude-opus-4-6` |
+| `medium` | Heartbeat, fallback | `claude-sonnet-4-6` |
+| `cheap` | Isolated cron jobs | `claude-haiku-4-5` |
+
+To remap tiers to your available models:
+
+1. Edit `modelTiers` values in `setup/openclaw.json.template`
+2. Ensure each model ID exists in the `models[].id` array in the same file
+3. Run `bash scripts/validate-model-refs.sh` to verify consistency
+
+Cron specs (`setup/cron/*.md`) reference `modelTiers.cheap` — the agent resolves the concrete model ID at registration time. No other files need changing.
 
 ## Updating
 
