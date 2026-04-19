@@ -961,6 +961,8 @@ AI converts user-specified times to full ISO 8601 timestamps at intake:
 - "3pm" (no TZ) → `2025-01-04T15:00:00-06:00` (default Central)
 - "tomorrow 9am ET" → `2025-01-05T09:00:00-05:00`
 
+Relative references use the user's local calendar, not UTC session metadata. If message metadata says `2026-04-19T01:27:00Z` but `USER.md` timezone is `America/Chicago`, the user-local reference time is `2026-04-18T20:27:00-05:00`, so "tomorrow" resolves to `2026-04-19`, not `2026-04-20`. Use `scripts/user-time-context.sh` when the current timestamp needs conversion before reminder creation.
+
 ## Complete Task Journey Example
 
 ```mermaid

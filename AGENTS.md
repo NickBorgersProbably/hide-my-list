@@ -14,6 +14,7 @@
    - After delivery: run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` per item, then delete handoff file
    - If delivery fails: leave file for retry
 6. Check `.config-drift` flag (written by `scripts/pull-main.sh` only when `setup/openclaw.json.template` changed across a pull). Exists → read `agents.defaults.heartbeat` from template, `config.get` the same path from live config, `config.patch` if different, delete `.config-drift` on success. No user-facing note — this is background infrastructure hygiene, pre-authorized under Safety. `config.get`/`config.patch` fails: leave `.config-drift` in place, surface error, no silent retry. Template missing or parse fails: leave `.config-drift`, surface error. Scope narrow: only `agents.defaults.heartbeat` subtree syncs — deployment-local fields (gateway auth, channels, secrets) stay untouched.
+7. Treat the timezone in `USER.md` as the source of truth for ALL relative dates/times ("today", "tomorrow", "tonight", day-of-week names). If the session timestamp is UTC or ambiguous, resolve user-local calendar context first with `scripts/user-time-context.sh [reference_timestamp]` before creating reminders.
 
 Then be ready. User might add task, ask what to do, say done, or chat.
 

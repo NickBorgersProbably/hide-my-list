@@ -146,6 +146,12 @@ When detected:
 - Parse the time reference and convert to ISO 8601 with timezone offset
 - Default timezone: US Central (America/Chicago) unless user specifies otherwise
 - Common timezone mappings: PT = -08:00/-07:00, CT = -06:00/-05:00, ET = -05:00/-04:00
+- Resolve ALL relative references ("today", "tomorrow", "tonight", "this evening", day-of-week names, "next week") against the user's configured timezone in `USER.md`, never against UTC message metadata or the server date
+- If the session time you see is UTC or otherwise ambiguous, run `scripts/user-time-context.sh [reference_timestamp]` (or do the equivalent conversion) before choosing the calendar date for the reminder
+- Before saving a reminder, explicitly verify in your reasoning:
+  1. Current time in the user's timezone
+  2. Which local calendar date the relative phrase resolves to
+  3. The final `remind_at` ISO 8601 timestamp
 - Set reminder_status = "pending"
 - Set urgency = 90 (reminders are inherently time-critical)
 - Work type and energy level are still inferred from the reminder content
@@ -155,6 +161,10 @@ Examples:
     is_reminder: true, remind_at: "2025-01-04T18:00:00-08:00", title: "Email Melanie availability"
   "Ping me at 3pm to call the dentist" →
     is_reminder: true, remind_at: "2025-01-04T15:00:00-06:00" (default CT), title: "Call the dentist"
+  Message timestamp `2026-04-19T01:27:00Z`, `USER.md` timezone `America/Chicago`, user says "Tomorrow before noon remind me to clean up boxes" →
+    current user-local time: `2026-04-18T20:27:00-05:00`
+    "tomorrow" resolves to `2026-04-19` in user-local time
+    is_reminder: true, remind_at: "2026-04-19T09:00:00-05:00", title: "Clean up boxes"
 
 OUTPUT (JSON):
 

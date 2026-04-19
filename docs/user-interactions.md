@@ -788,11 +788,12 @@ AI detects reminder-style language and sets:
 - `remind_at` = full ISO 8601 timestamp with timezone
 - `reminder_status = pending`
 - `urgency = 90` (time-critical)
+- relative date phrases (`today`, `tomorrow`, `tonight`, day-of-week names) resolved from the user's timezone in `USER.md`, not the UTC message timestamp
 
 **Confirmation message style:**
 > "Got it — I'll queue a reminder for 6pm PT to email Melanie. You'll usually hear from me within an hour of that — up to ~75 min if things are quiet — so treat it as a check-in, not a stopwatch."
 
-User timezone defaults to US Central. AI converts timezone references (PT, CT, ET) to UTC offsets at intake.
+User timezone defaults to US Central. AI converts timezone references (PT, CT, ET) to UTC offsets at intake. If the visible session clock is UTC, agent resolves the user's local calendar first with `scripts/user-time-context.sh` (or equivalent timezone conversion) before deciding what "tomorrow" or "tonight" means.
 
 ### Reminder vs. Deadline
 

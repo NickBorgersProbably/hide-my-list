@@ -76,6 +76,7 @@ flowchart LR
 
     subgraph Scripts["scripts/"]
         NotionCLI[notion-cli.sh<br/>Task CRUD]
+        UserTime[user-time-context.sh<br/>User-local time context]
         RewardImg[generate-reward-image.sh<br/>AI Celebration Images]
         RecapVid[generate-weekly-recap.sh<br/>Weekly Recap Video]
         ReminderCheck[check-reminders.sh<br/>Due Reminder Query]
@@ -98,6 +99,7 @@ flowchart LR
     NotionCLI --> Tasks
     Breakdown --> NotionCLI
     Reward --> RewardImg
+    Intake --> UserTime
     ReminderCheck --> NotionCLI
 ```
 
@@ -241,7 +243,7 @@ Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the che
 
 Deferred-delivery handoff = correctness constraint, not just implementation detail. OpenClaw has no post-announce delivery acknowledgment hook. Announce-only cron would mutate Notion before platform confirms delivery — cron crash or transport failure drops reminders permanently by moving them out of `pending` query set before delivery completes.
 
-**Timezone handling:** AI converts user times (e.g., "6pm PT", "3pm Central") to full ISO 8601 with timezone offsets at intake. Check script compares against UTC — no timezone conversion at check time.
+**Timezone handling:** AI converts user times (e.g., "6pm PT", "3pm Central") to full ISO 8601 with timezone offsets at intake. Relative phrases like "tomorrow", "tonight", and day-of-week references must be resolved against the user's configured timezone in `USER.md`, never against the UTC session header. `scripts/user-time-context.sh` provides the user-local date/day context when the agent needs to translate a UTC timestamp before building `remind_at`. Check script compares stored ISO timestamps against UTC — no timezone conversion at check time.
 
 **Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. Heartbeat (every 60 min) verifies each job exists and matches canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison against full `CronCreate` contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. `docs/heartbeat-checks.md` = authoritative comparison checklist (HEARTBEAT.md is a bootstrap stub that delegates to it). See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for job definitions.
 
