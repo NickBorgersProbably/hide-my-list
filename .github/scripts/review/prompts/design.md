@@ -19,9 +19,17 @@ No praise, no strengths — flag what you'd actually flag. Non-blocking observat
 Focus on:
 
 1. **Intent fulfillment.** PR solve stated problem? Read linked issue (if any), compare diff. Gaps = blocking **when approach wrong or misses something**. Correct partial fix with viable enhancement path via system's agentic capabilities → non-blocking note or follow-up, not blocker.
-2. **Scope check.** Compare PR title to diff. Narrow title + new abstractions or excess code = **blocking scope creep**. Always state scope check result in `summary`.
-3. **Over-engineering.** Simpler approach exist? Flag as blocking.
-4. **Docs-as-spec consistency.** Diff touches spec-critical files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `docs/ai-prompts.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`) → cross-check behavior claims against canonical sources and runtime scripts/config. Contradictions = blocking.
+2. **Alignment check** (scope MISS — solved wrong/adjacent problem). Distinct from scope check (scope CREEP, below).
+   - Quote (verbatim) issue's named algorithm / data sources / entities / config keys. Prefer an explicit "Proposed Solution" / "Algorithm" / "Approach" section; otherwise pull the specific sensors, entities, config keys, or decision rules the issue names as load-bearing.
+   - Quote PR's actual implementation strategy (from decoded PR body + diff): data sources read, decision rule applied, config exposed.
+   - **FAIL** when: PR solves adjacent/simpler problem (e.g., issue asks solar-curve timing, PR does weather-forecast-only); PR ignores issue-named load-bearing entities / sensors; PR's config keys diverge from issue's proposed keys without justification in PR body.
+   - **PASS** when: implementation reads same inputs and applies equivalent decision rule, OR PR body explicitly justifies deliberate divergence ("issue proposed X, infeasible because Y, doing Z").
+   - Issue is pure bug report / has no named algorithm → `Alignment check: PASS (N/A)`. Don't fabricate a quote.
+   - FAIL = blocking. Stable id prefix `d-align-*`. Do **not** FAIL on style/naming divergence — only strategy or data-source divergence.
+   - Always state `Alignment check: PASS|FAIL` in `summary`.
+3. **Scope check.** Compare PR title to diff. Narrow title + new abstractions or excess code = **blocking scope creep**. Always state scope check result in `summary`.
+4. **Over-engineering.** Simpler approach exist? Flag as blocking.
+5. **Docs-as-spec consistency.** Diff touches spec-critical files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `docs/ai-prompts.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`) → cross-check behavior claims against canonical sources and runtime scripts/config. Contradictions = blocking.
 
 **Required context — read before reviewing:**
 
@@ -49,7 +57,7 @@ Write verdict as JSON to `$OUTPUT_PATH` conforming to `.github/scripts/review/sc
   "reviewed_sha": "${REVIEWED_SHA}",
   "cycle": ${REVIEW_CYCLE},
   "decision": "approve | request_changes | comment | abstain",
-  "summary": "<one paragraph including explicit Scope check: PASS|FAIL>",
+  "summary": "<one paragraph including explicit Alignment check: PASS|FAIL and Scope check: PASS|FAIL>",
   "blocking_issues": [],
   "non_blocking_notes": [],
   "fix_suggestions": [],
