@@ -744,7 +744,7 @@ Reminders = tasks with specific wall-clock delivery time. Unlike check-ins (acti
 
 ```mermaid
 sequenceDiagram
-    participant Cron as Isolated Haiku Cron
+    participant Cron as Isolated Cron
     participant Scr as check-reminders.sh
     participant Notion as Notion API
     participant Signal as .reminder-signal
@@ -769,7 +769,7 @@ sequenceDiagram
     end
 ```
 
-`reminder-check` cron runs as isolated Haiku session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. Delivery failure = file stays for retry.
+`reminder-check` cron runs as isolated cron session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. Delivery failure = file stays for retry.
 
 ### Reminder Delivery Messages
 

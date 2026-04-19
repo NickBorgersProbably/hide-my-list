@@ -10,13 +10,13 @@ CronCreate:
   durable: true
   name: "reminder-check"
   sessionTarget: isolated
-  model: litellm/claude-haiku-4-5
+  model: litellm/gemma4-small
   payload:
     kind: agentTurn
   timeout-seconds: 60
 ```
 
-Isolated Haiku session. Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
+Isolated cron session on `litellm/gemma4-small`. Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
 
 **Reminder delivery** — two mechanisms:
 1. **AGENTS.md step 5** (opportunistic): main session checks handoff file on every user interaction.
@@ -24,7 +24,7 @@ Isolated Haiku session. Query-only: runs check script, writes handoff file (defa
 
 Both paths validate before sending: must be JSON with `reminders` array, each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Malformed → leave file, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff, no delivery, no `complete-reminder` call, no delete. Valid → send each via OpenClaw `message` tool (`action: send`, `channel: signal`), then call `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set Notion `Status → Completed`, `Reminder Status → sent|missed`, `Completed At`.
 
-Deliberate design: old arch used `sessionTarget: main`, loaded full Opus context (~200k tokens) for a job that 95% finds nothing. Isolated Haiku cuts cost by orders of magnitude. Trade-off: idle worst-case latency ~75 min (15 min cron + 60 min heartbeat). In practice most reminders still deliver on next user interaction. Practical difference small — cron only fires when REPL idle anyway.
+Deliberate design: old arch used `sessionTarget: main`, loaded full Opus context (~200k tokens) for a job that 95% finds nothing. Isolated cron on `litellm/gemma4-small` cuts cost by orders of magnitude. Trade-off: idle worst-case latency ~75 min (15 min cron + 60 min heartbeat). In practice most reminders still deliver on next user interaction. Practical difference small — cron only fires when REPL idle anyway.
 
 Handoff file = durability boundary. OpenClaw lacks post-announce delivery ack hook, so announce-only flow can't safely call `complete-reminder` before delivery without risking loss on crash. Job stays query-only until hook exists.
 
