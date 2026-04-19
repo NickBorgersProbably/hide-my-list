@@ -119,9 +119,9 @@ To remap tiers to your available models:
 2. Edit `modelTiers` values to point at your model IDs
 3. Update `agents.defaults` in the same file to match: `model.primary` = `litellm/<expensive>`, `model.fallbacks` = `[litellm/<medium>]`, `heartbeat.model` = `litellm/<medium>`
 4. Update `model:` lines in `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` to `litellm/<cheap>`
-5. Run `bash scripts/validate-model-refs.sh` — catches any drift between tiers, config, and cron specs
+5. Run `bash scripts/validate-model-refs.sh` — catches drift between tiers, agent config, cron specs, and documented defaults
 
-Docs use tier names ("cheap-tier", "medium-tier") and never need updating when models change.
+Most narrative docs use tier names ("cheap-tier", "medium-tier"). Concrete config snippets in `setup/cron/` and `docs/openclaw-integration.md` describe current defaults and must stay aligned when you remap tiers.
 
 ## Updating
 

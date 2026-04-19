@@ -8,8 +8,8 @@
 #   2) Tier-config consistency: modelTiers in the template must match
 #      agents.defaults (expensive=primary, medium=heartbeat+fallback).
 #   3) Cron-tier agreement: cron spec files must use the cheap-tier model
-#      from modelTiers, and sibling docs must reference "cheap-tier" in
-#      their cron-contract sections.
+#      from modelTiers, and sibling docs' cron-contract sections must point
+#      back to the canonical setup/cron specs instead of drifting.
 #
 # Model tier mapping lives in setup/openclaw.json.template under modelTiers.
 # New instances: edit modelTiers + agents.defaults + cron spec model: lines,
@@ -167,27 +167,58 @@ for f in "${canonical_cron_sources[@]}"; do
   fi
 done
 
-# Sibling docs must reference "cheap-tier" in cron-contract sections
-sibling_files=(
-  "setup/README.md"
-  "docs/architecture.md"
-  "docs/openclaw-integration.md"
-  "docs/heartbeat-checks.md"
-)
-
-check_sibling_tier_ref() {
-  local spec="$1"
-  # All sibling docs must reference tiers, not hardcoded model IDs.
-  # Accept either "cheap-tier" prose or "modelTiers.cheap" notation.
-  grep -qE 'cheap-tier|modelTiers\.cheap|modelTiers' "$spec"
+extract_anchor_window() {
+  local file="$1" anchor="$2" line_count="$3" start
+  start="$(grep -nF "$anchor" "$file" | head -1 | cut -d: -f1)"
+  [[ -n "$start" ]] || return 1
+  sed -n "${start},$((start + line_count - 1))p" "$file"
 }
 
-for spec in "${sibling_files[@]}"; do
-  [[ -f "$spec" ]] || continue
-  if ! check_sibling_tier_ref "$spec"; then
-    cron_errors+=("$spec: cron-contract section missing cheap-tier language (should reference tier, not hardcoded model ID)")
+check_contract_window() {
+  local file="$1" anchor="$2" line_count="$3" required_pattern="$4" forbidden_pattern="$5" label="$6" section
+  section="$(extract_anchor_window "$file" "$anchor" "$line_count")" || {
+    cron_errors+=("$file: missing expected contract anchor '$anchor'")
+    return
+  }
+  if ! grep -qE "$required_pattern" <<<"$section"; then
+    cron_errors+=("$file: $label missing required contract text")
   fi
-done
+  if [[ -n "$forbidden_pattern" ]] && grep -qE "$forbidden_pattern" <<<"$section"; then
+    cron_errors+=("$file: $label still contains stale hardcoded-model contract text")
+  fi
+}
+
+check_contract_window \
+  "setup/README.md" \
+  "## Customizing Model Tiers" \
+  25 \
+  'setup/cron/|docs/openclaw-integration\.md' \
+  'never need updating when models change' \
+  "customization section"
+
+check_contract_window \
+  "docs/architecture.md" \
+  'Both `reminder-check` and `pull-main` use `sessionTarget: isolated`' \
+  4 \
+  'cheap-tier model|modelTiers|setup/cron/' \
+  'litellm/claude-haiku' \
+  "cron contract section"
+
+check_contract_window \
+  "docs/openclaw-integration.md" \
+  "**Current registration contract:**" \
+  4 \
+  'setup/cron/.*modelTiers\.cheap|modelTiers\.cheap.*setup/cron/' \
+  'litellm/claude-haiku' \
+  "cron contract section"
+
+check_contract_window \
+  "docs/heartbeat-checks.md" \
+  "Check via CronList." \
+  24 \
+  'setup/cron/<name>\.md.*modelTiers\.cheap|modelTiers\.cheap.*setup/cron/<name>\.md' \
+  'litellm/<modelTiers\.cheap>' \
+  "cron contract section"
 
 # --- Report results ------------------------------------------------------
 
