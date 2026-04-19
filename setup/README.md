@@ -103,7 +103,7 @@ Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs auto
 
 Production recommendation: keep `reminder-check` at 15-minute cadence and heartbeat hourly as the default production cost/latency tradeoff for routine or low-stakes reminders. In the fully idle case, reminder delivery can take up to about 75 minutes under this deferred-delivery design, so exact-time reminders are not guaranteed unless the architecture changes.
 
-## Customizing Model Tiers (Forks)
+## Customizing Model Tiers
 
 Model assignments use a tier system defined in `setup/openclaw.json.template` under `modelTiers`:
 
@@ -115,11 +115,13 @@ Model assignments use a tier system defined in `setup/openclaw.json.template` un
 
 To remap tiers to your available models:
 
-1. Edit `modelTiers` values in `setup/openclaw.json.template`
-2. Ensure each model ID exists in the `models[].id` array in the same file
-3. Run `bash scripts/validate-model-refs.sh` to verify consistency
+1. Add your models to the `models[]` array in `setup/openclaw.json.template`
+2. Edit `modelTiers` values to point at your model IDs
+3. Update `agents.defaults` in the same file to match: `model.primary` = `litellm/<expensive>`, `model.fallbacks` = `[litellm/<medium>]`, `heartbeat.model` = `litellm/<medium>`
+4. Update `model:` lines in `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` to `litellm/<cheap>`
+5. Run `bash scripts/validate-model-refs.sh` — catches any drift between tiers, config, and cron specs
 
-Cron specs (`setup/cron/*.md`) reference `modelTiers.cheap` — the agent resolves the concrete model ID at registration time. No other files need changing.
+Docs use tier names ("cheap-tier", "medium-tier") and never need updating when models change.
 
 ## Updating
 

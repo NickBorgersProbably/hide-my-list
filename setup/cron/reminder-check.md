@@ -10,7 +10,7 @@ CronCreate:
   durable: true
   name: "reminder-check"
   sessionTarget: isolated
-  model: <resolve from modelTiers.cheap in setup/openclaw.json.template — prepend "litellm/">
+  model: litellm/claude-haiku-4-5  # must match modelTiers.cheap
   payload:
     kind: agentTurn
   timeout-seconds: 60

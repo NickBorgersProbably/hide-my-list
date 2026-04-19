@@ -12,7 +12,8 @@
 #      their cron-contract sections.
 #
 # Model tier mapping lives in setup/openclaw.json.template under modelTiers.
-# Fork users change those three values + ensure IDs exist in models[].
+# New instances: edit modelTiers + agents.defaults + cron spec model: lines,
+# then run this script to verify consistency.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -120,6 +121,14 @@ if [[ "$primary_model" != "litellm/$tier_expensive" ]]; then
   tier_errors+=("agents.defaults.model.primary = $primary_model, expected litellm/$tier_expensive (expensive tier)")
 fi
 
+# Check agents.defaults.model.fallbacks[0] matches medium tier
+fallback_model="$(grep -A2 '"fallbacks"' "$TEMPLATE" | grep -oE 'litellm/[A-Za-z0-9._-]+' | head -1)"
+if [[ -z "$fallback_model" ]]; then
+  tier_errors+=("agents.defaults.model.fallbacks not found in $TEMPLATE")
+elif [[ "$fallback_model" != "litellm/$tier_medium" ]]; then
+  tier_errors+=("agents.defaults.model.fallbacks[0] = $fallback_model, expected litellm/$tier_medium (medium tier)")
+fi
+
 # Check agents.defaults.heartbeat.model matches medium tier
 heartbeat_model="$(grep -oE '"model":[[:space:]]*"litellm/[^"]+"' "$TEMPLATE" | tail -1 | grep -oE 'litellm/[^"]+')"
 if [[ "$heartbeat_model" != "litellm/$tier_medium" ]]; then
@@ -140,17 +149,21 @@ for f in "${canonical_cron_sources[@]}"; do
   fi
 done
 
-# Cron specs must reference modelTiers.cheap (no hardcoded model IDs)
+# Cron specs must have concrete model ID matching modelTiers.cheap
 cron_errors=()
+expected_cron_ref="litellm/$tier_cheap"
 
 for f in "${canonical_cron_sources[@]}"; do
-  # Check that the model: line references modelTiers.cheap, not a literal ID
-  if ! grep -qF 'modelTiers.cheap' "$f"; then
-    cron_errors+=("$f: model: line should reference modelTiers.cheap, not a hardcoded model ID")
+  # Check that the model: line uses the cheap tier model
+  cron_model="$(grep -E '^\s+model:\s+litellm/' "$f" | grep -oE 'litellm/[A-Za-z0-9._-]+' | head -1)"
+  if [[ -z "$cron_model" ]]; then
+    cron_errors+=("$f: no model: litellm/<id> line found")
+  elif [[ "$cron_model" != "$expected_cron_ref" ]]; then
+    cron_errors+=("$f: model = $cron_model, expected $expected_cron_ref (cheap tier)")
   fi
-  # Ensure no literal litellm/ model ID on the model: line
-  if grep -E '^\s+model:\s+litellm/' "$f" >/dev/null 2>&1; then
-    cron_errors+=("$f: model: line has hardcoded litellm/ ID — should use <resolve from modelTiers.cheap> instead")
+  # Check tier comment present
+  if ! grep -qE '^\s+model:.*# must match modelTiers\.cheap' "$f"; then
+    cron_errors+=("$f: missing '# must match modelTiers.cheap' comment on model: line")
   fi
 done
 
@@ -200,4 +213,4 @@ if (( ${#all_errors[@]} > 0 )); then
   exit 1
 fi
 
-echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap); cron specs reference modelTiers.cheap"
+echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap); cron specs use cheap tier ($expected_cron_ref)"
