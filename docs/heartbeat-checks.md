@@ -23,7 +23,7 @@ Verify durable cron jobs registered. Re-register any missing.
 | reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh` (query-only; writes reminder handoff if reminders due) |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; script handles dirty-pull recovery |
 
-Check via CronList. Missing (7-day auto-expiry) → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Both jobs: `sessionTarget: isolated`, model = exact `model:` line from the canonical `setup/cron/<name>.md` spec (that line must match `modelTiers.cheap` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, `timeout-seconds: 60`. Cron jobs never deliver directly to Signal or other channels.
+Check via CronList. Missing (7-day auto-expiry) → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Both jobs: `sessionTarget: isolated`, model = exact `model:` line from the canonical `setup/cron/<name>.md` spec (that line must match `modelTiers.cheap` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, `timeout-seconds: 120`. Cron jobs never deliver directly to Signal or other channels.
 
 ### 2b. Cron Spec Drift Check
 For each registered cron job (`reminder-check`, `pull-main`), compare live registration against canonical `CronCreate` spec in `setup/cron/<name>.md`.
@@ -44,8 +44,8 @@ Compare + correct these fields:
 Stale `pipeline-monitor` cron still registered → delete with CronDelete (job removed).
 
 Field differs from spec → patch with CronUpdate. Identity field (`name`, `durable`) can't be safely changed → delete + re-create from spec. Intended contract:
-- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/reminder-check.md` (and matching `modelTiers.cheap`), no `to`, `payload.kind: agentTurn`, `timeout-seconds: 60`
-- `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/pull-main.md` (and matching `modelTiers.cheap`), no `to`, `payload.kind: agentTurn`, `timeout-seconds: 60`
+- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/reminder-check.md` (and matching `modelTiers.cheap`), no `to`, `payload.kind: agentTurn`, `timeout-seconds: 120`
+- `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/pull-main.md` (and matching `modelTiers.cheap`), no `to`, `payload.kind: agentTurn`, `timeout-seconds: 120`
 
 All match → report nothing. Any corrected → note which + what drift fixed.
 

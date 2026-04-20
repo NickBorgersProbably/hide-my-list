@@ -13,7 +13,7 @@ CronCreate:
   model: litellm/gemma4-small  # must match modelTiers.cheap
   payload:
     kind: agentTurn
-  timeout-seconds: 60
+  timeout-seconds: 120
 ```
 
 Isolated cheap-tier maintenance session (see `modelTiers` in `setup/openclaw.json.template`). Executes `scripts/pull-main.sh`, stays silent (`NO_REPLY`). Cron spec re-application after pulls handled by heartbeat drift correction (`docs/heartbeat-checks.md` Check 2b), not this job — isolated session can't reliably call CronList/CronUpdate.

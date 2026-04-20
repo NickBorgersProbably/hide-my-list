@@ -13,7 +13,7 @@ CronCreate:
   model: litellm/gemma4-small  # must match modelTiers.cheap
   payload:
     kind: agentTurn
-  timeout-seconds: 60
+  timeout-seconds: 120
 ```
 
 Isolated cheap-tier session (see `modelTiers` in `setup/openclaw.json.template`). Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
