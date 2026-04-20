@@ -86,7 +86,7 @@
       },
       "heartbeat": {
         "every": "60m",
-        "model": "litellm/claude-sonnet-4-6"
+        "model": "litellm/gemma4-small"
       },
       "maxConcurrent": 4,
       "subagents": {
