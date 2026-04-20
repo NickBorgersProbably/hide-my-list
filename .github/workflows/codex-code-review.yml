@@ -1113,12 +1113,20 @@ jobs:
             1. Read the issue/PR description to understand the problem being solved.
             2. Examine the code changes (\`git diff origin/main...HEAD\`).
             3. Validate: does the PR solve the stated problem? Gaps between intent and delivery are blocking.
-            4. SCOPE CHECK: Compare the PR title/issue against the actual diff.
+            4. ALIGNMENT CHECK: Distinct from scope creep. Catch scope MISS — PR solves wrong/adjacent problem.
+               - Quote verbatim the issue's named algorithm / data sources / entities / config keys when those are load-bearing.
+               - Quote the PR's actual implementation strategy from the PR description + diff: data sources read, decision rule applied, config exposed.
+               - FAIL when PR solves adjacent/simpler problem; ignores issue-named load-bearing entities / sensors; or diverges on proposed config keys without justification in PR description.
+               - PASS when implementation reads same inputs and applies equivalent decision rule, or PR description explicitly justifies deliberate divergence.
+               - If issue is a pure bug report or has no named algorithm, state: \"Alignment check: PASS (N/A)\". Do not fabricate a quote.
+               - Do not fail on style or naming divergence alone. Only strategy or data-source divergence counts.
+               - State explicitly: \"Alignment check: PASS\" or \"Alignment check: FAIL — [reason]\"
+            5. SCOPE CHECK: Compare the PR title/issue against the actual diff.
                - If the title suggests a narrow fix but the diff introduces new abstractions or
                  significant code beyond what the title implies, flag as blocking scope creep.
                - State explicitly: \"Scope check: PASS\" or \"Scope check: FAIL — [reason]\"
-            5. Evaluate design decisions: could a simpler approach work? Flag over-engineering as blocking.
-            6. When docs-as-spec consistency is required, follow the checklist below.
+            6. Evaluate design decisions: could a simpler approach work? Flag over-engineering as blocking.
+            7. When docs-as-spec consistency is required, follow the checklist below.
 
             Reference docs/architecture.md for system design context.
             Do NOT push any changes. This is a read-only review.
@@ -1144,7 +1152,7 @@ jobs:
             [One-sentence non-blocking observations. Skip section if none.]
 
             ### Conclusion
-            [Approved | Approved with reservations | Needs revision — [reason]]'" < /dev/null 2>&1 | tee /tmp/design-review-output.jsonl
+            [Alignment check: PASS|FAIL. Scope check: PASS|FAIL. Approved | Approved with reservations | Needs revision — [reason]]'" < /dev/null 2>&1 | tee /tmp/design-review-output.jsonl
 
       - name: Log out of GHCR
         if: always() && steps.setup.outputs.verified == 'true'
