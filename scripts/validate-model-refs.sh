@@ -6,7 +6,7 @@
 #      file registered by review-classify's is_spec_md() must resolve in
 #      setup/openclaw.json.template's models array.
 #   2) Tier-config consistency: modelTiers in the template must match
-#      agents.defaults (expensive=primary, medium=heartbeat+fallback).
+#      agents.defaults (expensive=primary, medium=fallback, cheap=heartbeat).
 #   3) Cron-tier agreement: cron spec files must use the cheap-tier model
 #      from modelTiers, and sibling docs' cron-contract sections must point
 #      back to the canonical setup/cron specs instead of drifting.
@@ -129,10 +129,10 @@ elif [[ "$fallback_model" != "litellm/$tier_medium" ]]; then
   tier_errors+=("agents.defaults.model.fallbacks[0] = $fallback_model, expected litellm/$tier_medium (medium tier)")
 fi
 
-# Check agents.defaults.heartbeat.model matches medium tier
+# Check agents.defaults.heartbeat.model matches cheap tier
 heartbeat_model="$(grep -oE '"model":[[:space:]]*"litellm/[^"]+"' "$TEMPLATE" | tail -1 | grep -oE 'litellm/[^"]+')"
-if [[ "$heartbeat_model" != "litellm/$tier_medium" ]]; then
-  tier_errors+=("agents.defaults.heartbeat.model = $heartbeat_model, expected litellm/$tier_medium (medium tier)")
+if [[ "$heartbeat_model" != "litellm/$tier_cheap" ]]; then
+  tier_errors+=("agents.defaults.heartbeat.model = $heartbeat_model, expected litellm/$tier_cheap (cheap tier)")
 fi
 
 # --- Invariant 3: cron-tier agreement -----------------------------------

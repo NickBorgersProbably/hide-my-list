@@ -51,11 +51,11 @@ OpenClaw heartbeat = built-in periodic trigger configured in `openclaw.json`:
 ```json
 "heartbeat": {
   "every": "60m",
-  "model": "litellm/<medium-tier model>"
+  "model": "litellm/<cheap-tier model>"
 }
 ```
 
-Every 60 min, OpenClaw creates short agent session, reads `HEARTBEAT.md`, executes checks. Uses the lighter medium-tier model from `setup/openclaw.json.template` (`agents.defaults.heartbeat.model`, which must match `modelTiers.medium`) for routine operational tasks. Reminder delivery not via `heartbeat.target`; Check 1 sends reminders explicitly with OpenClaw `message` tool (`action: send`, `channel: signal`). `target` field only controls where generic non-`HEARTBEAT_OK` output routes; without it, defaults to `"none"`, silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
+Every 60 min, OpenClaw creates short agent session, reads `HEARTBEAT.md`, executes checks. Uses the cheap-tier model from `setup/openclaw.json.template` (`agents.defaults.heartbeat.model`, which must match `modelTiers.cheap`) for routine operational tasks — heartbeat checks are scripted health checks that don't need reasoning. Reminder delivery not via `heartbeat.target`; Check 1 sends reminders explicitly with OpenClaw `message` tool (`action: send`, `channel: signal`). `target` field only controls where generic non-`HEARTBEAT_OK` output routes; without it, defaults to `"none"`, silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
 
 **Our usage:** Two roles:
 1. **Reminder-delivery backstop:** Isolated `reminder-check` cron only writes `.reminder-signal` — no user delivery. Heartbeat Check 1 reads stranded signal files, validates, delivers to Signal via `message` tool every 60 min. (AGENTS.md startup check provides faster opportunistic delivery when user active.)
@@ -159,10 +159,10 @@ OpenClaw supports multiple model providers. We route through LiteLLM proxy on Ta
 }
 ```
 
-Canonical model list and tier mappings live in `setup/openclaw.json.template` (see `modelTiers`). `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in classifier-listed spec files resolves against that list, that tier mappings are consistent with agent config (including `agents.defaults.heartbeat.model` matching `modelTiers.medium`), and that cron specs plus sibling docs stay aligned with the cheap tier contract.
+Canonical model list and tier mappings live in `setup/openclaw.json.template` (see `modelTiers`). `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in classifier-listed spec files resolves against that list, that tier mappings are consistent with agent config (including `agents.defaults.heartbeat.model` matching `modelTiers.cheap`), and that cron specs plus sibling docs stay aligned with the cheap tier contract.
 
 - **Primary model (expensive tier):** Whatever `modelTiers.expensive` maps to for conversations and task management
-- **Heartbeat model (medium tier):** Whatever `modelTiers.medium` maps to for routine checks and fallback
+- **Heartbeat model (cheap tier):** Whatever `modelTiers.cheap` maps to for routine health checks
 - **Cron model (cheap tier):** Whatever `modelTiers.cheap` maps to for isolated cron work such as reminder polling and workspace sync
 - **Codex CLI model:** GPT-5.4, configured separately in `.codex/config.toml` via `.devcontainer/configure-codex.sh`; not served through the OpenClaw models array above.
 

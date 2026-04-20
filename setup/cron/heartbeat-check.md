@@ -7,7 +7,7 @@ Heartbeat = built-in OpenClaw feature, not a cron job. Configured in `openclaw.j
 ```json
 "heartbeat": {
   "every": "60m",
-  "model": "litellm/claude-sonnet-4-6"  // must match modelTiers.medium
+  "model": "litellm/gemma4-small"  // must match modelTiers.cheap
 }
 ```
 
@@ -24,7 +24,7 @@ Every 60 min, OpenClaw runs agent with `HEARTBEAT.md` as context. Agent performs
 5. Verify environment intact
 6. Pull main if flagged
 
-Uses medium-tier model — routine operational checks. Heartbeat also processes stranded handoff files; hourly cadence is part of production reminder-latency tradeoff.
+Uses cheap-tier model — routine operational checks don't need reasoning. Heartbeat also processes stranded handoff files; hourly cadence is part of production reminder-latency tradeoff.
 
 ## Notes
 

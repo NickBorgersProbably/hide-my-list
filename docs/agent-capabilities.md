@@ -56,7 +56,7 @@ Tool availability does not override `AGENTS.md` safety policy. External actions 
 
 ## Heartbeat Session
 
-Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md` (bootstrap stub that delegates to `docs/heartbeat-checks.md`). Runs every 60 minutes with lighter model than main agent.
+Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md` (bootstrap stub that delegates to `docs/heartbeat-checks.md`). Runs every 60 minutes with cheap-tier model (`modelTiers.cheap`).
 
 ### Confirmed tool contract
 

@@ -132,8 +132,8 @@ Model assignments use a tier system defined in `setup/openclaw.json.template` un
 | Tier | Role | Default |
 |------|------|---------|
 | `expensive` | Primary interactive agent | `claude-opus-4-6` |
-| `medium` | Heartbeat, fallback | `claude-sonnet-4-6` |
-| `cheap` | Isolated cron jobs | `gemma4-small` |
+| `medium` | Fallback | `claude-sonnet-4-6` |
+| `cheap` | Heartbeat, isolated cron jobs | `gemma4-small` |
 
 Default setup assumes LiteLLM fronts every configured model. If you want a direct Anthropic-only install, that is a custom setup: remap `modelTiers.cheap` to an Anthropic model you can access, then update the cron `model:` lines and agent defaults to match before first run.
 
@@ -141,7 +141,7 @@ To remap tiers to your available models:
 
 1. Add your models to the `models[]` array in `setup/openclaw.json.template`
 2. Edit `modelTiers` values to point at your model IDs
-3. Update `agents.defaults` in the same file to match: `model.primary` = `litellm/<expensive>`, `model.fallbacks` = `[litellm/<medium>]`, `heartbeat.model` = `litellm/<medium>`
+3. Update `agents.defaults` in the same file to match: `model.primary` = `litellm/<expensive>`, `model.fallbacks` = `[litellm/<medium>]`, `heartbeat.model` = `litellm/<cheap>`
 4. Update `model:` lines in `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` to `litellm/<cheap>`
 5. Run `bash scripts/validate-model-refs.sh` — catches drift between tiers, agent config, cron specs, and documented defaults
 
