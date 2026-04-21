@@ -12,7 +12,11 @@
   OPS_ALERT_TARGET="$(bash -lc 'SCRIPT_DIR=$(cd "$(dirname scripts/check-reminders.sh)" && pwd); source "$SCRIPT_DIR/load-env.sh" OPS_ALERT_SIGNAL_NUMBER?; if [ -z "${OPS_ALERT_SIGNAL_NUMBER:-}" ]; then echo "missing OPS_ALERT_SIGNAL_NUMBER" >&2; exit 1; fi; printf "%s\n" "$OPS_ALERT_SIGNAL_NUMBER"')"
   ```
 - File = reminder handoff written by `scripts/check-reminders.sh`
-- If `HANDOFF_FILE` exists at heartbeat time: treat as undelivered. Read + validate (must be JSON with `reminders` array; each entry needs string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; any other shape/status = malformed → leave file, send ops alert via `message` tool (`action: send`, `channel: signal`, `target: "$OPS_ALERT_TARGET"`) describing the malformed handoff, skip delivery/`complete-reminder`/delete). For each valid reminder: send via OpenClaw `message` tool (`action: send`, `channel: signal`), run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`, delete handoff file.
+- If `HANDOFF_FILE` exists at heartbeat time: treat as undelivered. Read + validate (must be JSON with `reminders` array; each entry needs string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; any other shape/status = malformed → leave file, send ops alert via `message` tool (`action: send`, `channel: signal`, `target: "$OPS_ALERT_TARGET"`) describing the malformed handoff, skip delivery/`complete-reminder`/delete). For each valid reminder:
+  - `status: sent` = approximate/on-time reminder. Use casual wording: `Hey, time to [task]`.
+  - `status: missed` = reminder already >15 min late. Say that delay happened without blame: `This was due a bit ago — [task]. Want to handle it now or reschedule?`
+  - Keep reminder copy shame-safe. No guilt, criticism, "you forgot", "you should have", or pressure framing. Treat delay as timing info, not user failure.
+  - Send via OpenClaw `message` tool (`action: send`, `channel: signal`), run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`, delete handoff file.
 - Hourly delivery backstop. Isolated `reminder-check` cron only writes handoff — no delivery. Delivery here (every 60 min) + opportunistically via AGENTS.md startup check.
 
 ### 2. Cron Job Health
