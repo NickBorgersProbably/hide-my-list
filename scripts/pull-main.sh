@@ -21,7 +21,38 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/load-github-auth.sh"
 
 SIGNAL_FILE="$ROOT_DIR/.pull-dirty"
+CONFIG_DRIFT_FILE="$ROOT_DIR/.config-drift"
+TEMPLATE_FILE="$ROOT_DIR/setup/openclaw.json.template"
 REPO="NickBorgersProbably/hide-my-list"
+
+# Hash the current on-disk template, or empty string if missing.
+template_hash() {
+    if [ -f "$TEMPLATE_FILE" ]; then
+        git hash-object "$TEMPLATE_FILE" 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
+}
+
+# Write .config-drift flag if the template changed across a pull.
+# Writes AFTER git operations complete, so recovery-path `git clean -fd`
+# cannot delete an unconsumed flag — that was the blocker that closed PR #395.
+maybe_write_config_drift() {
+    local pre="$1" post="$2"
+    if [ -n "$post" ] && [ "$pre" != "$post" ]; then
+        DETECTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        PRE_SHA="$pre" \
+        POST_SHA="$post" \
+        python3 -c "
+import json, os
+print(json.dumps({
+    'detected_at': os.environ['DETECTED_AT'],
+    'pre_template_sha': os.environ['PRE_SHA'],
+    'post_template_sha': os.environ['POST_SHA'],
+}, indent=2))
+" > "$CONFIG_DRIFT_FILE" 2>/dev/null || true
+    fi
+}
 
 cd "$ROOT_DIR"
 
@@ -259,9 +290,15 @@ print(body)
 
     # Success — clean up
     rm -f "$SIGNAL_FILE"
+    maybe_write_config_drift "$PRE_TEMPLATE_HASH" "$(template_hash)"
 }
 
 # --- Flag parsing ---
+
+# Capture template hash before any git operation so both paths can detect
+# whether the pull changed setup/openclaw.json.template.
+PRE_TEMPLATE_HASH="$(template_hash)"
+export PRE_TEMPLATE_HASH
 
 if [ "${1:-}" = "--recover-only" ]; then
     recover_dirty_pull
@@ -286,6 +323,7 @@ pull_output=$(git pull origin main 2>&1) && pull_exit=0 || pull_exit=$?
 if [ "$pull_exit" -eq 0 ]; then
     # Clean pull — remove any stale signal from a prior run
     rm -f "$SIGNAL_FILE"
+    maybe_write_config_drift "$PRE_TEMPLATE_HASH" "$(template_hash)"
     exit 0
 fi
 

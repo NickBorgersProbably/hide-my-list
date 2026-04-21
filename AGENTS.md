@@ -13,6 +13,7 @@
    - Missed (>15 min late): note delay, no shame ("This was due a bit ago — [task]. Want to handle it now or reschedule?")
    - After delivery: run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` per item, then delete handoff file
    - If delivery fails: leave file for retry
+6. Check `.config-drift` flag (written by `scripts/pull-main.sh` only when `setup/openclaw.json.template` changed across a pull). Exists → read `agents.defaults.heartbeat` from template, `config.get` the same path from live config, `config.patch` if different, delete `.config-drift` on success. No user-facing note — this is background infrastructure hygiene, pre-authorized under Safety. `config.get`/`config.patch` fails: leave `.config-drift` in place, surface error, no silent retry. Template missing or parse fails: leave `.config-drift`, surface error. Scope narrow: only `agents.defaults.heartbeat` subtree syncs — deployment-local fields (gateway auth, channels, secrets) stay untouched.
 
 Then be ready. User might add task, ask what to do, say done, or chat.
 
@@ -114,7 +115,7 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 - Don't show full task list. Core rule.
 - **NEVER touch firewall rules.** Critical security. No exceptions.
 - Don't exfiltrate data.
-- Ask before external actions. (Exception: reminder delivery to Signal pre-authorized — user consented at creation.)
+- Ask before external actions. (Exceptions: reminder delivery to Signal pre-authorized — user consented at creation. `config.patch` on `agents.defaults.heartbeat` for template-drift repair pre-authorized — narrow behavioral-defaults scope, no deployment secrets touched, gated on `.config-drift` flag from `pull-main`.)
 - `trash` > `rm`.
 
 ### Code & Prompt Changes (OpenClaw Agent Only)
@@ -127,7 +128,7 @@ Restrictions apply to **OpenClaw runtime agent** only — not Claude Code sessio
 - Infra & CI files outside restriction — but OpenClaw agent should still file issues; CI changes warrant review.
 - Restriction covers repo-managed content, not OpenClaw runtime features. Keep using OpenClaw heartbeat, durable cron, bootstrap loading, hooks, messaging as documented.
 - OpenClaw-owned runtime state (cron registrations, task records outside repo) not "managed content" under this rule.
-- Outside the self-contained dirty-pull recovery path in `scripts/pull-main.sh` (with `HEARTBEAT.md` only retrying stale `.pull-dirty` signals when recovery didn't complete), only files OpenClaw agent may write directly: `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, repo-root reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE`), and temp `.reminder-signal-*.tmp` sibling in same dir for atomic replacement.
+- Outside the self-contained dirty-pull recovery path in `scripts/pull-main.sh` (with `HEARTBEAT.md` only retrying stale `.pull-dirty` signals when recovery didn't complete), only files OpenClaw agent may write directly: `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, repo-root reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE`), temp `.reminder-signal-*.tmp` sibling in same dir for atomic replacement, and `.config-drift` (main agent deletes after successful config sync per step 6; `pull-main` writes it).
 
 ## Memory
 
