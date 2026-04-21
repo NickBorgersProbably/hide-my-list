@@ -13,6 +13,7 @@
    - Missed (>15 min late): note delay, no shame ("This was due a bit ago — [task]. Want to handle it now or reschedule?")
    - After delivery: run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` per item, then delete handoff file
    - If delivery fails: leave file for retry
+6. Heartbeat config drift: `config.get` path `agents.defaults.heartbeat`; compare to `agents.defaults.heartbeat` object in `setup/openclaw.json.template`. Different → `config.patch` path `agents.defaults.heartbeat` with template value; brief note to user: `Applied config update: heartbeat synced from template (model: <new model>).` `config.get` or `config.patch` fails → surface error, no silent retry, leave live config alone. Template read/parse fails → surface error, skip drift repair. Scope narrow: only `agents.defaults.heartbeat` subtree syncs — other live-config fields (gateway auth, channels, deployment secrets) stay untouched.
 
 Then be ready. User might add task, ask what to do, say done, or chat.
 
