@@ -207,6 +207,20 @@ Manual regression playbook:
 - They auto-expire after 7 days. The next heartbeat (every 60 min) will re-register them.
 - Or manually re-register per the definitions in `setup/cron/`
 
+**Heartbeat still loads full bootstrap after pulling the latest template:**
+- `setup/openclaw.json.template` sets `agents.defaults.heartbeat.lightContext` and `agents.defaults.heartbeat.isolatedSession` to `true`, but these fields don't auto-apply to an already-deployed `~/.openclaw/openclaw.json` — the template change only affects *new* installs.
+- To apply on a live instance, edit `~/.openclaw/openclaw.json` and add the two fields under `agents.defaults.heartbeat`:
+  ```json
+  "heartbeat": {
+    "every": "60m",
+    "model": "litellm/gemma4-small",
+    "lightContext": true,
+    "isolatedSession": true
+  }
+  ```
+- Then restart the gateway: `openclaw gateway`.
+- Verify: the next heartbeat run's context should only contain `HEARTBEAT.md` from bootstrap (not AGENTS.md, SOUL.md, etc.) — inspect the gateway logs or attach a debugger to confirm.
+
 **Git pull conflicts:**
 - Agent-edited files (MEMORY.md, memory/*.md) are gitignored so won't conflict
 - If HEARTBEAT.md or AGENTS.md conflict, the repo version is authoritative

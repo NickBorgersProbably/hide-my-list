@@ -135,6 +135,18 @@ if [[ "$heartbeat_model" != "litellm/$tier_cheap" ]]; then
   tier_errors+=("agents.defaults.heartbeat.model = $heartbeat_model, expected litellm/$tier_cheap (cheap tier)")
 fi
 
+# Check agents.defaults.heartbeat.{lightContext,isolatedSession} = true.
+# Extract the heartbeat block (inclusive of closing brace) so we only match
+# inside it — prevents a stray lightContext elsewhere in the template from
+# silencing this check.
+heartbeat_block="$(awk '/"heartbeat":[[:space:]]*\{/,/^[[:space:]]*\}/' "$TEMPLATE")"
+if ! grep -qE '"lightContext"[[:space:]]*:[[:space:]]*true' <<<"$heartbeat_block"; then
+  tier_errors+=("agents.defaults.heartbeat.lightContext must be true (strips bootstrap to HEARTBEAT.md only)")
+fi
+if ! grep -qE '"isolatedSession"[[:space:]]*:[[:space:]]*true' <<<"$heartbeat_block"; then
+  tier_errors+=("agents.defaults.heartbeat.isolatedSession must be true (skips transcript replay)")
+fi
+
 # --- Invariant 3: cron-tier agreement -----------------------------------
 
 canonical_cron_sources=(
