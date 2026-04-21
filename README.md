@@ -83,7 +83,7 @@ The CI pipeline includes a **psychological research evidence reviewer** that val
 
 - [OpenClaw Integration](docs/openclaw-integration.md)
 - [Architecture](docs/architecture.md)
-- [AI Prompts](docs/ai-prompts.md)
+- [AI Prompts](docs/ai-prompts/shared.md) (entry point; per-intent prompts live in `docs/ai-prompts/`)
 - [Task Lifecycle](docs/task-lifecycle.md)
 - [Notion Schema](docs/notion-schema.md)
 - [User Interactions](docs/user-interactions.md)

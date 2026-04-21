@@ -103,12 +103,12 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 | Intent | Read Before Acting |
 |--------|-------------------|
 | COMPLETE | `docs/reward-system.md` — scoring algorithm, reward image, celebration |
-| ADD_TASK | `docs/ai-prompts.md` (Module 2: Task Intake) — inference rules, sub-task generation, reminder detection |
-| GET_TASK | `docs/ai-prompts.md` (Module 3: Task Selection) — scoring weights, mood mapping |
-| REJECT | `docs/ai-prompts.md` (Module 4: Rejection Handling) — shame-safe responses, escalation flow |
-| CANNOT_FINISH | `docs/ai-prompts.md` (Module 5) — progress gathering, sub-task creation |
-| NEED_HELP | `docs/ai-prompts.md` (Module 7: Breakdown Assistance) — confidence detection, response levels |
-| CHECK_IN | `docs/ai-prompts.md` (Module 6: Check-In Handling) — timing, shame-safe templates |
+| ADD_TASK | `docs/ai-prompts/intake.md` + `docs/ai-prompts/shared.md` — inference rules, sub-task generation, reminder detection, base prompt |
+| GET_TASK | `docs/ai-prompts/selection.md` + `docs/ai-prompts/shared.md` — scoring weights, mood mapping, base prompt |
+| REJECT | `docs/ai-prompts/rejection.md` + `docs/ai-prompts/shared.md` — shame-safe responses, escalation flow, base prompt |
+| CANNOT_FINISH | `docs/ai-prompts/cannot-finish.md` + `docs/ai-prompts/shared.md` — progress gathering, sub-task creation, base prompt |
+| NEED_HELP | `docs/ai-prompts/breakdown.md` + `docs/ai-prompts/shared.md` — confidence detection, response levels, base prompt |
+| CHECK_IN | `docs/ai-prompts/check-in.md` + `docs/ai-prompts/shared.md` — timing, shame-safe templates, base prompt |
 
 ## Safety
 
@@ -122,7 +122,7 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 
 Restrictions apply to **OpenClaw runtime agent** only — not Claude Code sessions, Codex CI agents, or human contributors.
 
-- For user-requested code/prompt/docs/design changes: **never directly edit OpenClaw prompt & spec files** (bootstrap: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, HEARTBEAT.md; heartbeat spec: docs/heartbeat-checks.md; runtime docs: docs/ai-prompts.md, docs/architecture.md, docs/agent-capabilities.md, docs/task-lifecycle.md, docs/notion-schema.md, docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md; design/adhd-priorities.md; scripts/notion-cli.sh).
+- For user-requested code/prompt/docs/design changes: **never directly edit OpenClaw prompt & spec files** (bootstrap: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, HEARTBEAT.md; heartbeat spec: docs/heartbeat-checks.md; runtime docs: docs/ai-prompts/ (shared.md, intake.md, selection.md, rejection.md, cannot-finish.md, check-in.md, breakdown.md), docs/architecture.md, docs/agent-capabilities.md, docs/task-lifecycle.md, docs/notion-schema.md, docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md; design/adhd-priorities.md; scripts/notion-cli.sh).
 - All prompt/spec changes: GitHub issues → PR → review pipeline.
 - **File issues** describing problem + proposed fix. Don't implement prompt/spec changes directly.
 - Infra & CI files outside restriction — but OpenClaw agent should still file issues; CI changes warrant review.

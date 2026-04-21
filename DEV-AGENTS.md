@@ -23,7 +23,13 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `TOOLS.md` — Available tools + property references
 - `HEARTBEAT.md` — Bootstrap stub; delegates to `docs/heartbeat-checks.md` (keeps per-turn context small)
 - `docs/heartbeat-checks.md` — Authoritative heartbeat check list (stranded reminders, cron health, drift, Notion connectivity, dirty-pull recovery)
-- `docs/ai-prompts.md` — Prompt architecture (core of app)
+- `docs/ai-prompts/shared.md` — Base system prompt, intent dispatch, user preferences context, output/error/state handling (entry point for per-intent prompts)
+- `docs/ai-prompts/intake.md` — Task Intake module (ADD_TASK): inference rules, sub-task generation, reminder detection
+- `docs/ai-prompts/selection.md` — Task Selection module (GET_TASK): scoring weights, mood mapping
+- `docs/ai-prompts/rejection.md` — Rejection Handling module (REJECT): shame-safe responses, escalation flow
+- `docs/ai-prompts/cannot-finish.md` — Cannot Finish module (CANNOT_FINISH): progress gathering, sub-task creation
+- `docs/ai-prompts/check-in.md` — Check-In Handling module (CHECK_IN): timing, shame-safe templates
+- `docs/ai-prompts/breakdown.md` — Breakdown Assistance module (NEED_HELP): confidence detection, response levels
 - `docs/architecture.md` — System design + data flow spec
 - `docs/openclaw-integration.md` — OpenClaw runtime mapping, model routing, cron registration contract
 - `docs/agent-capabilities.md` — Session roles + runtime tool-boundary source of truth

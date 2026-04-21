@@ -170,7 +170,7 @@ Canonical model list and tier mappings live in `setup/openclaw.json.template` (s
 - **Cron model (cheap tier):** Whatever `modelTiers.cheap` maps to for isolated cron work such as reminder polling and workspace sync
 - **Codex CLI model:** GPT-5.4, configured separately in `.codex/config.toml` via `.devcontainer/configure-codex.sh`; not served through the OpenClaw models array above.
 
-**Our role:** No direct interaction with model selection. Prompts in `docs/ai-prompts.md` model-agnostic. OpenClaw picks model from config.
+**Our role:** No direct interaction with model selection. Prompts in `docs/ai-prompts/` model-agnostic. OpenClaw picks model from config.
 
 ## Gateway
 
