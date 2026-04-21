@@ -28,6 +28,6 @@ Uses cheap-tier model — routine operational checks don't need reasoning. Heart
 
 ## Notes
 
-- Heartbeat = safety net for cron expiry and spec drift. Auto-expired job → next heartbeat re-registers. Live job drifts from `CronCreate` block in `setup/cron/` (`name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, unexpected `to`, `payload.kind`, `timeout-seconds`) → next heartbeat patches to spec. `docs/heartbeat-checks.md` defines authoritative comparison contract (HEARTBEAT.md is a bootstrap stub that delegates to it).
+- Heartbeat = safety net for cron expiry and spec drift. Auto-expired job → next heartbeat re-registers. Live job drifts from `CronCreate` block in `setup/cron/` (`name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, unexpected `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`) → next heartbeat patches to spec. `docs/heartbeat-checks.md` defines authoritative comparison contract (HEARTBEAT.md is a bootstrap stub that delegates to it).
 - Also hourly backstop for reminder delivery. Isolated `reminder-check` cron writes `.reminder-signal`; heartbeat Check 1 reads and delivers stranded reminders.
 - Heartbeat managed by OpenClaw, does not expire.
