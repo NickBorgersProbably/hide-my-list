@@ -13,6 +13,7 @@ CronCreate:
   model: litellm/gemma4-small  # must match modelTiers.cheap
   payload:
     kind: agentTurn
+    lightContext: true  # empty bootstrap — cron prompt is self-contained
   timeout-seconds: 300
 ```
 

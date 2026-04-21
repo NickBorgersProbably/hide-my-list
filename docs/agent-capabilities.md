@@ -93,7 +93,7 @@ Heartbeat = **operations backstop**, not primary control plane. Keeps existing s
 
 ## Isolated Cron Sessions
 
-Durable OpenClaw jobs registered from `setup/cron/` with `sessionTarget: isolated`, `payload.kind: agentTurn`, lightweight model. Run cheap background work without loading main conversational context.
+Durable OpenClaw jobs registered from `setup/cron/` with `sessionTarget: isolated`, `payload.kind: agentTurn`, `payload.lightContext: true` (empty bootstrap — prompts are self-contained scripts), lightweight model. Run cheap background work without loading main conversational context.
 
 ### Shared tool assumptions
 
