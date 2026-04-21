@@ -214,11 +214,11 @@ Manual regression playbook:
   ```json
   "heartbeat": {
     "every": "60m",
-    "model": "litellm/gemma4-small",
     "lightContext": true,
     "isolatedSession": true
   }
   ```
+- Keep the existing heartbeat `model` unchanged. Only add the two new fields unless you intentionally also need to realign heartbeat with your instance's current cheap-tier model.
 - Then restart the gateway: `openclaw gateway`.
 - Verify: the next heartbeat run's context should only contain `HEARTBEAT.md` from bootstrap (not AGENTS.md, SOUL.md, etc.) — inspect the gateway logs or attach a debugger to confirm.
 
