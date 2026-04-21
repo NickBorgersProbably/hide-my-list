@@ -165,6 +165,10 @@ for f in "${canonical_cron_sources[@]}"; do
   if ! grep -qE '^\s+model:.*# must match modelTiers\.cheap' "$f"; then
     cron_errors+=("$f: missing '# must match modelTiers.cheap' comment on model: line")
   fi
+  # Check payload.lightContext: true present (skips bootstrap for isolated cron sessions)
+  if ! grep -qE '^\s+lightContext:\s+true' "$f"; then
+    cron_errors+=("$f: missing 'lightContext: true' under payload — cron specs must opt into lightweight bootstrap")
+  fi
 done
 
 extract_anchor_window() {
@@ -220,6 +224,16 @@ check_contract_window \
   'setup/cron/<name>\.md.*modelTiers\.cheap|modelTiers\.cheap.*setup/cron/<name>\.md' \
   'litellm/<modelTiers\.cheap>' \
   "cron contract section"
+
+# Drift-correction contract (Check 2b) must list payload.lightContext
+# so heartbeat re-patches jobs back to the lightweight-bootstrap spec.
+check_contract_window \
+  "docs/heartbeat-checks.md" \
+  "Compare + correct these fields:" \
+  15 \
+  'payload\.lightContext' \
+  '' \
+  "cron drift-correction allowlist"
 
 # --- Report results ------------------------------------------------------
 
