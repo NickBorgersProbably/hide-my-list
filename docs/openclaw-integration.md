@@ -51,11 +51,15 @@ OpenClaw heartbeat = built-in periodic trigger configured in `openclaw.json`:
 ```json
 "heartbeat": {
   "every": "60m",
-  "model": "litellm/<cheap-tier model>"
+  "model": "litellm/<cheap-tier model>",
+  "lightContext": true,
+  "isolatedSession": true
 }
 ```
 
-Every 60 min, OpenClaw creates short agent session, reads `HEARTBEAT.md`, executes checks. Uses the cheap-tier model from `setup/openclaw.json.template` (`agents.defaults.heartbeat.model`, which must match `modelTiers.cheap`) for routine operational tasks — heartbeat checks are scripted health checks that don't need reasoning. Reminder delivery not via `heartbeat.target`; Check 1 sends reminders explicitly with OpenClaw `message` tool (`action: send`, `channel: signal`). `target` field only controls where generic non-`HEARTBEAT_OK` output routes; without it, defaults to `"none"`, silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
+Every 60 min, OpenClaw creates short agent session, reads `HEARTBEAT.md`, executes checks. Uses the cheap-tier model from `setup/openclaw.json.template` (`agents.defaults.heartbeat.model`, which must match `modelTiers.cheap`) for routine operational tasks — heartbeat checks are scripted health checks that don't need reasoning.
+
+`lightContext: true` filters bootstrap to only `HEARTBEAT.md` (no AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, USER.md, MEMORY.md). Heartbeat reads `docs/heartbeat-checks.md` on demand through its file tools, so the full spec is still available — it just doesn't sit in bootstrap for every run. `isolatedSession: true` skips replaying prior conversation transcripts into the heartbeat's context. Together they cut heartbeat per-run token cost substantially without changing what checks the heartbeat performs. Reminder delivery not via `heartbeat.target`; Check 1 sends reminders explicitly with OpenClaw `message` tool (`action: send`, `channel: signal`). `target` field only controls where generic non-`HEARTBEAT_OK` output routes; without it, defaults to `"none"`, silently discarded ([openclaw/openclaw#29215](https://github.com/openclaw/openclaw/issues/29215)).
 
 **Our usage:** Two roles:
 1. **Reminder-delivery backstop:** Isolated `reminder-check` cron only writes `.reminder-signal` — no user delivery. Heartbeat Check 1 reads stranded signal files, validates, delivers to Signal via `message` tool every 60 min. (AGENTS.md startup check provides faster opportunistic delivery when user active.)

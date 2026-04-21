@@ -7,7 +7,9 @@ Heartbeat = built-in OpenClaw feature, not a cron job. Configured in `openclaw.j
 ```json
 "heartbeat": {
   "every": "60m",
-  "model": "litellm/gemma4-small"  // must match modelTiers.cheap
+  "model": "litellm/gemma4-small",  // must match modelTiers.cheap
+  "lightContext": true,              // bootstrap = HEARTBEAT.md only
+  "isolatedSession": true            // skip prior conversation transcript
 }
 ```
 
@@ -24,7 +26,7 @@ Every 60 min, OpenClaw runs agent with `HEARTBEAT.md` as context. Agent performs
 5. Verify environment intact
 6. Pull main if flagged
 
-Uses cheap-tier model — routine operational checks don't need reasoning. Heartbeat also processes stranded handoff files; hourly cadence is part of production reminder-latency tradeoff.
+Uses cheap-tier model — routine operational checks don't need reasoning. `lightContext: true` strips the main-session bootstrap (AGENTS.md, SOUL.md, etc.) from heartbeat context — heartbeat reads `docs/heartbeat-checks.md` on demand instead. `isolatedSession: true` skips replaying prior transcripts. Together they reduce heartbeat per-run context cost without changing behavior. Heartbeat also processes stranded handoff files; hourly cadence is part of production reminder-latency tradeoff.
 
 ## Notes
 

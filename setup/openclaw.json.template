@@ -86,7 +86,9 @@
       },
       "heartbeat": {
         "every": "60m",
-        "model": "litellm/gemma4-small"
+        "model": "litellm/gemma4-small",
+        "lightContext": true,
+        "isolatedSession": true
       },
       "maxConcurrent": 4,
       "subagents": {

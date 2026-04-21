@@ -207,6 +207,21 @@ Manual regression playbook:
 - They auto-expire after 7 days. The next heartbeat (every 60 min) will re-register them.
 - Or manually re-register per the definitions in `setup/cron/`
 
+**Heartbeat still loads full bootstrap after pulling the latest template:**
+- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, `AGENTS.md` step 6 reads the template's `agents.defaults.heartbeat` subtree and patches that subtree into the live `~/.openclaw/openclaw.json`.
+- Verify the repair ran: `.config-drift` should be gone after the next main-agent session, and the live `agents.defaults.heartbeat` block should include `lightContext: true` and `isolatedSession: true`.
+- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, edit `~/.openclaw/openclaw.json` manually and add the two fields under `agents.defaults.heartbeat`:
+  ```json
+  "heartbeat": {
+    "every": "60m",
+    "lightContext": true,
+    "isolatedSession": true
+  }
+  ```
+- Keep the existing heartbeat `model` unchanged. Only add the two new fields unless you intentionally also need to realign heartbeat with your instance's current cheap-tier model.
+- Then restart the gateway: `openclaw gateway`.
+- Verify: the next heartbeat run's context should only contain `HEARTBEAT.md` from bootstrap (not AGENTS.md, SOUL.md, etc.) — inspect the gateway logs or attach a debugger to confirm.
+
 **Git pull conflicts:**
 - Agent-edited files (MEMORY.md, memory/*.md) are gitignored so won't conflict
 - If HEARTBEAT.md or AGENTS.md conflict, the repo version is authoritative
