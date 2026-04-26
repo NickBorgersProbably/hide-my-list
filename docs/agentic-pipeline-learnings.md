@@ -97,10 +97,10 @@ Why **not** just lower `MAX` to `1`: `cap-exhausted` hard-codes `verdict='NO-GO'
 **Why:** Docker silently fails when bind-mount source path doesn't exist. Any workflow mounting host config dirs into devcontainer should `mkdir -p` those paths first. Current Codex review pipeline does this for `~/.config/gh`, `~/.claude`, `~/.codex`; future workflows adding same mounts need same guard.
 **Evidence:** #77, #78
 
-### 2.2 Don't make CI reviewer containers depend on forwarded Anthropic/OAuth credentials
-**Why:** Stable pattern = run review jobs through baked container config, pass only minimal runtime env needed. Today's Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}`; they do not rely on `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` passthrough.
-**Before:** Earlier iterations tried to forward LLM auth env vars directly, failed in confusing ways when container runtime forwarding differed from expectations.
-**Evidence:** #90, #100
+### 2.2 Pass only the active tool's minimal auth env into CI containers
+**Why:** Stable pattern = run review jobs through baked container config, pass only the runtime env the selected CLI actually reads. Current split: Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}`; Claude fixer jobs forward `ANTHROPIC_API_KEY=fake-key`, `ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`, and `GH_TOKEN=${WORKFLOW_PAT}`. Neither path should depend on OAuth/keychain passthrough.
+**Before:** Earlier iterations tried to forward unused or mismatched LLM auth env vars directly, failed in confusing ways when container runtime forwarding differed from expectations.
+**Evidence:** #90, #100, #475
 
 ### 2.3 Use `WORKFLOW_PAT` as `GH_TOKEN` for `gh` inside devcontainers
 **Why:** `github.token` doesn't authenticate `gh pr comment` from inside `devcontainers/ci@v0.3` container on self-hosted runners.
