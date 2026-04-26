@@ -55,6 +55,10 @@
    user, including the IANA TZ identifier in parentheses, such as
    `America/Chicago`.
 
+   Bootstrap also creates `~/.openclaw/media/` and
+   `~/.openclaw/media/outbound/` with `0755` permissions so OpenClaw-staged
+   attachments remain readable to Signal.
+
 5. Configure OpenClaw:
    ```bash
    # Copy and customize the config template
@@ -191,6 +195,11 @@ Manual regression playbook:
 - Verify `.env` contains `OPS_ALERT_SIGNAL_NUMBER` and that it points to the intended operator Signal recipient
 - Keep `heartbeat.target` unset or `"none"`; the supported delivery path is the explicit `message` call from `docs/heartbeat-checks.md` Check 1, not generic heartbeat reply routing
 - Confirm the Signal channel itself is configured and healthy in `openclaw.json`
+
+**Signal attachments fail with `Permission denied`:**
+- Re-run `bash setup/bootstrap.sh` to recreate or repair the OpenClaw media staging directories with the expected permissions.
+- If you need the repair immediately, run `chmod 755 ~/.openclaw/media ~/.openclaw/media/outbound`.
+- Verify both directories are traversable by the Signal process: `namei -om ~/.openclaw/media/outbound`.
 
 **Agent not responding:**
 - Check `openclaw status` for channel health
