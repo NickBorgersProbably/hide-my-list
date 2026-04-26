@@ -44,7 +44,9 @@ Main agent responsible for:
 
 - normal hide-my-list conversation loop and all task-management behavior
 - startup checks in `AGENTS.md`, including opportunistic reminder delivery from handoff file on every user interaction
+- reading `state.json.recent_outbound` on startup so terse follow-up replies can be matched to recently-sent reminders or other outbound prompts
 - calling `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` after successful reminder delivery, then removing handoff file
+- recording delivered reminders into `state.json.recent_outbound` before cleanup and clearing/resolving those entries after the user's reply is understood
 - applying OpenClaw config changes requiring `config.patch`, including config-drift repair after template changes
 - operator/debugging work needing richer tools: reading logs, inspecting config, adjusting cron registrations, filing GitHub issues describing runtime failures
 
@@ -82,6 +84,7 @@ Until explicitly confirmed, heartbeat instructions must not depend on them.
 Heartbeat responsible for:
 
 - reading reminder handoff file and delivering stranded reminders as hourly backstop
+- recording delivered reminder context in `state.json.recent_outbound` so later sessions can understand short replies
 - completing delivered reminders in Notion with `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`
 - verifying durable cron jobs exist and match canonical specs in `setup/cron/`
 - checking Notion connectivity and basic environment health

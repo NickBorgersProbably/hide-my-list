@@ -203,6 +203,7 @@ sequenceDiagram
     participant Script as check-reminders.sh
     participant Notion as Notion API
     participant Signal as .reminder-signal
+    participant State as state.json
     participant Delivery as Heartbeat / Main Session
     participant User
 
@@ -214,11 +215,13 @@ sequenceDiagram
     alt User interacts (AGENTS.md step 5)
         Delivery->>Signal: Validate handoff file
         Delivery->>User: Send reminder via message tool
+        Delivery->>State: Record recent_outbound reminder
         Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
         Delivery->>Signal: Validate handoff file
         Delivery->>User: Send reminder via message tool
+        Delivery->>State: Record recent_outbound reminder
         Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     end
@@ -233,9 +236,11 @@ sequenceDiagram
 5. Delivery via two mechanisms:
    - **AGENTS.md step 5** (opportunistic): every user conversation start, main session checks handoff file, delivers immediately.
    - **heartbeat Check 1** (hourly backstop, `docs/heartbeat-checks.md`): heartbeat reads handoff file every 60 min, delivers stranded reminders.
-   Both paths validate handoff schema first: must be JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed; delivering session leaves file in place, resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, sends ops alert via the OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff, and delivers/completes/deletes nothing. Valid handoff: each reminder sent to Signal via OpenClaw `message` tool (`action: send`, `channel: signal`), then `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` atomically sets `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`, then deletes handoff file.
+   Both paths validate handoff schema first: must be JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed; delivering session leaves file in place, resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, sends ops alert via the OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff, and delivers/completes/deletes nothing. Valid handoff: each reminder sent to Signal via OpenClaw `message` tool (`action: send`, `channel: signal`), then the delivering session appends/updates `state.json.recent_outbound` with a short-lived entry describing what was just sent (`type: reminder`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at`), then `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` atomically sets `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`, then deletes handoff file.
 6. Reminders >15 min past due flagged `missed`, still delivered with shame-safe note: `This was due a bit ago — [task]. Want to handle it now or reschedule?`
 7. Cron only fires when agent idle — won't interrupt mid-task. Better for ADHD focus.
+
+`state.json.recent_outbound` is the cross-session continuity bridge. It lets a fresh session connect terse follow-ups like "I did it" or "later" to the reminder that was just delivered, even after the handoff file is gone and the reminder page is already completed in Notion. Entries should be pruned after they expire or once the user's reply clearly resolves them.
 
 Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the cheap-tier model (per `modelTiers` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, and `payload.lightContext: true` (skips bootstrap file loading — cron prompts are self-contained scripts). Deliberate design: previous architecture ran both on `sessionTarget: main`, loaded full Opus context for routine script work, burned ~18M tokens per 6 hours. Isolated cheap-tier cron with empty bootstrap cuts per-run cost by orders of magnitude. Trade-off: delivery deferred to next user interaction or heartbeat; fully idle case = up to ~75 min delay (discovery and delivery on separate schedules). If reminder delivery fails after handoff file written: fail visibly, leave file, don't mark `sent` or `missed` until delivery succeeds.
 

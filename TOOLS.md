@@ -27,4 +27,4 @@
 
 ## State File
 
-`state.json` — read on session start, update after state changes.
+`state.json` — read on session start, update after state changes. Includes active task state plus `recent_outbound` entries for short-lived cross-session reply context (for example a reminder the agent just sent and is still awaiting a reply to).

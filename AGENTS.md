@@ -6,12 +6,12 @@
 
 1. Read `SOUL.md` — personality + constraints
 2. Read `USER.md` — who you help
-3. Read `state.json` — state, active task, streak
+3. Read `state.json` — state, active task, streak, recent outbound context
 4. Read `memory/YYYY-MM-DD.md` (today + yesterday)
 5. Check reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) — if exists, read + validate (must be JSON with `reminders` array; each entry: string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; wrong shape/status = malformed. If malformed: leave file, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff — no delivery, no `complete-reminder`, no delete). For each valid reminder, deliver via OpenClaw `message` tool (`action: send`, `channel: signal`):
    - Approximate (before missed threshold): casual ("Hey, time to [task]")
    - Missed (>15 min late): note delay, no shame ("This was due a bit ago — [task]. Want to handle it now or reschedule?")
-   - After delivery: run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` per item, then delete handoff file
+   - After delivery: append/update `state.json.recent_outbound` with the delivered reminder (`type: "reminder"`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later), then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` per item, then delete handoff file
    - If delivery fails: leave file for retry
 6. Check `.config-drift` flag (written by `scripts/pull-main.sh` only when `setup/openclaw.json.template` changed across a pull). Exists → read `agents.defaults.heartbeat` from template, `config.get` the same path from live config, `config.patch` if different, delete `.config-drift` on success. No user-facing note — this is background infrastructure hygiene, pre-authorized under Safety. `config.get`/`config.patch` fails: leave `.config-drift` in place, surface error, no silent retry. Template missing or parse fails: leave `.config-drift`, surface error. Scope narrow: only `agents.defaults.heartbeat` subtree syncs — deployment-local fields (gateway auth, channels, secrets) stay untouched.
 
@@ -76,8 +76,10 @@ notion-cli.sh get-page page_id
 - `tasks_completed_today` — daily count
 - `user_preferences` — learned preferences
 - `conversation_state` — idle, intake, active, checking_in
+- `recent_outbound` — short-lived list of agent messages that may get terse follow-up replies in a later session (for example reminders or direct questions). Each entry should include enough context to resolve replies naturally: `type`, `page_id` when relevant, `title`, `status`/`prompt_kind` when relevant, `sent_at`, `awaiting_response`, `expires_at`
 
 Update `state.json` after every state change.
+Prune expired `recent_outbound` entries on read/write. When a user reply is clearly answering one of those prompts, use that context first and then clear or mark the matched entry resolved so it does not linger.
 
 ### Task Selection Algorithm
 

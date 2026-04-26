@@ -118,12 +118,24 @@ Categories:
 - CHECK_IN: System-initiated follow-up (triggered by OpenClaw scheduling, not by a user message)
 - CHAT: General conversation or questions
 
+RECENT_OUTBOUND_CONTEXT:
+{recent_outbound_context}
+
+If RECENT_OUTBOUND_CONTEXT contains a fresh entry with awaiting_response=true,
+use it to resolve short or elliptical replies before defaulting to CHAT.
+Examples:
+- Latest outbound = reminder asking "Want to handle it now or reschedule?"
+  and user says "I did it" → COMPLETE
+- Latest outbound = reminder asking "Want to handle it now or reschedule?"
+  and user says "tomorrow at 9" → ADD_TASK (new reminder inferred from context)
+- Latest outbound = task suggestion and user says "not that one" → REJECT
+
 Message: "{user_message}"
 
 Intent:
 ```
 
-**Note:** CHECK_IN never inferred from user messages. Reserved system intent for OpenClaw-driven follow-up. Default workspace does **not** auto-register `task-check-in` cron yet; operator must add one before autonomous check-ins occur. Until then, only explicit runtime triggers (manual cron run, developer testing) enter Module 6. Normal user replies like "I'm back" still go through standard intent flow.
+**Note:** CHECK_IN never inferred from user messages. Reserved system intent for OpenClaw-driven follow-up. Default workspace does **not** auto-register `task-check-in` cron yet; operator must add one before autonomous check-ins occur. Until then, only explicit runtime triggers (manual cron run, developer testing) enter Module 6. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder still classify from `recent_outbound` context even when `active_task` is empty.
 
 ### Intent Detection Examples
 
@@ -149,6 +161,18 @@ Intent:
 | "What should I do first?" | NEED_HELP |
 | "How does this work?" | CHAT |
 | "Hello" | CHAT |
+| "I did it" after a just-sent reminder | COMPLETE |
+| "Tomorrow at 9am" after "Want to handle it now or reschedule?" | ADD_TASK |
+
+### Cross-Session Reply Resolution
+
+`state.json.recent_outbound` carries short-lived context for things the agent just said that may get a terse follow-up in a later session. Use the freshest unresolved entry first when the user's message would otherwise be ambiguous.
+
+Rules:
+- Keep `recent_outbound` tiny and recent. Prune expired entries on read/write.
+- Prefer the newest `awaiting_response=true` entry whose wording plausibly matches the user's reply.
+- When a reminder entry explains the reply, respond as if the conversation never broke across sessions. Do not ask "what did you do?" if the reminder title already answers that.
+- After using an entry to resolve the user's reply, clear it or mark `awaiting_response=false`.
 
 ---
 
