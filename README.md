@@ -52,6 +52,10 @@ When you create `~/.openclaw/openclaw.json`, set
 `USER.md` (for example, `America/Chicago`). Without it, relative dates like
 "tomorrow" are resolved against UTC.
 
+`setup/bootstrap.sh` also provisions OpenClaw's media staging directories under
+`~/.openclaw/media/outbound` with traversable permissions so Signal can read
+staged attachments such as reward images.
+
 See [setup/README.md](setup/README.md) for full setup instructions.
 
 ## Git hooks

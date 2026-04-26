@@ -254,6 +254,9 @@ flowchart TD
 ```
 
 Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
+OpenClaw then stages attachment delivery through `~/.openclaw/media/outbound/`,
+which must stay traversable (for example `0755`) so Signal can read the staged
+file.
 
 #### Theme Pools by Intensity
 
