@@ -122,7 +122,7 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 
 Restrictions apply to **OpenClaw runtime agent** only — not Claude Code sessions, Codex CI agents, or human contributors.
 
-- For user-requested code/prompt/docs/design changes: **never directly edit OpenClaw prompt & spec files** (bootstrap: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, HEARTBEAT.md; heartbeat spec: docs/heartbeat-checks.md; runtime docs: docs/ai-prompts/ (shared.md, intake.md, selection.md, rejection.md, cannot-finish.md, check-in.md, breakdown.md), docs/architecture.md, docs/agent-capabilities.md, docs/task-lifecycle.md, docs/notion-schema.md, docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md; design/adhd-priorities.md; scripts/notion-cli.sh).
+- For user-requested code/prompt/docs/design changes: **never directly edit OpenClaw prompt & spec files** (bootstrap: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, HEARTBEAT.md; heartbeat spec: docs/heartbeat-checks.md; runtime docs: docs/ai-prompts/ (shared.md, intake.md, selection.md, rejection.md, cannot-finish.md, check-in.md, breakdown.md), docs/architecture.md, docs/agent-capabilities.md, docs/openclaw-integration.md, docs/task-lifecycle.md, docs/notion-schema.md, docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md; design/adhd-priorities.md; scripts/notion-cli.sh).
 - All prompt/spec changes: GitHub issues → PR → review pipeline.
 - **File issues** describing problem + proposed fix. Don't implement prompt/spec changes directly.
 - Infra & CI files outside restriction — but OpenClaw agent should still file issues; CI changes warrant review.

@@ -1134,7 +1134,7 @@ jobs:
             **DOCS-AS-SPEC CONSISTENCY CHECKLIST**
             ${SPEC_CHECK_DIRECTIVE}
             Checklist (complete each item when SPEC required):
-            1. Identify the canonical sources for each changed behavior (docs/ai-prompts.md, docs/heartbeat-checks.md, docs/task-lifecycle.md, docs/notion-schema.md, AGENTS.md, HEARTBEAT.md, TOOLS.md, setup/cron/*.md, and the runtime scripts/config they reference).
+            1. Identify the canonical sources for each changed behavior (docs/ai-prompts/ (per-intent files plus shared.md), docs/heartbeat-checks.md, docs/task-lifecycle.md, docs/notion-schema.md, AGENTS.md, HEARTBEAT.md, TOOLS.md, setup/cron/*.md, and the runtime scripts/config they reference).
             2. Cross-check every changed behavior claim against those canonical sources and the actual runtime scripts/config (e.g., reminder cron flows, state transitions, Notion property values).
             3. Treat contradictions or drift across docs/scripts as BLOCKING. Call them out explicitly with the conflicting sources.
 
@@ -1534,7 +1534,7 @@ jobs:
                - docs/user-interactions.md (how users interact with the system)
                - docs/task-lifecycle.md (task states and transitions)
                - docs/user-preferences.md (user configuration options)
-               - docs/ai-prompts.md (AI prompt design)
+               - docs/ai-prompts/ (per-intent files plus shared.md) (AI prompt design)
                - docs/reward-system.md (motivation and reward mechanics)
             3. Evaluate the changes against ADHD research domains below
 
@@ -1764,20 +1764,20 @@ jobs:
 
             Key doc relationships to check:
             - docs/architecture.md <-> docs/task-lifecycle.md (system design vs task states)
-            - docs/ai-prompts.md <-> docs/user-interactions.md (prompt behavior vs interaction patterns)
+            - docs/ai-prompts/ (per-intent files plus shared.md) <-> docs/user-interactions.md (prompt behavior vs interaction patterns)
             - docs/user-preferences.md <-> docs/reward-system.md (personalization vs rewards)
             - docs/notion-schema.md <-> docs/task-lifecycle.md (field definitions vs lifecycle states)
             - docs/notion-schema.md <-> docs/user-preferences.md (preferences schema vs behavior)
             - docs/task-lifecycle.md <-> docs/user-interactions.md (state machine vs conversation flows)
             - docs/reward-system.md <-> docs/task-lifecycle.md (reward triggers vs lifecycle phases)
-            - design/adhd-priorities.md <-> docs/ai-prompts.md (ADHD constraints vs prompt implementation)
+            - design/adhd-priorities.md <-> docs/ai-prompts/ (per-intent files plus shared.md) (ADHD constraints vs prompt implementation)
             - AGENTS.md <-> docs/ (project instructions vs spec files)
 
             Source of truth: When field names, status values, or database structure
             conflict between docs, treat docs/notion-schema.md as canonical. Other
             docs that reference these values must agree with it.
 
-            Pay special attention to docs/ai-prompts.md — it is the core system
+            Pay special attention to docs/ai-prompts/ (per-intent files plus shared.md) — it is the core system
             specification. Any PR that changes agent behavior must be checked against
             the prompt architecture defined there.
 
@@ -1969,7 +1969,7 @@ jobs:
             - Could the agent do something harmful or unwanted that isn't explicitly prevented?
 
             **Cross-Prompt Consistency** — Do different prompt modules give contradictory instructions?
-            - Check docs/ai-prompts.md against docs/user-interactions.md
+            - Check docs/ai-prompts/ (per-intent files plus shared.md) against docs/user-interactions.md
             - Check personality constraints across all docs that reference agent behavior
             - Verify intent detection patterns are consistent
 
