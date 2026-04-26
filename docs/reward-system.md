@@ -103,7 +103,7 @@ flowchart TB
 
 > **Note:** All initiation-phase triggers (Task Started, First Step Done, Resumed After Break)
 > fire as reward events within the **Active** conversation state — they are not separate
-> conversation states. See the conversation state diagram in `ai-prompts.md`.
+> conversation states. See the conversation state diagram in `docs/ai-prompts/shared.md`.
 
 ---
 

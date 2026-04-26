@@ -17,7 +17,7 @@ Lens:
 
 1. **Constraint clarity.** MUST / MUST NOT / SHOULD explicit? Hidden/implied constraints blocking.
 2. **Tool allowlist alignment.** Prompt instructs tool use → verify workflow grants it. Mismatches blocking.
-3. **Cross-prompt consistency.** Overlapping modules in `docs/ai-prompts.md` must agree on names, thresholds, ordering. Drift blocking.
+3. **Cross-prompt consistency.** Overlapping modules in `docs/ai-prompts/` (per-intent files plus `shared.md`) must agree on names, thresholds, ordering. Drift blocking.
 4. **Failure mode coverage.** Prompt handle missing/malformed/empty input? "Trust the input" not answer. Missing failure-mode handling non-blocking unless high-stakes op (cron handoff, reminder delivery, fixer push).
 5. **Output contract.** Structured output prompt → specify schema and write destination. v2 reviewer contract: "write JSON to `$OUTPUT_PATH` conforming to `schema/reviewer-v1.json`". Drift blocking.
 

@@ -19,10 +19,10 @@ Repo = ADHD-informed task manager. User-facing behavior, prompts, reward systems
 Lens:
 
 1. **Shame-safety.** ADHD users carry chronic rejection sensitivity.
-   Reject language or interactions that shame, scold, or imply moral failing for incomplete work, missed deadlines, rejected tasks. Cross-reference `design/adhd-priorities.md` and `docs/ai-prompts.md` modules.
+   Reject language or interactions that shame, scold, or imply moral failing for incomplete work, missed deadlines, rejected tasks. Cross-reference `design/adhd-priorities.md` and `docs/ai-prompts/` per-intent files (especially `rejection.md`, `cannot-finish.md`, `check-in.md`, plus shame-prevention base in `shared.md`).
 2. **Executive function load.** Flag changes increasing decision load, working-memory demand, or context switching at wrong moment. Simplifications go in `fix_suggestions[]`.
 3. **Reward and dopamine timing.** Reward delivery: immediate, novel, proportional. Cross-check `docs/reward-system.md`.
-4. **Task selection / breakdown.** Time-estimate accuracy bias, overwhelm management, energy-mood matching. Cross-check `docs/ai-prompts.md` modules 3, 5, 7.
+4. **Task selection / breakdown.** Time-estimate accuracy bias, overwhelm management, energy-mood matching. Cross-check `docs/ai-prompts/selection.md`, `cannot-finish.md`, `breakdown.md`.
 
 Pure infra/CI diff, no user-facing change → set `decision: abstain`, one-line `summary`.
 
