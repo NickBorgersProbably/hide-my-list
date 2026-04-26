@@ -58,8 +58,10 @@ for doc in "${spec_docs[@]}"; do
     missing+=("$doc: referenced in $CLASSIFIER but file does not exist")
     continue
   fi
-  base="$(basename "$doc")"
-  if ! grep -qF "]($base)" "$INDEX"; then
+  # Compute the link path relative to docs/index.md (which lives in docs/).
+  # For docs/foo.md -> "foo.md"; for docs/ai-prompts/shared.md -> "ai-prompts/shared.md".
+  rel_from_index="${doc#docs/}"
+  if ! grep -qF "]($rel_from_index)" "$INDEX"; then
     missing+=("$doc: not linked from $INDEX")
   fi
   if ! grep -qF -- "- \`$doc\`" <<<"$key_files_section"; then

@@ -29,7 +29,7 @@ Focus on:
    - Always state `Alignment check: PASS|FAIL` in `summary`.
 3. **Scope check.** Compare PR title to diff. Narrow title + new abstractions or excess code = **blocking scope creep**. Always state scope check result in `summary`.
 4. **Over-engineering.** Simpler approach exist? Flag as blocking.
-5. **Docs-as-spec consistency.** Diff touches spec-critical files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `docs/ai-prompts.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`) → cross-check behavior claims against canonical sources and runtime scripts/config. Contradictions = blocking.
+5. **Docs-as-spec consistency.** Diff touches spec-critical files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `docs/ai-prompts/` per-intent files plus `shared.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`) → cross-check behavior claims against canonical sources and runtime scripts/config. Contradictions = blocking.
 
 **Required context — read before reviewing:**
 
