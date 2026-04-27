@@ -30,6 +30,7 @@ timeout 30m claude -p \
   --dangerously-skip-permissions \
   --permission-mode=bypassPermissions \
   --model claude-sonnet-4-6 \
+  --verbose \
   --output-format=stream-json \
   "$PROMPT_BODY" \
   < /dev/null 2>&1 \
