@@ -114,7 +114,6 @@ runs:
         is_security_routing_file() {
           case "$1" in
             .github/workflows/review-*.yml) return 0 ;;
-            .github/workflows/codex-code-review.yml) return 0 ;;
             .github/actions/review-classify/*) return 0 ;;
             .github/scripts/review/prompts/*.md) return 0 ;;
             .github/scripts/review/*.mjs) return 0 ;;

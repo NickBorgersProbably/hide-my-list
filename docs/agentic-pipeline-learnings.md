@@ -14,12 +14,12 @@ Two meta-lessons:
 ## 1. Review Pipeline Architecture
 
 ### 1.1 Parallel review jobs are read-only; only dedicated single-writer stages push
-**Why:** Parallel reviewers with write access pushed fixes that retriggered pipeline and posted near-duplicate comments. Fan-out review jobs stay read-only; branch mutations limited to dedicated single-writer stages. v1: `fix-test-failures` (pre-review) + `merge-decision` (post-review). v2: `review-fixer.yml` only; judge/finalize stays read-only.
+**Why:** Parallel reviewers with write access pushed fixes that retriggered pipeline and posted near-duplicate comments. Fan-out review jobs stay read-only; branch mutations limited to dedicated single-writer stages — currently `review-fixer.yml` only; judge/finalize stays read-only.
 **Before:** Every reviewer round produced 3× redundant comments.
 **Evidence:** #70, #71, #274
 
 ### 1.2 Review progress state must live in durable GitHub state, not comments or workflow inputs
-**Why:** Comment-pagination counters broke past page 1; `workflow_dispatch` inputs reset to 0 on manual reruns. v1: PR-scoped state on labels (`review-cycle-*`, `*-started`) — survive reruns, visible to humans. v2: execution state on SHA-scoped commit statuses (`review/pipeline`, `review/*`, `review/cycle`) — keyed to immutable commits. Both versions: comments + workflow inputs = observability only, not authority.
+**Why:** Comment-pagination counters broke past page 1; `workflow_dispatch` inputs reset to 0 on manual reruns. Execution state lives on SHA-scoped commit statuses (`review/pipeline`, `review/*`, `review/cycle`) — keyed to immutable commits. Comments + workflow inputs = observability only, not authority.
 **Before:** Cycle counters silently reset, allowing infinite loops.
 **Evidence:** #182, #234, #303, #320
 
@@ -28,17 +28,15 @@ Two meta-lessons:
 **Before:** Single PR looped 4+ times as agents contradicted each other's prior fixes.
 **Evidence:** #303, #315, #301
 
-### 1.4 Merge-decision verdict shape (v1: three-state; v2: binary)
-**v1 (legacy `codex-code-review.yml`, active when `vars.REVIEW_PIPELINE_V2 != 'true'`):** Three states — GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO. Binary GO/NO-GO with auto-retrigger on every push burned ~18 LLM runs per PR even for typo fixes; three states let merge agent collapse unnecessary loops: clean merges skip re-review, reservations get one re-review cycle, no-go closes PR with follow-up issue.
-**v2 (new `review-entry.yml` graph, active when `vars.REVIEW_PIPELINE_V2 == 'true'`):** Two states — GO / NO-GO. Cost-control now structural: v2 fixer runs after reviewers + before judge; judge has `permissions: contents: read` and cannot push; fixer publishes new commit first then writes `review/pipeline` status immediately (GitHub rejects status for unpublished SHA). Re-review loops on finalized GO SHAs prevented by GO-only `All Required Agent Reviews = success` short-circuit at entry. NO-GO = human escalation: labels PR `needs-human-review`, posts one sticky comment, does **not** close PR or auto-create replacement issue (avoids lessons-learned-issue → new PR → NO-GO infinite loop). PR #343 introduces this; Phase 2/3 gate flip makes it active.
-**Before:** Pipeline cost dominated by trivial PRs re-reviewed end-to-end (v1). v2 solves at orchestration layer instead of verdict layer.
-**Evidence:** #315, #320, #322, #274 (v1); #336, #341, #342, #343 (v2)
+### 1.4 Merge-decision verdict shape: binary GO / NO-GO
+**Why:** Two states — GO / NO-GO. Cost-control is structural: fixer runs after reviewers + before judge; judge has `permissions: contents: read` and cannot push; fixer publishes new commit first then writes `review/pipeline` status immediately (GitHub rejects status for unpublished SHA). Re-review loops on finalized GO SHAs prevented by GO-only `All Required Agent Reviews = success` short-circuit at entry. NO-GO = human escalation: labels PR `needs-human-review`, posts one sticky comment, does **not** close PR or auto-create replacement issue (avoids lessons-learned-issue → new PR → NO-GO infinite loop).
+**Historical context:** A previous three-state pipeline (GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO) tried to collapse re-review loops at the verdict layer; the current pipeline solves the same cost problem at the orchestration layer instead, which is why two states suffice.
+**Evidence:** #315, #320, #322, #274, #336, #341, #342, #343
 
-### 1.5 Inline review comments are blocking inputs (v1: judge reads them; v2: reviewers fold them in)
-**v1 (legacy `codex-code-review.yml`):** Merge-decision agent reads all inline PR comments via `gh api`, treats substantive change requests as blockers. Enforcement = "read every inline comment and apply judgment," not a resolution-state API check.
-**v2:** Judge (`.github/scripts/review/aggregate.mjs`) = deterministic Node script, no Codex, no git credentials, no PR API access — consumes ONLY structured reviewer JSON artifacts conforming to `schema/reviewer-v1.json`. To preserve blocking property: each reviewer ingests inline PR comments via `gh api repos/.../pulls/{n}/comments` inside its own prompt and folds blocking change requests into `blocking_issues[]` with `source: "inline_comment"`. Schema's `source` enum encodes this contract. Authority chain inverts (reviewer-side instead of judge-side), user-visible invariant identical: inline change request still blocks PR.
-**Before:** PRs auto-approved despite outstanding inline change requests (v1 root cause).
-**Evidence:** #143 (v1); #341, #342 (v2 schema + judge contract)
+### 1.5 Inline review comments are blocking inputs — reviewers fold them in
+**Why:** Judge (`.github/scripts/review/aggregate.mjs`) = deterministic Node script, no Codex, no git credentials, no PR API access — consumes ONLY structured reviewer JSON artifacts conforming to `schema/reviewer-v1.json`. To preserve blocking property: each reviewer ingests inline PR comments via `gh api repos/.../pulls/{n}/comments` inside its own prompt and folds blocking change requests into `blocking_issues[]` with `source: "inline_comment"`. Schema's `source` enum encodes this contract.
+**Before:** A predecessor pipeline auto-approved PRs despite outstanding inline change requests because its merge-decision agent read all comments and applied judgment instead of using a resolution-state contract; lesson preserved here so future judges keep the reviewer-side fold-in invariant.
+**Evidence:** #143, #341, #342
 
 ### 1.6 Manual re-trigger is a `/review` comment, not close/reopen
 **Why:** Close/reopen fired both `pull_request` trigger and `workflow_run` trigger; concurrency group cancelled one at random.
@@ -68,13 +66,13 @@ Two meta-lessons:
 **Evidence:** #320
 
 ### 1.11 Review-skip approvals must be SHA-bound, not PR-bound
-**Why:** PR-level marker like `agent-reviews-passed` can outlive the diff it described. Safe auto-skip rule is version-specific but always SHA-bound: v1 = current head SHA must carry same-SHA `All Required Agent Reviews = success` status from a `GO-CLEAN` decision; v2 = orchestrator must see reviewed SHA already claimed on `review/pipeline`, with corresponding `review/*` and `review/cycle` statuses describing that exact commit chain, and any branch mutation still flows only through `review-fixer.yml`. PR labels communicate history to humans but must not gate execution for later commits.
+**Why:** PR-level marker like `agent-reviews-passed` can outlive the diff it described. Safe auto-skip rule is always SHA-bound: orchestrator must see reviewed SHA already claimed on `review/pipeline`, with corresponding `review/*` and `review/cycle` statuses describing that exact commit chain, and any branch mutation still flows only through `review-fixer.yml`. PR labels communicate history to humans but must not gate execution for later commits.
 **Before:** New head commits inherited green aggregate review check without any stage evaluating updated diff.
 **Evidence:** #339, #338, #337
 
 ### 1.12 Security/infra review explicitly owns reviewer-routing regressions
 **Why:** Review-pipeline dispatch + classifier changes can silently narrow who reviews future PRs while workflow still "works." When PR touches classifier, dispatch, or gating logic, Security & Infrastructure reviewer must compare proposed routing against current pipeline behavior and flag unintended loss of specialist coverage. Regressions that drop coverage for prompt/spec files, including `.github/scripts/review/prompts/*.md`, are blocking unless explicitly documented. v2: review-orchestration files must force security review even when PR is otherwise workflow-only or config-only.
-**Before:** Reviewer prompt markdown under `.github/scripts/review/prompts/*.md` classified as config-only in v2, which would have skipped security, psych, and prompt review — no reviewer called it out.
+**Before:** Reviewer prompt markdown under `.github/scripts/review/prompts/*.md` classified as config-only, which would have skipped security, psych, and prompt review — no reviewer called it out.
 **Evidence:** #343, #349
 
 ### 1.13 Stop on GO, keep retrying on NO-GO: asymmetric cycle control

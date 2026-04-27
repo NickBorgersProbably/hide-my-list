@@ -51,7 +51,6 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract + guardrail doc
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates/reuses canonical deduplicated GH Actions failure issue for diagnosis workflow
 - `scripts/check-doc-links.sh` — Internal doc link validator for local hooks + CI doc checks
-- `scripts/get-latest-merge-decision-comment.sh` — Fetches latest trusted merge-decision PR comment with retry for GitHub comment propagation lag
 - `scripts/pull-main.sh` — Branch sync helper
 - `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, workflow validations
 - `scripts/security-update.sh` — Security update automation
@@ -77,9 +76,9 @@ Treat OpenClaw prompt + spec file edits with care — change live app behavior. 
 
 ## Review Pipeline
 
-PRs reviewed by multi-agent Codex pipeline. Roles same in both versions; orchestration differs.
+PRs reviewed by multi-agent Codex pipeline.
 
-**Reviewer roles** (both versions):
+**Reviewer roles**:
 1. Design Review — validates intent + design quality; runs docs-as-spec consistency check on spec-critical changes
 2. Security & Infrastructure Review — script safety, credential handling, workflow permissions, GH Actions/runtime correctness
 3. Psych Research Review — validates against ADHD clinical research
@@ -87,12 +86,7 @@ PRs reviewed by multi-agent Codex pipeline. Roles same in both versions; orchest
 5. Documentation Consistency Review — contradictions, stale refs, cross-doc consistency
 6. Judge / Merge Decision — synthesizes all reviews into verdict
 
-**Active version** selected by repo variable `REVIEW_PIPELINE_V2`:
-
-- **v1 — `vars.REVIEW_PIPELINE_V2 != 'true'`** (default). Lives in `.github/workflows/codex-code-review.yml`. Merge-decision agent reads PR comments, applies fixes, pushes commits, emits one of three verdicts: **GO-CLEAN**, **GO-WITH-RESERVATIONS** (fixes applied, triggers exactly one re-review), **NO-GO** (closes PR + creates follow-up issue).
-- **v2 — `vars.REVIEW_PIPELINE_V2 == 'true'`**. Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. Judge = deterministic Node script (`.github/scripts/review/aggregate.mjs`) with `permissions: contents: read` — cannot push by construction. Fixer runs after reviewers, before judge; pushes new commit first, then claims that SHA on `review/pipeline` immediately after push (GitHub rejects status for unpublished commit); only stage with write permission. Verdicts binary **GO** / **NO-GO**; NO-GO labels PR `needs-human-review`, stops without closing or auto-creating issues. Reviewer prompts = standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 + §1.5 for design decisions + obsoleted v1 rules.
-
-Two pipelines mutually exclusive via gate jobs: flip variable = atomically swap which runs. No shared state to migrate.
+Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. Judge = deterministic Node script (`.github/scripts/review/aggregate.mjs`) with `permissions: contents: read` — cannot push by construction. Fixer runs after reviewers, before judge; pushes new commit first, then claims that SHA on `review/pipeline` immediately after push (GitHub rejects status for unpublished commit); only stage with write permission. Verdicts binary **GO** / **NO-GO**; NO-GO labels PR `needs-human-review`, stops without closing or auto-creating issues. Reviewer prompts = standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 + §1.5 for design decisions.
 
 ### Review prompt file architecture
 
