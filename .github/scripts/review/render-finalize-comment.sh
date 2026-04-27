@@ -2,7 +2,7 @@
 # Renders and posts the per-cycle merge-decision PR comment.
 #
 # Branches on $CATEGORY (go | reviewer_blockers | pipeline_error |
-# cycle_capped) to choose template + per-role status table content.
+# cycle_capped | inherited) to choose template + per-role status table content.
 #
 # Inputs (env):
 #   GH_TOKEN, REPO, PR_NUMBER  — gh auth + target
