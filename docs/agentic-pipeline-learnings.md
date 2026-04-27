@@ -29,7 +29,7 @@ Two meta-lessons:
 **Evidence:** #303, #315, #301
 
 ### 1.4 Merge-decision verdict shape: binary GO / NO-GO
-**Why:** Two states — GO / NO-GO. Cost-control is structural: fixer runs after reviewers + before judge; judge has `permissions: contents: read` and cannot push; fixer publishes new commit first then writes `review/pipeline` status immediately (GitHub rejects status for unpublished SHA). Re-review loops on finalized GO SHAs prevented by GO-only `All Required Agent Reviews = success` short-circuit at entry. NO-GO = human escalation: labels PR `needs-human-review`, posts one sticky comment, does **not** close PR or auto-create replacement issue (avoids lessons-learned-issue → new PR → NO-GO infinite loop).
+**Why:** Two states — GO / NO-GO. Cost-control is structural: fixer runs after reviewers + before judge; judge has `permissions: contents: read` and cannot push; fixer publishes new commit first then writes `review/pipeline` status immediately (GitHub rejects status for unpublished SHA). Re-review loops on finalized GO SHAs prevented by GO-only `All Required Agent Reviews = success` short-circuit at entry. NO-GO = human escalation: labels PR `needs-human-review`, posts a Merge Decision comment, does **not** close PR or auto-create replacement issue (avoids lessons-learned-issue → new PR → NO-GO infinite loop).
 **Historical context:** A previous three-state pipeline (GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO) tried to collapse re-review loops at the verdict layer; the current pipeline solves the same cost problem at the orchestration layer instead, which is why two states suffice.
 **Evidence:** #315, #320, #322, #274, #336, #341, #342, #343
 
