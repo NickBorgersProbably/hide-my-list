@@ -88,7 +88,12 @@ role_row() {
   # blocker IDs. Without this, a reviewer's `request_changes` decision
   # always rendered as 🔴 even when the fixer cleared every blocker —
   # the whole point of the fixer stage was invisible in the comment.
-  if [ -f "$VERDICT_PATH" ]; then
+  # Only trust unaddressed_blocker_ids[] when the verdict category
+  # actually encodes fixer resolution (go or reviewer_blockers).
+  # pipeline_error returns an empty array by construction, so deriving
+  # open_count from it would falsely mark every request_changes row as
+  # 🟢 fixed even though fixer success was never established.
+  if [ -f "$VERDICT_PATH" ] && { [ "$CATEGORY" = "go" ] || [ "$CATEGORY" = "reviewer_blockers" ]; }; then
     open_count=$(jq -r --arg role "$role" \
       '[.unaddressed_blocker_ids[]? | select(startswith($role + "/"))] | length' \
       "$VERDICT_PATH")
