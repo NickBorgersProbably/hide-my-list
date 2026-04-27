@@ -77,10 +77,24 @@ role_row() {
     return
   fi
 
-  local decision blocker_count notes_chunk url status_chunk artifact_sha sha_warn
+  local decision blocker_count notes_chunk url status_chunk artifact_sha sha_warn open_count
   decision=$(jq -r '.decision // "?"' "$artifact")
   blocker_count=$(jq -r '.blocking_issues | length' "$artifact")
   artifact_sha=$(jq -r '.reviewed_sha // ""' "$artifact")
+
+  # Count this role's blockers that are still open after the fixer
+  # ran. Cross-reference the verdict's `unaddressed_blocker_ids[]`
+  # (namespaced as `<role>/<id>`) against the reviewer's stated
+  # blocker IDs. Without this, a reviewer's `request_changes` decision
+  # always rendered as 🔴 even when the fixer cleared every blocker —
+  # the whole point of the fixer stage was invisible in the comment.
+  if [ -f "$VERDICT_PATH" ]; then
+    open_count=$(jq -r --arg role "$role" \
+      '[.unaddressed_blocker_ids[]? | select(startswith($role + "/"))] | length' \
+      "$VERDICT_PATH")
+  else
+    open_count="$blocker_count"
+  fi
 
   # When the artifact's reviewed_sha disagrees with REVIEWED_SHA, the
   # reviewer is the source of a pipeline_error mixed-epoch failure.
@@ -92,8 +106,16 @@ role_row() {
   fi
 
   case "$decision" in
-    approve)         status_chunk="✅ approve" ;;
-    request_changes) status_chunk="🔴 changes" ;;
+    approve)
+      status_chunk="✅ approve"
+      ;;
+    request_changes)
+      if [ "$blocker_count" -gt 0 ] && [ "$open_count" -eq 0 ]; then
+        status_chunk="🟢 fixed"
+      else
+        status_chunk="🔴 changes"
+      fi
+      ;;
     comment)         status_chunk="🟡 comment" ;;
     abstain)         status_chunk="⚪ abstain" ;;
     *)               status_chunk="❓ $decision" ;;
@@ -105,12 +127,19 @@ role_row() {
     url=$(tr -d '[:space:]' < "${dir}/${role}-comment-url.txt")
   fi
 
+  local count_chunk=""
   if [ "$blocker_count" -gt 0 ]; then
-    if [ -n "$url" ]; then
-      notes_chunk="${blocker_count} blocker(s) — [view comment](${url})"
+    if [ "$open_count" -eq 0 ]; then
+      count_chunk="${blocker_count}/${blocker_count} fixed"
     else
-      notes_chunk="${blocker_count} blocker(s)"
+      count_chunk="${open_count}/${blocker_count} open"
     fi
+  fi
+
+  if [ -n "$count_chunk" ] && [ -n "$url" ]; then
+    notes_chunk="${count_chunk} — [view comment](${url})"
+  elif [ -n "$count_chunk" ]; then
+    notes_chunk="$count_chunk"
   elif [ -n "$url" ]; then
     notes_chunk="[view comment](${url})"
   else
