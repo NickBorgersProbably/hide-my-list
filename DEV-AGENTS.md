@@ -40,6 +40,7 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `docs/reward-system.md` — Multi-channel reward behavior spec
 - `design/adhd-priorities.md` — Core design principles grounded in ADHD research
 - `scripts/notion-cli.sh` — Notion API helper for task CRUD
+- `scripts/user-time-context.sh` — Timezone helper: resolves a reference timestamp to user-local date/time for reminder intake
 
 ### Infrastructure & CI Files
 
