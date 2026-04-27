@@ -793,7 +793,7 @@ AI detects reminder-style language and sets:
 **Confirmation message style:**
 > "Got it — I'll queue a reminder for 6pm PT to email Melanie. You'll usually hear from me within an hour of that — up to ~75 min if things are quiet — so treat it as a check-in, not a stopwatch."
 
-User timezone defaults to US Central. AI converts timezone references (PT, CT, ET) to UTC offsets at intake. If the visible session clock is UTC, agent resolves the user's local calendar first with `scripts/user-time-context.sh` (or equivalent timezone conversion) before deciding what "tomorrow" or "tonight" means.
+User timezone defaults to the configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. If the visible session clock is UTC, agent resolves the user's local calendar first with `scripts/user-time-context.sh` (or equivalent timezone conversion) before deciding what "tomorrow" or "tonight" means.
 
 ### Reminder vs. Deadline
 
