@@ -202,7 +202,7 @@ We use `PostToolUse` hook to enforce reminder confirmation and suppress internal
       "hooks": [{
         "type": "command",
         "command": "if echo \"$TOOL_INPUT\" | grep -q 'create-reminder'; then echo 'USER-FACING REMINDER CONFIRMATION ONLY. No internal notes. No mention of cron, polling, scheduling internals, tool use, hidden reasoning, or whether something will trigger automatically. Reply with one brief confirmation sentence containing only the reminder details.'; fi",
-        "timeout": 3000
+        "timeout": 5
       }]
     }]
   }

@@ -802,7 +802,7 @@ AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 
 **Confirmation message style:**
-> "Got it — I'll remind you at 6pm PT to email Melanie."
+> "Got it — I'll remind you around 6pm PT to email Melanie."
 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
 
