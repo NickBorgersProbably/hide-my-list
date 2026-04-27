@@ -38,6 +38,8 @@ Finalize contract (`review-finalize.yml` via `.github/scripts/review/render-fina
 - `cycle_capped` — 🛑 NO-GO header, cycle history fetched from commit statuses, no per-reviewer table.
 - `inherited` — 🟢/🔴 GO/NO-GO (inherited) header, synthesized reason text only, no per-reviewer table or next-step block.
 
+Per-row state is post-fixer: each row cross-references the reviewer's `blocking_issues[]` IDs against `verdict.unaddressed_blocker_ids[]` (namespaced `<role>/<id>`) so a `request_changes` decision whose blockers were all addressed by the fixer renders as 🟢 fixed `N/N fixed`, not 🔴 changes. Partial fixes render as 🔴 changes `M/N open` with M = still-open count.
+
 `category` is messaging metadata only — not a third verdict state. Verdict remains strictly binary.
 **Historical context:** A previous three-state pipeline (GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO) tried to collapse re-review loops at the verdict layer; the current pipeline solves the same cost problem at the orchestration layer instead, which is why two states suffice.
 **Evidence:** #315, #320, #322, #274, #336, #341, #342, #343
