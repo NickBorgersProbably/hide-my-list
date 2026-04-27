@@ -22,7 +22,7 @@ through the shared socket" bugs.
 |---|---|
 | `Dockerfile` | Image recipe. `ubuntu:24.04` base, UID-1000 `ci` user, pinned Claude Code / Codex / actionlint / Node major. Installs shellcheck, yamllint, gh, Mermaid npm globals, envsubst. |
 | `versions.env` | Single source of truth for CLI version pins. Consumed by `.github/workflows/ci-image.yml` as `--build-arg`s. |
-| `caveman-rules.md` | Canonical CI-only caveman prompt contract. `review-codex-run` prepends it to review prompts and validates its pinned source version against `CAVEMAN_VERSION`. |
+| `caveman-rules.md` | Canonical CI-only caveman prompt contract. `review-codex-run` and `review-claude-run` prepend it to review prompts and validate its pinned source version against `CAVEMAN_VERSION`. |
 | `README.md` | This file. |
 
 ## Relationship to `.devcontainer/`
