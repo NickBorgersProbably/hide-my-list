@@ -214,3 +214,68 @@ test("bare id in addressed[] (not namespaced) does NOT clear blockers", () => {
   assert.equal(v.verdict, "NO-GO");
   assert.deepEqual(v.unaddressed_blocker_ids, ["security/sec-1"]);
 });
+
+// ──────────────────── category discriminator ────────────────────
+
+test("GO carries category=go", () => {
+  const v = aggregate([reviewer("design", "approve")], noFix);
+  assert.equal(v.verdict, "GO");
+  assert.equal(v.category, "go");
+});
+
+test("unaddressed blockers carry category=reviewer_blockers", () => {
+  const v = aggregate(
+    [reviewer("security", "request_changes", [blocker("sec-1")])],
+    noFix
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.equal(v.category, "reviewer_blockers");
+});
+
+test("mixed reviewed_sha carries category=pipeline_error", () => {
+  const v = aggregate(
+    [
+      reviewer("design", "approve", [], { sha: SHA_A }),
+      reviewer("security", "approve", [], { sha: SHA_B }),
+    ],
+    noFix
+  );
+  assert.equal(v.category, "pipeline_error");
+});
+
+test("mixed cycle carries category=pipeline_error", () => {
+  const v = aggregate(
+    [
+      reviewer("design", "approve", [], { cycle: 1 }),
+      reviewer("security", "approve", [], { cycle: 2 }),
+    ],
+    noFix
+  );
+  assert.equal(v.category, "pipeline_error");
+});
+
+test("missing fix-result carries category=pipeline_error", () => {
+  const v = aggregate([reviewer("design", "approve")], null);
+  assert.equal(v.category, "pipeline_error");
+});
+
+test("fix input_sha mismatch carries category=pipeline_error", () => {
+  const v = aggregate(
+    [reviewer("design", "approve")],
+    { input_sha: SHA_B, new_sha: SHA_B, addressed: [], skipped: [] }
+  );
+  assert.equal(v.category, "pipeline_error");
+});
+
+test("empty reviewers carries category=pipeline_error", () => {
+  const v = aggregate([], noFix);
+  assert.equal(v.category, "pipeline_error");
+});
+
+test("all-abstain carries category=pipeline_error", () => {
+  const v = aggregate(
+    [reviewer("design", "abstain"), reviewer("security", "abstain")],
+    noFix
+  );
+  assert.equal(v.category, "pipeline_error");
+});
