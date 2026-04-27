@@ -200,8 +200,10 @@ jobs:
     with:
       pr_number: ${{ inputs.pr_number }}
       post_fix_sha: ${{ inputs.reviewed_sha }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
       cycle: ${{ needs.gather.outputs.cycle }}
       verdict: 'NO-GO'
+      category: 'cycle_capped'
       skip_verdict_artifact: true
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
@@ -218,8 +220,10 @@ jobs:
     with:
       pr_number: ${{ inputs.pr_number }}
       post_fix_sha: ${{ inputs.reviewed_sha }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
       cycle: ${{ needs.gather.outputs.cycle }}
       verdict: ${{ needs.gather.outputs.prior_verdict }}
+      category: 'inherited'
       skip_verdict_artifact: true
       synthesized_reason_text: 'inherited from prior cycle ${{ needs.gather.outputs.cycle }} (HEAD is merge-from-main with no PR content delta)'
     secrets:
@@ -409,6 +413,7 @@ jobs:
     with:
       pr_number: ${{ inputs.pr_number }}
       post_fix_sha: ${{ needs.fix.outputs.new_sha }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
       cycle: ${{ needs.gather.outputs.cycle }}
       verdict: ${{ needs.judge.outputs.verdict }}
     secrets:

@@ -28,10 +28,16 @@ inputs:
     required: false
     default: ${{ github.repository }}
 
+outputs:
+  comment_url:
+    description: URL of the published reviewer comment (empty on failure)
+    value: ${{ steps.publish.outputs.comment_url }}
+
 runs:
   using: composite
   steps:
     - name: Render and publish
+      id: publish
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
@@ -107,6 +113,15 @@ runs:
             ;;
         esac
 
-        gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
+        # `gh pr comment` prints the created comment URL on stdout
+        # (e.g. https://github.com/<owner>/<repo>/pull/123#issuecomment-456789).
+        # finalize.yml uses this URL to hyperlink each blocker id in the
+        # rendered agent-table comment back to the reviewer's full text.
+        # Sidecar file lives next to the JSON artifact so the existing
+        # upload-artifact glob in review-reviewer.yml picks it up.
+        COMMENT_URL=$(gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE" | tail -n1 | tr -d '[:space:]')
+        echo "comment_url=$COMMENT_URL" >> "$GITHUB_OUTPUT"
+        SIDECAR="${ARTIFACT_PATH%-result.json}-comment-url.txt"
+        printf '%s\n' "$COMMENT_URL" > "$SIDECAR"
 
         rm -f "$BODY_FILE"

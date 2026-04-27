@@ -194,7 +194,7 @@ jobs:
       # Check whether the reviewed SHA has already been cleared GO by a
       # prior cycle of the v2 pipeline. The finalize job writes the
       # `All Required Agent Reviews` commit status with state=success
-      # on GO and state=failure on NO-GO (see review-finalize.yml:76-95).
+      # on GO and state=failure on NO-GO (see review-finalize.yml:167-186).
       # A prior-cycle GO on this exact commit means the pipeline already
       # cleared it; re-running would only rediscover cross-doc drift the
       # last cycle's fixer introduced. NO-GO deliberately does NOT

@@ -50,6 +50,7 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `.github/actions/review-claude-run/` — Direct-`docker run` composite invoking Claude Code against the LiteLLM Anthropic endpoint; v2 pipeline single-writer fixer
 - `.github/scripts/review/prompts/fixer-claude-smoke.md` — Prompt for the Claude fixer auth/IO smoke test
 - `.github/workflows/review-fixer-claude-smoke.yml` — Pre-merge smoke test exercising the Claude fixer container path on PRs touching that path
+- `.github/scripts/review/render-finalize-comment.sh` — Renders and posts the operator-facing "Agent Review Summary" merge-decision comment for `review-finalize.yml`; branches on verdict category (`go`, `reviewer_blockers`, `pipeline_error`, `cycle_capped`, `inherited`)
 - `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run` and `review-claude-run`
 - `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract + guardrail doc
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates/reuses canonical deduplicated GH Actions failure issue for diagnosis workflow

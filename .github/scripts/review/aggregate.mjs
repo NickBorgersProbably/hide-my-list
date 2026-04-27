@@ -68,9 +68,29 @@
  */
 
 /**
+ * @typedef {"reviewer_blockers"|"pipeline_error"|"go"} VerdictCategory
+ *
+ * `reviewer_blockers` — at least one reviewer flagged blockers the fixer
+ *   didn't address. Operator action: address blockers and push.
+ * `pipeline_error` — the pipeline cannot trust its own inputs (mixed
+ *   reviewed_sha, mixed cycle, missing/mismatched fix-result, no
+ *   reviewers, all-abstain). Not a code-review concern; usually a bug
+ *   in a reviewer prompt or orchestration. Operator action: rerun, or
+ *   file an issue against the failing reviewer/orchestrator.
+ * `go` — verdict is GO. Present so finalize.yml can branch on a single
+ *   field instead of a (verdict, category) tuple.
+ *
+ * `cycle_capped` is NOT emitted by aggregate.mjs — the cap is detected
+ * before the judge runs, in review-pipeline.yml's `gather` job, and
+ * the cap-exhausted path calls review-finalize.yml directly with that
+ * category.
+ */
+
+/**
  * @typedef {Object} Verdict
  * @property {"GO"|"NO-GO"} verdict
- * @property {string[]} reasons     human-readable explanation lines
+ * @property {VerdictCategory} category   discriminator for finalize.yml messaging
+ * @property {string[]} reasons           human-readable explanation lines
  * @property {string[]} unaddressed_blocker_ids
  */
 
@@ -93,6 +113,7 @@ export function aggregate(reviewers, fixResult) {
   if (!Array.isArray(reviewers) || reviewers.length === 0) {
     return {
       verdict: "NO-GO",
+      category: "pipeline_error",
       reasons: ["No reviewer artifacts present."],
       unaddressed_blocker_ids: [],
     };
@@ -103,6 +124,7 @@ export function aggregate(reviewers, fixResult) {
   if (shas.size > 1) {
     return {
       verdict: "NO-GO",
+      category: "pipeline_error",
       reasons: [
         `Reviewer artifacts span multiple reviewed_sha values (${[...shas].join(", ")}); refusing to aggregate mixed epochs.`,
       ],
@@ -116,6 +138,7 @@ export function aggregate(reviewers, fixResult) {
   if (cycles.size > 1) {
     return {
       verdict: "NO-GO",
+      category: "pipeline_error",
       reasons: [
         `Reviewer artifacts span multiple cycle values (${[...cycles].join(", ")}); refusing to aggregate mixed epochs.`,
       ],
@@ -127,6 +150,7 @@ export function aggregate(reviewers, fixResult) {
   if (!fixResult || typeof fixResult !== "object") {
     return {
       verdict: "NO-GO",
+      category: "pipeline_error",
       reasons: ["Missing fix-result artifact."],
       unaddressed_blocker_ids: [],
     };
@@ -134,6 +158,7 @@ export function aggregate(reviewers, fixResult) {
   if (fixResult.input_sha !== reviewedSha) {
     return {
       verdict: "NO-GO",
+      category: "pipeline_error",
       reasons: [
         `Fix-result input_sha (${fixResult.input_sha}) does not match reviewers' reviewed_sha (${reviewedSha}); refusing to aggregate mixed epochs.`,
       ],
@@ -176,16 +201,20 @@ export function aggregate(reviewers, fixResult) {
   if (unaddressed.length > 0 || requestingChanges.length > 0) {
     return {
       verdict: "NO-GO",
+      category: "reviewer_blockers",
       reasons,
       unaddressed_blocker_ids: unaddressed.map((u) => u.key),
     };
   }
 
-  // (6) All-abstain is NO-GO, not a vacuous GO.
+  // (6) All-abstain is NO-GO, not a vacuous GO. This is a pipeline_error
+  // because Phase 1 orchestration is supposed to ensure at least one
+  // reviewer applies — see fail-closed contract above.
   const nonAbstaining = reviewers.filter((r) => r.decision !== "abstain");
   if (nonAbstaining.length === 0) {
     return {
       verdict: "NO-GO",
+      category: "pipeline_error",
       reasons: ["All reviewers abstained; no applicable reviewer cleared this change."],
       unaddressed_blocker_ids: [],
     };
@@ -195,5 +224,5 @@ export function aggregate(reviewers, fixResult) {
     `All ${nonAbstaining.length} non-abstaining reviewer(s) cleared; ` +
       `${addressed.size} blocker(s) addressed by fixer.`
   );
-  return { verdict: "GO", reasons, unaddressed_blocker_ids: [] };
+  return { verdict: "GO", category: "go", reasons, unaddressed_blocker_ids: [] };
 }

@@ -134,3 +134,4 @@ jobs:
           path: |
             ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-result.json
             ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-output.jsonl
+            ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-comment-url.txt
