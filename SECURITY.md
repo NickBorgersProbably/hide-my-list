@@ -38,7 +38,7 @@ Reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus O
 PR review agents process untrusted code **[A]** and write PR comments **[C]**, no access to infrastructure secrets or Notion credentials **[B]**. Workflows use only repo-scoped GitHub token permissions (contents/pull-requests/issues write for posting reviews). Safe [AC] — even if malicious PR manipulates review agent, no sensitive data to exfiltrate.
 
 Additional CI/CD controls:
-- Fork PRs blocked from triggering workflows on self-hosted runners (all workflows check `github.event.pull_request.head.repo.full_name == github.repository`; Codex Code Review workflows additionally require author to be collaborator/member/owner)
+- Fork PRs blocked from triggering workflows on self-hosted runners (all workflows check `github.event.pull_request.head.repo.full_name == github.repository`; review pipeline dispatch to self-hosted runners additionally requires author to be collaborator/member/owner)
 - Devcontainer image built only from main branch, never from PR branches
 - Review agents run on self-hosted homelab runners with no infrastructure credentials; runners isolated by same VLAN segmentation and proxy controls as main agent host
 - Security gate jobs (`authorize`, `get-context`, `check-failure`, `get-pr-context`) stay on `ubuntu-latest` to process untrusted input before dispatching to self-hosted runners
