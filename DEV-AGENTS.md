@@ -47,7 +47,10 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
-- `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run`
+- `.github/actions/review-claude-run/` — Direct-`docker run` composite invoking Claude Code against the LiteLLM Anthropic endpoint; v2 pipeline single-writer fixer
+- `.github/scripts/review/prompts/fixer-claude-smoke.md` — Prompt for the Claude fixer auth/IO smoke test
+- `.github/workflows/review-fixer-claude-smoke.yml` — Pre-merge smoke test exercising the Claude fixer container path on PRs touching that path
+- `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run` and `review-claude-run`
 - `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract + guardrail doc
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates/reuses canonical deduplicated GH Actions failure issue for diagnosis workflow
 - `scripts/check-doc-links.sh` — Internal doc link validator for local hooks + CI doc checks
@@ -76,7 +79,7 @@ Treat OpenClaw prompt + spec file edits with care — change live app behavior. 
 
 ## Review Pipeline
 
-PRs reviewed by multi-agent Codex pipeline.
+PRs reviewed by multi-agent review pipeline (Codex reviewers + Claude fixer in v2). Roles same in both versions; orchestration differs.
 
 **Reviewer roles**:
 1. Design Review — validates intent + design quality; runs docs-as-spec consistency check on spec-critical changes
