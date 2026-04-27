@@ -1,0 +1,116 @@
+---
+name: Review pipeline v2 — Claude fixer smoke test
+
+# Pre-merge smoke for the Claude fixer container path. Auto-runs on
+# any PR that touches files governing the runtime contract that the
+# v2 fixer depends on, so a broken Claude auth / flag / env-forwarding
+# / workspace-write regression surfaces here instead of in the next
+# real review cycle (rule 2.9).
+#
+# Same-repo only — workflow runs on `self-hosted` and forwards
+# `WORKFLOW_PAT`, so fork PRs must not execute it. Mirrors the guard
+# pattern in `.github/workflows/pr-tests.yml`.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - '**'
+    paths:
+      - '.github/actions/review-claude-run/**'
+      - '.github/workflows/review-fixer.yml'
+      - '.github/workflows/review-fixer-claude-smoke.yml'
+      - '.github/scripts/review/prompts/fixer.md'
+      - '.github/scripts/review/prompts/fixer-claude-smoke.md'
+      - '.github/ci/Dockerfile'
+      - '.github/ci/versions.env'
+      - '.github/ci/caveman-rules.md'
+  workflow_dispatch:
+    inputs:
+      image:
+        description: CI image tag to test
+        required: false
+        default: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
+
+concurrency:
+  group: review-fixer-claude-smoke-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  smoke:
+    name: Claude fixer smoke
+    runs-on: self-hosted
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout current ref
+        uses: actions/checkout@v4
+
+      - name: Create directories for CI mounts
+        run: mkdir -p ~/.config/gh ~/.claude ~/.codex
+
+      - name: Seed sample reviewer artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p .review-output/reviewer-artifacts/docs
+          cat > .review-output/reviewer-artifacts/docs/docs-result.json <<'JSON'
+          {
+            "blocking_issues": [
+              {
+                "id": "docs/doc-001",
+                "message": "replace stale docs path",
+                "file": "docs/architecture.md",
+                "line": 1
+              }
+            ]
+          }
+          JSON
+
+      - name: Run Claude smoke prompt
+        id: run
+        uses: ./.github/actions/review-claude-run
+        with:
+          role: fixer-smoke
+          prompt_path: .github/scripts/review/prompts/fixer-claude-smoke.md
+          image: ${{ inputs.image || 'ghcr.io/nickborgersprobably/hide-my-list-ci:latest' }}
+          workspace_folder: .
+          pr_number: ''
+          reviewed_sha: ${{ github.sha }}
+          cycle: smoke
+          read_only: 'false'
+          workflow_pat: ${{ secrets.WORKFLOW_PAT }}
+          extra_env: |
+            REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
+            SMOKE_TARGET_PATH=.review-output/claude-smoke-target.txt
+
+      - name: Verify smoke results
+        env:
+          RESULT_JSON: ${{ steps.run.outputs.result_json }}
+          OUTPUT_LOG: ${{ steps.run.outputs.output_artifact }}
+        run: |
+          set -euo pipefail
+          jq -e '
+            .auth_ok == true
+            and .workspace_write_ok == true
+            and .first_blocker_id == "docs/doc-001"
+            and .first_blocker_message == "replace stale docs path"
+            and .workspace_write_path == ".review-output/claude-smoke-target.txt"
+            and (.artifact_files | length) >= 1
+          ' "$RESULT_JSON" >/dev/null
+          test -s "$OUTPUT_LOG"
+          grep -Fxq 'claude-smoke:docs/doc-001:replace stale docs path' .review-output/claude-smoke-target.txt
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-fixer-claude-smoke-${{ github.run_id }}
+          path: |
+            .review-output/fixer-smoke-result.json
+            .review-output/fixer-smoke-output.jsonl
+            .review-output/claude-smoke-target.txt
+            .review-output/reviewer-artifacts

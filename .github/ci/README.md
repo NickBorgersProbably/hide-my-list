@@ -22,7 +22,7 @@ through the shared socket" bugs.
 |---|---|
 | `Dockerfile` | Image recipe. `ubuntu:24.04` base, UID-1000 `ci` user, pinned Claude Code / Codex / actionlint / Node major. Installs shellcheck, yamllint, gh, Mermaid npm globals, envsubst. |
 | `versions.env` | Single source of truth for CLI version pins. Consumed by `.github/workflows/ci-image.yml` as `--build-arg`s. |
-| `caveman-rules.md` | Canonical CI-only caveman prompt contract. `review-codex-run` prepends it to review prompts and validates its pinned source version against `CAVEMAN_VERSION`. |
+| `caveman-rules.md` | Canonical CI-only caveman prompt contract. `review-codex-run` and `review-claude-run` prepend it to review prompts and validate its pinned source version against `CAVEMAN_VERSION`. |
 | `README.md` | This file. |
 
 ## Relationship to `.devcontainer/`
@@ -40,9 +40,13 @@ through the shared socket" bugs.
 
 ## How workflows consume the image
 
-Review pipeline v2 uses `./.github/actions/review-codex-run` which
-shells out to `docker run` against the CI image. The other agent
-workflows (`codex`, `codex-diagnose-workflow-failure`,
+Review pipeline v2 uses two direct-`docker run` composite actions
+against the CI image:
+
+- `./.github/actions/review-codex-run` for the read-only reviewers
+- `./.github/actions/review-claude-run` for the single-writer fixer
+
+The other agent workflows (`codex`, `codex-diagnose-workflow-failure`,
 `review-coverage-evaluator`) invoke `docker run` inline.
 
 All of them call `scripts/ensure-ci-image.sh` before launch. The helper
@@ -69,6 +73,10 @@ home-automation refactor:
 - **Always `--network host`** so the nested container inherits the
   runner's Tailscale connection to LiteLLM at
   `https://llm.featherback-mermaid.ts.net/v1`.
+- **Claude-over-LiteLLM uses the Anthropic-compatible path**.
+  `review-claude-run` forwards `ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`
+  and `ANTHROPIC_API_KEY=fake-key`; reviewer jobs keep using the
+  OpenAI-compatible path via `.devcontainer/configure-codex.sh`.
 
 ## Issue Resolution Agent issue-resolution entry points
 
