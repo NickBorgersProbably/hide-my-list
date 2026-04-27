@@ -53,6 +53,9 @@ outputs:
   cycle:
     description: 'Highest prior cycle observed in the commit chain (read-cycle)'
     value: ${{ steps.run.outputs.cycle }}
+  cycle_sha:
+    description: 'SHA where the highest prior cycle was observed (read-cycle); empty when cycle=0'
+    value: ${{ steps.run.outputs.cycle_sha }}
   state:
     description: 'Current state of the requested context (read-status)'
     value: ${{ steps.run.outputs.state }}
@@ -96,6 +99,7 @@ runs:
             MAX_DEPTH=50
             CURRENT="$SHA"
             HIGHEST=0
+            HIGHEST_SHA=""
             for _ in $(seq 1 "$MAX_DEPTH"); do
               if [ "$CURRENT" = "$BASE_SHA" ] || [ -z "$CURRENT" ]; then
                 break
@@ -105,13 +109,17 @@ runs:
                 2>/dev/null || echo "")
               if [[ "$VALUE" =~ ^[0-9]+$ ]] && [ "$VALUE" -gt "$HIGHEST" ]; then
                 HIGHEST="$VALUE"
+                HIGHEST_SHA="$CURRENT"
               fi
               # Step to first parent.
               PARENT=$(gh api "repos/${REPO}/commits/${CURRENT}" \
                 --jq '.parents[0].sha // empty' 2>/dev/null || echo "")
               CURRENT="$PARENT"
             done
-            echo "cycle=$HIGHEST" >> "$GITHUB_OUTPUT"
+            {
+              echo "cycle=$HIGHEST"
+              echo "cycle_sha=$HIGHEST_SHA"
+            } >> "$GITHUB_OUTPUT"
             ;;
 
           write-status)

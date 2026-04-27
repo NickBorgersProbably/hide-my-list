@@ -58,6 +58,9 @@ jobs:
       roles_json: ${{ steps.classify.outputs.roles_json }}
       cycle: ${{ steps.cycle.outputs.cycle }}
       capped: ${{ steps.cap.outputs.capped }}
+      inherited: ${{ steps.delta.outputs.inherited }}
+      prior_cycle_sha: ${{ steps.cycle-read.outputs.cycle_sha }}
+      prior_verdict: ${{ steps.prior-verdict.outputs.description }}
     steps:
       - name: Checkout reviewed SHA
         uses: actions/checkout@v4
@@ -74,20 +77,73 @@ jobs:
           base_sha: ${{ inputs.base_sha }}
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
-      - name: Compute next cycle and cap check
-        id: cycle
+      # A "cycle" represents new PR content needing review, not branch-HEAD
+      # churn. A merge-from-main (HEAD = merge(prev-PR, main-tip)) absorbs
+      # main into the branch but adds zero new PR content; consuming a
+      # cycle on it can push a PR with prior cycle 2 GO over the cap and
+      # leave it terminally NO-GO. Detect this case and inherit the prior
+      # verdict instead of running reviewers/fixer/judge again.
+      # See docs/agentic-pipeline-learnings.md §1.14.
+      - name: Detect merge-from-main no-content-delta
+        id: delta
         env:
           PRIOR: ${{ steps.cycle-read.outputs.cycle }}
         run: |
           set -euo pipefail
-          NEXT=$(( PRIOR + 1 ))
-          echo "cycle=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "review-pipeline-v2: prior cycle=$PRIOR next=$NEXT"
+          if [ "${PRIOR:-0}" -lt 1 ]; then
+            echo "inherited=false" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: no prior cycle to inherit from"
+            exit 0
+          fi
+          PARENT_TOKENS=$(git rev-list --parents -n 1 HEAD | wc -w)
+          # rev-list --parents emits "<HEAD> <p1> [<p2> ...]"; <3 tokens
+          # means HEAD has 0 or 1 parents (not a merge commit).
+          if [ "$PARENT_TOKENS" -lt 3 ]; then
+            echo "inherited=false" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: HEAD is not a merge commit"
+            exit 0
+          fi
+          SECOND=$(git rev-parse HEAD^2)
+          git fetch origin main --depth=50 --quiet
+          if git merge-base --is-ancestor "$SECOND" origin/main; then
+            echo "inherited=true" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: HEAD is merge-from-main (second parent ${SECOND} is on origin/main); inheriting prior cycle ${PRIOR}"
+          else
+            echo "inherited=false" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: HEAD is a merge commit but second parent ${SECOND} is NOT on origin/main"
+          fi
+
+      - name: Read prior verdict from cycle SHA
+        id: prior-verdict
+        if: steps.delta.outputs.inherited == 'true'
+        uses: ./.github/actions/review-state
+        with:
+          op: read-status
+          sha: ${{ steps.cycle-read.outputs.cycle_sha }}
+          context: review/verdict
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Compute next cycle and cap check
+        id: cycle
+        env:
+          PRIOR: ${{ steps.cycle-read.outputs.cycle }}
+          INHERITED: ${{ steps.delta.outputs.inherited }}
+        run: |
+          set -euo pipefail
+          if [ "$INHERITED" = "true" ]; then
+            echo "cycle=$PRIOR" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: inheriting cycle=$PRIOR (no PR content delta)"
+          else
+            NEXT=$(( PRIOR + 1 ))
+            echo "cycle=$NEXT" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: prior cycle=$PRIOR next=$NEXT"
+          fi
 
       - name: Cap check
         id: cap
         env:
           NEXT: ${{ steps.cycle.outputs.cycle }}
+          INHERITED: ${{ steps.delta.outputs.inherited }}
           # NO-GO retries only: MAX bounds the number of cycles the
           # fixer gets on a PR whose cycle 1 did not converge. GO
           # cycles are short-circuited in review-entry.yml after
@@ -96,7 +152,11 @@ jobs:
           MAX: '2'
         run: |
           set -euo pipefail
-          if [ "$NEXT" -gt "$MAX" ]; then
+          # An inherited cycle does not consume a fresh cycle slot, so
+          # the cap never fires on the inherit path — see §1.14.
+          if [ "$INHERITED" = "true" ]; then
+            echo "capped=false" >> "$GITHUB_OUTPUT"
+          elif [ "$NEXT" -gt "$MAX" ]; then
             echo "capped=true" >> "$GITHUB_OUTPUT"
           else
             echo "capped=false" >> "$GITHUB_OUTPUT"
@@ -104,14 +164,14 @@ jobs:
 
       - name: Classify diff into reviewer roles
         id: classify
-        if: steps.cap.outputs.capped != 'true'
+        if: steps.cap.outputs.capped != 'true' && steps.delta.outputs.inherited != 'true'
         uses: ./.github/actions/review-classify
         with:
           base_ref: ${{ inputs.base_sha }}
           head_sha: ${{ inputs.reviewed_sha }}
 
       - name: Stamp gather status
-        if: steps.cap.outputs.capped != 'true'
+        if: steps.cap.outputs.capped != 'true' && steps.delta.outputs.inherited != 'true'
         uses: ./.github/actions/review-state
         with:
           op: write-status
@@ -119,6 +179,17 @@ jobs:
           context: review/gather
           state: success
           description: 'cycle=${{ steps.cycle.outputs.cycle }} roles=${{ steps.classify.outputs.roles_json }}'
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Stamp gather status (inherit path)
+        if: steps.delta.outputs.inherited == 'true'
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.reviewed_sha }}
+          context: review/gather
+          state: success
+          description: 'cycle=${{ steps.cycle.outputs.cycle }} inherited from ${{ steps.cycle-read.outputs.cycle_sha }}'
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
   cap-exhausted:
@@ -131,6 +202,26 @@ jobs:
       post_fix_sha: ${{ inputs.reviewed_sha }}
       cycle: ${{ needs.gather.outputs.cycle }}
       verdict: 'NO-GO'
+      skip_verdict_artifact: true
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
+  # Inherit-on-merge-from-main path: HEAD is a clean merge from main
+  # with no PR-side content delta, so we re-stamp the prior verdict on
+  # HEAD without rerunning reviewers/fixer/judge. See §1.14 in
+  # docs/agentic-pipeline-learnings.md.
+  inherit:
+    name: Inherit prior verdict (merge-from-main)
+    needs: gather
+    if: needs.gather.outputs.inherited == 'true'
+    uses: ./.github/workflows/review-finalize.yml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      post_fix_sha: ${{ inputs.reviewed_sha }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      verdict: ${{ needs.gather.outputs.prior_verdict }}
+      skip_verdict_artifact: true
+      synthesized_reason_text: 'inherited from prior cycle ${{ needs.gather.outputs.cycle }} (HEAD is merge-from-main with no PR content delta)'
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
@@ -164,6 +255,7 @@ jobs:
     needs: gather
     if: |
       needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
       contains(fromJSON(needs.gather.outputs.roles_json), 'design')
     uses: ./.github/workflows/review-reviewer.yml
     with:
@@ -183,6 +275,7 @@ jobs:
     needs: gather
     if: |
       needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
       contains(fromJSON(needs.gather.outputs.roles_json), 'security')
     uses: ./.github/workflows/review-reviewer.yml
     with:
@@ -202,6 +295,7 @@ jobs:
     needs: gather
     if: |
       needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
       contains(fromJSON(needs.gather.outputs.roles_json), 'psych')
     uses: ./.github/workflows/review-reviewer.yml
     with:
@@ -221,6 +315,7 @@ jobs:
     needs: gather
     if: |
       needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
       contains(fromJSON(needs.gather.outputs.roles_json), 'docs')
     uses: ./.github/workflows/review-reviewer.yml
     with:
@@ -240,6 +335,7 @@ jobs:
     needs: gather
     if: |
       needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
       contains(fromJSON(needs.gather.outputs.roles_json), 'prompt')
     uses: ./.github/workflows/review-reviewer.yml
     with:
@@ -265,6 +361,7 @@ jobs:
     if: |
       always() &&
       needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
       needs.gather.result == 'success' &&
       !contains(needs.*.result, 'failure') &&
       !contains(needs.*.result, 'cancelled')
@@ -285,6 +382,7 @@ jobs:
     if: |
       always() &&
       needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
       needs.gather.result == 'success' &&
       needs.fix.result == 'success' &&
       !contains(needs.*.result, 'failure') &&
@@ -304,6 +402,7 @@ jobs:
     if: |
       always() &&
       needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
       needs.gather.result == 'success' &&
       needs.judge.result == 'success'
     uses: ./.github/workflows/review-finalize.yml
@@ -330,6 +429,7 @@ jobs:
     needs:
       - gather
       - cap-exhausted
+      - inherit
       - review-design
       - review-security
       - review-psych

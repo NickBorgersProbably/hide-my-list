@@ -87,6 +87,22 @@ Why **not** just lower `MAX` to `1`: `cap-exhausted` hard-codes `verdict='NO-GO'
 **Before:** PR #397 posted three full Merge Decisions and ~15 reviewer comments for single docs-only PR already GO at cycle 1.
 **Evidence:** #397
 
+### 1.14 A cycle represents new PR content, not branch-HEAD churn
+**Why:** Cycle counter walks first-parents in `review-state` `read-cycle` (`.github/actions/review-state/action.yml`) and increments on each new HEAD SHA. But a `git merge main` into a PR branch creates a new HEAD that adds zero new PR-side content — it only absorbs main. Counting that as a fresh cycle pushes a PR with `cycle=2 GO` over `MAX=2` and into `cap-exhausted`, which invalidates the prior verdict. See §1.14 invariant: a cycle is consumed only when there is new PR content to review.
+
+Detection lives in `review-pipeline.yml` `gather` job: HEAD has 2+ parents AND `HEAD^2` is reachable from `origin/main` ⇒ inherit. The `inherit` job re-stamps the prior verdict on the new HEAD via `review-finalize.yml` with `skip_verdict_artifact: true` and a `synthesized_reason_text` indicating the inherit. Reviewers/fixer/judge are skipped via additional `inherited != 'true'` guards alongside the existing `capped != 'true'` guards.
+
+This is **not** the same problem as §1.13's GO short-circuit. §1.13 prevents redundant pipeline runs after a GO; §1.14 handles the case where main has moved and the PR resyncs but does not add content — `review-entry.yml`'s GO short-circuit can't fire because the new HEAD has no `All Required Agent Reviews = success` of its own yet. Both rules together: a PR that has converged stays converged across both no-op pushes (§1.13) and clean main resyncs (§1.14).
+**Evidence:** PR #477
+
+### 1.15 Terminal NO-GO paths must finalize labels and the merge-gate status without depending on judge artifacts
+**Why:** `review-finalize.yml`'s `Download verdict artifact` step (`name: verdict-${sha}`) only finds an artifact when the judge has run. Cap-exhausted (§1.14) and inherit-on-merge-from-main bypass the judge entirely, so the artifact does not exist on those paths; an unconditional download fails the job before the label/status work runs. Result before fix: PR ends with `agent-reviews-passed` label still set (cycle 2 GO) AND no `All Required Agent Reviews` status on HEAD — branch protection blocks but the PR's labels look green, exactly the inconsistent state surfaced by PR #477.
+
+Contract: any pipeline-exit path that calls `review-finalize.yml` without a `verdict-${sha}` artifact must pass `skip_verdict_artifact: true` so finalize can synthesize REASONS inline. Optionally pass `synthesized_reason_text` to override the default "cycle cap exceeded" message (the inherit path uses this). Both cap-exhausted and inherit jobs in `review-pipeline.yml` follow this contract.
+
+Single-writer rule from §1.1 still holds: label transitions and the `All Required Agent Reviews` status are still written exclusively from `review-finalize.yml`. `skip_verdict_artifact` is a parameterization, not a duplicate writer.
+**Evidence:** PR #477
+
 ---
 
 ## 2. CI Runtime Infrastructure
