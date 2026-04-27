@@ -748,6 +748,7 @@ sequenceDiagram
     participant Scr as check-reminders.sh
     participant Notion as Notion API
     participant Signal as .reminder-signal
+    participant State as state.json
     participant Delivery as Heartbeat / Main Session
     participant User
 
@@ -759,17 +760,28 @@ sequenceDiagram
     alt User interacts (AGENTS.md step 5)
         Delivery->>Signal: Validate handoff file
         Delivery->>User: Send reminder via message tool
+        Delivery->>State: Save recent_outbound reminder context
         Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
         Delivery->>Signal: Validate handoff file
         Delivery->>User: Send reminder via message tool
+        Delivery->>State: Save recent_outbound reminder context
         Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     end
 ```
 
-`reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. Delivery failure = file stays for retry.
+`reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. On successful delivery, the session also appends/updates `state.json.recent_outbound` with a short-lived reminder entry so the next session can interpret terse replies like "I did it" or "tomorrow at 9" even though the handoff file is gone and the Notion reminder is already completed. Delivery failure = file stays for retry.
+
+### Reminder Reply Continuity
+
+If the next session starts and the user replies to the reminder in shorthand, the agent should use `state.json.recent_outbound` before asking for clarification.
+
+Example:
+- Agent sends: "This was due a bit ago — clean up boxes before noon. Want to handle it now or reschedule?"
+- User opens a new session and says: "I did it"
+- Agent interprets that as completion of "clean up boxes before noon", delivers completion acknowledgment and reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears the matched `recent_outbound` entry
 
 ### Reminder Delivery Messages
 

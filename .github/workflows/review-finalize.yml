@@ -1,16 +1,31 @@
 ---
 name: Review pipeline v2 — finalize
-# Reusable: invoked at the tail of every pipeline run.
+# Reusable: invoked at the tail of every pipeline run, plus the
+# cap-exhausted and inherit-from-main paths.
 #
-# On GO: stamps review/cycle-N on the post-fix SHA, leaves the PR alone.
-# Optional `followup_issues[]` from reviewer artifacts are ONLY created
-# after the PR actually merges; that path lives in the post-merge
-# coverage workflow, not here.
+# Posts ONE merge-decision comment per cycle, formatted as an "Agent
+# Review Summary" with a per-role status table. Branches on `category`
+# so the operator immediately sees whether NO-GO came from real
+# reviewer concerns, a pipeline self-error, cycle-cap exhaustion, or
+# an inherit-from-main no-content-delta replay.
 #
-# On NO-GO: stamps review/cycle-N, applies the `needs-human-review`
-# label, and posts ONE sticky comment summarizing unaddressed blockers.
-# Never closes the PR. Never creates an issue. (User decision: avoid
-# the lessons-learned-issue → new PR → NO-GO infinite loop class.)
+# Categories:
+#   go               — verdict GO, all reviewers cleared
+#   reviewer_blockers — NO-GO; at least one reviewer flagged blockers
+#                       the fixer didn't address
+#   pipeline_error   — NO-GO; aggregator can't trust its inputs
+#                       (mixed reviewed_sha, missing fix-result, etc.)
+#   cycle_capped     — NO-GO; review-pipeline.yml hit MAX cycles
+#                       before any reviewer ran on this SHA
+#   inherited        — verdict re-stamped from a prior cycle SHA
+#                       because HEAD is a merge-from-main with no PR
+#                       content delta (see §1.14)
+#
+# Side effects:
+#   - stamps review/cycle and review/verdict statuses on post_fix_sha
+#   - publishes the "All Required Agent Reviews" merge-gate status
+#   - applies/removes needs-human-review and agent-reviews-passed labels
+#   - posts the formatted PR comment
 
 on:
   workflow_call:
@@ -27,14 +42,46 @@ on:
       verdict:
         type: string
         required: true
+      category:
+        # Optional. When unset, finalize reads `.category` from the
+        # verdict.json artifact; if that's also unavailable it falls
+        # back to deriving from `verdict` and `skip_verdict_artifact`.
+        # Callers that bypass the judge (cap-exhausted, inherit) MUST
+        # pass an explicit category since no verdict.json exists.
+        type: string
+        required: false
+        default: ''
+      reviewed_sha:
+        # Optional. The SHA reviewers ran on, distinct from
+        # post_fix_sha when the fixer pushed a new commit. Used to
+        # locate reviewer artifacts (`reviewer-<role>-<sha>`). Defaults
+        # to post_fix_sha for callers that don't run a fixer.
+        type: string
+        required: false
+        default: ''
+      skip_verdict_artifact:
+        # Set by gather paths that bypass the judge and therefore have
+        # no verdict-${sha} artifact to read. Currently set by the
+        # cap-exhausted job and the inherit-on-merge-from-main job.
+        # When true, the finalize job skips both the verdict and
+        # reviewer artifact downloads.
+        type: boolean
+        required: false
+        default: false
+      synthesized_reason_text:
+        # When skip_verdict_artifact=true, this string is rendered in
+        # place of the verdict-artifact reasons. Empty falls back to
+        # a category-specific default. Pass a non-empty value from
+        # the inherit-from-main path to surface the inherit semantics
+        # in the comment.
+        type: string
+        required: false
+        default: ''
     secrets:
       WORKFLOW_PAT:
         required: true
 
 permissions:
-  # Read-only GITHUB_TOKEN. The label create, sticky comment, and
-  # cycle-status write all authenticate via secrets.WORKFLOW_PAT,
-  # not GITHUB_TOKEN.
   contents: read
   pull-requests: read
   issues: read
@@ -60,19 +107,63 @@ jobs:
           description: ${{ inputs.cycle }}
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
-      - name: Download verdict artifact
-        uses: actions/download-artifact@v4
+      - name: Stamp review/verdict on post-fix SHA
+        uses: ./.github/actions/review-state
         with:
-          path: /tmp/verdict
+          op: write-status
+          sha: ${{ inputs.post_fix_sha }}
+          context: review/verdict
+          state: ${{ inputs.verdict == 'GO' && 'success' || 'failure' }}
+          description: ${{ inputs.verdict }}
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
+      # Bypass paths (cap-exhausted, inherit-from-main) skip both
+      # downloads since the judge never ran for this finalize call.
+      - name: Download verdict artifact
+        if: inputs.skip_verdict_artifact != true
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/verdict
           name: verdict-${{ inputs.post_fix_sha }}
 
-      # Write the v1-compatible "All Required Agent Reviews" merge-gate
-      # status using GITHUB_TOKEN (the Actions native integration,
-      # integration_id 15368). The repo's branch protection ruleset
-      # requires this exact context published by THAT specific
-      # integration; statuses written by a personal PAT (User type)
-      # do NOT satisfy the rule. v1's all-reviews-passed job used
-      # github-script with GITHUB_TOKEN, which is what we mirror here.
+      - name: Download reviewer artifacts
+        if: inputs.skip_verdict_artifact != true
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/reviewers
+          pattern: reviewer-*-${{ inputs.reviewed_sha != '' && inputs.reviewed_sha || inputs.post_fix_sha }}
+
+      - name: Resolve effective category
+        id: cat
+        env:
+          INPUT_CATEGORY: ${{ inputs.category }}
+          VERDICT: ${{ inputs.verdict }}
+          SKIP_ARTIFACT: ${{ inputs.skip_verdict_artifact }}
+          VERDICT_PATH: ${{ runner.temp }}/verdict/verdict-${{ inputs.post_fix_sha }}.json
+        run: |
+          set -euo pipefail
+          CAT="$INPUT_CATEGORY"
+          if [ -z "$CAT" ] && [ -f "$VERDICT_PATH" ]; then
+            CAT=$(jq -r '.category // ""' "$VERDICT_PATH")
+          fi
+          if [ -z "$CAT" ]; then
+            if [ "$VERDICT" = "GO" ]; then
+              CAT="go"
+            elif [ "$SKIP_ARTIFACT" = "true" ]; then
+              CAT="cycle_capped"
+            else
+              CAT="pipeline_error"
+            fi
+          fi
+          echo "category=$CAT" >> "$GITHUB_OUTPUT"
+          echo "review-finalize: effective category=$CAT"
+
+      # Branch protection requires this exact context published by
+      # integration_id 15368 (GitHub Actions). Statuses written by a
+      # personal PAT do NOT satisfy the rule, so this step uses
+      # GITHUB_TOKEN, not WORKFLOW_PAT.
       - name: Publish "All Required Agent Reviews" merge-gate status
         uses: actions/github-script@v7
         with:
@@ -94,104 +185,50 @@ jobs:
             });
             core.info(`Wrote All Required Agent Reviews=${state} on ${sha}`);
 
-      - name: Apply NO-GO label and sticky comment
-        if: inputs.verdict == 'NO-GO'
+      - name: Render and post merge-decision comment
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           POST_FIX_SHA: ${{ inputs.post_fix_sha }}
-        run: |
-          set -euo pipefail
+          REVIEWED_SHA: ${{ inputs.reviewed_sha != '' && inputs.reviewed_sha || inputs.post_fix_sha }}
+          CYCLE: ${{ inputs.cycle }}
+          VERDICT: ${{ inputs.verdict }}
+          CATEGORY: ${{ steps.cat.outputs.category }}
+          SYNTH_REASON: ${{ inputs.synthesized_reason_text }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          VERDICT_DIR: ${{ runner.temp }}/verdict
+          REVIEWERS_DIR: ${{ runner.temp }}/reviewers
+        run: bash .github/scripts/review/render-finalize-comment.sh
 
-          # Remove any stale agent-reviews-passed label from a prior cycle.
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label agent-reviews-passed 2>/dev/null || true
-
-          # Idempotent label create.
-          gh label create needs-human-review \
-            --color B60205 \
-            --description "Review pipeline v2 could not converge; human takeover needed" \
-            --repo "$REPO" 2>/dev/null || true
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review
-
-          REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
-          BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
-
-          BODY_FILE=$(mktemp)
-          {
-            echo "<!-- codex-merge-decision -->"
-            echo "<!-- review-pipeline-v2:no-go -->"
-            echo "## Merge Decision"
-            echo
-            echo "**Decision: NO-GO**"
-            echo
-            echo "The autonomous review pipeline could not converge on this PR after cycle ${{ inputs.cycle }}. A human needs to take a look."
-            echo
-            echo "**The PR is intentionally left open.** Nothing has been auto-closed and no replacement issue has been auto-filed (loop-prevention)."
-            echo
-            if [ -n "$REASONS" ]; then
-              echo "### Reasons"
-              echo "$REASONS"
-              echo
-            fi
-            if [ -n "$BLOCKERS" ]; then
-              echo "### Unaddressed blockers"
-              echo "$BLOCKERS"
-              echo
-            fi
-            echo "<sub>Posted by review-pipeline v2 (cycle ${{ inputs.cycle }}).</sub>"
-          } > "$BODY_FILE"
-
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
-          rm -f "$BODY_FILE"
-
-      - name: Mark GO success and post Merge Decision comment
+      - name: Apply GO labels
         if: inputs.verdict == 'GO'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
-          POST_FIX_SHA: ${{ inputs.post_fix_sha }}
         run: |
           set -euo pipefail
-
-          # Remove any stale needs-human-review label from a prior cycle.
           gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label needs-human-review 2>/dev/null || true
-
-          # Apply the v1-compatible "agent-reviews-passed" label so the
-          # PR shows a clear human-visible indicator that v2 cleared it.
-          # Idempotent label create + add.
           gh label create agent-reviews-passed \
             --color 0E8A16 \
-            --description "All required agent reviews passed (v2)" \
+            --description "All required agent reviews passed" \
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label agent-reviews-passed
 
-          REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
-
-          # Post a single Merge Decision comment so humans can see the
-          # verdict at a glance. Uses the same `<!-- codex-merge-decision -->`
-          # marker the legacy v1 monolith used so any downstream
-          # automation that scrapes for the marker continues to work.
-          BODY_FILE=$(mktemp)
-          {
-            echo "<!-- codex-merge-decision -->"
-            echo "<!-- review-pipeline-v2:go -->"
-            echo "## Merge Decision"
-            echo
-            echo "**Decision: GO**"
-            echo
-            if [ -n "$REASONS" ]; then
-              echo "### Rationale"
-              echo "$REASONS"
-              echo
-            fi
-            echo "Reviewed at \`${{ inputs.post_fix_sha }}\` (cycle ${{ inputs.cycle }})."
-            echo
-            echo "<sub>Posted by review-pipeline v2.</sub>"
-          } > "$BODY_FILE"
-
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
-          rm -f "$BODY_FILE"
-
-          echo "review-pipeline-v2: GO on cycle ${{ inputs.cycle }}"
+      - name: Apply NO-GO labels
+        if: inputs.verdict != 'GO'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label agent-reviews-passed 2>/dev/null || true
+          gh label create needs-human-review \
+            --color B60205 \
+            --description "Review pipeline v2 could not converge; human takeover needed" \
+            --repo "$REPO" 2>/dev/null || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review

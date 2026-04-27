@@ -30,9 +30,11 @@
 #
 # The delivering session (heartbeat or main session) is responsible for:
 #   - Reading the handoff file payload and delivering each reminder to the user
+#   - After confirmed delivery: appending/updating `state.json.recent_outbound`
+#     with a short-lived reminder entry (type, page_id, title, status, sent_at,
+#     awaiting_response: true, expires_at) and pruning expired entries
 #   - Running `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to
-#     atomically set Notion `Status` and `Reminder Status` after confirmed
-#     delivery
+#     atomically set Notion `Status` and `Reminder Status`
 #   - Deleting the handoff file only after successful delivery and Notion
 #     updates (if delivery fails, leave the handoff file in place for retry)
 #

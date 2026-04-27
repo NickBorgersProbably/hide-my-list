@@ -5,11 +5,6 @@ name: Review pipeline v2 — entry
 # and dispatches the orchestrator if and only if this run owns the
 # SHA. /review, reopen, push, and synchronize all collapse into the
 # same path with no per-trigger special-cases.
-#
-# DORMANCY: every job here gates on `vars.REVIEW_PIPELINE_V2 == 'true'`.
-# Until the repo variable is flipped (Phase 3), this workflow runs but
-# all jobs short-circuit and the orchestrator is never invoked. The
-# legacy codex-code-review.yml continues to own real review work.
 
 on:
   pull_request:
@@ -49,7 +44,6 @@ concurrency:
 jobs:
   authorize:
     name: Authorize trigger
-    if: vars.REVIEW_PIPELINE_V2 == 'true'
     runs-on: ubuntu-latest
     outputs:
       authorized: ${{ steps.authorize.outputs.authorized }}
@@ -133,7 +127,7 @@ jobs:
   resolve:
     name: Resolve SHA + dedup claim
     needs: authorize
-    if: vars.REVIEW_PIPELINE_V2 == 'true' && needs.authorize.outputs.authorized == 'true'
+    if: needs.authorize.outputs.authorized == 'true'
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.dedup.outputs.claimed }}
@@ -200,7 +194,7 @@ jobs:
       # Check whether the reviewed SHA has already been cleared GO by a
       # prior cycle of the v2 pipeline. The finalize job writes the
       # `All Required Agent Reviews` commit status with state=success
-      # on GO and state=failure on NO-GO (see review-finalize.yml:76-95).
+      # on GO and state=failure on NO-GO (see review-finalize.yml:167-186).
       # A prior-cycle GO on this exact commit means the pipeline already
       # cleared it; re-running would only rediscover cross-doc drift the
       # last cycle's fixer introduced. NO-GO deliberately does NOT
@@ -254,7 +248,6 @@ jobs:
     name: Run review pipeline v2
     needs: [authorize, resolve]
     if: |
-      vars.REVIEW_PIPELINE_V2 == 'true' &&
       needs.authorize.outputs.authorized == 'true' &&
       needs.resolve.outputs.should_run == 'true' &&
       needs.resolve.outputs.terminal_verdict != 'true'
