@@ -1,6 +1,6 @@
 # hide-my-list CI agent image.
 #
-# Used EXCLUSIVELY by CI agent workflows (codex, codex-code-review,
+# Used EXCLUSIVELY by CI agent workflows (codex,
 # codex-diagnose-workflow-failure, review-coverage-evaluator,
 # review-reviewer, review-fixer). NOT the same image as
 # `.devcontainer/Dockerfile` — that one is for human IDE workflows.

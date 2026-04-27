@@ -163,16 +163,15 @@ jobs:
           # Idempotent label create + add.
           gh label create agent-reviews-passed \
             --color 0E8A16 \
-            --description "All required agent reviews passed (v2)" \
+            --description "All required agent reviews passed" \
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label agent-reviews-passed
 
           REASONS=$(jq -r '.reasons[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${{ inputs.post_fix_sha }}.json" | sed 's/^/- /')
 
           # Post a single Merge Decision comment so humans can see the
-          # verdict at a glance. Uses the same `<!-- codex-merge-decision -->`
-          # marker the legacy v1 monolith used so any downstream
-          # automation that scrapes for the marker continues to work.
+          # verdict at a glance. Marker is `<!-- codex-merge-decision -->`
+          # for any downstream automation that scrapes for it.
           BODY_FILE=$(mktemp)
           {
             echo "<!-- codex-merge-decision -->"

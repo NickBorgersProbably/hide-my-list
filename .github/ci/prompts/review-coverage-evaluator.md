@@ -4,21 +4,18 @@ PR #${PR_NUMBER} merged to main. Job: analyze whether existing review pipeline c
 
 **THE EXISTING REVIEW PIPELINE**
 
-Repo runs one of two pipelines, selected by repo variable `REVIEW_PIPELINE_V2` (see AGENTS.md "Review Pipeline" section and docs/agentic-pipeline-learnings.md §1.4 / §1.5 for full contract).
+Lives in `.github/workflows/review-entry.yml` + reusable workflows (see DEV-AGENTS.md "Review Pipeline" section and docs/agentic-pipeline-learnings.md §1.4 / §1.5 for full contract).
 
-Reviewer roles 1-5 same in both pipelines:
+Reviewer roles:
 1. Design Review - validates PR implements issue intent, reviews design quality, checks docs-as-spec consistency
 2. Security & Infrastructure Review - script safety, credential handling, workflow permissions, GitHub Actions/runtime correctness for CI orchestration changes
 3. Psych Research Review - evaluates user-facing changes against ADHD research literature
 4. Prompt Engineering Review - validates prompt clarity, constraints, cross-prompt consistency
 5. Documentation Consistency Review - checks docs for contradictions, stale references, cross-doc consistency
 
-Verdict stage differs by pipeline:
+Verdict stage: deterministic read-only judge (`.github/scripts/review/aggregate.mjs`) emits binary GO / NO-GO from structured reviewer artifacts conforming to `schema/reviewer-v1.json`. Agentic fixer runs *before* judge and *after* reviewers.
 
-- v1 (legacy `codex-code-review.yml`, `vars.REVIEW_PIPELINE_V2 != 'true'`): merge-decision agent applies fixes inline, emits one of three outcomes — GO-CLEAN, GO-WITH-RESERVATIONS, or NO-GO.
-- v2 (`review-entry.yml` + reusable workflows, `vars.REVIEW_PIPELINE_V2 == 'true'`): deterministic read-only judge (`.github/scripts/review/aggregate.mjs`) emits binary GO / NO-GO from structured reviewer artifacts conforming to `schema/reviewer-v1.json`. Agentic fixer runs *before* judge and *after* reviewers.
-
-When evaluating coverage, identify which pipeline PR was reviewed under (look for v2 reviewer artifact comments or v1 `## Merge Decision` comments). Reason about gaps in reviewer-role surface, not verdict shape. Reviewer roles matter for coverage; verdict shape is implementation detail.
+When evaluating coverage, reason about gaps in reviewer-role surface, not verdict shape. Reviewer roles matter for coverage; verdict shape is implementation detail.
 
 **YOUR TASK:**
 1. Read full PR diff: `gh pr diff ${PR_NUMBER}`

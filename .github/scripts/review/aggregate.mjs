@@ -1,16 +1,11 @@
-// Internal judge-stage helper for the v2 review pipeline (Phase 0).
+// Internal judge-stage helper for the review pipeline.
 //
-// SCOPE: this module defines ONLY the internal judge-stage verdict
-// (binary GO | NO-GO) that the read-only judge job will emit once the
-// v2 orchestrator workflows land in Phase 1. It is NOT the same thing
-// as the existing pipeline's final merge-decision outcome
-// (GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO documented in
-// docs/agentic-pipeline-learnings.md §1.4) and does not currently
-// affect any PR. The mapping from this internal verdict to the
-// pipeline-level outcome — and any reconciling updates to
-// agentic-pipeline-learnings.md §1.4/§1.5 and AGENTS.md "Review
-// Pipeline" — will land in Phase 1 alongside the workflows that
-// actually invoke this module.
+// SCOPE: this module defines the read-only judge-stage verdict
+// (binary GO | NO-GO) emitted by the judge job, consuming structured
+// reviewer artifacts conforming to `schema/reviewer-v1.json`. See
+// docs/agentic-pipeline-learnings.md §1.4 + §1.5 for the contract
+// between reviewers and judge, and DEV-AGENTS.md "Review Pipeline"
+// for the workflow graph that invokes this module.
 //
 // Pure function: array of reviewer artifacts (parsed JSON conforming
 // to schema/reviewer-v1.json) + a fix-result artifact -> verdict.
@@ -20,9 +15,9 @@
 // FAIL-CLOSED CONTRACT
 //
 // The aggregator rejects mixed review epochs and ambiguous inputs by
-// returning NO-GO with a `reasons[]` line explaining why. Phase 1
-// orchestration must hand the judge a coherent set, but this module
-// does not assume that — it validates:
+// returning NO-GO with a `reasons[]` line explaining why. The review
+// pipeline should hand the judge a coherent set, but this module does
+// not assume that — it validates:
 //
 //   1. All reviewer artifacts share the same `reviewed_sha`.
 //   2. All reviewer artifacts share the same `cycle`.
@@ -34,15 +29,16 @@
 //      emit `addressed[]` entries as `"<role>/<id>"` strings.
 //   5. The empty-reviewer set is NO-GO ("no reviewers ran").
 //   6. The all-abstain case is NO-GO ("no applicable reviewers"),
-//      not a vacuous GO. Phase 1 should ensure at least one role
-//      always applies, but Phase 0 fails closed if it doesn't.
+//      not a vacuous GO. The pipeline should ensure at least one role
+//      always applies, but the aggregator fails closed if it doesn't.
 //
 // Reviewers are responsible for ingesting inline PR comments via
 // `gh api` and folding any blocking change requests into their own
 // `blocking_issues[]` (with `source: "inline_comment"`), so the
 // judge never has to read PR comments or PR Reviews. This honors
 // agentic-pipeline-learnings.md §1.5 from the judge's side; the
-// reviewer-side authority chain will be documented in Phase 1.
+// reviewer-side authority chain is documented in the active pipeline
+// docs and reviewer prompts.
 
 /**
  * @typedef {Object} BlockingIssue
