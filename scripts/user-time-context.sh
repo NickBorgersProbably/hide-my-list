@@ -16,22 +16,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 USER_FILE="$ROOT_DIR/USER.md"
 REFERENCE_INPUT="${1:-now}"
+DEFAULT_TZ="America/Chicago"
+USER_TZ="$DEFAULT_TZ"
 
-if [ ! -f "$USER_FILE" ]; then
-    echo "user-time-context: USER.md not found at $USER_FILE" >&2
-    exit 1
+if [ -f "$USER_FILE" ]; then
+    EXTRACTED_USER_TZ="$(
+        sed -nE 's/^- \*\*Timezone:\*\* .* \(([^()]+)\)$/\1/p' "$USER_FILE" | head -n 1
+    )"
+    if [ -n "$EXTRACTED_USER_TZ" ]; then
+        USER_TZ="$EXTRACTED_USER_TZ"
+    fi
 fi
 
-USER_TZ="$(
-    sed -nE 's/^- \*\*Timezone:\*\* .* \(([^()]+)\)$/\1/p' "$USER_FILE" | head -n 1
-)"
-
-if [ -z "$USER_TZ" ]; then
-    echo "user-time-context: could not extract timezone identifier from $USER_FILE" >&2
-    exit 1
-fi
-
-USER_TZ="$USER_TZ" REFERENCE_INPUT="$REFERENCE_INPUT" python3 - <<'PY'
+USER_TZ="$USER_TZ" DEFAULT_TZ="$DEFAULT_TZ" REFERENCE_INPUT="$REFERENCE_INPUT" python3 - <<'PY'
 import json
 import os
 import sys
@@ -39,16 +36,27 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 user_tz_name = os.environ["USER_TZ"]
+default_tz_name = os.environ["DEFAULT_TZ"]
 reference_input = os.environ["REFERENCE_INPUT"].strip()
 
 try:
     user_tz = ZoneInfo(user_tz_name)
 except Exception as exc:  # pragma: no cover - shell wrapper handles failure
-    print(
-        f"user-time-context: invalid timezone identifier {user_tz_name!r}: {exc}",
-        file=sys.stderr,
-    )
-    raise SystemExit(1)
+    if user_tz_name == default_tz_name:
+        print(
+            f"user-time-context: invalid timezone identifier {user_tz_name!r}: {exc}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    user_tz_name = default_tz_name
+    try:
+        user_tz = ZoneInfo(user_tz_name)
+    except Exception as fallback_exc:  # pragma: no cover - shell wrapper handles failure
+        print(
+            f"user-time-context: invalid timezone identifier {user_tz_name!r}: {fallback_exc}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
 if reference_input == "now":
     reference_utc = datetime.now(timezone.utc)

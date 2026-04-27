@@ -136,7 +136,9 @@ else
     else
         echo "  Example: \"America/Chicago\""
     fi
-    echo "  Without it, OpenClaw injects Current time in UTC and relative dates like \"tomorrow\" can land on the wrong day."
+    echo "  Without it, OpenClaw injects Current time in UTC."
+    echo "  Reminder correctness still comes from USER.md plus scripts/user-time-context.sh,"
+    echo "  but matching envelopeTimezone keeps prompt context in the user's local time."
 fi
 echo ""
 

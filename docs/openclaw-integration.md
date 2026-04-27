@@ -35,9 +35,11 @@ For hide-my-list, set that field during first setup to the same IANA timezone
 identifier stored in `USER.md` (for example, `America/Chicago`).
 
 Why it matters: OpenClaw injects a `Current time:` line into each prompt. If
-`envelopeTimezone` is unset, that line stays UTC-only, and the agent can reason
-about relative dates like "tomorrow" against the wrong calendar day for users
-outside UTC.
+`envelopeTimezone` is unset, that line stays UTC-only. Reminder correctness
+still comes from the timezone stored in `USER.md`, with
+`scripts/user-time-context.sh` converting UTC timestamps into the user's local
+calendar when needed, but matching `envelopeTimezone` keeps prompt context
+direct and reduces date-resolution mistakes.
 
 Canonical setup path:
 - Put the user's timezone in `USER.md`
