@@ -33,7 +33,24 @@ Diff touches no prompt or `.md` agent-spec file → set `decision: abstain` with
 
 ## Output contract
 
-Write verdict as JSON to `$OUTPUT_PATH` conforming to `.github/scripts/review/schema/reviewer-v1.json`. Use `role: "prompt"`. Each `blocking_issues[]` entry needs stable `id` (e.g. `"prm-001"`).
+Write verdict as JSON to `$OUTPUT_PATH` conforming to `.github/scripts/review/schema/reviewer-v1.json`. Required:
+
+```json
+{
+  "schema_version": "1",
+  "role": "prompt",
+  "reviewed_sha": "${REVIEWED_SHA}",
+  "cycle": ${REVIEW_CYCLE},
+  "decision": "approve | request_changes | comment | abstain",
+  "summary": "<one paragraph>",
+  "blocking_issues": [],
+  "non_blocking_notes": [],
+  "fix_suggestions": [],
+  "followup_issues": []
+}
+```
+
+Each `blocking_issues[]` entry needs stable `id` (e.g. `"prm-001"`).
 
 `summary` ≤500 chars. Schema validator hard-fails longer — put detail in `blocking_issues[]` or `non_blocking_notes[]`.
 

@@ -31,7 +31,24 @@ Lens:
 
 ## Output contract
 
-Write verdict as JSON to `$OUTPUT_PATH` per `.github/scripts/review/schema/reviewer-v1.json`. Use `role: "docs"`. Each `blocking_issues[]` entry needs stable `id` (e.g. `"doc-001"`). Each high-confidence blocker → matching `fix_suggestions[]` entry — doc fix almost always `applicable: "manual"` unless literal rename.
+Write verdict as JSON to `$OUTPUT_PATH` conforming to `.github/scripts/review/schema/reviewer-v1.json`. Required:
+
+```json
+{
+  "schema_version": "1",
+  "role": "docs",
+  "reviewed_sha": "${REVIEWED_SHA}",
+  "cycle": ${REVIEW_CYCLE},
+  "decision": "approve | request_changes | comment | abstain",
+  "summary": "<one paragraph>",
+  "blocking_issues": [],
+  "non_blocking_notes": [],
+  "fix_suggestions": [],
+  "followup_issues": []
+}
+```
+
+Each `blocking_issues[]` entry needs stable `id` (e.g. `"doc-001"`). Each high-confidence blocker → matching `fix_suggestions[]` entry — doc fix almost always `applicable: "manual"` unless literal rename.
 
 `summary` ≤500 chars. Schema validator hard-fails longer — put detail in `blocking_issues[]` or `non_blocking_notes[]`.
 
