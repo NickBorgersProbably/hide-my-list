@@ -16,8 +16,9 @@
   - `status: sent` = approximate/on-time reminder. Casual wording: `Hey, time to [task]`.
   - `status: missed` = reminder already >15 min late. Note delay without blame: `This was due a bit ago — [task]. Want to handle it now or reschedule?`
   - Shame-safe: no guilt, criticism, "you forgot", "you should have", or pressure framing. Treat delay as timing info, not user failure. Required here because heartbeat runs with `lightContext: true` → no AGENTS.md in bootstrap, so this file is the only place the tone contract lives for heartbeat-delivered reminders.
-  - After successful send, append/update `state.json.recent_outbound` with a short-lived reminder entry (`type: "reminder"`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later). Keep only a small recent window and prune expired entries while writing.
-  - Then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`, delete handoff file.
+  - After successful send, atomically update `state.json.recent_outbound`: read current `state.json` (initialize if missing), prune expired `recent_outbound` entries, merge the new reminder entry (`type: "reminder"`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later) while preserving all other fields (`active_task`, streak, conversation state), write via temp file + rename. If this state write fails, do not run `complete-reminder` or delete the handoff file — surface an ops alert (same channel/recipient as malformed-handoff alert above) and leave handoff for explicit recovery.
+  - Then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`.
+- After all valid reminders processed: delete handoff file once.
 - Hourly delivery backstop. Isolated `reminder-check` cron only writes handoff — no delivery. Delivery here (every 60 min) + opportunistically via AGENTS.md startup check.
 
 Why the `state.json` write matters: once reminder delivery succeeds, the handoff file is correctly deleted and Notion reminder record is already completed. Without `recent_outbound`, the next session loses the only bridge that makes a reply like "I did it" or "reschedule for tomorrow" interpretable.

@@ -130,6 +130,15 @@ Examples:
   and user says "tomorrow at 9" → ADD_TASK (new reminder inferred from context)
 - Latest outbound = task suggestion and user says "not that one" → REJECT
 
+When ADD_TASK or REJECT is resolved via `recent_outbound`, the matched entry's context
+threads into the downstream module as follows:
+- ADD_TASK (reschedule): matched `recent_outbound.title` seeds the new reminder title in
+  `docs/ai-prompts/intake.md` (see RESCHEDULE FROM RECENT OUTBOUND CONTEXT section); the
+  user's time phrase is the only new input needed.
+- REJECT (prior suggestion declined): matched `recent_outbound.title` populates REJECTED TASK
+  in `docs/ai-prompts/rejection.md`; user message text (e.g. "not that one") is USER'S REASON.
+  Clear or mark `awaiting_response: false` on the matched entry after routing.
+
 Message: "{user_message}"
 
 Intent:
