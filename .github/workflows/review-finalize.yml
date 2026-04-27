@@ -63,7 +63,7 @@ jobs:
       - name: Download verdict artifact
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/verdict
+          path: ${{ runner.temp }}/verdict
           name: verdict-${{ inputs.post_fix_sha }}
 
       # Write the v1-compatible "All Required Agent Reviews" merge-gate
@@ -114,8 +114,8 @@ jobs:
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review
 
-          REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
-          BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
+          REASONS=$(jq -r '.reasons[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${{ inputs.post_fix_sha }}.json" | sed 's/^/- /')
+          BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${{ inputs.post_fix_sha }}.json" | sed 's/^/- /')
 
           BODY_FILE=$(mktemp)
           {
@@ -167,7 +167,7 @@ jobs:
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label agent-reviews-passed
 
-          REASONS=$(jq -r '.reasons[]? // empty' /tmp/verdict/verdict-${{ inputs.post_fix_sha }}.json | sed 's/^/- /')
+          REASONS=$(jq -r '.reasons[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${{ inputs.post_fix_sha }}.json" | sed 's/^/- /')
 
           # Post a single Merge Decision comment so humans can see the
           # verdict at a glance. Uses the same `<!-- codex-merge-decision -->`

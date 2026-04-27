@@ -230,8 +230,13 @@ jobs:
                 | tee /output/resolve-issue-conversation.jsonl
             '
 
-          mkdir -p /tmp
-          cp "$OUTPUT_STAGING/resolve-issue-conversation.jsonl" /tmp/resolve-issue-conversation.jsonl 2>/dev/null || true
+          # Copy output back to runner.temp for upload-artifact. Using
+          # runner.temp (owned by the runner user, cleaned between runs)
+          # avoids host UID mismatch + accumulation issues on
+          # self-hosted runners. Mirrors the fix in
+          # NickBorgers/home-automation#1029.
+          mkdir -p "${RUNNER_TEMP}"
+          cp "$OUTPUT_STAGING/resolve-issue-conversation.jsonl" "${RUNNER_TEMP}/resolve-issue-conversation.jsonl" 2>/dev/null || true
           rm -rf "$OUTPUT_STAGING"
 
       - name: Upload issue resolution conversation log
@@ -240,5 +245,5 @@ jobs:
         continue-on-error: true
         with:
           name: resolve-issue-conversation-log
-          path: /tmp/resolve-issue-conversation.jsonl
+          path: ${{ runner.temp }}/resolve-issue-conversation.jsonl
           retention-days: 7
