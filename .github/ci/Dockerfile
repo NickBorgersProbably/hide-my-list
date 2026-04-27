@@ -106,6 +106,6 @@ RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://claude.ai/i
 # Install Codex CLI (pinned).
 RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
         "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
-    | sh -s -- "${CODEX_CLI_VERSION}"
+    | sh -s -- --release "${CODEX_CLI_VERSION}"
 
 ENTRYPOINT ["/bin/bash"]

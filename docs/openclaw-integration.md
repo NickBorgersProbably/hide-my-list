@@ -192,7 +192,7 @@ OpenClaw gateway = WebSocket server managing agent sessions, channel routing, co
 
 OpenClaw agent sessions built on Claude Code REPL. Claude Code hook system works inside OpenClaw — `.claude/settings.json` at project level respected.
 
-We use `PostToolUse` hook to enforce reminder confirmation:
+We use `PostToolUse` hook to enforce reminder confirmation and suppress internal reminder commentary:
 
 ```json
 {
@@ -201,8 +201,8 @@ We use `PostToolUse` hook to enforce reminder confirmation:
       "matcher": "Bash",
       "hooks": [{
         "type": "command",
-        "command": "if echo \"$TOOL_INPUT\" | grep -q 'create-reminder'; then echo 'HOOK: Confirm reminder details to user.'; fi",
-        "timeout": 3000
+        "command": "if echo \"$TOOL_INPUT\" | grep -q 'create-reminder'; then echo 'USER-FACING REMINDER CONFIRMATION ONLY. No internal notes. No mention of cron, polling, scheduling internals, tool use, hidden reasoning, or whether something will trigger automatically. Reply with one brief confirmation sentence containing only the reminder details.'; fi",
+        "timeout": 5
       }]
     }]
   }
