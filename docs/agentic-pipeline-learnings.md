@@ -28,8 +28,17 @@ Two meta-lessons:
 **Before:** Single PR looped 4+ times as agents contradicted each other's prior fixes.
 **Evidence:** #303, #315, #301
 
-### 1.4 Merge-decision verdict shape: binary GO / NO-GO
-**Why:** Two states — GO / NO-GO. Cost-control is structural: fixer runs after reviewers + before judge; judge has `permissions: contents: read` and cannot push; fixer publishes new commit first then writes `review/pipeline` status immediately (GitHub rejects status for unpublished SHA). Re-review loops on finalized GO SHAs prevented by GO-only `All Required Agent Reviews = success` short-circuit at entry. NO-GO = human escalation: labels PR `needs-human-review`, posts a Merge Decision comment, does **not** close PR or auto-create replacement issue (avoids lessons-learned-issue → new PR → NO-GO infinite loop).
+### 1.4 Merge-decision verdict shape: binary GO / NO-GO with category metadata
+**Why:** Two states — GO / NO-GO. Cost-control is structural: fixer runs after reviewers + before judge; judge has `permissions: contents: read` and cannot push; fixer publishes new commit first then writes `review/pipeline` status immediately (GitHub rejects status for unpublished SHA). Re-review loops on finalized GO SHAs prevented by GO-only `All Required Agent Reviews = success` short-circuit at entry. NO-GO = human escalation: labels PR `needs-human-review`, does **not** close PR or auto-create replacement issue (avoids lessons-learned-issue → new PR → NO-GO infinite loop).
+
+Finalize contract (`review-finalize.yml` via `.github/scripts/review/render-finalize-comment.sh`): one per-cycle "Agent Review Summary" comment posted on every run. Comment shape branches on `category` metadata field — `aggregate.mjs` emits `go`, `reviewer_blockers`, or `pipeline_error`; `review-pipeline.yml` sets `cycle_capped` (cap-exhausted job) or `inherited` (merge-from-main no-content-delta job, see §1.14):
+- `go` — 🟢 GO header, five-row per-reviewer table with status emoji + hyperlink, no Next-step block.
+- `reviewer_blockers` — 🔴 NO-GO header, five-row table, Unaddressed blockers section with hyperlinked IDs, reviewer-blocker next-step guidance.
+- `pipeline_error` — ⚠️ NO-GO header, five-row table (offending row shows `⚠️ wrong sha (...)`), pipeline-bug next-step guidance.
+- `cycle_capped` — 🛑 NO-GO header, cycle history fetched from commit statuses, no per-reviewer table.
+- `inherited` — 🟢/🔴 GO/NO-GO (inherited) header, synthesized reason text only, no per-reviewer table or next-step block.
+
+`category` is messaging metadata only — not a third verdict state. Verdict remains strictly binary.
 **Historical context:** A previous three-state pipeline (GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO) tried to collapse re-review loops at the verdict layer; the current pipeline solves the same cost problem at the orchestration layer instead, which is why two states suffice.
 **Evidence:** #315, #320, #322, #274, #336, #341, #342, #343
 
