@@ -19,7 +19,7 @@ Reminder delivery does not depend on `heartbeat.target`. Heartbeat Check 1 sends
 
 Every 60 min, OpenClaw runs agent with `HEARTBEAT.md` as context. Agent performs checks:
 
-1. Resolve reminder handoff path (`REMINDER_SIGNAL_FILE` when set, else `.reminder-signal`) and check for stranded handoffs
+1. Resolve reminder handoff path (`REMINDER_SIGNAL_FILE` when set, else `.reminder-signal`) and check for stranded handoffs. On successful delivery: atomically update `state.json.recent_outbound` (read-merge-prune-write via temp file + rename) per reminder before `complete-reminder`; if state write fails, halt delivery and surface ops alert without deleting handoff. Delete handoff file once after the full batch succeeds.
 2. Verify cron jobs registered (re-register if expired)
 3. Compare live cron jobs against `setup/cron/`, patch drift
 4. Test Notion connectivity

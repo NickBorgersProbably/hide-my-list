@@ -935,8 +935,10 @@ flowchart TD
     Late -->|No| Send[Deliver reminder]
     Late -->|Yes| SendMissed[Deliver late note + reschedule option]
 
-    Send --> Complete[Mark Completed + reminder_status=sent]
-    SendMissed --> Complete2[Mark Completed + reminder_status=missed]
+    Send --> Context[Write recent_outbound context]
+    SendMissed --> Context2[Write recent_outbound context]
+    Context --> Complete[Mark Completed + reminder_status=sent]
+    Context2 --> Complete2[Mark Completed + reminder_status=missed]
 
     Complete --> Done([Done])
     Complete2 --> Done
@@ -952,6 +954,8 @@ flowchart TD
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
 Reminder delivery separated from cron query. Isolated `reminder-check` cron writes handoff file and exits. Delivery through heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) or main-session startup check (AGENTS.md step 5, on every user interaction). Both paths first validate handoff is JSON with `reminders` array where each entry is object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status = malformed handoff — file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing else delivered or completed. For valid late reminders, user-facing copy stays brief and nonjudgmental: `This was due a bit ago — [task]. Want to handle it now or reschedule?` If delivery fails, handoff file left in place for retry.
+
+After successful reminder delivery, the delivering session must also append/update `state.json.recent_outbound` with a short-lived entry describing what it just asked (`type: reminder`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at`). That entry bridges the gap between sessions: if the user replies "I did it" or "tomorrow at 9" in a fresh session, the agent can resolve the reply against the reminder it just sent instead of asking what they mean. Clear the matched entry once the reply is resolved.
 
 ### Timezone Handling
 

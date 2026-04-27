@@ -156,6 +156,24 @@ Examples:
   "Ping me at 3pm to call the dentist" →
     is_reminder: true, remind_at: "2025-01-04T15:00:00-06:00" (default CT), title: "Call the dentist"
 
+RESCHEDULE FROM RECENT OUTBOUND CONTEXT:
+When `recent_outbound_context` contains an entry with `awaiting_response: true` and
+`type: "reminder"`, and the user message is a bare time reference or explicit reschedule
+phrase ("tomorrow at 9", "next week", "push it to 3pm", "later today"), treat as a
+reminder reschedule using the matched entry's title:
+
+- Set is_reminder = true
+- Use the matched `recent_outbound` entry's `title` as the task title (do not re-ask)
+- Parse the new time reference and convert to ISO 8601 with timezone offset (same rules as above)
+- Set urgency = 90
+- After saving: the matched `recent_outbound` entry must be cleared (set `awaiting_response: false` or remove the entry)
+
+Example:
+  recent_outbound entry: title "Call the dentist", awaiting_response: true
+  user says: "tomorrow at 9" →
+    is_reminder: true, title: "Call the dentist", remind_at: "<tomorrow 09:00 ISO>",
+    then clear matched recent_outbound entry
+
 OUTPUT (JSON):
 
 If task is clear enough to save:
