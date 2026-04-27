@@ -11,6 +11,19 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$TOOL_INPUT\" | grep -q 'create-reminder' && python3 -c \"import json,os,sys; raw=os.environ.get('TOOL_OUTPUT','') or ''; d=json.loads(raw) if raw else {}; out=d.get('output',raw) if isinstance(d,dict) else raw; r=json.loads(out) if out else {}; sys.exit(0 if isinstance(r,dict) and r.get('object')=='page' else 1)\" 2>/dev/null; then echo 'USER-FACING REMINDER CONFIRMATION ONLY. No internal notes. No mention of cron, polling, scheduling internals, tool use, hidden reasoning, or implementation triggers. Use approximate timing (e.g., around 6pm PT not at exactly 6pm PT) since delivery may lag up to ~75 min. Reply with one brief confirmation sentence containing only the reminder details.'; fi",
+            "timeout": 5,
+            "statusMessage": "Reinforcing reminder confirmation guardrails..."
+          }
+        ]
+      }
     ]
   }
 }
