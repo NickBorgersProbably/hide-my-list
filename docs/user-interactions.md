@@ -781,7 +781,7 @@ If the next session starts and the user replies to the reminder in shorthand, th
 Example:
 - Agent sends: "This was due a bit ago — clean up boxes before noon. Want to handle it now or reschedule?"
 - User opens a new session and says: "I did it"
-- Agent interprets that as completion of "clean up boxes before noon", responds naturally, and clears the matched `recent_outbound` entry
+- Agent interprets that as completion of "clean up boxes before noon", delivers completion acknowledgment and reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears the matched `recent_outbound` entry
 
 ### Reminder Delivery Messages
 

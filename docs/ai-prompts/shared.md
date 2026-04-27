@@ -174,6 +174,8 @@ Rules:
 - When a reminder entry explains the reply, respond as if the conversation never broke across sessions. Do not ask "what did you do?" if the reminder title already answers that.
 - After using an entry to resolve the user's reply, clear it or mark `awaiting_response=false`.
 
+**Reminder follow-up COMPLETE (special case):** When `COMPLETE` is triggered by a reply that resolves a `recent_outbound` reminder entry and `active_task` is empty, the reminder Notion page is already `Completed` at delivery time — do not call `complete-reminder` or update Notion status again. Instead: deliver completion acknowledgment and reward (same celebration as a normal task completion), then clear the matched `recent_outbound` entry.
+
 ---
 
 ## User Preferences Context
