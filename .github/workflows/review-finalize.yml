@@ -8,7 +8,7 @@ name: Review pipeline v2 — finalize
 # coverage workflow, not here.
 #
 # On NO-GO: stamps review/cycle-N, applies the `needs-human-review`
-# label, and posts ONE sticky comment summarizing unaddressed blockers.
+# label, and posts a Merge Decision comment summarizing unaddressed blockers.
 # Never closes the PR. Never creates an issue. (User decision: avoid
 # the lessons-learned-issue → new PR → NO-GO infinite loop class.)
 
@@ -27,6 +27,25 @@ on:
       verdict:
         type: string
         required: true
+      skip_verdict_artifact:
+        # Set by gather paths that bypass the judge and therefore have
+        # no verdict-${sha} artifact to read. Currently set by the
+        # cap-exhausted job and the inherit-on-merge-from-main job.
+        # When true, the finalize job skips the artifact download and
+        # seeds REASONS/BLOCKERS inline so labels and the merge-gate
+        # status still transition to a coherent state on HEAD.
+        type: boolean
+        required: false
+        default: false
+      synthesized_reason_text:
+        # When skip_verdict_artifact=true, this string is used in
+        # place of the verdict-artifact reasons. Empty falls back to
+        # a "cycle cap exceeded after cycle N" default. Pass a
+        # non-empty value from the inherit-on-merge-from-main path
+        # to surface the inherit semantics in the sticky comment.
+        type: string
+        required: false
+        default: ''
     secrets:
       WORKFLOW_PAT:
         required: true
@@ -60,7 +79,18 @@ jobs:
           description: ${{ inputs.cycle }}
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
+      - name: Stamp review/verdict on post-fix SHA
+        uses: ./.github/actions/review-state
+        with:
+          op: write-status
+          sha: ${{ inputs.post_fix_sha }}
+          context: review/verdict
+          state: ${{ inputs.verdict == 'GO' && 'success' || 'failure' }}
+          description: ${{ inputs.verdict }}
+          github_token: ${{ secrets.WORKFLOW_PAT }}
+
       - name: Download verdict artifact
+        if: inputs.skip_verdict_artifact != true
         uses: actions/download-artifact@v4
         with:
           path: ${{ runner.temp }}/verdict
@@ -101,6 +131,9 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           POST_FIX_SHA: ${{ inputs.post_fix_sha }}
+          SKIP_ARTIFACT: ${{ inputs.skip_verdict_artifact }}
+          SYNTH_REASON: ${{ inputs.synthesized_reason_text }}
+          INPUT_CYCLE: ${{ inputs.cycle }}
         run: |
           set -euo pipefail
 
@@ -114,8 +147,20 @@ jobs:
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human-review
 
-          REASONS=$(jq -r '.reasons[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${{ inputs.post_fix_sha }}.json" | sed 's/^/- /')
-          BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${{ inputs.post_fix_sha }}.json" | sed 's/^/- /')
+          if [ "$SKIP_ARTIFACT" = "true" ]; then
+            # Judge never ran for this finalize call (cap-exhausted or
+            # inherit path), so there is no verdict-${sha}.json.
+            # Synthesize the reason inline.
+            if [ -n "$SYNTH_REASON" ]; then
+              REASONS="- ${SYNTH_REASON}"
+            else
+              REASONS="- cycle cap exceeded after cycle ${INPUT_CYCLE}"
+            fi
+            BLOCKERS=""
+          else
+            REASONS=$(jq -r '.reasons[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${POST_FIX_SHA}.json" | sed 's/^/- /')
+            BLOCKERS=$(jq -r '.unaddressed_blocker_ids[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${POST_FIX_SHA}.json" | sed 's/^/- /')
+          fi
 
           BODY_FILE=$(mktemp)
           {
@@ -152,6 +197,8 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
           POST_FIX_SHA: ${{ inputs.post_fix_sha }}
+          SKIP_ARTIFACT: ${{ inputs.skip_verdict_artifact }}
+          SYNTH_REASON: ${{ inputs.synthesized_reason_text }}
         run: |
           set -euo pipefail
 
@@ -167,7 +214,17 @@ jobs:
             --repo "$REPO" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label agent-reviews-passed
 
-          REASONS=$(jq -r '.reasons[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${{ inputs.post_fix_sha }}.json" | sed 's/^/- /')
+          if [ "$SKIP_ARTIFACT" = "true" ]; then
+            # Inherit-on-merge-from-main path with prior GO. Use the
+            # synthesized reason text as the rationale.
+            if [ -n "$SYNTH_REASON" ]; then
+              REASONS="- ${SYNTH_REASON}"
+            else
+              REASONS=""
+            fi
+          else
+            REASONS=$(jq -r '.reasons[]? // empty' "${RUNNER_TEMP}/verdict/verdict-${POST_FIX_SHA}.json" | sed 's/^/- /')
+          fi
 
           # Post a single Merge Decision comment so humans can see the
           # verdict at a glance. Marker is `<!-- codex-merge-decision -->`
