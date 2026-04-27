@@ -802,7 +802,9 @@ AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 
 **Confirmation message style:**
-> "Got it — I'll queue a reminder for 6pm PT to email Melanie. You'll usually hear from me within an hour of that — up to ~75 min if things are quiet — so treat it as a check-in, not a stopwatch."
+> "Got it — I'll remind you at 6pm PT to email Melanie."
+
+Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
 
 User timezone defaults to US Central. AI converts timezone references (PT, CT, ET) to UTC offsets at intake.
 
