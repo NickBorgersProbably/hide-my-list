@@ -21,7 +21,9 @@
 # script is query-only and does NOT deliver reminders or update Notion statuses
 # itself.
 #
-# Reminder delivery is handled by the delivering agent sessions:
+# This script is the safety-net backstop for the primary one-shot reminder path
+# (reminder-<page_id> cron registered at intake, fires at exact remind_at).
+# Handoff-file delivery is handled by the delivering agent sessions:
 #   - Opportunistic main-session startup check (AGENTS.md step 5): when a user
 #     interacts, the main session checks for the handoff file and delivers any
 #     pending reminders immediately.

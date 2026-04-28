@@ -20,7 +20,7 @@ Reminder delivery does not depend on `heartbeat.target`. Heartbeat Check 1 sends
 Every 60 min, OpenClaw runs agent with `HEARTBEAT.md` as context. Agent performs checks:
 
 1. Resolve reminder handoff path (`REMINDER_SIGNAL_FILE` when set, else `.reminder-signal`) and check for stranded handoffs. On successful delivery: atomically update `state.json.recent_outbound` (read-merge-prune-write via temp file + rename) per reminder before `complete-reminder`; if state write fails, halt delivery and surface ops alert without deleting handoff. Delete handoff file once after the full batch succeeds.
-2. Verify cron jobs registered (re-register if expired)
+2. Verify cron jobs registered (re-register if missing)
 3. Compare live cron jobs against `setup/cron/`, patch drift
 4. Test Notion connectivity
 5. Verify environment intact
@@ -30,6 +30,6 @@ Uses cheap-tier model — routine operational checks don't need reasoning. `ligh
 
 ## Notes
 
-- Heartbeat = safety net for cron expiry and spec drift. Auto-expired job → next heartbeat re-registers. Live job drifts from `CronCreate` block in `setup/cron/` (`name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, unexpected `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`) → next heartbeat patches to spec. `docs/heartbeat-checks.md` defines authoritative comparison contract (HEARTBEAT.md is a bootstrap stub that delegates to it).
+- Heartbeat = safety net for missing canonical cron jobs and spec drift. Job gone missing for any reason → next heartbeat re-registers. Live job drifts from `CronCreate` block in `setup/cron/` (`name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, unexpected `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`) → next heartbeat patches to spec. `docs/heartbeat-checks.md` defines authoritative comparison contract (HEARTBEAT.md is a bootstrap stub that delegates to it).
 - Also hourly backstop for reminder delivery. Isolated `reminder-check` cron writes `.reminder-signal`; heartbeat Check 1 reads and delivers stranded reminders.
 - Heartbeat managed by OpenClaw, does not expire.

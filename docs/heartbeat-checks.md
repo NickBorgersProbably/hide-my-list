@@ -19,19 +19,21 @@
   - After successful send, atomically update `state.json.recent_outbound`: read current `state.json` (initialize if missing), prune expired `recent_outbound` entries, merge the new reminder entry (`type: "reminder"`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later) while preserving all other fields (`active_task`, streak, conversation state), write via temp file + rename. If this state write fails, do not run `complete-reminder` or delete the handoff file — surface an ops alert (same channel/recipient as malformed-handoff alert above) and leave handoff for explicit recovery.
   - Then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`.
 - After all valid reminders processed: delete handoff file once.
-- Hourly delivery backstop. Isolated `reminder-check` cron only writes handoff — no delivery. Delivery here (every 60 min) + opportunistically via AGENTS.md startup check.
+- Hourly delivery safety net. Primary reminder delivery is the per-reminder one-shot cron registered at intake (`setup/cron/reminder-delivery.md`); this Check 1 + AGENTS.md startup check catch anything the one-shot fails to deliver.
 
 Why the `state.json` write matters: once reminder delivery succeeds, the handoff file is correctly deleted and Notion reminder record is already completed. Without `recent_outbound`, the next session loses the only bridge that makes a reply like "I did it" or "reschedule for tomorrow" interpretable.
 
 ### 2. Cron Job Health
-Verify durable cron jobs registered. Re-register any missing.
+Verify durable canonical cron jobs registered. Re-register any missing.
 
 | Job | Schedule | Action |
 |-----|----------|--------|
 | reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh` (query-only; writes reminder handoff if reminders due) |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; script handles dirty-pull recovery |
 
-Check via CronList. Missing (7-day auto-expiry) → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Both jobs: `sessionTarget: isolated`, model = exact `model:` line from the canonical `setup/cron/<name>.md` spec (that line must match `modelTiers.cheap` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 300`. Cron jobs never deliver directly to Signal or other channels.
+Check via CronList. Missing → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Both jobs: `sessionTarget: isolated`, model = exact `model:` line from the canonical `setup/cron/<name>.md` spec (that line must match `modelTiers.cheap` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 300`. Cron jobs never deliver directly to Signal or other channels.
+
+**Scope:** this check covers only the recurring canonical jobs above. Per-reminder one-shot `reminder-<page_id>` jobs (registered at intake per `setup/cron/reminder-delivery.md`) are NOT verified or re-registered here — they self-delete after firing, so checking for their presence makes no sense.
 
 ### 2b. Cron Spec Drift Check
 For each registered cron job (`reminder-check`, `pull-main`), compare live registration against canonical `CronCreate` spec in `setup/cron/<name>.md`.

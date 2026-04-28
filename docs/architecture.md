@@ -60,7 +60,7 @@ No standalone server. OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when chat is idle
 
-Interactive conversations: surface-agnostic. Durable cron jobs: isolated cheap-tier sessions for cost efficiency — execute scripts, write handoff files, no user-facing messages. Reminder delivery via heartbeat (every 60 min) and main-session startup check (AGENTS.md step 5, on every user interaction). All cron jobs silent when nothing actionable.
+Interactive conversations: surface-agnostic. Durable cron jobs: isolated cheap-tier sessions for cost efficiency — execute scripts, write handoff files, no user-facing messages. Reminder delivery: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at`; `reminder-check` poll + heartbeat + startup check are safety-net paths only. All cron jobs silent when nothing actionable.
 
 ## Component Architecture
 
@@ -195,60 +195,52 @@ flowchart TD
 
 ## Scheduled Reminders
 
-OpenClaw agent: stateless between messages — no persistent process checks clock. For wall-clock reminders ("remind me at 6pm to email Melanie"), system uses **OpenClaw's durable cron** for periodic reminder check:
+OpenClaw agent: stateless between messages — no persistent process checks clock. For wall-clock reminders ("remind me at 6pm to email Melanie"), system uses **OpenClaw's native one-shot cron** at intake for exact-time delivery, with a recurring polling cron as a safety net:
 
 ```mermaid
 sequenceDiagram
-    participant Cron as Isolated Cheap-Tier Cron<br/>(every 15 min)
-    participant Script as check-reminders.sh
-    participant Notion as Notion API
-    participant Signal as .reminder-signal
-    participant State as state.json
-    participant Delivery as Heartbeat / Main Session
     participant User
+    participant Main as Main Agent (intake turn)
+    participant Notion as Notion API
+    participant Cron as OpenClaw Cron Store
+    participant OneShot as One-Shot Cron Run<br/>(reminder-<page_id>, fires at remind_at)
+    participant State as state.json
 
-    Cron->>Script: Run check-reminders.sh
-    Script->>Notion: Query reminders where remind_at <= now
-    Notion-->>Script: Due reminder tasks
-    Script->>Signal: Write reminder handoff file
-    Note over Cron: Cron exits (NO_REPLY)
-    alt User interacts (AGENTS.md step 5)
-        Delivery->>Signal: Validate handoff file
-        Delivery->>User: Send reminder via message tool
-        Delivery->>State: Record recent_outbound reminder
-        Delivery->>Notion: complete-reminder(sent|missed)
-        Delivery->>Signal: Delete handoff file
-    else Heartbeat runs (Check 1)
-        Delivery->>Signal: Validate handoff file
-        Delivery->>User: Send reminder via message tool
-        Delivery->>State: Record recent_outbound reminder
-        Delivery->>Notion: complete-reminder(sent|missed)
-        Delivery->>Signal: Delete handoff file
-    end
+    User->>Main: "Remind me at 6pm to email Melanie"
+    Main->>Notion: create-reminder (Pending, remind_at)
+    Notion-->>Main: page_id
+    Main->>Cron: CronCreate name=reminder-<page_id> kind=at deleteAfterRun=true
+    Main->>User: "Got it — I'll remind you at 6pm"
+
+    Note over Cron,OneShot: Wait until remind_at...
+
+    Cron->>OneShot: Fire one-shot
+    OneShot->>Notion: get-page (verify still Pending)
+    OneShot->>User: message via Signal channel
+    OneShot->>State: Record recent_outbound reminder
+    OneShot->>Notion: complete-reminder(sent|missed)
+    Note over Cron: Job auto-deletes (deleteAfterRun)
+
+    Note over Cron,User: Safety net runs in parallel
+    Note over Cron,User: reminder-check poll catches unfired one-shots
 ```
 
 **How it works:**
 
-1. At task intake, AI detects reminder language (e.g., "remind me at 6pm PT to call Sarah"), sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), `reminder_status = pending`.
-2. Durable cron (`reminder-check`) runs every 15 min as isolated cheap-tier session via OpenClaw native scheduling.
-3. Cron runs `scripts/check-reminders.sh` — queries Notion for pending reminders where `remind_at <= now`.
-4. Due reminders found → `check-reminders.sh` writes reminder handoff file in repo root (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). Isolated cron exits `NO_REPLY` — no reminder delivery.
-5. Delivery via two mechanisms:
-   - **AGENTS.md step 5** (opportunistic): every user conversation start, main session checks handoff file, delivers immediately.
-   - **heartbeat Check 1** (hourly backstop, `docs/heartbeat-checks.md`): heartbeat reads handoff file every 60 min, delivers stranded reminders.
-   Both paths validate handoff schema first: must be JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed; delivering session leaves file in place, resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, sends ops alert via the OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff, and delivers/completes/deletes nothing. Valid handoff: each reminder sent to Signal via OpenClaw `message` tool (`action: send`, `channel: signal`), then the delivering session appends/updates `state.json.recent_outbound` with a short-lived entry describing what was just sent (`type: reminder`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at`), then `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` atomically sets `Status` to `Completed`, `Reminder Status` to `sent` or `missed`, and `Completed At`, then deletes handoff file.
-6. Reminders >15 min past due flagged `missed`, still delivered with shame-safe note: `This was due a bit ago — [task]. Want to handle it now or reschedule?`
-7. Cron only fires when agent idle — won't interrupt mid-task. Better for ADHD focus.
+1. At task intake, AI detects reminder language (e.g., "remind me at 6pm PT to call Sarah"), sets `is_reminder = true`, `remind_at` (full ISO 8601 with timezone), `reminder_status = pending`. After `notion-cli.sh create-reminder` returns the Notion `page_id`, the same intake turn calls `CronCreate` to register a one-shot job named `reminder-<page_id>` with `schedule.kind: "at"`, `at: remind_at`, `deleteAfterRun: true`, `sessionTarget: main`. Registering the cron in the same turn also satisfies OpenClaw's `agent-runner-reminder-guard` (which would otherwise append `"Note: I did not schedule a reminder in this turn..."` to the confirmation reply). See `setup/cron/reminder-delivery.md` for the full contract.
+2. At `remind_at`, OpenClaw fires the one-shot cron as a `sessionTarget: main` agent turn running the cheap-tier model. The fired turn: reads the Notion row to confirm it is still `Pending`, sends the reminder via the OpenClaw `message` tool (`action: send`, `channel: signal`), atomically updates `state.json.recent_outbound` with a short-lived entry (`type: reminder`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` ~24h later), then runs `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to atomically set `Status → Completed`, `Reminder Status → sent|missed`, `Completed At`. On `ok` outcome the job self-deletes (`deleteAfterRun: true`).
+3. Reminders >15 min past due flagged `missed`, still delivered with shame-safe note: `This was due a bit ago — [task]. Want to handle it now or reschedule?`
+4. **Safety net** — recurring `reminder-check` cron runs every 15 min as an isolated cheap-tier session, executes `scripts/check-reminders.sh`, queries Notion for pending reminders where `remind_at <= now`, and writes the handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) for delivery via AGENTS.md step 5 (opportunistic, on user interaction) or heartbeat Check 1 (hourly). This catches anything the one-shot path misses: `CronCreate` failure at intake, gateway down at fire time, or reminders saved before the one-shot architecture shipped. Both delivery paths validate handoff schema first: must be JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed; delivering session leaves file in place, resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, sends ops alert via the OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff, and delivers/completes/deletes nothing. Valid handoff: same delivery sequence as the one-shot (Signal message → `state.json.recent_outbound` write → `complete-reminder` → handoff delete).
 
-`state.json.recent_outbound` is the cross-session continuity bridge. It lets a fresh session connect terse follow-ups like "I did it" or "later" to the reminder that was just delivered, even after the handoff file is gone and the reminder page is already completed in Notion. Entries should be pruned after they expire or once the user's reply clearly resolves them.
+`state.json.recent_outbound` is the cross-session continuity bridge. It lets a fresh session connect terse follow-ups like "I did it" or "later" to the reminder that was just delivered, even after the reminder page is already completed in Notion. Entries should be pruned after they expire or once the user's reply clearly resolves them. The one-shot cron path and the safety-net path produce identical `recent_outbound` entries, so the next user reply resolves correctly regardless of which path delivered.
 
-Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the cheap-tier model (per `modelTiers` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, and `payload.lightContext: true` (skips bootstrap file loading — cron prompts are self-contained scripts). Deliberate design: previous architecture ran both on `sessionTarget: main`, loaded full Opus context for routine script work, burned ~18M tokens per 6 hours. Isolated cheap-tier cron with empty bootstrap cuts per-run cost by orders of magnitude. Trade-off: delivery deferred to next user interaction or heartbeat; fully idle case = up to ~75 min delay (discovery and delivery on separate schedules). If reminder delivery fails after handoff file written: fail visibly, leave file, don't mark `sent` or `missed` until delivery succeeds.
+**Duplicate-delivery trade-off:** if the one-shot fires and delivers but crashes before `complete-reminder` succeeds, the safety net will pick the still-Pending row up at the next 15-min poll and re-deliver. We accept at-least-once over at-most-once — getting a reminder twice is far better than not getting it at all. The one-shot prompt runs `complete-reminder` immediately after delivery confirmation, with no other work in between, to minimize the duplicate window.
 
-Deferred-delivery handoff = correctness constraint, not just implementation detail. OpenClaw has no post-announce delivery acknowledgment hook. Announce-only cron would mutate Notion before platform confirms delivery — cron crash or transport failure drops reminders permanently by moving them out of `pending` query set before delivery completes.
+Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the cheap-tier model (per `modelTiers` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, and `payload.lightContext: true` (skips bootstrap file loading — cron prompts are self-contained scripts). Deliberate design: previous architecture ran both on `sessionTarget: main`, loaded full Opus context for routine script work, burned ~18M tokens per 6 hours. Isolated cheap-tier cron with empty bootstrap cuts per-run cost by orders of magnitude. The one-shot delivery cron is registered separately at intake and uses `sessionTarget: main` with `lightContext: false` so it has SOUL.md tone + AGENTS.md state.json conventions in scope; the cheap-tier model still drives the turn, but bootstrap is loaded so the structured delivery prompt does not need to inline tone guidance. If reminder delivery fails after the one-shot fires: fail visibly without calling `complete-reminder`, and let the safety-net path deliver on its next sweep.
 
-**Timezone handling:** AI converts user times (e.g., "6pm PT", "3pm Central") to full ISO 8601 with timezone offsets at intake. Check script compares against UTC — no timezone conversion at check time.
+**Timezone handling:** AI converts user times (e.g., "6pm PT", "3pm Central") to full ISO 8601 with timezone offsets at intake. Both the one-shot cron's `schedule.at` field and the polling check script compare against UTC — no timezone conversion at fire/check time.
 
-**Cron job expiry and drift:** Durable cron jobs auto-expire after 7 days. Heartbeat (every 60 min) verifies each job exists and matches canonical definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison against full `CronCreate` contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. `docs/heartbeat-checks.md` = authoritative comparison checklist (HEARTBEAT.md is a bootstrap stub that delegates to it). See `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` for job definitions.
+**Cron drift and re-registration:** Heartbeat (every 60 min) verifies each canonical recurring job exists and matches its definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison against full `CronCreate` contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. This guards against manual deletion, gateway data loss, or other failure modes that drop the job. `docs/heartbeat-checks.md` = authoritative comparison checklist (HEARTBEAT.md is a bootstrap stub that delegates to it). One-shot `reminder-<page_id>` jobs are NOT covered by drift / re-registration — they self-delete after firing, so checking their continued presence makes no sense; the safety-net polling path catches anything that fails to fire. See `setup/cron/reminder-check.md`, `setup/cron/pull-main.md`, and `setup/cron/reminder-delivery.md` for job definitions.
 
 ## Technology Choices
 
@@ -257,10 +249,10 @@ Deferred-delivery handoff = correctness constraint, not just implementation deta
 | Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
-| Messaging | OpenClaw Surfaces | Interactive chat multi-channel (web, Signal, Telegram, Discord); reminder delivery via heartbeat + main-session startup check |
+| Messaging | OpenClaw Surfaces | Interactive chat multi-channel (web, Signal, Telegram, Discord); reminder delivery via one-shot `reminder-<page_id>` cron (exact time); heartbeat + startup = safety net |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, self-hosted Codex reviewers inherit homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
-| Scheduled Reminders | OpenClaw durable cron + check-reminders.sh | Isolated cheap-tier cron every 15 min writes `.reminder-signal`; heartbeat (60 min) + startup check deliver |
+| Scheduled Reminders | OpenClaw native one-shot cron (`schedule.kind: at`, `deleteAfterRun: true`) registered at intake, with recurring `reminder-check` poll + `.reminder-signal` handoff as safety net | One-shot fires at exact `remind_at`; safety-net poll catches `CronCreate` failures or unfired jobs |
 | Workspace Sync | OpenClaw durable cron + pull-main.sh | Isolated cron every 10 min keeps workspace current, recovers dirty pulls |
 | Image Generation | OpenAI gpt-image-1 | Unique AI images for reward novelty |
 | Video | ffmpeg | Weekly recap compilation |

@@ -8,7 +8,7 @@
 2. Read `USER.md` — who you help
 3. Read `state.json` — state, active task, streak, recent outbound context
 4. Read `memory/YYYY-MM-DD.md` (today + yesterday)
-5. Check reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) — if exists, read + validate (must be JSON with `reminders` array; each entry: string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; wrong shape/status = malformed. If malformed: leave file, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff — no delivery, no `complete-reminder`, no delete). For each valid reminder, deliver via OpenClaw `message` tool (`action: send`, `channel: signal`):
+5. Check reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) — backstop path that catches reminders the one-shot `reminder-<page_id>` cron failed to deliver (e.g., `CronCreate` failed at intake, gateway down at fire time). Primary delivery is the one-shot cron firing on its own per `setup/cron/reminder-delivery.md`; this step is the safety net. If the handoff file exists, read + validate (must be JSON with `reminders` array; each entry: string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`; wrong shape/status = malformed. If malformed: leave file, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff — no delivery, no `complete-reminder`, no delete). For each valid reminder, deliver via OpenClaw `message` tool (`action: send`, `channel: signal`):
    - Approximate (before missed threshold): casual ("Hey, time to [task]")
    - Missed (>15 min late): note delay, no shame ("This was due a bit ago — [task]. Want to handle it now or reschedule?")
    - After delivery: atomically update `state.json.recent_outbound` — read current `state.json` (initialize if missing), prune expired `recent_outbound` entries, merge the new reminder entry (`type: "reminder"`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later) while preserving all other fields (`active_task`, streak, conversation state), write via temp file + rename. If this state write fails, do not run `complete-reminder` or delete the handoff file — surface an ops alert (same channel/recipient as malformed-handoff alert above) and leave the handoff file for explicit recovery. Then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` per item.
@@ -42,7 +42,7 @@ All task CRUD via `scripts/notion-cli.sh`:
 # Create a task
 notion-cli.sh create-task "title" "work_type" urgency time_est "energy" "inline_steps" "status" "parent_id" sequence
 
-# Create a reminder
+# Create a reminder (followed by CronCreate one-shot in the same turn — see docs/ai-prompts/intake.md REMINDER PERSISTENCE)
 notion-cli.sh create-reminder "title" "remind_at_iso8601"
 
 # Query pending tasks
