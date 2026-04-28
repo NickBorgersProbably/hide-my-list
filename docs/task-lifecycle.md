@@ -964,10 +964,12 @@ After successful reminder delivery, the delivering session must also append/upda
 ### Timezone Handling
 
 AI converts user-specified times to full ISO 8601 timestamps at intake:
-- User's default timezone: US Central (America/Chicago, UTC-6/UTC-5)
+- Default timezone for both relative dates and unspecified clock times: the user's configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone)
 - "6pm PT" → `2025-01-04T18:00:00-08:00`
-- "3pm" (no TZ) → `2025-01-04T15:00:00-06:00` (default Central)
+- "3pm" (no TZ) → `2025-01-04T15:00:00-06:00` (offset from USER.md; example shows Central)
 - "tomorrow 9am ET" → `2025-01-05T09:00:00-05:00`
+
+Relative references use the user's local calendar, not UTC session metadata. If message metadata says `2026-04-19T01:27:00Z` but `USER.md` timezone is `America/Chicago`, the user-local reference time is `2026-04-18T20:27:00-05:00`, so "tomorrow" resolves to `2026-04-19`, not `2026-04-20`. Use `scripts/user-time-context.sh` when the current timestamp needs conversion before reminder creation.
 
 ## Complete Task Journey Example
 

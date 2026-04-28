@@ -76,6 +76,7 @@ flowchart LR
 
     subgraph Scripts["scripts/"]
         NotionCLI[notion-cli.sh<br/>Task CRUD]
+        UserTime[user-time-context.sh<br/>User-local time context]
         RewardImg[generate-reward-image.sh<br/>AI Celebration Images]
         RecapVid[generate-weekly-recap.sh<br/>Weekly Recap Video]
         ReminderCheck[check-reminders.sh<br/>Due Reminder Query]
@@ -98,6 +99,7 @@ flowchart LR
     NotionCLI --> Tasks
     Breakdown --> NotionCLI
     Reward --> RewardImg
+    Intake --> UserTime
     ReminderCheck --> NotionCLI
 ```
 
@@ -238,7 +240,7 @@ sequenceDiagram
 
 Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the cheap-tier model (per `modelTiers` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, and `payload.lightContext: true` (skips bootstrap file loading — cron prompts are self-contained scripts). Deliberate design: previous architecture ran both on `sessionTarget: main`, loaded full Opus context for routine script work, burned ~18M tokens per 6 hours. Isolated cheap-tier cron with empty bootstrap cuts per-run cost by orders of magnitude. The one-shot delivery cron is registered separately at intake and uses `sessionTarget: main` with `lightContext: false` so it has SOUL.md tone + AGENTS.md state.json conventions in scope; the cheap-tier model still drives the turn, but bootstrap is loaded so the structured delivery prompt does not need to inline tone guidance. If reminder delivery fails after the one-shot fires: fail visibly without calling `complete-reminder`, and let the safety-net path deliver on its next sweep.
 
-**Timezone handling:** AI converts user times (e.g., "6pm PT", "3pm Central") to full ISO 8601 with timezone offsets at intake. Both the one-shot cron's `schedule.at` field and the polling check script compare against UTC — no timezone conversion at fire/check time.
+**Timezone handling:** AI converts user times (e.g., "6pm PT", "3pm Central") to full ISO 8601 with timezone offsets at intake. Relative phrases like "tomorrow", "tonight", and day-of-week references must be resolved against the user's configured timezone in `USER.md`, never against the UTC session header. `scripts/user-time-context.sh` provides the user-local date/day context when the agent needs to translate a UTC timestamp before building `remind_at`. Both the one-shot cron's `schedule.at` field and the polling check script compare against UTC — no timezone conversion at fire/check time.
 
 **Cron drift and re-registration:** Heartbeat (every 60 min) verifies each canonical recurring job exists and matches its definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison against full `CronCreate` contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. This guards against manual deletion, gateway data loss, or other failure modes that drop the job. `docs/heartbeat-checks.md` = authoritative comparison checklist (HEARTBEAT.md is a bootstrap stub that delegates to it). One-shot `reminder-<page_id>` jobs are NOT covered by drift / re-registration — they self-delete after firing, so checking their continued presence makes no sense; the safety-net polling path catches anything that fails to fire. See `setup/cron/reminder-check.md`, `setup/cron/pull-main.md`, and `setup/cron/reminder-delivery.md` for job definitions.
 

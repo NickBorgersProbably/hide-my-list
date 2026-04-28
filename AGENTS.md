@@ -15,6 +15,7 @@
    - If delivery fails: leave file for retry
    - After all valid reminders processed: delete handoff file once.
 6. Check `.config-drift` flag (written by `scripts/pull-main.sh` only when `setup/openclaw.json.template` changed across a pull). Exists → read `agents.defaults.heartbeat` from template, `config.get` the same path from live config, `config.patch` if different, delete `.config-drift` on success. No user-facing note — this is background infrastructure hygiene, pre-authorized under Safety. `config.get`/`config.patch` fails: leave `.config-drift` in place, surface error, no silent retry. Template missing or parse fails: leave `.config-drift`, surface error. Scope narrow: only `agents.defaults.heartbeat` subtree syncs — deployment-local fields (gateway auth, channels, secrets) stay untouched.
+7. Treat the timezone in `USER.md` as the source of truth for ALL relative dates/times ("today", "tomorrow", "tonight", day-of-week names). If the session timestamp is UTC or ambiguous, resolve user-local calendar context first with `scripts/user-time-context.sh [reference_timestamp]` before creating reminders; that helper falls back to `America/Chicago` when `USER.md` is missing or has no timezone.
 
 Then be ready. User might add task, ask what to do, say done, or chat.
 
@@ -125,7 +126,7 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 
 Restrictions apply to **OpenClaw runtime agent** only — not Claude Code sessions, Codex CI agents, or human contributors.
 
-- For user-requested code/prompt/docs/design changes: **never directly edit OpenClaw prompt & spec files** (bootstrap: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, HEARTBEAT.md; heartbeat spec: docs/heartbeat-checks.md; runtime docs: docs/ai-prompts/ (shared.md, intake.md, selection.md, rejection.md, cannot-finish.md, check-in.md, breakdown.md), docs/architecture.md, docs/agent-capabilities.md, docs/openclaw-integration.md, docs/task-lifecycle.md, docs/notion-schema.md, docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md; design/adhd-priorities.md; scripts/notion-cli.sh).
+- For user-requested code/prompt/docs/design changes: **never directly edit OpenClaw prompt & spec files** (bootstrap: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, HEARTBEAT.md; heartbeat spec: docs/heartbeat-checks.md; runtime docs: docs/ai-prompts/ (shared.md, intake.md, selection.md, rejection.md, cannot-finish.md, check-in.md, breakdown.md), docs/architecture.md, docs/agent-capabilities.md, docs/openclaw-integration.md, docs/task-lifecycle.md, docs/notion-schema.md, docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md; design/adhd-priorities.md; scripts/notion-cli.sh, scripts/user-time-context.sh).
 - All prompt/spec changes: GitHub issues → PR → review pipeline.
 - **File issues** describing problem + proposed fix. Don't implement prompt/spec changes directly.
 - Infra & CI files outside restriction — but OpenClaw agent should still file issues; CI changes warrant review.
