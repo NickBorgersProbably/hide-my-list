@@ -146,7 +146,7 @@ echo "Cron job registration:"
 echo "  After starting the OpenClaw agent, register durable cron jobs."
 echo "  See setup/cron/ for job definitions and prompts."
 echo ""
-echo "  The HEARTBEAT.md will also re-register cron jobs if they expire."
+echo "  The HEARTBEAT.md will re-register canonical recurring cron jobs if they go missing."
 echo ""
 
 # --- Done ---
