@@ -19,6 +19,11 @@ No praise, no strengths — flag what you'd actually flag. Non-blocking observat
 Focus on:
 
 1. **Intent fulfillment.** PR solve stated problem? Read linked issue (if any), compare diff. Gaps = blocking **when approach wrong or misses something**. Correct partial fix with viable enhancement path via system's agentic capabilities → non-blocking note or follow-up, not blocker.
+   - Treat issue acceptance criteria as blockers only when they describe a required behavior, safety property, or concrete user-visible outcome the PR still misses.
+   - Distinguish unmet behavioral requirement from unmet test-strategy preference. "Add stronger proof / more testing" is non-blocking unless the diff changes the logic whose correctness is being claimed and the missing proof leaves that logic unvalidated.
+   - Reserve demands for new empirical proof of fix correctness to changes in the logic-under-test itself: reviewer/fixer decision logic, judge/aggregator rules, schema/contract changes, or similar code where production traffic is a weak regression net.
+   - For routine runtime/wiring swaps (CLI rebinding, container path changes, auth/env forwarding, artifact plumbing), treat container-level smoke coverage plus the next real production review cycle as sufficient empirical validation unless you can name a specific uncovered failure mode that requires a synthetic fixture.
+   - If behavior looks correct but you would prefer a stronger long-term fixture, raise it as a non-blocking note or follow-up issue, not a blocker.
 2. **Alignment check** (scope MISS — solved wrong/adjacent problem). Distinct from scope check (scope CREEP, below).
    - Quote (verbatim) issue's named algorithm / data sources / entities / config keys. Prefer an explicit "Proposed Solution" / "Algorithm" / "Approach" section; otherwise pull the specific sensors, entities, config keys, or decision rules the issue names as load-bearing.
    - Quote PR's actual implementation strategy (from decoded PR body + diff): data sources read, decision rule applied, config exposed.
