@@ -59,6 +59,7 @@ jobs:
       cycle: ${{ steps.cycle.outputs.cycle }}
       capped: ${{ steps.cap.outputs.capped }}
       inherited: ${{ steps.delta.outputs.inherited }}
+      reset: ${{ steps.human-after-go.outputs.reset }}
       prior_cycle_sha: ${{ steps.cycle-read.outputs.cycle_sha }}
       prior_verdict: ${{ steps.prior-verdict.outputs.description }}
     steps:
@@ -123,16 +124,57 @@ jobs:
           context: review/verdict
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
+      # A human commit on top of a converged GO cycle is a fresh review
+      # request, not a fixer-retry. The MAX cap (§1.13) bounds fixer
+      # convergence on stubborn NO-GO PRs; it should not penalize a
+      # contributor who tweaks a PR that already cleared review. Detect
+      # this case and reset the cycle counter so the new commit gets a
+      # full review budget instead of a `cycle_capped` terminal NO-GO.
+      # See docs/agentic-pipeline-learnings.md §1.16.
+      - name: Detect human commit on top of GO
+        id: human-after-go
+        if: steps.delta.outputs.inherited != 'true' && steps.cycle-read.outputs.cycle != '0'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.reviewed_sha }}
+          CYCLE_SHA: ${{ steps.cycle-read.outputs.cycle_sha }}
+          PRIOR: ${{ steps.cycle-read.outputs.cycle }}
+        run: |
+          set -euo pipefail
+          AUTHOR_EMAIL=$(gh api "repos/${REPO}/commits/${SHA}" --jq '.commit.author.email // ""')
+          # Fixer commits are authored as ci@hide-my-list.local (see
+          # review-fixer.yml `git config user.email`). Anything else is
+          # a non-fixer commit and may be a contributor follow-up.
+          if [ "$AUTHOR_EMAIL" = "ci@hide-my-list.local" ]; then
+            echo "reset=false" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: HEAD authored by fixer (${AUTHOR_EMAIL}); cycle counter not reset"
+            exit 0
+          fi
+          PRIOR_VERDICT=$(gh api "repos/${REPO}/commits/${CYCLE_SHA}/statuses" \
+            --jq '[.[] | select(.context == "review/verdict")] | sort_by(.created_at) | last | .description // ""')
+          if [ "$PRIOR_VERDICT" = "GO" ]; then
+            echo "reset=true" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: HEAD authored by ${AUTHOR_EMAIL} on top of cycle ${PRIOR} GO at ${CYCLE_SHA}; resetting cycle counter for fresh review budget"
+          else
+            echo "reset=false" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: HEAD authored by ${AUTHOR_EMAIL}; prior cycle ${PRIOR} verdict='${PRIOR_VERDICT}' (not GO); cycle counter not reset"
+          fi
+
       - name: Compute next cycle and cap check
         id: cycle
         env:
           PRIOR: ${{ steps.cycle-read.outputs.cycle }}
           INHERITED: ${{ steps.delta.outputs.inherited }}
+          RESET: ${{ steps.human-after-go.outputs.reset }}
         run: |
           set -euo pipefail
           if [ "$INHERITED" = "true" ]; then
             echo "cycle=$PRIOR" >> "$GITHUB_OUTPUT"
             echo "review-pipeline-v2: inheriting cycle=$PRIOR (no PR content delta)"
+          elif [ "$RESET" = "true" ]; then
+            echo "cycle=1" >> "$GITHUB_OUTPUT"
+            echo "review-pipeline-v2: human commit after prior GO; cycle counter reset to 1 (was $PRIOR)"
           else
             NEXT=$(( PRIOR + 1 ))
             echo "cycle=$NEXT" >> "$GITHUB_OUTPUT"
@@ -148,7 +190,9 @@ jobs:
           # fixer gets on a PR whose cycle 1 did not converge. GO
           # cycles are short-circuited in review-entry.yml after
           # cycle 1 regardless of MAX — see §1.13 in
-          # docs/agentic-pipeline-learnings.md.
+          # docs/agentic-pipeline-learnings.md. Human commits on top
+          # of a converged GO reset the counter (§1.16) so this cap
+          # only fires on fixer-retry stagnation.
           MAX: '2'
         run: |
           set -euo pipefail

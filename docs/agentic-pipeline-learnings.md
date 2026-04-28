@@ -114,6 +114,15 @@ Contract: any pipeline-exit path that calls `review-finalize.yml` without a `ver
 Single-writer rule from §1.1 still holds: label transitions and the `All Required Agent Reviews` status are still written exclusively from `review-finalize.yml`. `skip_verdict_artifact` is a parameterization, not a duplicate writer.
 **Evidence:** PR #477
 
+### 1.16 Human commits on top of a converged GO reset the cycle counter
+**Why:** `MAX` in `review-pipeline.yml` bounds the number of cycles the **fixer** gets on a PR whose cycle 1 did not converge (§1.13). It is sized for fixer-retry stagnation, not for contributor follow-up. But `read-cycle` walks first-parents and increments on each new HEAD regardless of authorship, so a contributor pushing a small fix on top of a `cycle=2 GO` arrives at `next=3 > MAX=2` and gets a `cycle_capped` terminal NO-GO without any reviewer ever running on the new content. The `review-entry.yml` GO short-circuit (§1.13) does not save them: it only matches the **exact** GO SHA, not a descendant.
+
+Detection lives in `review-pipeline.yml` `gather` job: read the git author email of HEAD via `gh api`; if it is not the fixer (`ci@hide-my-list.local`, set in `review-fixer.yml`) AND `read-cycle`'s `cycle_sha` carries `review/verdict = GO`, set `reset=true`. The `Compute next cycle` step then stamps `cycle=1` instead of `prior+1`, giving the new commit a fresh budget of cycle 1 + one fixer retry. Reviewers, fixer, and judge all run normally — only the counter resets. The `cap-exhausted` NO-GO scenario is preserved because its `cycle_sha` carries `review/verdict = NO-GO`, so the reset never fires after a cap-exhausted state.
+
+This is **not** the same problem as §1.14's merge-from-main inherit. §1.14 covers commits with **zero PR-side content delta** and skips the pipeline entirely. §1.16 covers commits with **real new content** that should be reviewed; the only thing it skips is the cycle bill against the fixer-retry budget. Together: §1.13 short-circuits the exact GO SHA, §1.14 inherits clean main resyncs, §1.16 lets contributors edit a converged PR without bricking it.
+**Before:** PR #492 — local push on top of cycle 2 GO immediately tripped `cycle_capped`, requiring an admin-merge or force-push to recover.
+**Evidence:** PR #492
+
 ---
 
 ## 2. CI Runtime Infrastructure
