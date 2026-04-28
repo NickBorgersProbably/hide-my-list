@@ -745,7 +745,7 @@ Reminders = tasks with specific wall-clock delivery time. Unlike check-ins (acti
 ```mermaid
 sequenceDiagram
     participant Intake as Intake (same turn)
-    participant OneShotCron as reminder-&lt;page_id&gt; one-shot cron
+    participant OneShotCron as One-shot reminder cron
     participant Cron as Isolated Cheap-Tier Cron
     participant Scr as check-reminders.sh
     participant Notion as Notion API
@@ -812,8 +812,15 @@ AI detects reminder-style language and sets:
 - `reminder_status = pending`
 - `urgency = 90` (time-critical)
 
-**Confirmation message style:**
-> "Got it — I'll remind you at 6pm PT to email Melanie."
+**Confirmation message style (success path — `CronCreate` succeeded):**
+> "Got it — I'll remind you around 6pm PT to email Melanie."
+
+"Around" is intentional and stays even though the one-shot cron normally fires at exact `remind_at`. If the one-shot fails to fire and the safety-net polling path takes over, delivery can lag up to ~75 min. "Around 6pm" is calibrated to that worst case so we never overpromise; "at 6pm" would feel like a missed commitment when the safety net catches a stranded reminder.
+
+**Confirmation message style (degraded path — `CronCreate` failed at intake):**
+> "Got it — I've saved your reminder; I'll check for it and send it your way."
+
+Use this neutral wording only when the in-turn `CronCreate` call failed and the safety-net polling path is the only delivery route. Two reasons: (1) UX — don't promise a specific time when the primary scheduler already failed; (2) regex avoidance — the framework reminder-guard appends a "Note: I did not schedule a reminder..." string to any reply matching `i'll\s+remind` (and similar) when no cron was added that turn. The success-path wording above triggers that regex; this neutral wording does not. The reminder is still saved in Notion and the safety net catches it at the next 15-min poll.
 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
 
@@ -822,7 +829,7 @@ User timezone defaults to US Central. AI converts timezone references (PT, CT, E
 ### Reminder vs. Deadline
 
 Different concepts:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification firing at exact 6pm via one-shot `reminder-<page_id>` cron; `reminder-check` poll + startup + heartbeat are safety-net paths
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification firing at `remind_at` via the one-shot `reminder-<page_id>` cron registered at intake; if that fails to fire, the `reminder-check` poll + startup + heartbeat path delivers as safety net (up to ~75 min late in the worst-idle case, which is why intake confirmations say "around 6pm")
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.
