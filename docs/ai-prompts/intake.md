@@ -163,7 +163,8 @@ Call CronCreate with:
 - durable: true
 - deleteAfterRun: true
 - schedule: { kind: "at", at: "<remind_at ISO from above>" }
-- sessionTarget: main
+- sessionTarget: isolated
+- delivery.mode: none
 - model: litellm/<modelTiers.cheap value> (read from setup/openclaw.json.template)
 - payload.kind: agentTurn
 - payload.lightContext: false
@@ -172,10 +173,12 @@ Call CronCreate with:
   `setup/cron/reminder-delivery.md` (Prompt section), with <PAGE_ID>
   substituted in.
 
-If CronCreate fails: continue with the confirmation message anyway and rely on
-the recurring `reminder-check` polling backstop to deliver. Do NOT mention the
-cron failure to the user — surface it via memory log instead. The reminder is
-still saved in Notion; the backstop path catches it at the next 15-min poll.
+If CronCreate fails: use degraded confirmation wording that does not promise exact
+timing (e.g., "Got it — I've saved your reminder; I'll check for it and send it
+your way"). Do not tell the user the reminder will arrive at an exact time — the
+reminder guard note may appear in this path since no cron add succeeded. The
+reminder is still saved in Notion; the backstop path catches it at the next
+15-min poll.
 
 Examples:
   "Remind me at 6pm PT to email Melanie" →

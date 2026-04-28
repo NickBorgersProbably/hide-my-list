@@ -60,7 +60,7 @@ No standalone server. OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when chat is idle
 
-Interactive conversations: surface-agnostic. Durable cron jobs: isolated cheap-tier sessions for cost efficiency — execute scripts, write handoff files, no user-facing messages. Reminder delivery via heartbeat (every 60 min) and main-session startup check (AGENTS.md step 5, on every user interaction). All cron jobs silent when nothing actionable.
+Interactive conversations: surface-agnostic. Durable cron jobs: isolated cheap-tier sessions for cost efficiency — execute scripts, write handoff files, no user-facing messages. Reminder delivery: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at`; `reminder-check` poll + heartbeat + startup check are safety-net paths only. All cron jobs silent when nothing actionable.
 
 ## Component Architecture
 
@@ -249,7 +249,7 @@ Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the che
 | Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
-| Messaging | OpenClaw Surfaces | Interactive chat multi-channel (web, Signal, Telegram, Discord); reminder delivery via heartbeat + main-session startup check |
+| Messaging | OpenClaw Surfaces | Interactive chat multi-channel (web, Signal, Telegram, Discord); reminder delivery via one-shot `reminder-<page_id>` cron (exact time); heartbeat + startup = safety net |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, self-hosted Codex reviewers inherit homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | OpenClaw native one-shot cron (`schedule.kind: at`, `deleteAfterRun: true`) registered at intake, with recurring `reminder-check` poll + `.reminder-signal` handoff as safety net | One-shot fires at exact `remind_at`; safety-net poll catches `CronCreate` failures or unfired jobs |

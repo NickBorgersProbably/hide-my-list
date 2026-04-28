@@ -6,7 +6,7 @@ The recurring `reminder-check` cron + `.reminder-signal` handoff path stays as a
 
 ## Why this exists
 
-OpenClaw's `agent-runner-reminder-guard` (`/usr/lib/node_modules/openclaw/dist/plugin-sdk/src/auto-reply/reply/agent-runner-reminder-guard.d.ts`) post-processes every assistant reply that matches a reminder-commitment regex (`I'll remind you`, `I'll set a reminder`, etc.) and appends `"Note: I did not schedule a reminder in this turn, so this will not trigger automatically."` unless the same turn registered a cron job (`successfulCronAdds > 0`) or an enabled cron shares the current `sessionKey`.
+OpenClaw's `agent-runner-reminder-guard` post-processes every assistant reply that matches a reminder-commitment regex (`I'll remind you`, `I'll set a reminder`, etc.) and appends `"Note: I did not schedule a reminder in this turn, so this will not trigger automatically."` unless the same turn registered a cron job (`successfulCronAdds > 0`) or an enabled cron shares the current `sessionKey`.
 
 Registering this one-shot cron at intake satisfies the first condition, suppressing the framework note. It also delivers reminders at exact wall-clock time instead of relying on the up-to-~75-min worst-case latency of the polling backstop.
 
@@ -20,7 +20,7 @@ CronCreate:
   schedule:
     kind: "at"
     at: "<remind_at ISO 8601 with timezone>"
-  sessionTarget: main
+  sessionTarget: isolated
   model: litellm/gemma4-small  # must match modelTiers.cheap
   payload:
     kind: agentTurn
@@ -30,9 +30,9 @@ CronCreate:
       <delivery prompt — see Prompt section below>
 ```
 
-`sessionTarget: main` so the fired turn has access to bootstrap files (SOUL.md tone contract, AGENTS.md `recent_outbound` schema, `scripts/notion-cli.sh`). Model stays on `modelTiers.cheap` — delivery prompt is highly structured and well within cheap-tier reach. `lightContext: false` keeps bootstrap so the cheap model has SOUL.md tone guidance without re-stating it inline every reminder.
+`sessionTarget: isolated` runs the delivery turn as an isolated session. `lightContext: false` keeps bootstrap loaded — the cheap model needs SOUL.md tone guidance and AGENTS.md `recent_outbound` schema without re-stating them inline. Model stays on `modelTiers.cheap` — delivery prompt is highly structured and well within cheap-tier reach. `delivery.mode: none` means the cron turn's own `message` tool call is the only user-facing output.
 
-`deleteAfterRun: true` causes OpenClaw to remove the job from the cron store after a successful (`status: "ok"`) run. Per `/tmp/openclaw/src/cron/normalize.ts` the field defaults to `true` when `schedule.kind === "at"`, but we set it explicitly for clarity.
+`deleteAfterRun: true` causes OpenClaw to remove the job from the cron store after a successful run. The field defaults to `true` for `schedule.kind: "at"` jobs, but we set it explicitly for clarity.
 
 Job naming uses the Notion page id so reschedule logic can target a specific job by name (`CronDelete name: reminder-<page_id>`) before re-registering.
 

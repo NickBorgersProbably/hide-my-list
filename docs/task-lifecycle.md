@@ -23,8 +23,8 @@ stateDiagram-v2
     Breakdown --> Pending: Sub-tasks created (hidden)
 
     Intake --> ReminderPending: Reminder task detected
-    ReminderPending --> ReminderSent: Delivered after remind_at via startup check or heartbeat
-    ReminderPending --> ReminderMissed: Delivered >15 min late via startup check or heartbeat
+    ReminderPending --> ReminderSent: Delivered at remind_at via one-shot cron (or safety-net path)
+    ReminderPending --> ReminderMissed: Delivered >15 min late via one-shot cron or safety net
     ReminderSent --> Completed: Reminder delivered
     ReminderMissed --> Completed: Late reminder delivered
 
