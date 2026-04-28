@@ -136,7 +136,9 @@ else
     else
         echo "  Example: \"America/Chicago\""
     fi
-    echo "  Without it, OpenClaw injects Current time in UTC and relative dates like \"tomorrow\" can land on the wrong day."
+    echo "  Without it, OpenClaw injects Current time in UTC."
+    echo "  Reminder correctness still comes from USER.md plus scripts/user-time-context.sh,"
+    echo "  but matching envelopeTimezone keeps prompt context in the user's local time."
 fi
 echo ""
 
@@ -146,7 +148,7 @@ echo "Cron job registration:"
 echo "  After starting the OpenClaw agent, register durable cron jobs."
 echo "  See setup/cron/ for job definitions and prompts."
 echo ""
-echo "  The HEARTBEAT.md will also re-register cron jobs if they expire."
+echo "  The HEARTBEAT.md will re-register canonical recurring cron jobs if they go missing."
 echo ""
 
 # --- Done ---

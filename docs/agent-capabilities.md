@@ -146,7 +146,7 @@ Keep these boundaries intact when writing or reviewing runtime docs:
 
 That means:
 
-- reminder discovery in isolated cron; reminder delivery stays with main agent startup path or heartbeat
+- reminder discovery in isolated cron; primary reminder delivery via one-shot `reminder-<page_id>` cron registered at intake; startup path + heartbeat = safety net only
 - cron drift correction belongs to heartbeat, not isolated cron jobs
 - `openclaw.json` drift repair belongs to main agent unless heartbeat config tool access explicitly confirmed
 

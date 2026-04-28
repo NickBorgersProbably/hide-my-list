@@ -49,8 +49,10 @@ cd ~/.openclaw/workspace && bash setup/bootstrap.sh
 
 When you create `~/.openclaw/openclaw.json`, set
 `agents.defaults.envelopeTimezone` to the same IANA timezone identifier used in
-`USER.md` (for example, `America/Chicago`). Without it, relative dates like
-"tomorrow" are resolved against UTC.
+`USER.md` (for example, `America/Chicago`). This keeps OpenClaw's injected
+`Current time:` line in the user's local time. If it is unset, reminder
+correctness still comes from `USER.md` plus `scripts/user-time-context.sh` when
+the visible session timestamp is UTC, but prompt context is less direct.
 
 `setup/bootstrap.sh` also provisions OpenClaw's media staging directories under
 `~/.openclaw/media/outbound` with traversable permissions so Signal can read

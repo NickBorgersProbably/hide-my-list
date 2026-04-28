@@ -144,17 +144,56 @@ Signals:
 When detected:
 - Set is_reminder = true
 - Parse the time reference and convert to ISO 8601 with timezone offset
-- Default timezone: US Central (America/Chicago) unless user specifies otherwise
+- Default timezone for both relative dates and unspecified clock times: the user's configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone)
 - Common timezone mappings: PT = -08:00/-07:00, CT = -06:00/-05:00, ET = -05:00/-04:00
+- Resolve ALL relative references ("today", "tomorrow", "tonight", "this evening", day-of-week names, "next week") against the user's configured timezone in `USER.md`, never against UTC message metadata or the server date
+- If the session time you see is UTC or otherwise ambiguous, run `scripts/user-time-context.sh [reference_timestamp]` (or do the equivalent conversion) before choosing the calendar date for the reminder
+- Before saving a reminder, explicitly verify in your reasoning:
+  1. Current time in the user's timezone
+  2. Which local calendar date the relative phrase resolves to
+  3. The final `remind_at` ISO 8601 timestamp
 - Set reminder_status = "pending"
 - Set urgency = 90 (reminders are inherently time-critical)
 - Work type and energy level are still inferred from the reminder content
+
+REMINDER PERSISTENCE (mandatory two-step):
+After `notion-cli.sh create-reminder` returns the Notion page object, register a
+one-shot OpenClaw cron in the SAME turn so the framework reminder-guard sees a
+successful cron add and suppresses its "Note: I did not schedule a reminder..."
+post-process. Skipping this step is the bug fix from issue #489 — the model
+never produces that note; OpenClaw's `agent-runner-reminder-guard` appends it
+when no cron was registered that turn.
+
+Call CronCreate with:
+- name = "reminder-<page_id>" using the page id returned by create-reminder
+- durable: true
+- deleteAfterRun: true
+- schedule: { kind: "at", at: "<remind_at ISO from above>" }
+- sessionTarget: main
+- model: litellm/<modelTiers.cheap value> (read from setup/openclaw.json.template)
+- payload.kind: agentTurn
+- payload.lightContext: false
+- timeout-seconds: 300
+- payload.message: the delivery prompt template documented in
+  `setup/cron/reminder-delivery.md` (Prompt section), with <PAGE_ID>
+  substituted in.
+
+If CronCreate fails: use degraded confirmation wording that does not promise exact
+timing (e.g., "Got it — I've saved your reminder; I'll check for it and send it
+your way"). Do not tell the user the reminder will arrive at an exact time — the
+reminder guard note may appear in this path since no cron add succeeded. The
+reminder is still saved in Notion; the backstop path catches it at the next
+15-min poll.
 
 Examples:
   "Remind me at 6pm PT to email Melanie" →
     is_reminder: true, remind_at: "2025-01-04T18:00:00-08:00", title: "Email Melanie availability"
   "Ping me at 3pm to call the dentist" →
-    is_reminder: true, remind_at: "2025-01-04T15:00:00-06:00" (default CT), title: "Call the dentist"
+    is_reminder: true, remind_at: "2025-01-04T15:00:00-06:00" (offset from USER.md; example shows Central), title: "Call the dentist"
+  Message timestamp `2026-04-19T01:27:00Z`, `USER.md` timezone `America/Chicago`, user says "Tomorrow before noon remind me to clean up boxes" →
+    current user-local time: `2026-04-18T20:27:00-05:00`
+    "tomorrow" resolves to `2026-04-19` in user-local time
+    is_reminder: true, remind_at: "2026-04-19T09:00:00-05:00", title: "Clean up boxes"
 
 RESCHEDULE FROM RECENT OUTBOUND CONTEXT:
 When `recent_outbound_context` contains an entry with `awaiting_response: true` and
@@ -167,6 +206,12 @@ reminder reschedule using the matched entry's title:
 - Parse the new time reference and convert to ISO 8601 with timezone offset (same rules as above)
 - Set urgency = 90
 - After saving: the matched `recent_outbound` entry must be cleared (set `awaiting_response: false` or remove the entry)
+- Register the new one-shot cron per REMINDER PERSISTENCE above. Pre-fire
+  reschedule (the prior reminder's Notion row is still Pending, e.g. user
+  changed their mind before it fired): also call `CronDelete name:
+  reminder-<old_page_id>` BEFORE creating the new cron, and run
+  `notion-cli.sh update-status <old_page_id> "Completed"` so the polling
+  backstop will not re-deliver the canceled reminder.
 
 Example:
   recent_outbound entry: title "Call the dentist", awaiting_response: true

@@ -435,7 +435,7 @@ See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)
 
 ### IsReminder (checkbox)
 
-Flags task as time-specific reminder, not normal work item. Not surfaced in normal task selection. Becomes eligible at `Remind At`; `reminder-check` cron only discovers due reminders and writes handoff file. Delivery happens on next user conversation start (AGENTS.md step 5) or hourly heartbeat backstop (`docs/heartbeat-checks.md` Check 1) — see `docs/architecture.md` §Reminders.
+Flags task as time-specific reminder, not normal work item. Not surfaced in normal task selection. At intake, agent registers one-shot `reminder-<page_id>` cron (`deleteAfterRun: true`) that fires at exact `Remind At` for primary delivery. `reminder-check` poll + startup check + heartbeat (Check 1) are safety-net paths only — see `docs/architecture.md` §Reminders.
 
 | Value | Description |
 |-------|-------------|
@@ -454,9 +454,9 @@ Wall-clock time reminder becomes due. Full ISO 8601 with timezone for comparison
 Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 ```
 
-**Set when:** Task created with `is_reminder = true`. AI parses time reference (including timezone like "6pm PT") and converts to full ISO 8601.
+**Set when:** Task created with `is_reminder = true`. AI parses time reference (including timezone like "6pm PT") and converts to full ISO 8601. Relative phrases such as "tomorrow", "tonight", and day-of-week names must be resolved against the user's timezone from `USER.md`, not UTC message metadata; use `scripts/user-time-context.sh` when a UTC timestamp needs conversion first.
 
-**Used by:** `check-reminders.sh`, run by isolated `reminder-check` cron every 15 min. Due reminders found → script writes repo-root handoff file (default: `.reminder-signal`) for delivery by heartbeat (Check 1 in `docs/heartbeat-checks.md`) or main-session startup (AGENTS.md step 5). Both paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Malformed handoffs stay in place, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), and do not deliver, complete, or delete anything. Delivery failures also leave the handoff in place until retry succeeds. On successful delivery, the delivering session appends/updates `state.json.recent_outbound` with a short-lived reminder entry (`type: "reminder"`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later), pruning expired entries, then calls `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`, then deletes the handoff file.
+**Used by:** One-shot `reminder-<page_id>` cron (primary, registered at intake) which fires at exact `remind_at`. Also `check-reminders.sh`, run by isolated `reminder-check` cron every 15 min as safety net: due reminders found → script writes repo-root handoff file (default: `.reminder-signal`) for delivery by heartbeat (Check 1 in `docs/heartbeat-checks.md`) or main-session startup (AGENTS.md step 5). Both paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Malformed handoffs stay in place, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), and do not deliver, complete, or delete anything. Delivery failures also leave the handoff in place until retry succeeds. On successful delivery, the delivering session appends/updates `state.json.recent_outbound` with a short-lived reminder entry (`type: "reminder"`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later), pruning expired entries, then calls `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`, then deletes the handoff file.
 
 ---
 
@@ -467,7 +467,7 @@ Tracks reminder delivery.
 | Value | Description | Trigger |
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
-| `sent` | Delivered successfully | Delivering session confirms after handoff-file flow |
+| `sent` | Delivered successfully | Delivering session confirms after one-shot delivery or handoff-file fallback |
 | `missed` | Delivered 15+ min late | Delivering session confirms via scheduler's missed flag |
 
 **Note:** When marked `sent` or `missed`, task `Status` also → `Completed` — reminder action (notifying user) done.

@@ -121,13 +121,14 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| reminder-check | Every 15 min | Poll Notion for due reminders, write the reminder handoff file (delivery via heartbeat/startup check) |
+| reminder-`<page_id>` | One-shot at `remind_at` (registered at intake) | User-facing reminder delivery; self-deletes on success |
+| reminder-check | Every 15 min | Safety-net poll for reminders the one-shot failed to deliver; writes the `.reminder-signal` handoff file for AGENTS.md step 5 / heartbeat Check 1 to consume |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
-| heartbeat (built-in) | Every 60 min | System health, cron re-registration, cron drift correction, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
+| heartbeat (built-in) | Every 60 min | System health, recurring-cron re-registration, cron drift correction, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
 
-Cron jobs auto-expire after 7 days. The heartbeat re-registers missing jobs automatically and patches live cron jobs back to the `setup/cron/` specs if they drift. Both jobs run as isolated cron sessions (`sessionTarget: isolated`, cheap-tier model per `modelTiers` in `setup/openclaw.json.template`, `payload.kind: agentTurn`, `payload.lightContext: true` — empty bootstrap context since the prompts are self-contained scripts).
+Heartbeat (every 60 min) re-registers any missing canonical recurring cron job (`reminder-check`, `pull-main`) and patches live drift back to the `setup/cron/` specs — guards against manual deletion, gateway data loss, or other failure modes that drop the job. One-shot `reminder-<page_id>` jobs are out of scope for this check; they self-delete after firing, and the recurring `reminder-check` poll catches any that fail to fire. Recurring jobs run as isolated cron sessions (`sessionTarget: isolated`, cheap-tier model per `modelTiers` in `setup/openclaw.json.template`, `payload.kind: agentTurn`, `payload.lightContext: true` — empty bootstrap context since the prompts are self-contained scripts). The one-shot delivery cron uses `sessionTarget: main` with `lightContext: false` so the fired agent turn has SOUL.md tone + AGENTS.md state.json conventions in scope (full contract in `setup/cron/reminder-delivery.md`).
 
-Production recommendation: keep `reminder-check` at 15-minute cadence and heartbeat hourly as the default production cost/latency tradeoff for routine or low-stakes reminders. In the fully idle case, reminder delivery can take up to about 75 minutes under this deferred-delivery design, so exact-time reminders are not guaranteed unless the architecture changes.
+Production recommendation: rely on the one-shot cron for primary delivery (fires at exact `remind_at`); keep `reminder-check` at 15-minute cadence and heartbeat hourly as the safety net. In the unlikely fallback case where the one-shot fails to fire, reminder delivery can take up to about 75 minutes via the polling path before a user interaction picks it up.
 
 ## Customizing Model Tiers
 
@@ -213,7 +214,8 @@ Manual regression playbook:
 - Restart the gateway after changing `openclaw.json`
 
 **Cron jobs disappeared:**
-- They auto-expire after 7 days. The next heartbeat (every 60 min) will re-register them.
+- If a canonical recurring cron job (`reminder-check`, `pull-main`) goes missing, the next heartbeat (every 60 min) will re-register it from `setup/cron/`.
+- One-shot `reminder-<page_id>` jobs are expected to disappear after firing (`deleteAfterRun: true`). If a one-shot fails to fire before its scheduled time and goes missing, the recurring `reminder-check` poll will pick the still-Pending Notion row up and deliver via the safety net.
 - Or manually re-register per the definitions in `setup/cron/`
 
 **Heartbeat still loads full bootstrap after pulling the latest template:**
