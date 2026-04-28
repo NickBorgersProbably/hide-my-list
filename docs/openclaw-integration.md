@@ -188,20 +188,19 @@ OpenClaw gateway = WebSocket server managing agent sessions, channel routing, co
 1. Must be running for agent to work (`openclaw gateway`)
 2. `controlUi.allowedOrigins` controls who can access web management interface
 
-## Tool-Use Hooks (.claude/settings.json)
+## Claude Code Hooks (.claude/settings.json)
 
 OpenClaw agent sessions built on Claude Code REPL. Claude Code hook system works inside OpenClaw — `.claude/settings.json` at project level respected.
 
-We use `PostToolUse` hook to enforce reminder confirmation and suppress internal reminder commentary:
+We use a `Stop` hook to validate the final reminder confirmation before Claude ends the turn. If the reply contains a reminder confirmation plus leak markers like `Note:` or `trigger automatically`, the hook blocks stop and tells Claude to rewrite the response as a single user-facing sentence:
 
 ```json
 {
   "hooks": {
-    "PostToolUse": [{
-      "matcher": "Bash",
+    "Stop": [{
       "hooks": [{
         "type": "command",
-        "command": "if echo \"$TOOL_INPUT\" | grep -q 'create-reminder'; then echo 'USER-FACING REMINDER CONFIRMATION ONLY. No internal notes. No mention of cron, polling, scheduling internals, tool use, hidden reasoning, or whether something will trigger automatically. Reply with one brief confirmation sentence containing only the reminder details.'; fi",
+        "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/block-reminder-reasoning-leak.sh",
         "timeout": 5
       }]
     }]
@@ -209,11 +208,13 @@ We use `PostToolUse` hook to enforce reminder confirmation and suppress internal
 }
 ```
 
-Claude Code mechanism, not OpenClaw. OpenClaw has own hook system (`openclaw hooks`) for platform-level events like `agent:bootstrap`, but for tool-use triggers we use Claude Code layer.
+Why `Stop` instead of `PostToolUse`: `PostToolUse` fires after the tool succeeds and can only add more context for Claude; it does not inspect or rewrite the final assistant reply. The leak happens in the rendered reminder confirmation itself, so the enforcement point has to sit on the final response boundary. Claude Code does not expose a pre-response rewrite hook, so `Stop` is the structural guardrail available here.
+
+Claude Code mechanism, not OpenClaw. OpenClaw has own hook system (`openclaw hooks`) for platform-level events like `agent:bootstrap`; the reminder confirmation leak guard lives in the Claude Code layer because it validates Claude's final reply text.
 
 **Key distinction:**
 - **OpenClaw hooks** (`openclaw hooks list`): Platform events — bootstrap, session-memory, command-logging. Configured in `openclaw.json`.
-- **Claude Code hooks** (`.claude/settings.json`): Tool-use events — PostToolUse, PreToolUse. Configured per-project.
+- **Claude Code hooks** (`.claude/settings.json`): Response/tool lifecycle events like Stop, PostToolUse, and PreToolUse. Configured per-project.
 
 ## OpenClaw Hooks (Platform-Level)
 
