@@ -186,6 +186,27 @@ runs:
           "$CI_AGENT_IMAGE" \
           -lc '/run-in-container.sh'
 
+    - name: Reset workspace ownership after container run
+      # The container writes files into the bind-mounted workspace as
+      # UID 1000 (`ci` user). The self-hosted runner is a different UID
+      # (typically 1001). Without resetting ownership, those UID-1000
+      # files persist on the runner across jobs — the next job's
+      # `actions/checkout` clean step then fails with "Permission denied"
+      # on `.git/index.lock` or on rmdir of leftover dirs (e.g. `.claude`,
+      # `pr-head`), and the whole pipeline aborts before any reviewer
+      # finishes. Reset under `if: always()` so failed `docker run`
+      # invocations still clean up their mess.
+      if: always()
+      shell: bash
+      env:
+        WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
+      run: |
+        set -euo pipefail
+        WORKSPACE_HOST="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}"
+        if [ -d "$WORKSPACE_HOST" ]; then
+          sudo chown -R "$(id -u):$(id -g)" "$WORKSPACE_HOST"
+        fi
+
     - name: Clean up staged env file
       if: always()
       shell: bash
