@@ -163,12 +163,11 @@ Call CronCreate with:
 - durable: true
 - deleteAfterRun: true
 - schedule: { kind: "at", at: "<remind_at ISO from above>" }
-- sessionTarget: isolated
-- delivery.mode: none
+- sessionTarget: main
 - model: litellm/<modelTiers.cheap value> (read from setup/openclaw.json.template)
 - payload.kind: agentTurn
 - payload.lightContext: false
-- payload.timeoutSeconds: 300
+- timeout-seconds: 300
 - payload.message: the delivery prompt template documented in
   `setup/cron/reminder-delivery.md` (Prompt section), with <PAGE_ID>
   substituted in.

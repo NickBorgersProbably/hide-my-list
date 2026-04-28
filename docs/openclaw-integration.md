@@ -101,7 +101,7 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 - No PID files, no silent death, no orphaned processes
 - OpenClaw manages scheduling; failures visible in session
 - One-shot `reminder-<page_id>` cron delivers at exact `remind_at` (see `setup/cron/reminder-delivery.md`); safety-net `scripts/check-reminders.sh` writes `.reminder-signal` handoff for AGENTS.md step 5 + heartbeat Check 1 to deliver if the one-shot misses
-- Cron fires only when REPL idle — better for ADHD, won't interrupt mid-task
+- Recurring cron fires only when REPL idle — better for ADHD, won't interrupt mid-task; one-shot `kind: at` delivery crons (`reminder-<page_id>`) fire at the scheduled wall-clock time regardless of REPL state
 
 **Robustness backstop:** Heartbeat (every 60 min) re-creates any canonical recurring cron job that has gone missing and patches drift via comparison against `CronCreate` blocks. Covers manual deletion, gateway data loss, or other failure modes that drop the job. One-shot `reminder-<page_id>` jobs are out of scope for this check — they self-delete after firing.
 

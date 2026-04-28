@@ -20,17 +20,17 @@ CronCreate:
   schedule:
     kind: "at"
     at: "<remind_at ISO 8601 with timezone>"
-  sessionTarget: isolated
+  sessionTarget: main
   model: litellm/gemma4-small  # must match modelTiers.cheap
   payload:
     kind: agentTurn
     lightContext: false  # bootstrap loaded — agent needs SOUL.md tone, AGENTS.md state.json conventions
-    timeoutSeconds: 300
     message: |
       <delivery prompt — see Prompt section below>
+  timeout-seconds: 300
 ```
 
-`sessionTarget: isolated` runs the delivery turn as an isolated session. `lightContext: false` keeps bootstrap loaded — the cheap model needs SOUL.md tone guidance and AGENTS.md `recent_outbound` schema without re-stating them inline. Model stays on `modelTiers.cheap` — delivery prompt is highly structured and well within cheap-tier reach. `delivery.mode: none` means the cron turn's own `message` tool call is the only user-facing output.
+`sessionTarget: main` fires the delivery turn in the main agent session. `lightContext: false` keeps bootstrap loaded — the cheap model needs SOUL.md tone guidance and AGENTS.md `recent_outbound` schema without re-stating them inline. Model stays on `modelTiers.cheap` — delivery prompt is highly structured and well within cheap-tier reach. The delivery turn sends to the user via the `message` tool.
 
 `deleteAfterRun: true` causes OpenClaw to remove the job from the cron store after a successful run. The field defaults to `true` for `schedule.kind: "at"` jobs, but we set it explicitly for clarity.
 
