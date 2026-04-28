@@ -744,38 +744,61 @@ Reminders = tasks with specific wall-clock delivery time. Unlike check-ins (acti
 
 ```mermaid
 sequenceDiagram
+    participant Intake as Intake (same turn)
+    participant OneShotCron as One-shot reminder cron
     participant Cron as Isolated Cheap-Tier Cron
     participant Scr as check-reminders.sh
     participant Notion as Notion API
     participant Signal as .reminder-signal
+    participant State as state.json
     participant Delivery as Heartbeat / Main Session
     participant User
 
+    Note over Intake,OneShotCron: Primary path — registered at intake
+    Intake->>OneShotCron: CronCreate (deleteAfterRun:true, at: remind_at)
+    OneShotCron->>Notion: get-page to check status
+    OneShotCron->>User: Send reminder via message tool
+    OneShotCron->>State: Save recent_outbound reminder context
+    OneShotCron->>Notion: complete-reminder(sent|missed)
+    Note over OneShotCron: Self-deletes after run
+
+    Note over Cron,Delivery: Safety-net path (CronCreate failure, unfired jobs)
     Cron->>Scr: Run check-reminders.sh
-    Scr->>Notion: Query due reminders (remind_at <= now)
+    Scr->>Notion: Query due reminders (remind_at <= now, status pending)
     Notion-->>Scr: Due reminder tasks
     Scr->>Signal: Write reminder handoff file
     Note over Cron: Cron exits (NO_REPLY)
     alt User interacts (AGENTS.md step 5)
         Delivery->>Signal: Validate handoff file
         Delivery->>User: Send reminder via message tool
+        Delivery->>State: Save recent_outbound reminder context
         Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
         Delivery->>Signal: Validate handoff file
         Delivery->>User: Send reminder via message tool
+        Delivery->>State: Save recent_outbound reminder context
         Delivery->>Notion: complete-reminder(sent|missed)
         Delivery->>Signal: Delete handoff file
     end
 ```
 
-`reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Delivery via two paths: main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. Delivery failure = file stays for retry.
+Primary path: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at` and delivers directly. Safety-net path: `reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Handoff delivery via main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. On successful delivery, the session also appends/updates `state.json.recent_outbound` with a short-lived reminder entry so the next session can interpret terse replies like "I did it" or "tomorrow at 9" even though the handoff file is gone and the Notion reminder is already completed. Delivery failure = file stays for retry.
+
+### Reminder Reply Continuity
+
+If the next session starts and the user replies to the reminder in shorthand, the agent should use `state.json.recent_outbound` before asking for clarification.
+
+Example:
+- Agent sends: "This was due a bit ago — clean up boxes before noon. Want to handle it now or reschedule?"
+- User opens a new session and says: "I did it"
+- Agent interprets that as completion of "clean up boxes before noon", delivers completion acknowledgment and reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears the matched `recent_outbound` entry
 
 ### Reminder Delivery Messages
 
 Agent delivers reminders brief, casual — friend tapping your shoulder:
 
-**Approximate delivery (next eligible poll after scheduled time, before missed threshold):**
+**On-time delivery (at exact `remind_at` via one-shot cron, or next eligible safety-net path before missed threshold):**
 > "Hey — this is your reminder to email Melanie about availability."
 
 **Missed delivery (>15 minutes past due, flagged as missed):**
@@ -790,15 +813,24 @@ AI detects reminder-style language and sets:
 - `urgency = 90` (time-critical)
 - relative date phrases (`today`, `tomorrow`, `tonight`, day-of-week names) resolved from the user's timezone in `USER.md`, not the UTC message timestamp
 
-**Confirmation message style:**
-> "Got it — I'll queue a reminder for 6pm PT to email Melanie. You'll usually hear from me within an hour of that — up to ~75 min if things are quiet — so treat it as a check-in, not a stopwatch."
+**Confirmation message style (success path — `CronCreate` succeeded):**
+> "Got it — I'll remind you around 6pm PT to email Melanie."
+
+"Around" is intentional and stays even though the one-shot cron normally fires at exact `remind_at`. If the one-shot fails to fire and the safety-net polling path takes over, delivery can lag up to ~75 min. "Around 6pm" is calibrated to that worst case so we never overpromise; "at 6pm" would feel like a missed commitment when the safety net catches a stranded reminder.
+
+**Confirmation message style (degraded path — `CronCreate` failed at intake):**
+> "Got it — I've saved your reminder; I'll check for it and send it your way."
+
+Use this neutral wording only when the in-turn `CronCreate` call failed and the safety-net polling path is the only delivery route. Two reasons: (1) UX — don't promise a specific time when the primary scheduler already failed; (2) regex avoidance — the framework reminder-guard appends a "Note: I did not schedule a reminder..." string to any reply matching `i'll\s+remind` (and similar) when no cron was added that turn. The success-path wording above triggers that regex; this neutral wording does not. The reminder is still saved in Notion and the safety net catches it at the next 15-min poll.
+
+Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
 
 User timezone defaults to the configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. If the visible session clock is UTC, agent resolves the user's local calendar first with `scripts/user-time-context.sh` (or equivalent timezone conversion) before deciding what "tomorrow" or "tonight" means.
 
 ### Reminder vs. Deadline
 
 Different concepts:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification arriving on the next user conversation or hourly heartbeat after 6pm (typically within an hour of the target, up to ~75 min if the session stays idle)
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification firing at `remind_at` via the one-shot `reminder-<page_id>` cron registered at intake; if that fails to fire, the `reminder-check` poll + startup + heartbeat path delivers as safety net (up to ~75 min late in the worst-idle case, which is why intake confirmations say "around 6pm")
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.

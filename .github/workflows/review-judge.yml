@@ -63,21 +63,21 @@ jobs:
       - name: Download all reviewer artifacts
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/reviewer-artifacts
+          path: ${{ runner.temp }}/reviewer-artifacts
           pattern: reviewer-*-${{ inputs.reviewed_sha }}
 
       - name: Download fix-result artifact
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/fix-result
+          path: ${{ runner.temp }}/fix-result
           name: fix-result-${{ inputs.reviewed_sha }}
 
       - name: Aggregate verdict
         id: aggregate
         env:
-          REVIEWER_DIR: /tmp/reviewer-artifacts
-          FIX_RESULT_PATH: /tmp/fix-result/fixer-result.json
-          VERDICT_OUTPUT_PATH: /tmp/verdict-${{ inputs.post_fix_sha }}.json
+          REVIEWER_DIR: ${{ runner.temp }}/reviewer-artifacts
+          FIX_RESULT_PATH: ${{ runner.temp }}/fix-result/fixer-result.json
+          VERDICT_OUTPUT_PATH: ${{ runner.temp }}/verdict-${{ inputs.post_fix_sha }}.json
         run: node .github/scripts/review/judge.mjs
 
       - name: Write verdict commit status
@@ -96,4 +96,4 @@ jobs:
         continue-on-error: true
         with:
           name: verdict-${{ inputs.post_fix_sha }}
-          path: /tmp/verdict-${{ inputs.post_fix_sha }}.json
+          path: ${{ runner.temp }}/verdict-${{ inputs.post_fix_sha }}.json

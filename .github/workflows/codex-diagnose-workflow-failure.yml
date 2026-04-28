@@ -21,7 +21,6 @@ on:
     workflows:
       - "PR Tests"
       - "Issue Resolution Agent"
-      - "Codex Code Review"
       - "Deploy to GitHub Pages"
       - "Review Coverage Evaluator"
     types:
@@ -77,7 +76,7 @@ jobs:
           fi
 
           # Skip diagnosis for THIS workflow only to avoid infinite loops
-          # Other Codex workflows (Issue Resolution Agent, Codex Code Review) should be diagnosed
+          # Other Codex workflows (Issue Resolution Agent) should be diagnosed
           if [[ "$WORKFLOW_NAME" == "Codex Diagnose Workflow Failure" ]]; then
             echo "Skipping diagnosis of diagnosis workflow to prevent infinite loops"
             echo "should_diagnose=false" >> $GITHUB_OUTPUT
@@ -177,9 +176,13 @@ jobs:
                 | tee /output/diagnose-output.jsonl
             '
 
-          # Copy output back to /tmp/ on the runner for upload-artifact.
-          mkdir -p /tmp
-          cp "$OUTPUT_STAGING/diagnose-output.jsonl" /tmp/diagnose-output.jsonl 2>/dev/null || true
+          # Copy output back to runner.temp for upload-artifact. Using
+          # runner.temp (owned by the runner user, cleaned between runs)
+          # avoids host UID mismatch + accumulation issues on
+          # self-hosted runners. Mirrors the fix in
+          # NickBorgers/home-automation#1029.
+          mkdir -p "${RUNNER_TEMP}"
+          cp "$OUTPUT_STAGING/diagnose-output.jsonl" "${RUNNER_TEMP}/diagnose-output.jsonl" 2>/dev/null || true
           rm -rf "$OUTPUT_STAGING"
 
       - name: Upload diagnosis output
@@ -188,7 +191,7 @@ jobs:
         continue-on-error: true
         with:
           name: workflow-diagnosis-output
-          path: /tmp/diagnose-output.jsonl
+          path: ${{ runner.temp }}/diagnose-output.jsonl
           retention-days: 7
 
       - name: Notify agent webhook

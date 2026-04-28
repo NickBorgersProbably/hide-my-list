@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/NickBorgersProbably/hide-my-list/.github/scripts/review/schema/reviewer-v1.json",
   "title": "Reviewer Artifact v1",
-  "description": "Structured output produced by a single reviewer role in the v2 review pipeline (Phase 0). This is the *internal* contract between reviewers and the read-only judge stage that aggregate.mjs implements; it does not yet replace the existing pipeline's final merge-decision outcome (GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO documented in docs/agentic-pipeline-learnings.md §1.4). The judge (aggregate.mjs) consumes ONLY these artifacts; it never reads PR comments or PR Reviews. Reviewers are responsible for ingesting inline PR comments via `gh api` and folding any blocking change requests into `blocking_issues[]` with `source: \"inline_comment\"`. Doc reconciliation (§1.4 / §1.5 / AGENTS.md Review Pipeline) lands in Phase 1 alongside the workflows that actually invoke this contract.",
+  "description": "Structured output produced by a single reviewer role in the review pipeline. This is the internal contract between reviewers and the read-only judge stage that aggregate.mjs implements. The judge consumes ONLY these artifacts; it never reads PR comments or PR Reviews. Reviewers are responsible for ingesting inline PR comments via `gh api` and folding any blocking change requests into `blocking_issues[]` with `source: \"inline_comment\"`. See docs/agentic-pipeline-learnings.md §1.4 + §1.5 for the full contract.",
   "type": "object",
   "additionalProperties": false,
   "required": [

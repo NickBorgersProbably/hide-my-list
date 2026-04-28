@@ -108,9 +108,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run agentic fixer in devcontainer
+      - name: Run Claude fixer in CI image
         id: run
-        uses: ./.github/actions/review-codex-run
+        uses: ./.github/actions/review-claude-run
         with:
           role: fixer
           prompt_path: .github/scripts/review/prompts/fixer.md
@@ -150,16 +150,6 @@ jobs:
       # the working tree unstaged and set new_sha to REVIEWED_SHA;
       # this step computes the real new_sha and patches it into the
       # artifact so the downstream push step reads a consistent SHA.
-
-      - name: Reset workspace ownership after container run
-        # The Codex fixer may run `sudo chown 1000:1000 /workspace`
-        # (the container's UID) to ensure it has write access. Because
-        # /workspace is bind-mounted from pr-head/ on the host, this
-        # changes pr-head/'s owner to UID 1000 on the host. Git then
-        # refuses to operate from pr-head/ as the runner (UID 1001),
-        # treating it as "dubious ownership". Reset ownership to the
-        # runner UID so subsequent git steps work correctly.
-        run: sudo chown -R "$(id -u):$(id -g)" "${{ env.PR_WORKSPACE_PATH }}"
 
       - name: Commit fixer working-tree changes
         id: commit

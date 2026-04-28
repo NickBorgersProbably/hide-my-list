@@ -14,10 +14,10 @@ description: >
     - psych:     unless config_only (pure CI/infrastructure config)
     - prompt:    unless config_only (pure CI/infrastructure config)
 
-  These mirror the conditions hardcoded across the current monolith's
-  reviewer jobs (lines ~520-552 + per-reviewer if:). Centralizing them
-  here means adding a new role is one matrix entry + one new prompt
-  file, with no scattered if-conditions to update.
+  These mirror the conditions enforced by the current review pipeline's
+  reviewer routing. Centralizing them here means adding a new role is
+  one matrix entry + one new prompt file, with no scattered
+  if-conditions to update.
 
   See agentic-pipeline-learnings.md §1.9 and §1.12: spec-critical
   and reviewer-prompt .md files must NOT be classified as inert docs
@@ -114,7 +114,6 @@ runs:
         is_security_routing_file() {
           case "$1" in
             .github/workflows/review-*.yml) return 0 ;;
-            .github/workflows/codex-code-review.yml) return 0 ;;
             .github/actions/review-classify/*) return 0 ;;
             .github/scripts/review/prompts/*.md) return 0 ;;
             .github/scripts/review/*.mjs) return 0 ;;

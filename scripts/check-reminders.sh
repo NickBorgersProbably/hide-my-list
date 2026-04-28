@@ -21,7 +21,9 @@
 # script is query-only and does NOT deliver reminders or update Notion statuses
 # itself.
 #
-# Reminder delivery is handled by the delivering agent sessions:
+# This script is the safety-net backstop for the primary one-shot reminder path
+# (reminder-<page_id> cron registered at intake, fires at exact remind_at).
+# Handoff-file delivery is handled by the delivering agent sessions:
 #   - Opportunistic main-session startup check (AGENTS.md step 5): when a user
 #     interacts, the main session checks for the handoff file and delivers any
 #     pending reminders immediately.
@@ -30,9 +32,11 @@
 #
 # The delivering session (heartbeat or main session) is responsible for:
 #   - Reading the handoff file payload and delivering each reminder to the user
+#   - After confirmed delivery: appending/updating `state.json.recent_outbound`
+#     with a short-lived reminder entry (type, page_id, title, status, sent_at,
+#     awaiting_response: true, expires_at) and pruning expired entries
 #   - Running `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to
-#     atomically set Notion `Status` and `Reminder Status` after confirmed
-#     delivery
+#     atomically set Notion `Status` and `Reminder Status`
 #   - Deleting the handoff file only after successful delivery and Notion
 #     updates (if delivery fails, leave the handoff file in place for retry)
 #

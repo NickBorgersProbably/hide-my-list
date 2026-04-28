@@ -53,7 +53,7 @@ NOT ACTIONS_FAILURE (do NOT create issue):
 DECISION LOGIC:
 - ACTIONS_FAILURE → create GitHub issue
 - TEST_FAILURE, CONFIG_FAILURE, INFRASTRUCTURE_FAILURE → no issue
-  (TEST/CONFIG handled by Codex Code Review workflow)
+  (TEST/CONFIG stay in originating workflow; no workflow-failure issue)
   (INFRASTRUCTURE = transient, self-resolves)
 
 IF ACTIONS_FAILURE:
@@ -104,7 +104,7 @@ ISSUE_BODY
 
 IF NOT ACTIONS_FAILURE, output:
 'DIAGNOSIS: [TEST_FAILURE|CONFIG_FAILURE|INFRASTRUCTURE_FAILURE] - No issue created.'
-TEST/CONFIG: 'This failure type is handled by the Codex Code Review workflow.'
+TEST/CONFIG: 'This failure type stays in the originating workflow. No workflow-failure issue created.'
 INFRASTRUCTURE: 'This is a transient external service issue that will self-resolve. No action needed.'
 
 Examine actual error messages in logs. Be thorough.

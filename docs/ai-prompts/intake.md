@@ -156,6 +156,35 @@ When detected:
 - Set urgency = 90 (reminders are inherently time-critical)
 - Work type and energy level are still inferred from the reminder content
 
+REMINDER PERSISTENCE (mandatory two-step):
+After `notion-cli.sh create-reminder` returns the Notion page object, register a
+one-shot OpenClaw cron in the SAME turn so the framework reminder-guard sees a
+successful cron add and suppresses its "Note: I did not schedule a reminder..."
+post-process. Skipping this step is the bug fix from issue #489 — the model
+never produces that note; OpenClaw's `agent-runner-reminder-guard` appends it
+when no cron was registered that turn.
+
+Call CronCreate with:
+- name = "reminder-<page_id>" using the page id returned by create-reminder
+- durable: true
+- deleteAfterRun: true
+- schedule: { kind: "at", at: "<remind_at ISO from above>" }
+- sessionTarget: main
+- model: litellm/<modelTiers.cheap value> (read from setup/openclaw.json.template)
+- payload.kind: agentTurn
+- payload.lightContext: false
+- timeout-seconds: 300
+- payload.message: the delivery prompt template documented in
+  `setup/cron/reminder-delivery.md` (Prompt section), with <PAGE_ID>
+  substituted in.
+
+If CronCreate fails: use degraded confirmation wording that does not promise exact
+timing (e.g., "Got it — I've saved your reminder; I'll check for it and send it
+your way"). Do not tell the user the reminder will arrive at an exact time — the
+reminder guard note may appear in this path since no cron add succeeded. The
+reminder is still saved in Notion; the backstop path catches it at the next
+15-min poll.
+
 Examples:
   "Remind me at 6pm PT to email Melanie" →
     is_reminder: true, remind_at: "2025-01-04T18:00:00-08:00", title: "Email Melanie availability"
@@ -165,6 +194,30 @@ Examples:
     current user-local time: `2026-04-18T20:27:00-05:00`
     "tomorrow" resolves to `2026-04-19` in user-local time
     is_reminder: true, remind_at: "2026-04-19T09:00:00-05:00", title: "Clean up boxes"
+
+RESCHEDULE FROM RECENT OUTBOUND CONTEXT:
+When `recent_outbound_context` contains an entry with `awaiting_response: true` and
+`type: "reminder"`, and the user message is a bare time reference or explicit reschedule
+phrase ("tomorrow at 9", "next week", "push it to 3pm", "later today"), treat as a
+reminder reschedule using the matched entry's title:
+
+- Set is_reminder = true
+- Use the matched `recent_outbound` entry's `title` as the task title (do not re-ask)
+- Parse the new time reference and convert to ISO 8601 with timezone offset (same rules as above)
+- Set urgency = 90
+- After saving: the matched `recent_outbound` entry must be cleared (set `awaiting_response: false` or remove the entry)
+- Register the new one-shot cron per REMINDER PERSISTENCE above. Pre-fire
+  reschedule (the prior reminder's Notion row is still Pending, e.g. user
+  changed their mind before it fired): also call `CronDelete name:
+  reminder-<old_page_id>` BEFORE creating the new cron, and run
+  `notion-cli.sh update-status <old_page_id> "Completed"` so the polling
+  backstop will not re-deliver the canceled reminder.
+
+Example:
+  recent_outbound entry: title "Call the dentist", awaiting_response: true
+  user says: "tomorrow at 9" →
+    is_reminder: true, title: "Call the dentist", remind_at: "<tomorrow 09:00 ISO>",
+    then clear matched recent_outbound entry
 
 OUTPUT (JSON):
 
@@ -206,6 +259,13 @@ If task is too vague and clarification_count < 3:
 CONFIRMATION MESSAGE FORMAT:
 - For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
 - For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
+- For reminders: "Got it — I'll remind you Wednesday evening to set up your video call software for therapy."
+
+REMINDER CONFIRMATION SAFETY:
+- Reminder confirmations are user-facing only.
+- Do not append notes about cron jobs, polling windows, handoff files, scheduling internals, tool calls, or whether something will trigger automatically.
+- Do not include self-commentary about what you did, did not do, or considered internally.
+- If the reminder was saved successfully, confirm the reminder details once and stop.
 
 IMPORTANT:
 - The user should always see specific next actions, never just "Added - focus work, ~30 min".
@@ -214,6 +274,7 @@ IMPORTANT:
 - Minimize questions. Minimize decisions. Infer aggressively and move forward.
 - If you must ask, ask ONE simple question. Never batch questions together.
 - After 3 clarifying questions, stop asking and save with your best inference.
+- Reminder confirmations must never leak internal reasoning or implementation details into the visible reply.
 ```
 
 ### Storage Decision Rules

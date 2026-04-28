@@ -1,6 +1,6 @@
 # hide-my-list CI agent image.
 #
-# Used EXCLUSIVELY by CI agent workflows (codex, codex-code-review,
+# Used EXCLUSIVELY by CI agent workflows (codex,
 # codex-diagnose-workflow-failure, review-coverage-evaluator,
 # review-reviewer, review-fixer). NOT the same image as
 # `.devcontainer/Dockerfile` — that one is for human IDE workflows.
@@ -106,6 +106,6 @@ RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused https://claude.ai/i
 # Install Codex CLI (pinned).
 RUN curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
         "https://github.com/openai/codex/releases/download/rust-v${CODEX_CLI_VERSION}/install.sh" \
-    | sh -s -- "${CODEX_CLI_VERSION}"
+    | sh -s -- --release "${CODEX_CLI_VERSION}"
 
 ENTRYPOINT ["/bin/bash"]

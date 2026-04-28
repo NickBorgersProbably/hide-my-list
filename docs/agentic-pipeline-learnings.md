@@ -14,12 +14,12 @@ Two meta-lessons:
 ## 1. Review Pipeline Architecture
 
 ### 1.1 Parallel review jobs are read-only; only dedicated single-writer stages push
-**Why:** Parallel reviewers with write access pushed fixes that retriggered pipeline and posted near-duplicate comments. Fan-out review jobs stay read-only; branch mutations limited to dedicated single-writer stages. v1: `fix-test-failures` (pre-review) + `merge-decision` (post-review). v2: `review-fixer.yml` only; judge/finalize stays read-only.
+**Why:** Parallel reviewers with write access pushed fixes that retriggered pipeline and posted near-duplicate comments. Fan-out review jobs stay read-only; branch mutations limited to dedicated single-writer stages — currently `review-fixer.yml` only; judge/finalize stays read-only.
 **Before:** Every reviewer round produced 3× redundant comments.
 **Evidence:** #70, #71, #274
 
 ### 1.2 Review progress state must live in durable GitHub state, not comments or workflow inputs
-**Why:** Comment-pagination counters broke past page 1; `workflow_dispatch` inputs reset to 0 on manual reruns. v1: PR-scoped state on labels (`review-cycle-*`, `*-started`) — survive reruns, visible to humans. v2: execution state on SHA-scoped commit statuses (`review/pipeline`, `review/*`, `review/cycle`) — keyed to immutable commits. Both versions: comments + workflow inputs = observability only, not authority.
+**Why:** Comment-pagination counters broke past page 1; `workflow_dispatch` inputs reset to 0 on manual reruns. Execution state lives on SHA-scoped commit statuses (`review/pipeline`, `review/*`, `review/cycle`) — keyed to immutable commits. Comments + workflow inputs = observability only, not authority.
 **Before:** Cycle counters silently reset, allowing infinite loops.
 **Evidence:** #182, #234, #303, #320
 
@@ -28,17 +28,26 @@ Two meta-lessons:
 **Before:** Single PR looped 4+ times as agents contradicted each other's prior fixes.
 **Evidence:** #303, #315, #301
 
-### 1.4 Merge-decision verdict shape (v1: three-state; v2: binary)
-**v1 (legacy `codex-code-review.yml`, active when `vars.REVIEW_PIPELINE_V2 != 'true'`):** Three states — GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO. Binary GO/NO-GO with auto-retrigger on every push burned ~18 LLM runs per PR even for typo fixes; three states let merge agent collapse unnecessary loops: clean merges skip re-review, reservations get one re-review cycle, no-go closes PR with follow-up issue.
-**v2 (new `review-entry.yml` graph, active when `vars.REVIEW_PIPELINE_V2 == 'true'`):** Two states — GO / NO-GO. Cost-control now structural: v2 fixer runs after reviewers + before judge; judge has `permissions: contents: read` and cannot push; fixer publishes new commit first then writes `review/pipeline` status immediately (GitHub rejects status for unpublished SHA). Re-review loops on finalized GO SHAs prevented by GO-only `All Required Agent Reviews = success` short-circuit at entry. NO-GO = human escalation: labels PR `needs-human-review`, posts one sticky comment, does **not** close PR or auto-create replacement issue (avoids lessons-learned-issue → new PR → NO-GO infinite loop). PR #343 introduces this; Phase 2/3 gate flip makes it active.
-**Before:** Pipeline cost dominated by trivial PRs re-reviewed end-to-end (v1). v2 solves at orchestration layer instead of verdict layer.
-**Evidence:** #315, #320, #322, #274 (v1); #336, #341, #342, #343 (v2)
+### 1.4 Merge-decision verdict shape: binary GO / NO-GO with category metadata
+**Why:** Two states — GO / NO-GO. Cost-control is structural: fixer runs after reviewers + before judge; judge has `permissions: contents: read` and cannot push; fixer publishes new commit first then writes `review/pipeline` status immediately (GitHub rejects status for unpublished SHA). Re-review loops on finalized GO SHAs prevented by GO-only `All Required Agent Reviews = success` short-circuit at entry. NO-GO = human escalation: labels PR `needs-human-review`, does **not** close PR or auto-create replacement issue (avoids lessons-learned-issue → new PR → NO-GO infinite loop).
 
-### 1.5 Inline review comments are blocking inputs (v1: judge reads them; v2: reviewers fold them in)
-**v1 (legacy `codex-code-review.yml`):** Merge-decision agent reads all inline PR comments via `gh api`, treats substantive change requests as blockers. Enforcement = "read every inline comment and apply judgment," not a resolution-state API check.
-**v2:** Judge (`.github/scripts/review/aggregate.mjs`) = deterministic Node script, no Codex, no git credentials, no PR API access — consumes ONLY structured reviewer JSON artifacts conforming to `schema/reviewer-v1.json`. To preserve blocking property: each reviewer ingests inline PR comments via `gh api repos/.../pulls/{n}/comments` inside its own prompt and folds blocking change requests into `blocking_issues[]` with `source: "inline_comment"`. Schema's `source` enum encodes this contract. Authority chain inverts (reviewer-side instead of judge-side), user-visible invariant identical: inline change request still blocks PR.
-**Before:** PRs auto-approved despite outstanding inline change requests (v1 root cause).
-**Evidence:** #143 (v1); #341, #342 (v2 schema + judge contract)
+Finalize contract (`review-finalize.yml` via `.github/scripts/review/render-finalize-comment.sh`): one per-cycle "Agent Review Summary" comment posted on every run. Comment shape branches on `category` metadata field — `aggregate.mjs` emits `go`, `reviewer_blockers`, or `pipeline_error`; `review-pipeline.yml` sets `cycle_capped` (cap-exhausted job) or `inherited` (merge-from-main no-content-delta job, see §1.14):
+- `go` — 🟢 GO header, five-row per-reviewer table with status emoji + hyperlink, no Next-step block.
+- `reviewer_blockers` — 🔴 NO-GO header, five-row table, Unaddressed blockers section with hyperlinked IDs, reviewer-blocker next-step guidance.
+- `pipeline_error` — ⚠️ NO-GO header, five-row table (offending row shows `⚠️ wrong sha (...)`), pipeline-bug next-step guidance.
+- `cycle_capped` — 🛑 NO-GO header, cycle history fetched from commit statuses, no per-reviewer table.
+- `inherited` — 🟢/🔴 GO/NO-GO (inherited) header, synthesized reason text only, no per-reviewer table or next-step block.
+
+Per-row state is post-fixer: each row cross-references the reviewer's `blocking_issues[]` IDs against `verdict.unaddressed_blocker_ids[]` (namespaced `<role>/<id>`) so a `request_changes` decision whose blockers were all addressed by the fixer renders as 🟢 fixed `N/N fixed`, not 🔴 changes. Partial fixes render as 🔴 changes `M/N open` with M = still-open count.
+
+`category` is messaging metadata only — not a third verdict state. Verdict remains strictly binary.
+**Historical context:** A previous three-state pipeline (GO-CLEAN / GO-WITH-RESERVATIONS / NO-GO) tried to collapse re-review loops at the verdict layer; the current pipeline solves the same cost problem at the orchestration layer instead, which is why two states suffice.
+**Evidence:** #315, #320, #322, #274, #336, #341, #342, #343
+
+### 1.5 Inline review comments are blocking inputs — reviewers fold them in
+**Why:** Judge (`.github/scripts/review/aggregate.mjs`) = deterministic Node script, no Codex, no git credentials, no PR API access — consumes ONLY structured reviewer JSON artifacts conforming to `schema/reviewer-v1.json`. To preserve blocking property: each reviewer ingests inline PR comments via `gh api repos/.../pulls/{n}/comments` inside its own prompt and folds blocking change requests into `blocking_issues[]` with `source: "inline_comment"`. Schema's `source` enum encodes this contract.
+**Before:** A predecessor pipeline auto-approved PRs despite outstanding inline change requests because its merge-decision agent read all comments and applied judgment instead of using a resolution-state contract; lesson preserved here so future judges keep the reviewer-side fold-in invariant.
+**Evidence:** #143, #341, #342
 
 ### 1.6 Manual re-trigger is a `/review` comment, not close/reopen
 **Why:** Close/reopen fired both `pull_request` trigger and `workflow_run` trigger; concurrency group cancelled one at random.
@@ -68,13 +77,13 @@ Two meta-lessons:
 **Evidence:** #320
 
 ### 1.11 Review-skip approvals must be SHA-bound, not PR-bound
-**Why:** PR-level marker like `agent-reviews-passed` can outlive the diff it described. Safe auto-skip rule is version-specific but always SHA-bound: v1 = current head SHA must carry same-SHA `All Required Agent Reviews = success` status from a `GO-CLEAN` decision; v2 = orchestrator must see reviewed SHA already claimed on `review/pipeline`, with corresponding `review/*` and `review/cycle` statuses describing that exact commit chain, and any branch mutation still flows only through `review-fixer.yml`. PR labels communicate history to humans but must not gate execution for later commits.
+**Why:** PR-level marker like `agent-reviews-passed` can outlive the diff it described. Safe auto-skip rule is always SHA-bound: orchestrator must see reviewed SHA already claimed on `review/pipeline`, with corresponding `review/*` and `review/cycle` statuses describing that exact commit chain, and any branch mutation still flows only through `review-fixer.yml`. PR labels communicate history to humans but must not gate execution for later commits.
 **Before:** New head commits inherited green aggregate review check without any stage evaluating updated diff.
 **Evidence:** #339, #338, #337
 
 ### 1.12 Security/infra review explicitly owns reviewer-routing regressions
 **Why:** Review-pipeline dispatch + classifier changes can silently narrow who reviews future PRs while workflow still "works." When PR touches classifier, dispatch, or gating logic, Security & Infrastructure reviewer must compare proposed routing against current pipeline behavior and flag unintended loss of specialist coverage. Regressions that drop coverage for prompt/spec files, including `.github/scripts/review/prompts/*.md`, are blocking unless explicitly documented. v2: review-orchestration files must force security review even when PR is otherwise workflow-only or config-only.
-**Before:** Reviewer prompt markdown under `.github/scripts/review/prompts/*.md` classified as config-only in v2, which would have skipped security, psych, and prompt review — no reviewer called it out.
+**Before:** Reviewer prompt markdown under `.github/scripts/review/prompts/*.md` classified as config-only, which would have skipped security, psych, and prompt review — no reviewer called it out.
 **Evidence:** #343, #349
 
 ### 1.13 Stop on GO, keep retrying on NO-GO: asymmetric cycle control
@@ -82,12 +91,28 @@ Two meta-lessons:
 
 Fix is split by verdict:
 
-- **GO cycle is terminal.** `review-entry.yml` refuses dispatch when reviewed SHA already carries `All Required Agent Reviews = success` commit status (written by `review-finalize.yml:76-95` on GO only). GO means pipeline is done with this SHA; fresh cycle would only rediscover drift from prior fixer. `/review` comments bypass check (`issue_comment` events are event-gated out) so humans can force re-review manually.
+- **GO cycle is terminal.** `review-entry.yml` refuses dispatch when reviewed SHA already carries `All Required Agent Reviews = success` commit status (written by `review-finalize.yml:167-186` on GO only). GO means pipeline is done with this SHA; fresh cycle would only rediscover drift from prior fixer. `/review` comments bypass check (`issue_comment` events are event-gated out) so humans can force re-review manually.
 - **NO-GO cycle retries.** `All Required Agent Reviews` status on NO-GO is `failure` — doesn't match GO-only short-circuit, so `synchronize` event from fixer's push continues into fresh cycle. Deliberate: NO-GO means "fixer could not address all blockers this round." Retry is bounded by `MAX` in `review-pipeline.yml` (currently `2`, i.e. up to one NO-GO retry). `cap-exhausted` on NO-GO correctly finalizes as NO-GO with `needs-human-review`; cycle 2 GO cleanly replaces cycle 1 NO-GO label.
 
 Why **not** just lower `MAX` to `1`: `cap-exhausted` hard-codes `verdict='NO-GO'` (`review-pipeline.yml:131`). With `MAX=1`, every cycle-1 GO would be followed by synchronize event firing cycle 2, which caps immediately and stamps NO-GO on current HEAD — clobbering cycle 1 GO. Safely lowering `MAX` to 1 would require rewriting `cap-exhausted` to inherit parent SHA's verdict, which duplicates what GO short-circuit already does more cheaply at entry layer. `MAX=1` would also remove NO-GO retry capability.
 **Before:** PR #397 posted three full Merge Decisions and ~15 reviewer comments for single docs-only PR already GO at cycle 1.
 **Evidence:** #397
+
+### 1.14 A cycle represents new PR content, not branch-HEAD churn
+**Why:** Cycle counter walks first-parents in `review-state` `read-cycle` (`.github/actions/review-state/action.yml`) and increments on each new HEAD SHA. But a `git merge main` into a PR branch creates a new HEAD that adds zero new PR-side content — it only absorbs main. Counting that as a fresh cycle pushes a PR with `cycle=2 GO` over `MAX=2` and into `cap-exhausted`, which invalidates the prior verdict. See §1.14 invariant: a cycle is consumed only when there is new PR content to review.
+
+Detection lives in `review-pipeline.yml` `gather` job: HEAD has 2+ parents AND `HEAD^2` is reachable from `origin/main` ⇒ inherit. The `inherit` job re-stamps the prior verdict on the new HEAD via `review-finalize.yml` with `skip_verdict_artifact: true` and a `synthesized_reason_text` indicating the inherit. Reviewers/fixer/judge are skipped via additional `inherited != 'true'` guards alongside the existing `capped != 'true'` guards.
+
+This is **not** the same problem as §1.13's GO short-circuit. §1.13 prevents redundant pipeline runs after a GO; §1.14 handles the case where main has moved and the PR resyncs but does not add content — `review-entry.yml`'s GO short-circuit can't fire because the new HEAD has no `All Required Agent Reviews = success` of its own yet. Both rules together: a PR that has converged stays converged across both no-op pushes (§1.13) and clean main resyncs (§1.14).
+**Evidence:** PR #477
+
+### 1.15 Terminal NO-GO paths must finalize labels and the merge-gate status without depending on judge artifacts
+**Why:** `review-finalize.yml`'s `Download verdict artifact` step (`name: verdict-${sha}`) only finds an artifact when the judge has run. Cap-exhausted (§1.14) and inherit-on-merge-from-main bypass the judge entirely, so the artifact does not exist on those paths; an unconditional download fails the job before the label/status work runs. Result before fix: PR ends with `agent-reviews-passed` label still set (cycle 2 GO) AND no `All Required Agent Reviews` status on HEAD — branch protection blocks but the PR's labels look green, exactly the inconsistent state surfaced by PR #477.
+
+Contract: any pipeline-exit path that calls `review-finalize.yml` without a `verdict-${sha}` artifact must pass `skip_verdict_artifact: true` so finalize can synthesize REASONS inline. The two paths render differently: the `inherited` path passes `synthesized_reason_text` with an inherit message, which `render-finalize-comment.sh` renders as the comment body; the `cycle_capped` path does not pass `synthesized_reason_text` — `render-finalize-comment.sh` renders cycle history and a next-steps block instead. Both cap-exhausted and inherit jobs in `review-pipeline.yml` follow this contract.
+
+Single-writer rule from §1.1 still holds: label transitions and the `All Required Agent Reviews` status are still written exclusively from `review-finalize.yml`. `skip_verdict_artifact` is a parameterization, not a duplicate writer.
+**Evidence:** PR #477
 
 ---
 
@@ -97,10 +122,10 @@ Why **not** just lower `MAX` to `1`: `cap-exhausted` hard-codes `verdict='NO-GO'
 **Why:** Docker silently fails when bind-mount source path doesn't exist. Any workflow mounting host config dirs into devcontainer should `mkdir -p` those paths first. Current Codex review pipeline does this for `~/.config/gh`, `~/.claude`, `~/.codex`; future workflows adding same mounts need same guard.
 **Evidence:** #77, #78
 
-### 2.2 Don't make CI reviewer containers depend on forwarded Anthropic/OAuth credentials
-**Why:** Stable pattern = run review jobs through baked container config, pass only minimal runtime env needed. Today's Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}`; they do not rely on `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` passthrough.
-**Before:** Earlier iterations tried to forward LLM auth env vars directly, failed in confusing ways when container runtime forwarding differed from expectations.
-**Evidence:** #90, #100
+### 2.2 Pass only the active tool's minimal auth env into CI containers
+**Why:** Stable pattern = run review jobs through baked container config, pass only the runtime env the selected CLI actually reads. Current split: Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}`; Claude fixer jobs forward `ANTHROPIC_API_KEY=fake-key`, `ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`, and `GH_TOKEN=${WORKFLOW_PAT}`. Neither path should depend on OAuth/keychain passthrough.
+**Before:** Earlier iterations tried to forward unused or mismatched LLM auth env vars directly, failed in confusing ways when container runtime forwarding differed from expectations.
+**Evidence:** #90, #100, #475
 
 ### 2.3 Use `WORKFLOW_PAT` as `GH_TOKEN` for `gh` inside devcontainers
 **Why:** `github.token` doesn't authenticate `gh pr comment` from inside `devcontainers/ci@v0.3` container on self-hosted runners.
@@ -115,9 +140,11 @@ Why **not** just lower `MAX` to `1`: `cap-exhausted` hard-codes `verdict='NO-GO'
 **Why:** BuildKit's default attestations can produce OCI manifest lists without valid platform metadata, breaking `docker push`. If current image-push path needs `BUILDX_NO_DEFAULT_ATTESTATIONS=1`, set it explicitly in workflow code rather than docs only.
 **Evidence:** #133
 
-### 2.6 Use the custom `run-devcontainer` action for run steps; reserve `devcontainers/ci@v0.3` for build-and-push only
-**Why:** `devcontainers/ci@v0.3` hit post-step cleanup crash on self-hosted runners. Repo avoids this by building/pushing with `devcontainers/ci@v0.3`, then running commands through `.github/actions/run-devcontainer/action.yml`, which uses `@devcontainers/cli up/exec` directly.
-**Evidence:** #179
+### 2.6 Run steps go through purpose-built composites against the right base image
+**Why:** `devcontainers/ci@v0.3` hit post-step cleanup crash on self-hosted runners. Two stable patterns:
+- **Non-review workflows** — build/push with `devcontainers/ci@v0.3`, then run via `.github/actions/run-devcontainer/action.yml` (uses `@devcontainers/cli up/exec` directly).
+- **Review pipeline v2** — direct-`docker run` against the dedicated CI image (`.github/ci/Dockerfile`) via `.github/actions/review-codex-run` (read-only reviewers) and `.github/actions/review-claude-run` (single-writer fixer). The CI image is purpose-built for agent jobs and avoids the devcontainer's shared-socket fragility.
+**Evidence:** #179, #475
 
 ### 2.7 Bake the Codex CLI into the Dockerfile; route models via LiteLLM with explicit `CODEX_MODEL`
 **Why:** Runtime CLI downloads stalled on slow networks; missing model defaults caused fallback to mismatched models. Downgrading three of six review stages to `gpt-5-mini` cut review cost ~45% with no measurable quality loss.

@@ -102,6 +102,28 @@ print(json.dumps(result))
 " 2>/dev/null || echo '[]'
 }
 
+# Distinguish real merge conflicts from transport/auth/etc. pull failures.
+# Dirty-pull recovery only applies when there is local state to preserve before
+# resetting the repo; clean-worktree pull errors should leave the checkout alone.
+pull_failure_is_merge_conflict() {
+    local pull_output="$1"
+    local conflicting="$2"
+
+    if [ -n "$conflicting" ]; then
+        return 0
+    fi
+
+    if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if printf '%s\n' "$pull_output" | grep -Eq '(^|[[:space:]])CONFLICT([[:space:]]|:)|Automatic merge failed'; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Write the .pull-dirty signal file.
 # All values passed via environment to avoid shell injection in heredocs.
 write_signal() {
@@ -327,9 +349,17 @@ if [ "$pull_exit" -eq 0 ]; then
     exit 0
 fi
 
-# 3. Pull failed — likely a merge conflict
-# Capture conflicting files before aborting
+# 3. Pull failed — only recover if it is an actual merge conflict
+# Capture conflicting files before deciding whether dirty-pull recovery applies.
 conflicting=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
+
+if ! pull_failure_is_merge_conflict "$pull_output" "$conflicting"; then
+    printf '%s\n%s\n' \
+        "git pull failed without merge-conflict markers; leaving workspace untouched" \
+        "$pull_output" >&2
+    exit 0
+fi
+
 merge_base=$(git merge-base HEAD origin/main 2>/dev/null || true)
 local_commits=""
 local_diff=""
@@ -340,7 +370,9 @@ if [ -n "$merge_base" ]; then
 fi
 
 # Abort the failed merge to restore a usable state
-git merge --abort 2>/dev/null || true
+if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    git merge --abort 2>/dev/null || true
+fi
 
 # Build extra fields for the signal — single python3 call for both values
 extra_json=$(PULL_OUTPUT="$pull_output" CONFLICTING="$conflicting" LOCAL_COMMITS="$local_commits" LOCAL_DIFF="$local_diff" python3 -c "

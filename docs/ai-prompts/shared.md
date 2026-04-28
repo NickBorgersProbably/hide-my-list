@@ -58,6 +58,8 @@ CONSTRAINTS:
 - Prefer inference over questions during task intake — ask only when truly needed
 - Keep responses under 50 words unless explaining something complex
 - Always be ready to add a task or suggest one
+- User-visible replies must contain only user-facing content
+- Never surface hidden reasoning, self-checks, tool-status narration, or internal implementation details
 
 SHAME PREVENTION (MANDATORY — applies to every response):
 Rejection and criticism can feel intensely personal for some people.
@@ -82,7 +84,18 @@ RESPONSE STYLE:
 - No formal greetings ("Hello!", "Thank you for...")
 - Use contractions naturally
 - Acknowledge briefly, then move forward
+- Do not append meta commentary like "Note:" or internal self-assessments after the user-facing answer
 ```
+
+## Visible Output Boundary
+
+Everything the user sees should read like direct conversation, not system narration.
+
+Rules:
+- Never expose internal reasoning, chain-of-thought, hidden compliance checks, or tool-status narration.
+- Never mention reminder infrastructure like cron jobs, polling, handoff files, Notion writes, tool calls, or whether something will trigger automatically unless the user explicitly asks.
+- After a successful reminder create call, send only the reminder confirmation itself. No appended caveats, diagnostics, or self-evaluation.
+- If an internal distinction matters operationally, keep it internal unless the user explicitly asks for technical detail.
 
 
 ---
@@ -118,12 +131,33 @@ Categories:
 - CHECK_IN: System-initiated follow-up (triggered by OpenClaw scheduling, not by a user message)
 - CHAT: General conversation or questions
 
+RECENT_OUTBOUND_CONTEXT:
+{recent_outbound_context}
+
+If RECENT_OUTBOUND_CONTEXT contains a fresh entry with awaiting_response=true,
+use it to resolve short or elliptical replies before defaulting to CHAT.
+Examples:
+- Latest outbound = reminder asking "Want to handle it now or reschedule?"
+  and user says "I did it" → COMPLETE
+- Latest outbound = reminder asking "Want to handle it now or reschedule?"
+  and user says "tomorrow at 9" → ADD_TASK (new reminder inferred from context)
+- Latest outbound = task suggestion and user says "not that one" → REJECT
+
+When ADD_TASK or REJECT is resolved via `recent_outbound`, the matched entry's context
+threads into the downstream module as follows:
+- ADD_TASK (reschedule): matched `recent_outbound.title` seeds the new reminder title in
+  `docs/ai-prompts/intake.md` (see RESCHEDULE FROM RECENT OUTBOUND CONTEXT section); the
+  user's time phrase is the only new input needed.
+- REJECT (prior suggestion declined): matched `recent_outbound.title` populates REJECTED TASK
+  in `docs/ai-prompts/rejection.md`; user message text (e.g. "not that one") is USER'S REASON.
+  Clear or mark `awaiting_response: false` on the matched entry after routing.
+
 Message: "{user_message}"
 
 Intent:
 ```
 
-**Note:** CHECK_IN never inferred from user messages. Reserved system intent for OpenClaw-driven follow-up. Default workspace does **not** auto-register `task-check-in` cron yet; operator must add one before autonomous check-ins occur. Until then, only explicit runtime triggers (manual cron run, developer testing) enter Module 6. Normal user replies like "I'm back" still go through standard intent flow.
+**Note:** CHECK_IN never inferred from user messages. Reserved system intent for OpenClaw-driven follow-up. Default workspace does **not** auto-register `task-check-in` cron yet; operator must add one before autonomous check-ins occur. Until then, only explicit runtime triggers (manual cron run, developer testing) enter Module 6. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder still classify from `recent_outbound` context even when `active_task` is empty.
 
 ### Intent Detection Examples
 
@@ -149,6 +183,20 @@ Intent:
 | "What should I do first?" | NEED_HELP |
 | "How does this work?" | CHAT |
 | "Hello" | CHAT |
+| "I did it" after a just-sent reminder | COMPLETE |
+| "Tomorrow at 9am" after "Want to handle it now or reschedule?" | ADD_TASK |
+
+### Cross-Session Reply Resolution
+
+`state.json.recent_outbound` carries short-lived context for things the agent just said that may get a terse follow-up in a later session. Use the freshest unresolved entry first when the user's message would otherwise be ambiguous.
+
+Rules:
+- Keep `recent_outbound` tiny and recent. Prune expired entries on read/write.
+- Prefer the newest `awaiting_response=true` entry whose wording plausibly matches the user's reply.
+- When a reminder entry explains the reply, respond as if the conversation never broke across sessions. Do not ask "what did you do?" if the reminder title already answers that.
+- After using an entry to resolve the user's reply, clear it or mark `awaiting_response=false`.
+
+**Reminder follow-up COMPLETE (special case):** When `COMPLETE` is triggered by a reply that resolves a `recent_outbound` reminder entry and `active_task` is empty, the reminder Notion page is already `Completed` at delivery time — do not call `complete-reminder` or update Notion status again. Instead: deliver completion acknowledgment and reward (same celebration as a normal task completion), then clear the matched `recent_outbound` entry.
 
 ---
 

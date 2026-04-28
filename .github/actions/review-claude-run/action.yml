@@ -1,15 +1,15 @@
 ---
-name: Run a Codex review prompt in the CI image
+name: Run a Claude review prompt in the CI image
 description: >
-  Wraps Codex CLI invocation for the v2 review pipeline. Reads the
-  reviewer (or fixer) prompt from a standalone markdown file at the
-  given path — the prompt is NEVER inlined into YAML, so editing a
-  prompt is a normal markdown diff with no escaping concerns.
+  Wraps Claude Code invocation for the v2 review pipeline fixer. Reads
+  the fixer prompt from a standalone markdown file at the given path —
+  the prompt is NEVER inlined into YAML, so editing a prompt is a
+  normal markdown diff with no escaping concerns.
 
-  Captures Codex output to <workspace>/.review-output/<role>-output.jsonl
+  Captures Claude output to <workspace>/.review-output/<role>-output.jsonl
   and expects the inner prompt to write a structured JSON artifact at
   <workspace>/.review-output/<role>-result.json (the caller is
-  responsible for validating that JSON against the schema).
+  responsible for validating that JSON against the expected schema).
 
   This action spawns `docker run` directly against the CI image
   (.github/ci/Dockerfile → ghcr.io/nickborgersprobably/hide-my-list-ci:latest),
@@ -23,7 +23,7 @@ description: >
 
 inputs:
   role:
-    description: 'Role label used in artifact filenames (e.g. "design", "fixer")'
+    description: 'Role label used in artifact filenames (for example "fixer")'
     required: true
   prompt_path:
     description: Repo-relative path to the standalone prompt markdown file (relative to workspace_folder)
@@ -38,8 +38,9 @@ inputs:
       $GITHUB_WORKSPACE. This is what the container sees as /workspace.
     required: true
   pr_number:
-    description: PR number being reviewed
-    required: true
+    description: PR number being reviewed. Empty disables the PR metadata lookup.
+    required: false
+    default: ''
   reviewed_sha:
     description: Frozen reviewed SHA (40-char hex)
     required: true
@@ -47,9 +48,9 @@ inputs:
     description: Pipeline cycle number for this run
     required: true
   read_only:
-    description: '"true" forbids tools that write to disk or call git push'
+    description: Compatibility input with review-codex-run. The fixer passes "false".
     required: false
-    default: 'true'
+    default: 'false'
   workflow_pat:
     description: PAT used as GH_TOKEN inside the container (rule 2.3)
     required: true
@@ -64,7 +65,7 @@ inputs:
 
 outputs:
   output_artifact:
-    description: Host path to the captured Codex output JSONL
+    description: Host path to the captured Claude output JSONL
     value: ${{ steps.paths.outputs.output_artifact }}
   result_json:
     description: Host path to the structured JSON artifact the prompt wrote
@@ -79,21 +80,6 @@ runs:
         WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
       run: |
         set -euo pipefail
-        # Codex writes its result JSON to a path inside the workspace
-        # folder. Because the workspace is bind-mounted into the
-        # container (via -v $GITHUB_WORKSPACE:/workspace), files written
-        # there from inside the container are visible to subsequent host
-        # steps for upload-artifact and schema validation.
-        #
-        # chmod 777: the runner user (typically UID 1001) creates this
-        # directory, but the container writes to it as the `ci` user
-        # (UID 1000). Without world-write, every reviewer fails with
-        # `PermissionError: [Errno 13] Permission denied:
-        # '.review-output/<role>-result.json'` — see the docs reviewer
-        # log on https://github.com/NickBorgersProbably/hide-my-list/actions/runs/24295328532.
-        # Agents improvise around the permission denial with sudo,
-        # which works on the image (NOPASSWD) but compounds shell
-        # escaping issues and still fails the verify step.
         OUTPUT_DIR="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
         mkdir -p "$OUTPUT_DIR"
         chmod 777 "$OUTPUT_DIR"
@@ -121,12 +107,16 @@ runs:
         PR_NUMBER: ${{ inputs.pr_number }}
       run: |
         set -euo pipefail
-        # Fetch current PR title and body so reviewers evaluate against
-        # up-to-date metadata, not whatever was set at push time.
-        PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
-        PR_TITLE=$(echo "$PR_JSON" | jq -r '.title // ""')
-        PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
-        # Base64 encode to avoid env-file escaping issues with newlines
+
+        if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "0" ]; then
+          PR_TITLE=""
+          PR_BODY=""
+        else
+          PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+          PR_TITLE=$(echo "$PR_JSON" | jq -r '.title // ""')
+          PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
+        fi
+
         echo "pr_title_b64=$(printf '%s' "$PR_TITLE" | base64 -w0)" >> "$GITHUB_OUTPUT"
         echo "pr_body_b64=$(printf '%s' "$PR_BODY" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
@@ -147,16 +137,12 @@ runs:
         PR_BODY_B64: ${{ steps.pr-meta.outputs.pr_body_b64 }}
       run: |
         set -euo pipefail
-        # Stage the env file under $RUNNER_TEMP so --env-file can read it.
-        # (It's client-side in docker, so it only needs to be runner-
-        # visible, but keeping it under $RUNNER_TEMP is consistent with
-        # the other staging files and survives any future daemon-side
-        # requirements.)
         STAGING_DIR="${RUNNER_TEMP:-/tmp}/ci-agent"
         mkdir -p "$STAGING_DIR"
         ENV_FILE="$(mktemp "${STAGING_DIR}/env.XXXXXX")"
         cat > "$ENV_FILE" <<EOF
-        OPENAI_API_KEY=fake-key
+        ANTHROPIC_API_KEY=fake-key
+        ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
         GH_TOKEN=${WORKFLOW_PAT}
         REVIEW_ROLE=${ROLE}
         REVIEW_PROMPT_PATH=${PROMPT_PATH}
@@ -170,14 +156,13 @@ runs:
         PR_TITLE_B64=${PR_TITLE_B64}
         PR_BODY_B64=${PR_BODY_B64}
         EOF
-        # Append caller-supplied extras, stripping blank/comment lines.
         if [ -n "$EXTRA_ENV" ]; then
           printf '%s\n' "$EXTRA_ENV" | grep -Ev '^\s*(#|$)' >> "$ENV_FILE" || true
         fi
         chmod 600 "$ENV_FILE"
         echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
 
-    - name: Run Codex prompt
+    - name: Run Claude prompt
       shell: bash
       env:
         CI_AGENT_IMAGE: ${{ inputs.image }}
@@ -187,28 +172,8 @@ runs:
         set -euo pipefail
 
         WORKSPACE_HOST="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}"
-        # run-in-container.sh lives in the main (action) checkout, not the PR
-        # branch. Mount it separately so PRs that predate the script can find
-        # it. PR workspace is mounted rw at /workspace; script is ro at /.
-        CONTAINER_SCRIPT="${GITHUB_WORKSPACE}/.github/actions/review-codex-run/run-in-container.sh"
+        CONTAINER_SCRIPT="${GITHUB_WORKSPACE}/.github/actions/review-claude-run/run-in-container.sh"
 
-        # --network host: lets the container reach LiteLLM via the
-        # runner's Tailscale connection.
-        # -v workspace: the PR checkout. The container writes its
-        # output JSON to .review-output/ inside this workspace; the
-        # workspace is bind-mounted from host → runner already (via
-        # /tmp/runner-work), so files land at a path the subsequent
-        # validate / publish / upload-artifact steps can read.
-        # GIT_CONFIG_COUNT / GIT_CONFIG_KEY_* / GIT_CONFIG_VALUE_*:
-        # tell git inside the container to trust /workspace as a
-        # safe.directory without needing to write any config files.
-        # The bind-mounted `.git/` is owned by the runner user
-        # (UID 1001) while the container runs as `ci` (UID 1000);
-        # without this env, every `git status` / `git diff` / etc.
-        # inside the container errors with "detected dubious
-        # ownership" and the agent wastes turns improvising a
-        # workaround. Env-config is read-only and ephemeral, so
-        # it leaves no trace in the workspace.
         docker run --rm \
           --network host \
           --workdir /workspace \
@@ -257,9 +222,6 @@ runs:
         WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
       run: |
         set -euo pipefail
-        # Emit absolute host paths so downstream host steps (validate,
-        # publish, upload-artifact) can locate the files the container
-        # wrote into the workspace bind-mount.
         BASE="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
         {
           echo "output_artifact=${BASE}/${ROLE}-output.jsonl"
