@@ -14,7 +14,7 @@ CronCreate:
   payload:
     kind: agentTurn
     lightContext: true  # empty bootstrap — cron prompt is self-contained
-  timeout-seconds: 300
+  timeout-seconds: 600
 ```
 
 Isolated cheap-tier maintenance session (see `modelTiers` in `setup/openclaw.json.template`). Executes `scripts/pull-main.sh`, stays silent (`NO_REPLY`). Cron spec re-application after pulls handled by heartbeat drift correction (`docs/heartbeat-checks.md` Check 2b), not this job — isolated session can't reliably call CronList/CronUpdate.
@@ -22,21 +22,8 @@ Isolated cheap-tier maintenance session (see `modelTiers` in `setup/openclaw.jso
 ## Prompt
 
 ```
-Before running the script, record the current HEAD commit:
-
-  BEFORE_HEAD=$(git rev-parse HEAD)
-
 Run scripts/pull-main.sh.
-
-If `.pull-dirty` exists afterward, reply with ONLY: NO_REPLY.
-
-After a successful run, record the current HEAD commit again:
-
-  AFTER_HEAD=$(git rev-parse HEAD)
-
-If `BEFORE_HEAD` and `AFTER_HEAD` are the same, reply with ONLY: NO_REPLY.
-
-If `HEAD` advanced during this invocation, reply with ONLY: NO_REPLY.
+Reply with ONLY: NO_REPLY
 ```
 
 ## Notes
