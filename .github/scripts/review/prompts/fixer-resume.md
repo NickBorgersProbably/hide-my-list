@@ -64,9 +64,12 @@ For each reviewer blocker, decide:
 4. Apply real-blocker fixes at the level you originally decided. If a
    group of files needs the same change, apply uniformly — no per-file
    improvisation.
-5. For misreads: edit the PR body via `gh pr edit ${PR_NUMBER} --body
-   "..."` to clarify intent. Start from the decoded current PR body.
-   Preserve both of the following exactly as they appear:
+5. For misreads: decode the current PR body to a temp file, edit that
+   file to clarify intent, then run
+   `gh pr edit ${PR_NUMBER} --body-file "$BODY_FILE"` so markdown,
+   backticks, and `$VAR` references are passed verbatim without shell
+   reinterpretation. Preserve both of the following exactly as they
+   appear in the file:
    - An issue-closing line of the form `Resolves #N`, `Fixes #N`, or
      `Closes #N` on its own line — `review-fixer.yml` parses this to
      recover the issue number for session-dir lookup; dropping it

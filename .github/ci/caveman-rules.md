@@ -1,6 +1,6 @@
 <!-- Canonical CI-only caveman rules.
      Derived from JuliusBrussee/caveman v1.5.1 full mode.
-     review-codex-run and review-claude-run validate this header against CAVEMAN_VERSION in .github/ci/versions.env. -->
+     review-codex-run, review-claude-run, review-codex-resume, and review-claude-resume validate this header against CAVEMAN_VERSION in .github/ci/versions.env. -->
 
 # CI Caveman Rules
 

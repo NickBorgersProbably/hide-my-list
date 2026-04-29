@@ -144,10 +144,10 @@ jobs:
           SESSION_HOST_DIR=""
           if [ -n "$AGENT" ] && [ -n "$RUN_ID" ] && [ -n "$ISSUE_NUM" ]; then
             SESSION_HOST_DIR=$(./scripts/ci-session-store.sh host-dir "$AGENT" "$ISSUE_NUM" "$RUN_ID")
-            if [ -d "$SESSION_HOST_DIR" ] && [ -n "$(ls -A "$SESSION_HOST_DIR" 2>/dev/null)" ]; then
+            if ./scripts/ci-session-store.sh validate "$AGENT" "$ISSUE_NUM" "$RUN_ID" 2>/dev/null; then
               MODE="${AGENT}-resume"
             else
-              echo "::warning::Author-Session trailer present (${AGENT}/${RUN_ID} for #${ISSUE_NUM}) but session dir missing or empty: ${SESSION_HOST_DIR}; falling back to fresh Claude"
+              echo "::warning::Author-Session trailer present (${AGENT}/${RUN_ID} for #${ISSUE_NUM}) but session validation failed: ${SESSION_HOST_DIR}; falling back to fresh Claude"
               SESSION_HOST_DIR=""
             fi
           fi

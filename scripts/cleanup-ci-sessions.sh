@@ -58,12 +58,14 @@ while IFS= read -r run_dir; do
 
   # Determine PR state for the issue. Search by closing keywords;
   # match the same heuristic resolve-issue uses to find duplicate PRs.
+  # Preserve when ANY matching PR is OPEN — .[0] alone can be a closed
+  # stale PR when a newer open PR also references the same issue.
   pr_state=$(gh pr list \
     --repo "$REPO" \
     --state all \
     --search "Resolves #${issue} OR Fixes #${issue} OR Closes #${issue}" \
     --json state \
-    --jq '.[0].state // "NONE"' 2>/dev/null || echo "NONE")
+    --jq 'if any(.[]; .state == "OPEN") then "OPEN" else (.[0].state // "NONE") end' 2>/dev/null || echo "NONE")
 
   if [ "$pr_state" = "OPEN" ]; then
     skipped=$((skipped + 1))
