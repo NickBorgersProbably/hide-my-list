@@ -94,7 +94,7 @@ Fix is split by verdict:
 - **GO cycle is terminal.** `review-entry.yml` refuses dispatch when reviewed SHA already carries `All Required Agent Reviews = success` commit status (written by `review-finalize.yml:167-186` on GO only). GO means pipeline is done with this SHA; fresh cycle would only rediscover drift from prior fixer. `/review` comments bypass check (`issue_comment` events are event-gated out) so humans can force re-review manually.
 - **NO-GO cycle retries.** `All Required Agent Reviews` status on NO-GO is `failure` — doesn't match GO-only short-circuit, so `synchronize` event from fixer's push continues into fresh cycle. Deliberate: NO-GO means "fixer could not address all blockers this round." Retry is bounded by `MAX` in `review-pipeline.yml` (currently `2`, i.e. up to one NO-GO retry). `cap-exhausted` on NO-GO correctly finalizes as NO-GO with `needs-human-review`; cycle 2 GO cleanly replaces cycle 1 NO-GO label.
 
-Why **not** just lower `MAX` to `1`: `cap-exhausted` hard-codes `verdict='NO-GO'` (`review-pipeline.yml:131`). With `MAX=1`, every cycle-1 GO would be followed by synchronize event firing cycle 2, which caps immediately and stamps NO-GO on current HEAD — clobbering cycle 1 GO. Safely lowering `MAX` to 1 would require rewriting `cap-exhausted` to inherit parent SHA's verdict, which duplicates what GO short-circuit already does more cheaply at entry layer. `MAX=1` would also remove NO-GO retry capability.
+Why **not** just lower `MAX` to `1`: `cap-exhausted` hard-codes `verdict='NO-GO'` (the `cap-exhausted` job in `review-pipeline.yml`, currently lines 239–250). With `MAX=1`, every cycle-1 GO would be followed by synchronize event firing cycle 2, which caps immediately and stamps NO-GO on current HEAD — clobbering cycle 1 GO. Safely lowering `MAX` to 1 would require rewriting `cap-exhausted` to inherit parent SHA's verdict, which duplicates what GO short-circuit already does more cheaply at entry layer. `MAX=1` would also remove NO-GO retry capability.
 **Before:** PR #397 posted three full Merge Decisions and ~15 reviewer comments for single docs-only PR already GO at cycle 1.
 **Evidence:** #397
 
@@ -113,6 +113,15 @@ Contract: any pipeline-exit path that calls `review-finalize.yml` without a `ver
 
 Single-writer rule from §1.1 still holds: label transitions and the `All Required Agent Reviews` status are still written exclusively from `review-finalize.yml`. `skip_verdict_artifact` is a parameterization, not a duplicate writer.
 **Evidence:** PR #477
+
+### 1.16 Human commits on top of a converged GO reset the cycle counter
+**Why:** `MAX` in `review-pipeline.yml` bounds the number of cycles the **fixer** gets on a PR whose cycle 1 did not converge (§1.13). It is sized for fixer-retry stagnation, not for contributor follow-up. But `read-cycle` walks first-parents and increments on each new HEAD regardless of authorship, so a contributor pushing a small fix on top of a `cycle=2 GO` arrives at `next=3 > MAX=2` and gets a `cycle_capped` terminal NO-GO without any reviewer ever running on the new content. The `review-entry.yml` GO short-circuit (§1.13) does not save them: it only matches the **exact** GO SHA, not a descendant.
+
+Detection lives in `review-pipeline.yml` `gather` job: read the git author email of HEAD via `gh api`; if it is not the fixer (`ci@hide-my-list.local`, set in `review-fixer.yml`) AND `read-cycle`'s `cycle_sha` carries `review/verdict = GO`, set `reset=true`. The `Compute next cycle` step then stamps `cycle=1` instead of `prior+1`, giving the new commit a fresh budget of cycle 1 + one fixer retry. Reviewers, fixer, and judge all run normally — only the counter resets. The `cap-exhausted` NO-GO scenario is preserved because its `cycle_sha` carries `review/verdict = NO-GO`, so the reset never fires after a cap-exhausted state.
+
+This is **not** the same problem as §1.14's merge-from-main inherit. §1.14 covers commits with **zero PR-side content delta** and skips the pipeline entirely. §1.16 covers commits with **real new content** that should be reviewed; the only thing it skips is the cycle bill against the fixer-retry budget. Together: §1.13 short-circuits the exact GO SHA, §1.14 inherits clean main resyncs, §1.16 lets contributors edit a converged PR without bricking it.
+**Before:** PR #492 — local push on top of cycle 2 GO immediately tripped `cycle_capped`, requiring an admin-merge or force-push to recover.
+**Evidence:** PR #492
 
 ---
 
