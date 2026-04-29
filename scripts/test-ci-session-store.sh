@@ -77,8 +77,26 @@ assert_eq "prepare chmods 0777" "777" "$PERM"
 
 # --- validate ---
 assert_exit "validate empty dir fails" 1 "$HELPER" validate codex 100 200
-echo "session-data" > "$DIR/marker"
-assert_exit "validate populated dir succeeds" 0 "$HELPER" validate codex 100 200
+
+# A bare config.toml (which configure-codex.sh writes before any conversation
+# happens) is non-empty but not resumable. The codex-specific check rejects
+# config-only dirs so the fixer falls back to fresh Claude rather than starting
+# a new thread under the resume contract.
+echo 'model = "x"' > "$DIR/config.toml"
+assert_exit "validate codex config-only dir fails" 1 "$HELPER" validate codex 100 200
+
+# Real codex sessions live under sessions/. Seed that to mark the dir resumable.
+mkdir -p "$DIR/sessions"
+echo "session-data" > "$DIR/sessions/2026-01-01.jsonl"
+assert_exit "validate codex populated dir succeeds" 0 "$HELPER" validate codex 100 200
+
+# Claude validate has no sessions/ requirement — any non-empty dir suffices,
+# since claude --continue picks up state from whatever ~/.claude layout the CLI
+# wrote, not from a known-named subdir.
+CLAUDE_DIR="$("$HELPER" prepare claude 100 200)"
+echo "anything" > "$CLAUDE_DIR/projects.placeholder"
+assert_exit "validate claude populated dir succeeds" 0 "$HELPER" validate claude 100 200
+
 assert_exit "validate missing dir fails" 1 "$HELPER" validate codex 999 999
 
 # --- format-trailer ---
