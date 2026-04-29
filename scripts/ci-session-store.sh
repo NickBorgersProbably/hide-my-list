@@ -84,8 +84,9 @@ ci_session_prepare() {
 }
 
 ci_session_validate() {
+  local agent="$1"
   local dir
-  dir="$(ci_session_host_dir "$1" "$2" "$3")"
+  dir="$(ci_session_host_dir "$agent" "$2" "$3")"
   if [ ! -d "$dir" ]; then
     printf 'ci-session-store: missing %q\n' "$dir" >&2
     return 1
@@ -93,6 +94,16 @@ ci_session_validate() {
   if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
     printf 'ci-session-store: %q is empty (author did not persist state)\n' "$dir" >&2
     return 1
+  fi
+  # config.toml is written by .devcontainer/configure-codex.sh before any
+  # conversation state exists. A Codex dir that contains only config artefacts
+  # is not resumable — `codex exec resume --last` would start a fresh thread.
+  # Require non-empty sessions/ to confirm real conversation state was persisted.
+  if [ "$agent" = "codex" ]; then
+    if [ -z "$(ls -A "${dir}/sessions" 2>/dev/null)" ]; then
+      printf 'ci-session-store: %q has no session state (config-only dir; not resumable)\n' "$dir" >&2
+      return 1
+    fi
   fi
 }
 

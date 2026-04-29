@@ -65,9 +65,15 @@ For each reviewer blocker, decide:
    group of files needs the same change, apply uniformly — no per-file
    improvisation.
 5. For misreads: edit the PR body via `gh pr edit ${PR_NUMBER} --body
-   "..."` to clarify intent. Preserve the existing
-   `Author-Session: <agent>/<run-id>` trailer exactly — the next cycle
-   reads it to resume you again.
+   "..."` to clarify intent. Start from the decoded current PR body.
+   Preserve both of the following exactly as they appear:
+   - An issue-closing line of the form `Resolves #N`, `Fixes #N`, or
+     `Closes #N` on its own line — `review-fixer.yml` parses this to
+     recover the issue number for session-dir lookup; dropping it
+     disables author-resume on the next cycle and falls back to fresh
+     Claude.
+   - The `Author-Session: <agent>/<run-id>` trailer — the next cycle
+     reads it to resume you again.
 6. Leave file changes unstaged. Host step commits.
 7. Write fix-result JSON to `$OUTPUT_PATH`.
 

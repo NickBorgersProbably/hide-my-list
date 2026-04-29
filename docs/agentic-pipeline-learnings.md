@@ -168,8 +168,8 @@ Required properties:
 ### 2.6 Run steps go through purpose-built composites against the right base image
 **Why:** `devcontainers/ci@v0.3` hit post-step cleanup crash on self-hosted runners. Two stable patterns:
 - **Non-review workflows** — build/push with `devcontainers/ci@v0.3`, then run via `.github/actions/run-devcontainer/action.yml` (uses `@devcontainers/cli up/exec` directly).
-- **Review pipeline v2** — direct-`docker run` against the dedicated CI image (`.github/ci/Dockerfile`) via `.github/actions/review-codex-run` (read-only reviewers) and `.github/actions/review-claude-run` (single-writer fixer). The CI image is purpose-built for agent jobs and avoids the devcontainer's shared-socket fragility.
-**Evidence:** #179, #475
+- **Review pipeline v2** — direct-`docker run` against the dedicated CI image (`.github/ci/Dockerfile`) via four composites: `.github/actions/review-codex-run` (read-only reviewers), `.github/actions/review-claude-run` (fresh-Claude fixer fallback for human PRs and missing-trailer cases), `.github/actions/review-codex-resume` (resumed Codex author session, `codex exec resume --last`), and `.github/actions/review-claude-resume` (resumed Claude Code author session, `claude --continue`). The CI image is purpose-built for agent jobs and avoids the devcontainer's shared-socket fragility.
+**Evidence:** #179, #475, #494
 
 ### 2.7 Bake the Codex CLI into the Dockerfile; route models via LiteLLM with explicit `CODEX_MODEL`
 **Why:** Runtime CLI downloads stalled on slow networks; missing model defaults caused fallback to mismatched models. Downgrading three of six review stages to `gpt-5-mini` cut review cost ~45% with no measurable quality loss.
