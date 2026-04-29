@@ -90,13 +90,16 @@ jobs:
     outputs:
       autoresolve_requested: ${{ steps.detect.outputs.autoresolve_requested }}
       issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
+      agent: ${{ steps.detect.outputs.agent }}
     steps:
-      - name: Detect /autoresolve command
+      - name: Detect /autoresolve command and select agent
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_LABELS_JSON: ${{ toJSON(github.event.issue.labels.*.name) }}
+          DEFAULT_AGENT: codex
         run: |
           set -eu
 
@@ -105,11 +108,48 @@ jobs:
             printf '%s\n' "$1" | grep -Eq '^[[:space:]]*/autoresolve([[:space:]]|$)'
           }
 
+          # Optional `/autoresolve <agent>` form picks the author per invocation.
+          extract_agent_from_comment() {
+            printf '%s\n' "$1" \
+              | grep -Eim1 '^[[:space:]]*/autoresolve[[:space:]]+(codex|claude)([[:space:]]|$)' \
+              | sed -E 's|.*/autoresolve[[:space:]]+(codex|claude).*|\1|i' \
+              | tr '[:upper:]' '[:lower:]' \
+              || true
+          }
+
+          # `agent:codex` or `agent:claude` label on the issue is a persistent
+          # per-issue override.
+          extract_agent_from_labels() {
+            printf '%s' "$1" \
+              | jq -r '(. // []) | .[]? // empty' 2>/dev/null \
+              | grep -Eim1 '^agent:(codex|claude)$' \
+              | sed -E 's/^agent:(codex|claude)$/\1/i' \
+              | tr '[:upper:]' '[:lower:]' \
+              || true
+          }
+
           if [ "$EVENT_NAME" = "issue_comment" ] && autoresolve_invocation "${COMMENT_BODY:-}"; then
             echo "autoresolve_requested=true" >> "$GITHUB_OUTPUT"
           else
             echo "autoresolve_requested=false" >> "$GITHUB_OUTPUT"
           fi
+
+          # Agent priority: comment override > issue label > repo default.
+          AGENT=""
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            AGENT="$(extract_agent_from_comment "${COMMENT_BODY:-}")"
+          fi
+          if [ -z "$AGENT" ]; then
+            AGENT="$(extract_agent_from_labels "${ISSUE_LABELS_JSON:-[]}")"
+          fi
+          if [ -z "$AGENT" ]; then
+            AGENT="$DEFAULT_AGENT"
+          fi
+          case "$AGENT" in
+            codex|claude) ;;
+            *) AGENT="$DEFAULT_AGENT" ;;
+          esac
+          echo "agent=${AGENT}" >> "$GITHUB_OUTPUT"
 
           printf 'issue_title_b64=%s\n' "$(printf '%s' "${ISSUE_TITLE:-}" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
@@ -124,7 +164,10 @@ jobs:
         (github.event_name == 'issues' && (
           github.event.action == 'opened' ||
           github.event.action == 'reopened' ||
-          (github.event.action == 'unlabeled' && github.event.label.name == 'codex-started')
+          (github.event.action == 'unlabeled' && (
+            github.event.label.name == 'codex-started' ||
+            github.event.label.name == 'claude-started'
+          ))
         )) ||
         (github.event_name == 'issue_comment' &&
          !github.event.issue.pull_request &&
@@ -163,15 +206,24 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Label issue as codex-started
+      - name: Label issue as <agent>-started
         if: steps.check-existing.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          AGENT: ${{ needs.detect_autoresolve.outputs.agent }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
         run: |
-          # Create the label if it doesn't exist (ignore error if it does)
-          gh label create "codex-started" --color "7057ff" --description "Codex is working on this issue" --repo ${{ github.repository }} 2>/dev/null || true
-          # Add the label to the issue
-          gh issue edit ${{ github.event.issue.number }} --add-label "codex-started" --repo ${{ github.repository }}
+          set -euo pipefail
+          LABEL="${AGENT}-started"
+          gh label create "${LABEL}" --color "7057ff" --description "${AGENT} is working on this issue" --repo "${REPO}" 2>/dev/null || true
+          gh issue edit "${ISSUE_NUM}" --add-label "${LABEL}" --repo "${REPO}"
+          # Backwards compat: keep adding `codex-started` regardless of agent
+          # so prior automation that watches that specific label still fires.
+          if [ "${AGENT}" != "codex" ]; then
+            gh label create "codex-started" --color "7057ff" --description "Codex is working on this issue" --repo "${REPO}" 2>/dev/null || true
+            gh issue edit "${ISSUE_NUM}" --add-label "codex-started" --repo "${REPO}"
+          fi
 
       - name: Log in to GHCR
         if: steps.check-existing.outputs.skip != 'true'
@@ -185,15 +237,36 @@ jobs:
         if: steps.check-existing.outputs.skip != 'true'
         run: scripts/ensure-ci-image.sh "${CI_IMAGE}"
 
-      # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      - name: Resolve issue with Codex
+      - name: Prepare author session host dir
         if: steps.check-existing.outputs.skip != 'true'
+        id: session
+        env:
+          AGENT: ${{ needs.detect_autoresolve.outputs.agent }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          DIR="$(./scripts/ci-session-store.sh prepare "${AGENT}" "${ISSUE_NUMBER}" "${RUN_ID}")"
+          HOME_PATH="$(./scripts/ci-session-store.sh home-path "${AGENT}")"
+          {
+            echo "host_dir=${DIR}"
+            echo "container_home=${HOME_PATH}"
+          } >> "$GITHUB_OUTPUT"
+
+      # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows.
+      # The host session dir is bind-mounted into the agent's home so the session
+      # persists after the container exits and the fixer can resume it.
+      - name: Resolve issue with Codex
+        if: steps.check-existing.outputs.skip != 'true' && needs.detect_autoresolve.outputs.agent == 'codex'
         env:
           OPENAI_API_KEY: ${{ vars.AI_API_KEY }}
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE_B64: ${{ needs.detect_autoresolve.outputs.issue_title_b64 }}
           REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SESSION_HOST_DIR: ${{ steps.session.outputs.host_dir }}
+          SESSION_CONTAINER_HOME: ${{ steps.session.outputs.container_home }}
         run: |
           set -euo pipefail
 
@@ -207,11 +280,13 @@ jobs:
             --workdir /workspace \
             -v "${{ github.workspace }}:/workspace" \
             -v "$OUTPUT_STAGING:/output" \
+            -v "$SESSION_HOST_DIR:$SESSION_CONTAINER_HOME" \
             -e OPENAI_API_KEY \
             -e GH_TOKEN \
             -e ISSUE_NUMBER \
             -e ISSUE_TITLE_B64 \
             -e REPO \
+            -e RUN_ID \
             "${CI_IMAGE}" \
             -lc '
               set -euo pipefail
@@ -238,6 +313,81 @@ jobs:
           mkdir -p "${RUNNER_TEMP}"
           cp "$OUTPUT_STAGING/resolve-issue-conversation.jsonl" "${RUNNER_TEMP}/resolve-issue-conversation.jsonl" 2>/dev/null || true
           rm -rf "$OUTPUT_STAGING"
+
+      - name: Resolve issue with Claude Code
+        if: steps.check-existing.outputs.skip != 'true' && needs.detect_autoresolve.outputs.agent == 'claude'
+        env:
+          ANTHROPIC_API_KEY: fake-key
+          ANTHROPIC_BASE_URL: https://llm.featherback-mermaid.ts.net/anthropic/
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE_B64: ${{ needs.detect_autoresolve.outputs.issue_title_b64 }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SESSION_HOST_DIR: ${{ steps.session.outputs.host_dir }}
+          SESSION_CONTAINER_HOME: ${{ steps.session.outputs.container_home }}
+        run: |
+          set -euo pipefail
+
+          STAGING_ROOT="${RUNNER_TEMP:-/tmp}/ci-agent"
+          mkdir -p "$STAGING_ROOT"
+          OUTPUT_STAGING=$(mktemp -d "${STAGING_ROOT}/resolve.XXXXXX")
+          chmod 777 "$OUTPUT_STAGING"
+
+          docker run --rm \
+            --network host \
+            --workdir /workspace \
+            -v "${{ github.workspace }}:/workspace" \
+            -v "$OUTPUT_STAGING:/output" \
+            -v "$SESSION_HOST_DIR:$SESSION_CONTAINER_HOME" \
+            -e ANTHROPIC_API_KEY \
+            -e ANTHROPIC_BASE_URL \
+            -e GH_TOKEN \
+            -e ISSUE_NUMBER \
+            -e ISSUE_TITLE_B64 \
+            -e REPO \
+            -e RUN_ID \
+            -e GIT_CONFIG_COUNT=1 \
+            -e GIT_CONFIG_KEY_0=safe.directory \
+            -e GIT_CONFIG_VALUE_0=/workspace \
+            "${CI_IMAGE}" \
+            -lc '
+              set -euo pipefail
+
+              ISSUE_TITLE=$(printf "%s" "$ISSUE_TITLE_B64" | base64 -d 2>/dev/null || echo "")
+              export ISSUE_TITLE
+
+              PROMPT=$(envsubst < .github/ci/prompts/claude-resolve-issue.md)
+
+              timeout 60m claude -p \
+                --dangerously-skip-permissions \
+                --permission-mode=bypassPermissions \
+                --model claude-sonnet-4-6 \
+                --verbose \
+                --output-format=stream-json \
+                "$PROMPT" \
+                < /dev/null 2>&1 \
+                | tee /output/resolve-issue-conversation.jsonl
+            '
+
+          mkdir -p "${RUNNER_TEMP}"
+          cp "$OUTPUT_STAGING/resolve-issue-conversation.jsonl" "${RUNNER_TEMP}/resolve-issue-conversation.jsonl" 2>/dev/null || true
+          rm -rf "$OUTPUT_STAGING"
+
+      - name: Validate author session persisted
+        if: steps.check-existing.outputs.skip != 'true'
+        env:
+          AGENT: ${{ needs.detect_autoresolve.outputs.agent }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_ID: ${{ github.run_id }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if ./scripts/ci-session-store.sh validate "${AGENT}" "${ISSUE_NUMBER}" "${RUN_ID}"; then
+            echo "Author session persisted at $(./scripts/ci-session-store.sh host-dir "${AGENT}" "${ISSUE_NUMBER}" "${RUN_ID}")"
+          else
+            echo "::warning::Author session not persisted; review-pipeline fixer will fall back to fresh Claude."
+          fi
 
       - name: Upload issue resolution conversation log
         uses: actions/upload-artifact@v4

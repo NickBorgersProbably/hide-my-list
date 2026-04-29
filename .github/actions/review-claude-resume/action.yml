@@ -1,0 +1,235 @@
+---
+name: Resume a Claude Code author session in the CI image
+description: >
+  Resumes the original resolve-issue Claude Code session as the v2
+  review pipeline's fixer for cycles ≥ 2. The author's session state
+  was persisted by the resolve-issue workflow into a host directory;
+  this action bind-mounts that directory back into /home/ci/.claude
+  so `claude --continue` continues the same conversation, this time
+  with reviewer artifacts in scope.
+
+  Topology mirrors review-claude-run, plus the session bind-mount and
+  the --continue invocation.
+
+  Captures Claude output to <workspace>/.review-output/<role>-output.jsonl
+  and expects the inner prompt to write a structured JSON artifact at
+  <workspace>/.review-output/<role>-result.json. The caller validates
+  that JSON against the fix-result-v1 schema.
+
+inputs:
+  agent:
+    description: Author agent identifier; must be 'claude' for this action.
+    required: true
+  session_host_dir:
+    description: >
+      Absolute host path to the per-(issue, run-id) session directory
+      written by scripts/ci-session-store.sh prepare claude ... during
+      resolve-issue. Bind-mounted into the container at /home/ci/.claude.
+    required: true
+  role:
+    description: 'Role label used in artifact filenames (for example "fixer")'
+    required: true
+  prompt_path:
+    description: Repo-relative path to the standalone prompt markdown file (relative to workspace_folder)
+    required: true
+  image:
+    description: CI image tag (default ghcr.io/nickborgersprobably/hide-my-list-ci:latest)
+    required: false
+    default: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
+  workspace_folder:
+    description: >
+      Workspace folder containing the PR checkout, relative to
+      $GITHUB_WORKSPACE. This is what the container sees as /workspace.
+    required: true
+  pr_number:
+    description: PR number being reviewed. Empty disables the PR metadata lookup.
+    required: false
+    default: ''
+  reviewed_sha:
+    description: Frozen reviewed SHA (40-char hex)
+    required: true
+  cycle:
+    description: Pipeline cycle number for this run
+    required: true
+  read_only:
+    description: Compatibility input with review-codex-run. The fixer passes "false".
+    required: false
+    default: 'false'
+  workflow_pat:
+    description: PAT used as GH_TOKEN inside the container (rule 2.3)
+    required: true
+  extra_env:
+    description: 'Additional KEY=VALUE pairs (newline-separated) to forward'
+    required: false
+    default: ''
+  pull:
+    description: When 'true' (default), docker pull the image before running
+    required: false
+    default: 'true'
+
+outputs:
+  output_artifact:
+    description: Host path to the captured Claude output JSONL
+    value: ${{ steps.paths.outputs.output_artifact }}
+  result_json:
+    description: Host path to the structured JSON artifact the prompt wrote
+    value: ${{ steps.paths.outputs.result_json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Pre-create output directory in workspace
+      shell: bash
+      env:
+        WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
+      run: |
+        set -euo pipefail
+        OUTPUT_DIR="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
+        mkdir -p "$OUTPUT_DIR"
+        chmod 777 "$OUTPUT_DIR"
+
+    - name: Log in to GHCR
+      shell: bash
+      env:
+        GHCR_USERNAME: ${{ github.actor }}
+        GHCR_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+
+    - name: Ensure CI image
+      if: inputs.pull == 'true'
+      shell: bash
+      run: scripts/ensure-ci-image.sh "${{ inputs.image }}"
+
+    - name: Fetch current PR metadata
+      id: pr-meta
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.workflow_pat }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "0" ]; then
+          PR_TITLE=""
+          PR_BODY=""
+        else
+          PR_JSON=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+          PR_TITLE=$(echo "$PR_JSON" | jq -r '.title // ""')
+          PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
+        fi
+
+        echo "pr_title_b64=$(printf '%s' "$PR_TITLE" | base64 -w0)" >> "$GITHUB_OUTPUT"
+        echo "pr_body_b64=$(printf '%s' "$PR_BODY" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+    - name: Stage env file
+      id: stage-env
+      shell: bash
+      env:
+        ROLE: ${{ inputs.role }}
+        PROMPT_PATH: ${{ inputs.prompt_path }}
+        READ_ONLY: ${{ inputs.read_only }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        CYCLE: ${{ inputs.cycle }}
+        WORKFLOW_PAT: ${{ inputs.workflow_pat }}
+        EXTRA_ENV: ${{ inputs.extra_env }}
+        REPO: ${{ github.repository }}
+        PR_TITLE_B64: ${{ steps.pr-meta.outputs.pr_title_b64 }}
+        PR_BODY_B64: ${{ steps.pr-meta.outputs.pr_body_b64 }}
+      run: |
+        set -euo pipefail
+        STAGING_DIR="${RUNNER_TEMP:-/tmp}/ci-agent"
+        mkdir -p "$STAGING_DIR"
+        ENV_FILE="$(mktemp "${STAGING_DIR}/env.XXXXXX")"
+        cat > "$ENV_FILE" <<EOF
+        ANTHROPIC_API_KEY=fake-key
+        ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+        GH_TOKEN=${WORKFLOW_PAT}
+        REVIEW_ROLE=${ROLE}
+        REVIEW_PROMPT_PATH=${PROMPT_PATH}
+        REVIEW_READ_ONLY=${READ_ONLY}
+        PR_NUMBER=${PR_NUMBER}
+        REVIEWED_SHA=${REVIEWED_SHA}
+        REVIEW_CYCLE=${CYCLE}
+        OUTPUT_PATH=.review-output/${ROLE}-result.json
+        OUTPUT_LOG_PATH=.review-output/${ROLE}-output.jsonl
+        REPO=${REPO}
+        PR_TITLE_B64=${PR_TITLE_B64}
+        PR_BODY_B64=${PR_BODY_B64}
+        EOF
+        if [ -n "$EXTRA_ENV" ]; then
+          printf '%s\n' "$EXTRA_ENV" | grep -Ev '^\s*(#|$)' >> "$ENV_FILE" || true
+        fi
+        chmod 600 "$ENV_FILE"
+        echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Validate session directory exists
+      shell: bash
+      env:
+        AGENT: ${{ inputs.agent }}
+        SESSION_HOST_DIR: ${{ inputs.session_host_dir }}
+      run: |
+        set -euo pipefail
+        if [ "$AGENT" != "claude" ]; then
+          echo "::error::review-claude-resume requires agent=claude (got '$AGENT')"
+          exit 1
+        fi
+        if [ ! -d "$SESSION_HOST_DIR" ] || [ -z "$(ls -A "$SESSION_HOST_DIR" 2>/dev/null)" ]; then
+          echo "::error::review-claude-resume: session dir missing or empty: $SESSION_HOST_DIR"
+          exit 1
+        fi
+
+    - name: Run Claude resume
+      shell: bash
+      env:
+        CI_AGENT_IMAGE: ${{ inputs.image }}
+        CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
+        WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
+        SESSION_HOST_DIR: ${{ inputs.session_host_dir }}
+      run: |
+        set -euo pipefail
+
+        WORKSPACE_HOST="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}"
+        CONTAINER_SCRIPT="${GITHUB_WORKSPACE}/.github/actions/review-claude-resume/run-in-container.sh"
+
+        # In addition to review-claude-run topology, bind-mount the
+        # author's persisted session at /home/ci/.claude so
+        # `claude --continue` finds prior turns. Per-(issue, run-id)
+        # subdirs guarantee the dir contains exactly the session we
+        # want resumed.
+        docker run --rm \
+          --network host \
+          --workdir /workspace \
+          -v "$WORKSPACE_HOST:/workspace" \
+          -v "$CONTAINER_SCRIPT:/run-in-container.sh:ro" \
+          -v "$SESSION_HOST_DIR:/home/ci/.claude" \
+          --env-file "$CI_AGENT_ENV_FILE" \
+          -e GIT_CONFIG_COUNT=1 \
+          -e GIT_CONFIG_KEY_0=safe.directory \
+          -e GIT_CONFIG_VALUE_0=/workspace \
+          "$CI_AGENT_IMAGE" \
+          -lc '/run-in-container.sh'
+
+    - name: Clean up staged env file
+      if: always()
+      shell: bash
+      env:
+        CI_AGENT_ENV_FILE: ${{ steps.stage-env.outputs.env_file }}
+      run: rm -f "$CI_AGENT_ENV_FILE"
+
+    - name: Echo result paths
+      id: paths
+      shell: bash
+      env:
+        ROLE: ${{ inputs.role }}
+        WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
+      run: |
+        set -euo pipefail
+        BASE="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}/.review-output"
+        {
+          echo "output_artifact=${BASE}/${ROLE}-output.jsonl"
+          echo "result_json=${BASE}/${ROLE}-result.json"
+        } >> "$GITHUB_OUTPUT"

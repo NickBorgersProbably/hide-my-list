@@ -123,6 +123,22 @@ This is **not** the same problem as §1.14's merge-from-main inherit. §1.14 cov
 **Before:** PR #492 — local push on top of cycle 2 GO immediately tripped `cycle_capped`, requiring an admin-merge or force-push to recover.
 **Evidence:** PR #492
 
+### 1.17 Author stays alive across review cycles via session resume
+**Why:** Pre-redesign, `resolve-issue` ran a one-shot Codex that opened the PR and exited. The v2 fixer was a fresh Claude session that only saw reviewer JSON — it could patch what was literally flagged but had no memory of the structural choices the author made. Reviewer feedback on those choices reached the wrong agent: a stand-in fixer with no context for *why* the original author wrote it the way it did.
+
+Fix is to persist the author's session state into a per-(agent, issue, run-id) host directory under `/srv/ci-sessions/`, write an `Author-Session: <agent>/<run-id>` trailer into the PR body, and have `review-fixer.yml` read the trailer to bind-mount the same session back into the fixer container — then `codex exec resume --last` (or `claude --continue`) drops the original author back into the same conversation, this time with the reviewer artifacts in scope.
+
+Required properties:
+
+- **Symmetric two-agent support.** `resolve-issue` must accept Codex *and* Claude Code as first-class authors (selected per run via `/autoresolve <agent>` comment, `agent:codex` / `agent:claude` issue label, or repo default). The fixer must dispatch to a matching resume action (`review-codex-resume` / `review-claude-resume`) per the trailer.
+- **Backstop reviewers always run.** Specialty reviewers (psych/security/docs/prompt) bring distinct domain expertise the generic resume model doesn't replicate. Reviewer + judge stages run regardless of dispatch mode, so a resumed-author PR receives the same scrutiny as a human-authored PR. Cost is bounded; regression cost from skipping isn't.
+- **Per-run subdirs avoid `--last` poisoning.** Layout is `/srv/ci-sessions/<agent>/<issue>/<run-id>/`, not `/srv/ci-sessions/<agent>/<issue>/`. Leftover state from a prior `/autoresolve` attempt would otherwise be picked up by `codex exec resume --last`. Per-run isolation eliminates the cleanup race.
+- **Defensive fallback.** Trailer absent, malformed, or session dir missing → fixer falls back to fresh Claude (today's behavior). Human-authored PRs and PRs from before the redesign keep working unchanged.
+- **Host bind-mount, not artifact upload.** Self-hosted runner has writable `/srv/ci-sessions/` that persists across runs; bind-mount is lower-latency than artifact upload + survives runner restarts. If runner-portable storage ever becomes a requirement, switch to artifact upload (slower, but cross-runner-safe).
+- **Cleanup decoupled from review path.** `scripts/cleanup-ci-sessions.sh` prunes sessions for closed/merged PRs older than `MAX_AGE_DAYS`; review path never deletes (resume must always find what's there).
+
+`scripts/ci-session-store.sh` is the single source of path conventions and trailer parsing — workflows call its subcommands rather than recomputing paths inline. `scripts/test-ci-session-store.sh` covers the helper logic and is run by `review-fixer-resume-smoke.yml` on PRs that touch the resume code paths. Full cross-container resume round-trip is empirically validated by the first multi-cycle review on a `resolve-issue` PR — that requires real LiteLLM calls, too expensive for every PR's smoke.
+
 ---
 
 ## 2. CI Runtime Infrastructure

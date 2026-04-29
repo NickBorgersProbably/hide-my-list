@@ -48,14 +48,23 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
-- `.github/actions/review-claude-run/` — Direct-`docker run` composite invoking Claude Code against the LiteLLM Anthropic endpoint; v2 pipeline single-writer fixer
+- `.github/actions/review-claude-run/` — Direct-`docker run` composite invoking Claude Code against the LiteLLM Anthropic endpoint; v2 pipeline single-writer fixer (fresh-Claude fallback path for human-authored PRs)
+- `.github/actions/review-codex-resume/` — Composite that resumes the original `resolve-issue` Codex author session as the v2 fixer; bind-mounts the persisted session into `/home/ci/.codex` and runs `codex exec resume --last`
+- `.github/actions/review-claude-resume/` — Composite that resumes the original `resolve-issue` Claude Code author session as the v2 fixer; bind-mounts the persisted session into `/home/ci/.claude` and runs `claude --continue`
 - `.github/scripts/review/prompts/fixer-claude-smoke.md` — Prompt for the Claude fixer auth/IO smoke test
+- `.github/scripts/review/prompts/fixer-resume.md` — Prompt loaded by both resume actions; the resumed author already has full authoring context, so the prompt only hands over reviewer artifacts and reasserts the `.git/`-don't-touch + output-contract constraints
 - `.github/workflows/review-fixer-claude-smoke.yml` — Pre-merge smoke test exercising the Claude fixer container path on PRs touching that path
+- `.github/workflows/review-fixer-resume-smoke.yml` — Pre-merge smoke test exercising the resume-fixer dispatch logic (`scripts/test-ci-session-store.sh`); full cross-container resume validated by the first multi-cycle review on a `resolve-issue` PR
+- `.github/ci/prompts/codex-resolve-issue.md` — Codex author prompt invoked by the `codex` agent path in `resolve-issue`; carries the `Author-Session: codex/${RUN_ID}` PR-body trailer contract
+- `.github/ci/prompts/claude-resolve-issue.md` — Claude Code author prompt invoked by the `claude` agent path in `resolve-issue`; carries the `Author-Session: claude/${RUN_ID}` PR-body trailer contract
 - `.github/scripts/review/render-finalize-comment.sh` — Renders and posts the operator-facing "Agent Review Summary" merge-decision comment for `review-finalize.yml`; branches on verdict category (`go`, `reviewer_blockers`, `pipeline_error`, `cycle_capped`, `inherited`)
-- `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run` and `review-claude-run`
+- `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run`, `review-claude-run`, `review-codex-resume`, and `review-claude-resume`
 - `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract + guardrail doc
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates/reuses canonical deduplicated GH Actions failure issue for diagnosis workflow
 - `scripts/check-doc-links.sh` — Internal doc link validator for local hooks + CI doc checks
+- `scripts/ci-session-store.sh` — Path-naming + trailer-parse helper for the per-(agent, issue, run-id) author-session store (`/srv/ci-sessions/<agent>/<issue>/<run-id>/`); used by both `resolve-issue` and v2 review-fixer
+- `scripts/cleanup-ci-sessions.sh` — Periodic prune of `/srv/ci-sessions/`; preserves sessions for open PRs, deletes others past `MAX_AGE_DAYS`
+- `scripts/test-ci-session-store.sh` — Self-contained unit tests for `ci-session-store.sh`; invoked by `review-fixer-resume-smoke.yml`
 - `scripts/pull-main.sh` — Branch sync helper
 - `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, workflow validations
 - `scripts/security-update.sh` — Security update automation
@@ -81,7 +90,7 @@ Treat OpenClaw prompt + spec file edits with care — change live app behavior. 
 
 ## Review Pipeline
 
-PRs reviewed by multi-agent review pipeline (Codex reviewers + Claude fixer in v2). Roles same in both versions; orchestration differs.
+PRs reviewed by multi-agent review pipeline (Codex reviewers + fixer in v2). Roles same in both versions; orchestration differs.
 
 **Reviewer roles**:
 1. Design Review — validates intent + design quality; runs docs-as-spec consistency check on spec-critical changes
@@ -92,6 +101,19 @@ PRs reviewed by multi-agent review pipeline (Codex reviewers + Claude fixer in v
 6. Judge / Merge Decision — synthesizes all reviews into verdict
 
 Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. Judge = deterministic Node script (`.github/scripts/review/aggregate.mjs`) with `permissions: contents: read` — cannot push by construction. Fixer runs after reviewers, before judge; pushes new commit first, then claims that SHA on `review/pipeline` immediately after push (GitHub rejects status for unpublished commit); only stage with write permission. Verdicts binary **GO** / **NO-GO**; NO-GO labels PR `needs-human-review`, stops without closing or auto-creating issues. Reviewer prompts = standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 + §1.5 for design decisions.
+
+### Author-resume in the fixer stage
+
+`resolve-issue` accepts both **Codex** and **Claude Code** as first-class authors (selected per run via `/autoresolve <agent>` comment, `agent:codex` / `agent:claude` issue label, or repo default). The author's session state is bind-mounted from a per-(agent, issue, run-id) host directory under `/srv/ci-sessions/`, so it survives container exit. The author writes an `Author-Session: <agent>/<run-id>` trailer into the PR body.
+
+When `review-fixer.yml` runs, `Detect author session for resume` parses the trailer. Three-way dispatch:
+- **`codex-resume`** → `review-codex-resume` action runs `codex exec resume --last` against the persisted session
+- **`claude-resume`** → `review-claude-resume` action runs `claude --continue`
+- **`fallback`** → existing `review-claude-run` (fresh Claude session) — used for human-authored PRs and any case where the trailer is absent or the session dir is missing
+
+The resumed author re-enters the same conversation it had while authoring, this time with `${REVIEWER_ARTIFACTS_DIR}` available in scope. Because it has full context for the choices it originally made, it can revisit those choices instead of patching surface-level symptoms. Reviewers + judge always run regardless of dispatch mode — backstop catches anything the resumed author misses.
+
+Symmetric two-agent support means the fixer must understand both `codex exec resume` and `claude --continue` semantics; `fixer-resume.md` is the shared prompt loaded by both resume actions.
 
 ### Review prompt file architecture
 
