@@ -19,7 +19,7 @@ IMPORTANT RULES:
 - Reference `docs/architecture.md` for system design
 - Never use `git push --no-verify`
 
-BRANCH NAMING: Use `codex/issue-${ISSUE_NUMBER}`.
+BRANCH NAMING: Use `claude/issue-${ISSUE_NUMBER}`.
 
 PR CREATION:
 gh pr create --title '<brief description of what this PR accomplishes>' \
@@ -32,12 +32,12 @@ gh pr create --title '<brief description of what this PR accomplishes>' \
 ## Test Plan
 <how to verify the fix>
 
-Generated with Codex
+Generated with Claude Code
 
-Author-Session: codex/${RUN_ID}' \
-  --head codex/issue-${ISSUE_NUMBER}
+Author-Session: claude/${RUN_ID}' \
+  --head claude/issue-${ISSUE_NUMBER}
 
-The `Author-Session: codex/${RUN_ID}` trailer at the end of the body is
+The `Author-Session: claude/${RUN_ID}` trailer at the end of the body is
 REQUIRED. The review pipeline reads it to resume this session in the
 fixer stage so you receive reviewer feedback in the same conversation.
 Do not omit, move, or change the line. `${RUN_ID}` is substituted from

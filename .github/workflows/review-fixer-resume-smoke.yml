@@ -1,0 +1,56 @@
+---
+name: Review pipeline v2 — author-resume smoke test
+
+# Pre-merge smoke for the resume-fixer paths added by the agent-team
+# redesign. Runs scripts/test-ci-session-store.sh, which exercises the
+# path-naming, validation, and trailer-parse logic the resolve-issue
+# workflow and the v2 review-fixer dispatch depend on.
+#
+# Auto-runs on any PR that touches the resume code paths so a broken
+# helper / action / prompt / dispatch regression surfaces here instead
+# of in the next real review cycle (rule 2.9). The full cross-container
+# round-trip (codex exec resume / claude --continue) is empirically
+# validated by the first resolve-issue PR that exercises a multi-cycle
+# review loop in production — that requires a real LiteLLM call, which
+# is too expensive for every PR.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - '**'
+    paths:
+      - '.github/actions/review-codex-resume/**'
+      - '.github/actions/review-claude-resume/**'
+      - '.github/scripts/review/prompts/fixer-resume.md'
+      - '.github/workflows/review-fixer.yml'
+      - '.github/workflows/review-fixer-resume-smoke.yml'
+      - '.github/workflows/codex.yml'
+      - '.github/ci/prompts/codex-resolve-issue.md'
+      - '.github/ci/prompts/claude-resolve-issue.md'
+      - 'scripts/ci-session-store.sh'
+      - 'scripts/test-ci-session-store.sh'
+  workflow_dispatch:
+
+concurrency:
+  group: review-fixer-resume-smoke-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci-session-store:
+    name: ci-session-store unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current ref
+        uses: actions/checkout@v4
+
+      - name: Run helper unit tests
+        run: ./scripts/test-ci-session-store.sh
+
+      - name: Lint helper + tests
+        run: |
+          shellcheck scripts/ci-session-store.sh scripts/test-ci-session-store.sh

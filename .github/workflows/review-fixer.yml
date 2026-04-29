@@ -108,8 +108,96 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Claude fixer in CI image
-        id: run
+      - name: Detect author session for resume
+        # Three-way fixer dispatch: if the PR body carries an
+        # `Author-Session: <agent>/<run-id>` trailer (written by
+        # resolve-issue) AND that session dir still exists on the
+        # host, resume the original author. Otherwise the fixer is a
+        # fresh Claude session, same as before this redesign.
+        id: detect-session
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          PR_BODY=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.body // ""')
+
+          TRAILER="$(./scripts/ci-session-store.sh parse-trailer "$PR_BODY" || true)"
+          AGENT=""
+          RUN_ID=""
+          if [ -n "$TRAILER" ]; then
+            AGENT="$(printf '%s' "$TRAILER" | cut -f1)"
+            RUN_ID="$(printf '%s' "$TRAILER" | cut -f2)"
+          fi
+
+          ISSUE_NUM=""
+          if [ -n "$AGENT" ] && [ -n "$RUN_ID" ]; then
+            ISSUE_NUM=$(printf '%s\n' "$PR_BODY" \
+              | grep -Eim1 '^(Resolves|Fixes|Closes) #[0-9]+' \
+              | sed -E 's/^(Resolves|Fixes|Closes) #([0-9]+).*/\2/' \
+              || true)
+          fi
+
+          MODE="fallback"
+          SESSION_HOST_DIR=""
+          if [ -n "$AGENT" ] && [ -n "$RUN_ID" ] && [ -n "$ISSUE_NUM" ]; then
+            SESSION_HOST_DIR=$(./scripts/ci-session-store.sh host-dir "$AGENT" "$ISSUE_NUM" "$RUN_ID")
+            if ./scripts/ci-session-store.sh validate "$AGENT" "$ISSUE_NUM" "$RUN_ID" 2>/dev/null; then
+              MODE="${AGENT}-resume"
+            else
+              echo "::warning::Author-Session trailer present (${AGENT}/${RUN_ID} for #${ISSUE_NUM}) but session validation failed: ${SESSION_HOST_DIR}; falling back to fresh Claude"
+              SESSION_HOST_DIR=""
+            fi
+          fi
+
+          {
+            echo "agent=${AGENT}"
+            echo "run_id=${RUN_ID}"
+            echo "issue_num=${ISSUE_NUM}"
+            echo "session_host_dir=${SESSION_HOST_DIR}"
+            echo "mode=${MODE}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "fixer dispatch: mode=${MODE} agent=${AGENT:-none} run_id=${RUN_ID:-none} issue=${ISSUE_NUM:-none}"
+
+      - name: Run Codex fixer (resumed author)
+        if: steps.detect-session.outputs.mode == 'codex-resume'
+        uses: ./.github/actions/review-codex-resume
+        with:
+          agent: codex
+          session_host_dir: ${{ steps.detect-session.outputs.session_host_dir }}
+          role: fixer
+          prompt_path: .github/scripts/review/prompts/fixer-resume.md
+          image: ${{ inputs.devcontainer_image }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pr_number: ${{ inputs.pr_number }}
+          reviewed_sha: ${{ inputs.reviewed_sha }}
+          cycle: ${{ inputs.cycle }}
+          workflow_pat: ${{ secrets.WORKFLOW_PAT }}
+          extra_env: |
+            REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
+
+      - name: Run Claude fixer (resumed author)
+        if: steps.detect-session.outputs.mode == 'claude-resume'
+        uses: ./.github/actions/review-claude-resume
+        with:
+          agent: claude
+          session_host_dir: ${{ steps.detect-session.outputs.session_host_dir }}
+          role: fixer
+          prompt_path: .github/scripts/review/prompts/fixer-resume.md
+          image: ${{ inputs.devcontainer_image }}
+          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
+          pr_number: ${{ inputs.pr_number }}
+          reviewed_sha: ${{ inputs.reviewed_sha }}
+          cycle: ${{ inputs.cycle }}
+          workflow_pat: ${{ secrets.WORKFLOW_PAT }}
+          extra_env: |
+            REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
+
+      - name: Run Claude fixer (fresh fallback)
+        if: steps.detect-session.outputs.mode == 'fallback'
         uses: ./.github/actions/review-claude-run
         with:
           role: fixer
@@ -124,9 +212,23 @@ jobs:
           extra_env: |
             REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
 
+      - name: Resolve fixer artifact path
+        # All three fixer paths above write to the same workspace
+        # location. Pin the absolute host path here so downstream
+        # validate / commit / push / upload steps don't have to
+        # branch on which fixer ran.
+        id: artifact-path
+        run: |
+          set -euo pipefail
+          BASE="${GITHUB_WORKSPACE}/${{ env.PR_WORKSPACE_PATH }}/.review-output"
+          {
+            echo "result_json=${BASE}/fixer-result.json"
+            echo "output_jsonl=${BASE}/fixer-output.jsonl"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Validate fix-result against schema
         env:
-          ARTIFACT: ${{ steps.run.outputs.result_json }}
+          ARTIFACT: ${{ steps.artifact-path.outputs.result_json }}
         run: |
           set -euo pipefail
           # Schema declares $schema: draft/2020-12. ajv-cli@5 needs an
@@ -154,7 +256,7 @@ jobs:
       - name: Commit fixer working-tree changes
         id: commit
         env:
-          ARTIFACT: ${{ steps.run.outputs.result_json }}
+          ARTIFACT: ${{ steps.artifact-path.outputs.result_json }}
           REVIEWED_SHA: ${{ inputs.reviewed_sha }}
         working-directory: ${{ env.PR_WORKSPACE_PATH }}
         run: |
@@ -198,7 +300,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
-          ARTIFACT: ${{ steps.run.outputs.result_json }}
+          ARTIFACT: ${{ steps.artifact-path.outputs.result_json }}
           REVIEWED_SHA: ${{ inputs.reviewed_sha }}
           HEAD_REF: ${{ inputs.head_ref }}
         run: |

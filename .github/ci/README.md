@@ -22,7 +22,7 @@ through the shared socket" bugs.
 |---|---|
 | `Dockerfile` | Image recipe. `ubuntu:24.04` base, UID-1000 `ci` user, pinned Claude Code / Codex / actionlint / Node major. Installs shellcheck, yamllint, gh, Mermaid npm globals, envsubst. |
 | `versions.env` | Single source of truth for CLI version pins. Consumed by `.github/workflows/ci-image.yml` as `--build-arg`s. |
-| `caveman-rules.md` | Canonical CI-only caveman prompt contract. `review-codex-run` and `review-claude-run` prepend it to review prompts and validate its pinned source version against `CAVEMAN_VERSION`. |
+| `caveman-rules.md` | Canonical CI-only caveman prompt contract. `review-codex-run`, `review-claude-run`, `review-codex-resume`, and `review-claude-resume` prepend it to review prompts and validate its pinned source version against `CAVEMAN_VERSION`. |
 | `README.md` | This file. |
 
 ## Relationship to `.devcontainer/`
@@ -40,11 +40,13 @@ through the shared socket" bugs.
 
 ## How workflows consume the image
 
-Review pipeline v2 uses two direct-`docker run` composite actions
+Review pipeline v2 uses four direct-`docker run` composite actions
 against the CI image:
 
-- `./.github/actions/review-codex-run` for the read-only reviewers
-- `./.github/actions/review-claude-run` for the single-writer fixer
+- `./.github/actions/review-codex-run` — read-only reviewers (Codex)
+- `./.github/actions/review-claude-run` — fresh-Claude fixer fallback (human PRs, missing-trailer cases)
+- `./.github/actions/review-codex-resume` — resumed Codex author session as fixer (`codex exec resume --last`)
+- `./.github/actions/review-claude-resume` — resumed Claude Code author session as fixer (`claude --continue`)
 
 The other agent workflows (`codex`, `codex-diagnose-workflow-failure`,
 `review-coverage-evaluator`) invoke `docker run` inline.
@@ -84,9 +86,20 @@ home-automation refactor:
 PRs for trusted issue-resolution requests. It has two entry points:
 
 - Issue lifecycle events: `opened`, `reopened`, or `unlabeled` after
-  `codex-started`
-- `/autoresolve` issue comments on open non-PR issues from trusted
-  original authors
+  `codex-started` or `claude-started`
+- `/autoresolve [codex|claude]` issue comments on open non-PR issues
+  from trusted original authors
+
+Both Codex and Claude Code are first-class authors. The agent is
+selected by:
+1. `/autoresolve codex` or `/autoresolve claude` comment command
+2. `agent:codex` or `agent:claude` issue label
+3. Repo default (currently Codex)
+
+The author's session is persisted to `/srv/ci-sessions/<agent>/<issue>/<run-id>/`
+and an `Author-Session: <agent>/<run-id>` trailer is written into the
+PR body. The v2 fixer reads this trailer to resume the original author
+session for context-aware fixes rather than using a fresh model.
 
 The comment-command path is intentionally narrower than "any
 collaborator can point Codex at any issue": the commenter still has to
