@@ -22,6 +22,15 @@ Reflects current PR state, not push-time state.
 5. **Read-only git fine.** `git diff`, `git log`, `git status`, `git show`, `git ls-files` all work. Container entrypoint sets `safe.directory=/workspace` — no need to add. Use freely.
 6. **One logical fix batch, unstaged.** Write files, edit text. No `git add` — leave unstaged. Host step captures all working-tree changes via `git add -A`, commits as one. Commit message built from your `addressed[]` list — list every blocker actually addressed.
 
+## Merge conflict resolution
+
+The pipeline attempted `git merge --no-commit --no-ff origin/main` before invoking you. Read `${MERGE_STATE}`:
+
+- `none` or `clean`: nothing to do; proceed with reviewer fixes only.
+- `conflicts`: the merge left conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) in the files listed in `${MERGE_CONFLICT_FILES}` (comma-separated). Resolve EVERY marker by editing each file in the working tree to the correct merged content BEFORE addressing reviewer blockers. Pick the resolution that best preserves the PR's intent and main's recent changes; when in doubt, prefer main's structural changes and re-apply the PR's intent on top.
+
+Same `.git/`-touch prohibition applies: edit files only, do not run `git add`/`merge`/`commit`/`abort`/etc. The pipeline's host step seals the merge after you exit. If any conflict marker is still present, the pipeline aborts the merge and labels the PR `needs-human-review` — so resolve them all.
+
 ## Procedure
 
 1. List reviewer artifacts:

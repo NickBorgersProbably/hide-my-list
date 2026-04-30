@@ -95,6 +95,7 @@ Rules:
 - Never expose internal reasoning, chain-of-thought, hidden compliance checks, or tool-status narration.
 - Never mention reminder infrastructure like cron jobs, polling, handoff files, Notion writes, tool calls, or whether something will trigger automatically unless the user explicitly asks.
 - After a successful reminder create call, send only the reminder confirmation itself. No appended caveats, diagnostics, or self-evaluation.
+- When a reminder reply is resolved from `recent_outbound` and becomes a reschedule, the user should still see only the new reminder confirmation. Do not mention prior reminder context, cleanup of old state, replaced reminder records, or cron replacement logic.
 - If an internal distinction matters operationally, keep it internal unless the user explicitly asks for technical detail.
 
 

@@ -222,12 +222,12 @@ sequenceDiagram
     R->>R: Calculate intensity score
 
     par Parallel Reward Delivery
-        R->>AI: Emoji + AI-generated image
+        R->>AI: Celebration text + image path
         R->>HA: Play victory music
         R->>SMS: Text significant other
     end
 
-    AI->>U: "CRUSHED IT! 🔥💪✨ [unique AI celebration image]"
+    AI->>U: "CRUSHED IT! 🔥💪✨" + single MEDIA attachment
 
     Note over HA: "We Are The Champions" plays
 
@@ -258,13 +258,13 @@ flowchart TD
     Score --> Level{Intensity Level}
 
     Level -->|Low| LowReward["Emoji only<br/>#quot;Nice! ✨#quot;"]
-    Level -->|Medium| MedReward["Emoji + AI image<br/>#quot;Crushing it! 🎉💪#quot;"]
-    Level -->|High| HighReward[Emoji + AI image + Music + Text SO]
+    Level -->|Medium| MedReward["Emoji + single MEDIA image<br/>#quot;Crushing it! 🎉💪#quot;"]
+    Level -->|High| HighReward[Emoji + single MEDIA image + Music + Text SO]
     Level -->|Epic| EpicReward[All rewards + AI Video + Outing]
 
     subgraph SystemRewards["System-Generated Rewards"]
         Emoji[Emoji Explosion]
-        AIImage[AI-Generated Image<br/>Unique per completion]
+        AIImage[AI image attachment<br/>Single MEDIA line]
         
         Music[Home Audio Playback<br/>Sonos/HomePod/Echo]
     end
@@ -794,6 +794,23 @@ Example:
 - User opens a new session and says: "I did it"
 - Agent interprets that as completion of "clean up boxes before noon", delivers completion acknowledgment and reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears the matched `recent_outbound` entry
 
+Reschedule replay:
+- Seeded `recent_outbound` context:
+  ```json
+  [
+    {
+      "type": "reminder",
+      "title": "Set up your video call software for therapy",
+      "status": "missed",
+      "awaiting_response": true
+    }
+  ]
+  ```
+- Last visible agent message: "This was due a bit ago — set up your video call software for therapy. Want to handle it now or reschedule?"
+- User opens a new session and says: "remind me in an hour"
+- Visible reply must be one short sentence: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
+- Visible reply must not mention `recent_outbound`, Notion, cron jobs, reminder replacement, or cleanup steps.
+
 ### Reminder Delivery Messages
 
 Agent delivers reminders brief, casual — friend tapping your shoulder:
@@ -821,6 +838,7 @@ AI detects reminder-style language and sets:
 Use this neutral wording only when the in-turn `CronCreate` call failed and the safety-net polling path is the only delivery route. Two reasons: (1) UX — don't promise a specific time when the primary scheduler already failed; (2) regex avoidance — the framework reminder-guard appends a "Note: I did not schedule a reminder..." string to any reply matching `i'll\s+remind` (and similar) when no cron was added that turn. The success-path wording above triggers that regex; this neutral wording does not. The reminder is still saved in Notion and the safety net catches it at the next 15-min poll.
 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
+The same rule applies when a reminder is rescheduled from a prior reminder reply: one short confirmation sentence, no narration of internal cleanup or replacement steps.
 
 User timezone defaults to the configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. If the visible session clock is UTC, agent resolves the user's local calendar first with `scripts/user-time-context.sh` (or equivalent timezone conversion) before deciding what "tomorrow" or "tonight" means.
 
@@ -936,7 +954,7 @@ sequenceDiagram
     U->>AI: Done
 
     par Celebration
-        AI->>U: FIRST ONE DOWN! 🎯✨💪 [unique AI celebration image]
+        AI->>U: FIRST ONE DOWN! 🎯✨💪 + single MEDIA attachment
         HA->>HA: Plays victory jingle (15 sec)
         SMS->>SMS: "[Partner], your person just knocked out their first task! 🙌"
     end

@@ -864,7 +864,7 @@ flowchart TD
 
     subgraph RewardDelivery["Reward Delivery"]
         Emoji[Emoji celebration]
-        AIImage[AI-Generated Image]
+        AIImage[Single MEDIA image attachment]
         Music[Play music via home audio]
         TextSO[Text significant other]
     end
@@ -904,11 +904,11 @@ flowchart TD
 | Trigger | Intensity | Rewards Activated |
 |---------|-----------|-------------------|
 | Initiation only | Lightest | Brief encouragement, no image |
-| Quick task (< 15 min) | Low | 1-2 emoji + gentle AI image |
-| Standard task | Medium | 2-4 emoji + enthusiastic AI image |
-| Focus/difficult task | High | 4-6 emoji + majestic AI image + Music + Text SO |
-| Parent task complete | Epic | 6+ emoji + cosmic AI image + Music + Text SO + Outing |
-| All tasks cleared | Epic | Maximum celebration |
+| Quick task (< 15 min) | Low | 1-2 emoji + single `MEDIA:` image attachment (gentle theme) |
+| Standard task | Medium | 2-4 emoji + single `MEDIA:` image attachment (enthusiastic theme) |
+| Focus/difficult task | High | 4-6 emoji + single `MEDIA:` image attachment (majestic theme) + Music + Text SO |
+| Parent task complete | Epic | 6+ emoji + single `MEDIA:` image attachment (cosmic theme) + Music + Text SO + Outing |
+| All tasks cleared | Epic | Maximum celebration + single `MEDIA:` image attachment + Music + Text SO + Outing |
 
 ## Phase 7: Scheduled Reminder Delivery
 
@@ -984,7 +984,7 @@ journey
       User marks done: 5: User
     section Celebration
       Emoji explosion displayed: 5: AI
-      AI-generated celebration image: 5: AI
+      Single celebration image attachment delivered: 5: AI
       Victory song plays on speakers: 5: System
       Partner receives celebration text: 5: System
       AI suggests coffee at favorite cafe: 4: AI

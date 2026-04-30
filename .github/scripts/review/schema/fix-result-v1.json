@@ -39,6 +39,16 @@
       }
     },
     "tokens_used": { "type": "integer", "minimum": 0 },
-    "duration_seconds": { "type": "integer", "minimum": 0 }
+    "duration_seconds": { "type": "integer", "minimum": 0 },
+    "merge_resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional. Records the outcome of the pipeline's pre-fixer `git merge origin/main` attempt. Populated by the agent when MERGE_STATE=conflicts; absent or {merge_state: none|clean, ...} otherwise. Judge ignores this field; surfaced in finalize comments.",
+      "properties": {
+        "merge_state": { "enum": ["none", "clean", "conflicts"] },
+        "conflicted_files": { "type": "array", "items": { "type": "string" } },
+        "resolved_files": { "type": "array", "items": { "type": "string" } }
+      }
+    }
   }
 }
