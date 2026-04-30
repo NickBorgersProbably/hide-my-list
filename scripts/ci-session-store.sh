@@ -156,6 +156,13 @@ ci_session_unpack() {
   local dir
   dir="$(ci_session_prepare "$agent" "$issue" "$run_id")"
   tar -xzf "$tar_path" -C "$dir"
+  # Tar preserves the original file permissions (typically 0644 owned by
+  # container UID 1000 from the author run). After extraction on a different
+  # ephemeral runner, the files are owned by the host runner user — but the
+  # resume container runs as UID 1000 and needs write access so codex/claude
+  # can append new turns to the resumed session. Grant read+write to all,
+  # plus execute on directories only (capital X).
+  chmod -R a+rwX "$dir"
   printf '%s\n' "$dir"
 }
 
