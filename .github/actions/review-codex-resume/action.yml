@@ -197,15 +197,13 @@ runs:
           echo "::error::review-codex-resume requires agent=codex (got '$AGENT')"
           exit 1
         fi
+        # SESSION_HOST_DIR is now the sessions dir directly (mounted at
+        # /home/ci/.codex/sessions inside the container — see Run Codex
+        # resume below). A non-empty dir means real session JSONLs from
+        # the author run; an empty dir means the trailer was present but
+        # the artifact had no usable content.
         if [ ! -d "$SESSION_HOST_DIR" ] || [ -z "$(ls -A "$SESSION_HOST_DIR" 2>/dev/null)" ]; then
           echo "::error::review-codex-resume: session dir missing or empty: $SESSION_HOST_DIR"
-          exit 1
-        fi
-        # A dir containing only config.toml is not resumable — real Codex
-        # conversation state lives under sessions/. Fail early so the fixer
-        # falls back to fresh Claude rather than resume starting a new thread.
-        if [ -z "$(ls -A "${SESSION_HOST_DIR}/sessions" 2>/dev/null)" ]; then
-          echo "::error::review-codex-resume: session dir has no conversation state (config-only): $SESSION_HOST_DIR"
           exit 1
         fi
 
