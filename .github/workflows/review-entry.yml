@@ -28,11 +28,19 @@ permissions:
   # GH validates that reusable callees declare a SUBSET of the
   # caller's permissions block, so this read-only declaration
   # forces every downstream review-*.yml to also declare read-only.
+  #
+  # `actions: read` is required so the fixer's downstream
+  # review-fixer.yml can call actions/download-artifact@v4 with a
+  # cross-run lookup against the original resolve-issue run (the
+  # author-session artifact). Reusable-workflow subset rule applies
+  # transitively, so the entry workflow has to declare it too even
+  # though entry never directly calls download-artifact.
   contents: read
   issues: read
   packages: read
   pull-requests: read
   statuses: write
+  actions: read
 
 concurrency:
   # Each /review comment gets its own concurrency slot (keyed by comment ID)

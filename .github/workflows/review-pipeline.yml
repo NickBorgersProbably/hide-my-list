@@ -38,11 +38,17 @@ permissions:
   # GITHUB_TOKEN. The downstream callees are also read-only on
   # GITHUB_TOKEN; this declaration must be a subset of the
   # caller's (review-entry.yml) permissions.
+  #
+  # `actions: read` is required for review-fixer.yml's
+  # actions/download-artifact@v4 cross-run lookup against the
+  # original resolve-issue run. Subset rule is transitive — entry
+  # declares it too.
   contents: read
   issues: read
   packages: read
   pull-requests: read
   statuses: write
+  actions: read
 
 jobs:
   gather:
