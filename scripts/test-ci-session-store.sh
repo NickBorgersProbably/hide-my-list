@@ -47,8 +47,8 @@ assert_exit() {
 }
 
 # --- home-path ---
-assert_eq "home-path codex"   "/home/ci/.codex"  "$("$HELPER" home-path codex)"
-assert_eq "home-path claude"  "/home/ci/.claude" "$("$HELPER" home-path claude)"
+assert_eq "home-path codex"   "/home/ci/.codex/sessions" "$("$HELPER" home-path codex)"
+assert_eq "home-path claude"  "/home/ci/.claude"         "$("$HELPER" home-path claude)"
 assert_exit "home-path bogus rejected" 64 "$HELPER" home-path bogus
 
 # --- host-dir ---
@@ -78,21 +78,15 @@ assert_eq "prepare chmods 0777" "777" "$PERM"
 # --- validate ---
 assert_exit "validate empty dir fails" 1 "$HELPER" validate codex 100 200
 
-# A bare config.toml (which configure-codex.sh writes before any conversation
-# happens) is non-empty but not resumable. The codex-specific check rejects
-# config-only dirs so the fixer falls back to fresh Claude rather than starting
-# a new thread under the resume contract.
-echo 'model = "x"' > "$DIR/config.toml"
-assert_exit "validate codex config-only dir fails" 1 "$HELPER" validate codex 100 200
-
-# Real codex sessions live under sessions/. Seed that to mark the dir resumable.
-mkdir -p "$DIR/sessions"
-echo "session-data" > "$DIR/sessions/2026-01-01.jsonl"
+# The codex bind-mount target is now $HOME/.codex/sessions directly,
+# so any non-empty dir reflects real session JSONLs from the author run.
+# (Pre-fix, the script required a sessions/ subdir to filter out
+# config-only dirs written by configure-codex.sh; that's no longer
+# relevant since config.toml lives outside the bind-mount.)
+echo "session-data" > "$DIR/2026-01-01.jsonl"
 assert_exit "validate codex populated dir succeeds" 0 "$HELPER" validate codex 100 200
 
-# Claude validate has no sessions/ requirement — any non-empty dir suffices,
-# since claude --continue picks up state from whatever ~/.claude layout the CLI
-# wrote, not from a known-named subdir.
+# Claude validate has the same any-non-empty rule.
 CLAUDE_DIR="$("$HELPER" prepare claude 100 200)"
 echo "anything" > "$CLAUDE_DIR/projects.placeholder"
 assert_exit "validate claude populated dir succeeds" 0 "$HELPER" validate claude 100 200
@@ -104,9 +98,7 @@ assert_exit "validate missing dir fails" 1 "$HELPER" validate codex 999 999
 # author packs a populated session dir → upload-artifact ships it →
 # fixer downloads + unpacks into a fresh job-local root → validate succeeds.
 PACK_DIR="$("$HELPER" prepare codex 300 400)"
-mkdir -p "$PACK_DIR/sessions"
-echo "session-data" > "$PACK_DIR/sessions/2026-01-01.jsonl"
-echo 'model = "x"' > "$PACK_DIR/config.toml"
+echo "session-data" > "$PACK_DIR/2026-01-01.jsonl"
 
 PACK_TAR="$TEST_ROOT/author-session.tgz"
 PACK_OUT="$("$HELPER" pack codex 300 400 "$PACK_TAR")"
@@ -127,7 +119,7 @@ UNPACK_ROOT="$(mktemp -d /tmp/ci-session-test-unpack.XXXXXX)"
 trap 'rm -rf "$TEST_ROOT" "$UNPACK_ROOT"' EXIT
 UNPACK_OUT="$(CI_SESSION_ROOT="$UNPACK_ROOT" "$HELPER" unpack codex 300 400 "$PACK_TAR")"
 assert_eq "unpack prints host-dir path" "$UNPACK_ROOT/codex/300/400" "$UNPACK_OUT"
-if [ -f "$UNPACK_ROOT/codex/300/400/sessions/2026-01-01.jsonl" ]; then
+if [ -f "$UNPACK_ROOT/codex/300/400/2026-01-01.jsonl" ]; then
   passes=$((passes + 1))
   printf 'ok    unpack restores session contents\n'
 else

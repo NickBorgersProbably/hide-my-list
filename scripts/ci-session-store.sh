@@ -26,8 +26,13 @@
 # Subcommands:
 #   home-path <agent>                       — print container path to
 #                                              mount onto (codex:
-#                                              /home/ci/.codex,
-#                                              claude: /home/ci/.claude)
+#                                              /home/ci/.codex/sessions,
+#                                              claude: /home/ci/.claude).
+#                                              Codex is scoped to the
+#                                              sessions subdir to avoid
+#                                              shadowing the standalone
+#                                              install at
+#                                              /home/ci/.codex/packages/.
 #   host-dir <agent> <issue> <run-id>       — print job-local path
 #                                              under CI_SESSION_ROOT
 #   prepare <agent> <issue> <run-id>        — mkdir + chmod 0777
@@ -60,7 +65,18 @@ set -euo pipefail
 ci_session_container_home_path() {
   local agent="$1"
   case "$agent" in
-    codex) printf '%s\n' "/home/ci/.codex" ;;
+    # Codex CLI 0.125+ installs its standalone runtime under
+    # $HOME/.codex/packages/standalone/, with the wrapper at
+    # $HOME/.local/bin/codex symlinking into that tree. Bind-mounting an
+    # empty dir on top of $HOME/.codex breaks the symlink target and
+    # `command -v codex` then fails. Scope the mount to the sessions
+    # subdir — that's the only thing that needs to persist between the
+    # author and fixer runs.
+    codex) printf '%s\n' "/home/ci/.codex/sessions" ;;
+    # Claude Code installs the binary at $HOME/.local/bin/claude, so
+    # mounting $HOME/.claude does not shadow the runtime. Sessions live
+    # under $HOME/.claude/projects, but other state (settings.json,
+    # plugins/, tmp/) is recreated on demand by the CLI.
     claude) printf '%s\n' "/home/ci/.claude" ;;
     *)
       printf 'ci-session-store: unknown agent %q (expected codex|claude)\n' "$agent" >&2
@@ -108,16 +124,9 @@ ci_session_validate() {
     printf 'ci-session-store: %q is empty (author did not persist state)\n' "$dir" >&2
     return 1
   fi
-  # config.toml is written by .devcontainer/configure-codex.sh before any
-  # conversation state exists. A Codex dir that contains only config artefacts
-  # is not resumable — `codex exec resume --last` would start a fresh thread.
-  # Require non-empty sessions/ to confirm real conversation state was persisted.
-  if [ "$agent" = "codex" ]; then
-    if [ -z "$(ls -A "${dir}/sessions" 2>/dev/null)" ]; then
-      printf 'ci-session-store: %q has no session state (config-only dir; not resumable)\n' "$dir" >&2
-      return 1
-    fi
-  fi
+  # The codex bind-mount target is now $HOME/.codex/sessions directly,
+  # so any non-empty dir here means real session JSONLs are present —
+  # no separate config-vs-session distinction to make.
 }
 
 ci_session_pack() {
