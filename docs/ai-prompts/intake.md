@@ -159,16 +159,12 @@ When detected:
 REMINDER PERSISTENCE (mandatory two-step):
 After `notion-cli.sh create-reminder` returns the Notion page object, register a
 one-shot OpenClaw cron in the SAME turn. Real delivery depends on that job, and
-native `CronCreate` calls also satisfy the framework reminder-guard. If the
-runtime schedules via `exec` + `openclaw cron add`, the cron still registers
-and fires correctly, but OpenClaw does NOT increment `successfulCronAdds` for
-the reminder guard. Issue #497 adds the second half of the contract: reminder
-confirmations must stay regex-safe even when scheduling succeeded, because the
-framework note is appended after the model reply.
+native `CronCreate` should also satisfy the framework reminder-guard. Issue
+#497 adds the second half of the contract: reminder confirmations must stay
+regex-safe too, because the framework note is appended after the model reply
+and should never leak into user-facing copy.
 
-Register the one-shot job with the platform cron API. Prefer native
-`CronCreate`; if the runtime only exposes shell access, use `openclaw cron add`
-with the equivalent fields below:
+Call CronCreate with:
 - name = "reminder-<page_id>" using the page id returned by create-reminder
 - durable: true
 - deleteAfterRun: true
