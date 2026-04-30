@@ -260,23 +260,28 @@ file.
 
 #### Reward Delivery Contract (Issue #511)
 
-When `scripts/generate-reward-image.sh` returns a `.png`, the user-facing reward
-reply must contain only:
+When `scripts/generate-reward-image.sh` returns a `.png`, the assistant-authored
+reward turn passed to OpenClaw should contain only:
 
 1. Celebration text for the completion
 2. One `MEDIA:<absolute-path-to-image>` line
 
-Example:
+OpenClaw consumes the `MEDIA:` line as attachment markup. End users should see
+only the celebration text plus the rendered image attachment — never the raw
+filesystem path or transport syntax.
+
+Example assistant-authored reply:
 
 ```text
 CRUSHED IT! 🔥💪✨
-MEDIA:/tmp/reward-1714682000.png
+MEDIA:/absolute/path/to/image.png
 ```
 
 Reward Delivery Checklist:
 
-- [ ] Celebration copy only — no orchestration notes, no "Now let me...", no tool narration
-- [ ] Exactly one `MEDIA:` line for the image
+- [ ] Visible user copy is celebration only — no orchestration notes, no "Now let me...", no tool narration
+- [ ] Exactly one `MEDIA:` line in the assistant-authored turn
+- [ ] User sees rendered attachment, not raw `MEDIA:` syntax or filesystem path
 - [ ] No inline media tags such as `<media:image>` in the same reply
 - [ ] No second send of the same image via the `message` tool in the same turn
 - [ ] If the script returns a `.txt` fallback instead of `.png`, read the suggestion and send plain text only — no `MEDIA:` line
