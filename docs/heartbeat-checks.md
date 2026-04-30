@@ -1,5 +1,23 @@
 # Heartbeat Checks
 
+## Time and Timezone
+
+Heartbeat runs with `lightContext: true` — `USER.md` and `AGENTS.md` are NOT in bootstrap. The system clock is UTC. Do not derive user-local calendar context from system clock alone.
+
+Before any check that formats a date for the user, or needs to convert a stored UTC instant such as `Remind At` into user-local calendar language, run:
+
+```bash
+scripts/user-time-context.sh [reference_timestamp]
+```
+
+Pass `[reference_timestamp]` when converting a specific instant such as a reminder's `remind_at` value into user-local phrasing like "today", "tomorrow", day-of-week names, or "at 9am". Call the helper with no argument when only the current user-local calendar context is needed.
+
+The script returns JSON with `user_timezone`, `reference_utc`, `reference_local`, `local_date`, `local_day_of_week`, `tomorrow_date`, `tomorrow_day_of_week`. Use those fields — never compute "today" or "tomorrow" from `date(1)` directly.
+
+Check 1 safety-net reminder status is produced upstream by `scripts/check-reminders.sh`: it compares UTC instants, determines `status: sent|missed`, and writes that status into the handoff file. Heartbeat consumes that handoff; it does not recompute `now - Remind At`. Use the helper only when delivery wording needs user-local phrasing derived from `remind_at` or from the current local date.
+
+Required here because heartbeat does not load `USER.md` or `AGENTS.md`, so this file is the only place the timezone contract lives for heartbeat-driven work — same pattern as the tone contract in Check 1.
+
 ## Checks (in order)
 
 ### 1. Stranded Reminder Signal
