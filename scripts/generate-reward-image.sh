@@ -342,9 +342,22 @@ TASK_PROFILES = [
 ]
 
 SENSITIVE_PATTERNS = [
-    (r"\b(therapy|therapist|counseling|counselling|psychiatry|psychiatrist|trauma|grief|breakup|funeral)\b", "personal"),
-    (r"\b(medical|doctor|hospital|clinic|prescription|medication|meds|diagnosis|lab|surgery|procedure|dentist|dental)\b", "medical"),
-    (r"\b(tax|bank|credit|debt|loan|lawsuit|lawyer|court|insurance appeal|claim)\b", "financial_or_legal"),
+    (
+        r"\b(therapy|therapist|counseling|counselling|psychiatry|psychiatrist|trauma|grief|breakup|funeral|divorce|custody|relationship)\b",
+        "personal",
+    ),
+    (
+        r"\b(medical|doctor|hospital|clinic|prescription|medication|meds|diagnosis|lab|surgery|procedure|dentist|dental|pharmacy|refill|specialist|physical therapy)\b",
+        "medical",
+    ),
+    (
+        r"\b(tax|taxes|bank|banking|credit|debt|loan|loans|mortgage|rent|pay|payment|bill|bills|budget|budgeting|invoice|expense|expenses|insurance|claim|claims|appeal|renew|renewal|utilities|utility|registration|license|licence|paperwork|forms?|dmv)\b",
+        "private_admin",
+    ),
+    (
+        r"\b(lawsuit|lawyer|attorney|court|hearing|settlement|legal|probate)\b",
+        "financial_or_legal",
+    ),
 ]
 
 GENERIC_TITLES = {
@@ -381,6 +394,30 @@ HUMOR_GUIDANCE = {
 }
 
 HUMOR_GUIDANCE_KEYS = set(HUMOR_GUIDANCE)
+FEEDBACK_REACTION_SCORES = {
+    "positive": 1.0,
+    "neutral": 0.0,
+    "negative": -1.0,
+}
+FEEDBACK_WINDOW = 24
+FEEDBACK_DECAY = 0.82
+FEEDBACK_MAX_ABS = 1.5
+SENSITIVE_THEME_ALLOWLIST = {
+    "low": {"twilight_firework", "sprout_glow"},
+    "medium": {"aurora_peak"},
+    "high": {"tree_of_light"},
+    "epic": {"light_cathedral"},
+}
+SENSITIVE_STYLE_ALLOWLIST = {
+    "digital illustration",
+    "storybook watercolor",
+    "gouache poster art",
+}
+SENSITIVE_PALETTE_ALLOWLIST = {
+    "aurora jewel tones",
+    "cozy pastel glow",
+    "meadow greens and sky blues",
+}
 
 
 def slugify(value: str) -> str:
@@ -413,6 +450,10 @@ def term_variants(term: str):
     else:
         variants.add(f"{term}s")
     return [variant for variant in variants if variant]
+
+
+def clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
 
 
 def load_reward_preferences(path: Path):
@@ -457,6 +498,10 @@ def load_reward_preferences(path: Path):
     }
 
 
+def update_feedback_bucket(bucket, key, delta):
+    bucket[key] = clamp(bucket.get(key, 0.0) + delta, -FEEDBACK_MAX_ABS, FEEDBACK_MAX_ABS)
+
+
 def load_feedback(path: Path):
     feedback = {
         "theme_family": {},
@@ -473,37 +518,36 @@ def load_feedback(path: Path):
     except OSError:
         return feedback
 
-    recent_lines = [line for line in lines if line.strip()][-50:]
-    for line in recent_lines:
+    recent_lines = [line for line in lines if line.strip()][-FEEDBACK_WINDOW:]
+    for age, line in enumerate(reversed(recent_lines)):
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
             continue
 
-        score = {
-            "positive": 2.0,
-            "neutral": 0.0,
-            "negative": -2.0,
-        }.get(str(entry.get("reaction", "")).lower())
-        if score is None:
+        reaction_score = FEEDBACK_REACTION_SCORES.get(str(entry.get("reaction", "")).lower())
+        if reaction_score is None:
+            continue
+        score = reaction_score * (FEEDBACK_DECAY ** age)
+        if score == 0:
             continue
 
         family = slugify(str(entry.get("theme_family") or ""))
         if family:
-            feedback["theme_family"][family] = feedback["theme_family"].get(family, 0.0) + score
+            update_feedback_bucket(feedback["theme_family"], family, score)
 
         style = slugify(str(entry.get("style") or ""))
         if style:
-            feedback["style"][style] = feedback["style"].get(style, 0.0) + score
+            update_feedback_bucket(feedback["style"], style, score)
 
         palette = slugify(str(entry.get("palette") or ""))
         if palette:
-            feedback["palette"][palette] = feedback["palette"].get(palette, 0.0) + score
+            update_feedback_bucket(feedback["palette"], palette, score)
 
         for tag in entry.get("theme_tags", []):
             tag_key = slugify(str(tag))
             if tag_key:
-                feedback["theme_tag"][tag_key] = feedback["theme_tag"].get(tag_key, 0.0) + score
+                update_feedback_bucket(feedback["theme_tag"], tag_key, score)
 
     return feedback
 
@@ -611,14 +655,9 @@ def theme_score(option, prefs, feedback, task_mode):
     score = 1.0
     score += preference_score(option, prefs["subjects"], 1.2)
     score -= avoidance_penalty(option, prefs["avoid"], 1.5)
-    score += feedback["theme_family"].get(slugify(option.get("family", "")), 0.0) * 0.35
+    score += feedback["theme_family"].get(slugify(option.get("family", "")), 0.0) * 0.25
     for tag in option.get("tags", []):
-        score += feedback["theme_tag"].get(slugify(tag), 0.0) * 0.12
-    if task_mode == "metaphorical":
-        if "playful" in option.get("tags", []):
-            score -= 0.25
-        if any(tag in option.get("tags", []) for tag in ("abstract", "light", "growth", "majestic")):
-            score += 0.45
+        score += feedback["theme_tag"].get(slugify(tag), 0.0) * 0.08
     return score
 
 
@@ -626,9 +665,7 @@ def style_score(option, prefs, feedback, task_mode):
     score = 1.0
     score += preference_score(option, prefs["styles"], 1.3)
     score -= avoidance_penalty(option, prefs["avoid"], 1.2)
-    score += feedback["style"].get(slugify(option["name"]), 0.0) * 0.4
-    if task_mode == "metaphorical" and "playful" in option.get("tags", []):
-        score -= 0.15
+    score += feedback["style"].get(slugify(option["name"]), 0.0) * 0.3
     return score
 
 
@@ -637,8 +674,29 @@ def palette_score(option, prefs, feedback):
     score += preference_score(option, prefs["palettes"], 1.3)
     score += preference_score(option, prefs["subjects"], 0.4)
     score -= avoidance_penalty(option, prefs["avoid"], 1.1)
-    score += feedback["palette"].get(slugify(option["name"]), 0.0) * 0.4
+    score += feedback["palette"].get(slugify(option["name"]), 0.0) * 0.3
     return score
+
+
+def sensitive_theme_candidates(intensity: str):
+    return [
+        option for option in THEMES[intensity]
+        if option["id"] in SENSITIVE_THEME_ALLOWLIST[intensity]
+    ]
+
+
+def sensitive_style_candidates():
+    return [
+        option for option in STYLE_OPTIONS
+        if option["name"] in SENSITIVE_STYLE_ALLOWLIST
+    ]
+
+
+def sensitive_palette_candidates():
+    return [
+        option for option in PALETTE_OPTIONS
+        if option["name"] in SENSITIVE_PALETTE_ALLOWLIST
+    ]
 
 
 reward_preferences = load_reward_preferences(STATE_FILE)
@@ -648,22 +706,30 @@ sensitive_reason = detect_sensitive_reason(TASK_TITLE)
 task_mode = build_task_mode(TASK_TITLE, sensitive_reason)
 task_motif = build_task_motif(task_profile, task_mode)
 
+theme_options = THEMES[INTENSITY]
+style_options = STYLE_OPTIONS
+palette_options = PALETTE_OPTIONS
+if task_mode == "metaphorical":
+    theme_options = sensitive_theme_candidates(INTENSITY)
+    style_options = sensitive_style_candidates()
+    palette_options = sensitive_palette_candidates()
+
 theme = pick_with_weights(
-    THEMES[INTENSITY],
+    theme_options,
     lambda option: theme_score(option, reward_preferences, feedback, task_mode),
 )
 style = pick_with_weights(
-    STYLE_OPTIONS,
+    style_options,
     lambda option: style_score(option, reward_preferences, feedback, task_mode),
 )
 palette = pick_with_weights(
-    PALETTE_OPTIONS,
+    palette_options,
     lambda option: palette_score(option, reward_preferences, feedback),
 )
 
 humor_level = reward_preferences["humor_level"]
-if sensitive_reason and humor_level == "maximal":
-    humor_level = "playful"
+if sensitive_reason:
+    humor_level = "subtle"
 
 prompt_parts = [
     "Create a square celebratory reward image for a completed task.",
@@ -673,7 +739,7 @@ prompt_parts = [
 
 if sensitive_reason:
     prompt_parts.append(
-        "Keep the celebration metaphorical and non-specific. Do not depict private medical, legal, financial, or relationship details literally."
+        "Sensitive-task mode: must use abstract or symbolic celebration only. Must not depict literal task artifacts, paperwork, screens, money, medical tools, people, animals, mascots, or joke imagery. Keep tone calm, dignified, and gently celebratory."
     )
 elif task_mode == "abstract":
     prompt_parts.append(
@@ -809,19 +875,27 @@ MANIFEST_RECORD="$(
     CONTEXT_JSON="$PROMPT_CONTEXT_JSON" \
     TIMESTAMP="$TIMESTAMP" \
     ARCHIVE_FILE="$ARCHIVE_FILE" \
-    OUTPUT_FILE="$OUTPUT" \
     python3 <<'PY'
 import json
 import os
 
-record = json.loads(os.environ["CONTEXT_JSON"])
-record.update(
-    {
-        "timestamp": int(os.environ["TIMESTAMP"]),
-        "archive_file": os.environ["ARCHIVE_FILE"],
-        "output_file": os.environ["OUTPUT_FILE"],
-    }
-)
+context = json.loads(os.environ["CONTEXT_JSON"])
+record = {
+    "reward_id": context["reward_id"],
+    "prompt_version": context["prompt_version"],
+    "generated_at": context["generated_at"],
+    "timestamp": int(os.environ["TIMESTAMP"]),
+    "intensity": context["intensity"],
+    "task_mode": context["task_mode"],
+    "task_profile": context["task_profile"],
+    "task_tags": context["task_tags"],
+    "theme_id": context["theme_id"],
+    "theme_family": context["theme_family"],
+    "theme_tags": context["theme_tags"],
+    "style": context["style"],
+    "palette": context["palette"],
+    "archive_file": os.environ["ARCHIVE_FILE"],
+}
 print(json.dumps(record, ensure_ascii=True))
 PY
 )"

@@ -292,9 +292,18 @@ Each intensity level still has 5+ theme candidates, but selection is now weighte
 | High | Majestic, powerful | Phoenix rising from golden flames, astronaut planting flag, whale in starfield |
 | Epic | Cosmic, transcendent | Galaxy forming a crown, reality folding into light cathedral, cosmic phoenix |
 
+#### Sensitive Task Guardrail
+
+When the task classifier detects a private or shame-heavy completion (therapy, medical, legal, financial, or private admin work), reward generation switches to a stricter mode:
+
+- `task_mode` forced to `metaphorical`
+- theme/style/palette chosen only from calm abstract-or-symbolic allowlists
+- humor forced to `subtle`
+- literal task artifacts, mascots, animal scenes, paperwork, money, medical tools, and joke imagery excluded
+
 #### Reward Preference Schema
 
-Reward image preferences live in `state.json.user_preferences.rewards`:
+Canonical reward image preferences live in `state.json.user_preferences.rewards`:
 
 ```json
 {
@@ -333,7 +342,7 @@ Streak count modifies generated image:
 Generated rewards now leave two metadata trails:
 
 - `rewards/manifest.log` - stable tab-delimited recap manifest (`timestamp`, `intensity`, `task_title`, `file_path`)
-- `rewards/manifest.jsonl` - rich metadata per reward (`reward_id`, theme family, style, palette, task mode, task tags, prompt version)
+- `rewards/manifest.jsonl` - feedback metadata only (`reward_id`, `prompt_version`, `generated_at`, `timestamp`, `intensity`, `task_mode`, `task_profile`, `task_tags`, `theme_id`, `theme_family`, `theme_tags`, `style`, `palette`, `archive_file`)
 
 The companion script `scripts/log-reward-feedback.sh` records lightweight reactions:
 
@@ -345,13 +354,13 @@ The companion script `scripts/log-reward-feedback.sh` records lightweight reacti
 ./scripts/log-reward-feedback.sh 2026-04-30_091530_medium_21422 negative "Too busy"
 ```
 
-Those reactions append to `rewards/feedback.jsonl` and are used to bias future style/theme/palette selection. No hard lock-in - positive feedback nudges selection, novelty still matters.
+Those reactions append to `rewards/feedback.jsonl` and are used to bias future style/theme/palette selection. Feedback is intentionally bounded: recent reactions decay over time, aggregate weights are capped, and the result is only a nudge so novelty still matters.
 
 #### Novelty Mechanics (Issue #12)
 
 Image generation system inherently addresses novelty:
 
-1. **Weighted theme selection** - each intensity has 5+ themes, with preferences and feedback nudging rather than dictating the outcome
+1. **Weighted theme selection** - each intensity has 5+ themes, with preferences and bounded feedback nudging rather than dictating the outcome
 2. **Task motifs** - the same theme can feel different because the accomplished task changes the scene details
 3. **AI variation** - same prompt still produces different images each time
 4. **Streak-responsive** - visual elements change as streaks grow
@@ -390,7 +399,7 @@ Every generated reward image auto-archived to `rewards/` with metadata:
 
 - **File naming**: `YYYY-MM-DD_HHMMSS_<intensity>.png`
 - **Recap manifest**: `rewards/manifest.log` tracks timestamp, intensity, task title, file path
-- **Metadata manifest**: `rewards/manifest.jsonl` tracks reward id, theme family, style, palette, task mode, and task tags
+- **Metadata manifest**: `rewards/manifest.jsonl` tracks only feedback-loop selection fields plus archive path; raw task title, task motif, sensitive reason, and full prompt text are intentionally excluded
 - **Feedback log**: `rewards/feedback.jsonl` stores positive/neutral/negative reactions for future weighting
 - **Persistent**: Images survive across sessions — celebration history preserved
 
@@ -777,11 +786,13 @@ initiation_score = min(initiation_ceiling, max(0, weighted_score - diminishing))
 
 ## Configuration Schema
 
-### User Preferences (stored in Notion or local config)
+### Reward Delivery Settings (runtime config)
+
+Image-style preferences live in `state.json.user_preferences.rewards`. The schema below is separate: it covers delivery-channel toggles and channel-specific runtime settings, not the user's reward-image taste profile.
 
 ```mermaid
 erDiagram
-    USER_REWARD_PREFS {
+    REWARD_CHANNEL_SETTINGS {
         boolean emoji_enabled "Default: true"
         boolean image_enabled "Default: true"
         boolean music_enabled "Default: false"
