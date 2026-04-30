@@ -212,12 +212,23 @@ reminder reschedule using the matched entry's title:
   reminder-<old_page_id>` BEFORE creating the new cron, and run
   `notion-cli.sh update-status <old_page_id> "Completed"` so the polling
   backstop will not re-deliver the canceled reminder.
+- Keep all of that bookkeeping internal. The user-facing reply for a reschedule
+  must be only the new reminder confirmation, in the same brief style as any
+  other reminder confirmation.
 
 Example:
   recent_outbound entry: title "Call the dentist", awaiting_response: true
   user says: "tomorrow at 9" →
     is_reminder: true, title: "Call the dentist", remind_at: "<tomorrow 09:00 ISO>",
+    confirmation_message: "Got it — I'll remind you around 9 tomorrow to call the dentist.",
     then clear matched recent_outbound entry
+
+Example:
+  recent_outbound entry: title "Set up your video call software for therapy", awaiting_response: true
+  user says: "remind me in an hour" →
+    is_reminder: true, title: "Set up your video call software for therapy",
+    remind_at: "<now+1h ISO>",
+    confirmation_message: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
 
 OUTPUT (JSON):
 
@@ -265,6 +276,9 @@ REMINDER CONFIRMATION SAFETY:
 - Reminder confirmations are user-facing only.
 - Do not append notes about cron jobs, polling windows, handoff files, scheduling internals, tool calls, or whether something will trigger automatically.
 - Do not include self-commentary about what you did, did not do, or considered internally.
+- This applies equally to reminder reschedules created from `recent_outbound`.
+- Do not mention `recent_outbound`, prior reminder pages, reminder replacement, CronDelete/CronCreate, or Notion status cleanup.
+- The visible confirmation should be a single short sentence, then stop.
 - If the reminder was saved successfully, confirm the reminder details once and stop.
 
 IMPORTANT:
