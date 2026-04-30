@@ -220,19 +220,23 @@ flowchart TD
     end
 
     subgraph Generation["Image Generation"]
-        Theme[Select Random Theme Pool]
-        Prompt[Build Prompt]
-        Style[Apply Intensity Styling]
+        Analyze[Analyze Task + Sensitivity]
+        Prefs[Load Reward Preferences + Feedback]
+        Theme[Select Weighted Theme]
+        Prompt[Build Personalized Prompt]
+        Style[Apply Style + Palette Modifiers]
         Generate[OpenAI gpt-image-1 API]
     end
 
     subgraph Delivery["Image Delivery"]
-        Chat[Embed in Chat Message]
-        Signal[Send via Signal/Telegram]
+        Reply[Celebration text only]
+        Media[Single MEDIA attachment]
     end
 
     Complete --> Intensity
-    Intensity --> Theme
+    Intensity --> Analyze
+    Analyze --> Prefs
+    Prefs --> Theme
     Theme --> Prompt
     Prompt --> Style
     Style --> Generate
@@ -251,6 +255,10 @@ flowchart TD
 ./scripts/generate-reward-image.sh low "Call dentist" 0
 ./scripts/generate-reward-image.sh medium "Review proposal" 2
 ./scripts/generate-reward-image.sh epic "Complete Q4 report" 5
+
+# Optional context from the caller:
+REWARD_WORK_TYPE=focus REWARD_ENERGY_LEVEL=low \
+  ./scripts/generate-reward-image.sh medium "Review proposal" 2
 ```
 
 Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
@@ -258,9 +266,53 @@ OpenClaw then stages attachment delivery through `~/.openclaw/media/outbound/`,
 which must stay traversable (for example `0755`) so Signal can read the staged
 file.
 
+#### Prompt Personalization Pipeline
+
+Reward prompts are now built from four layers, not just a random theme:
+
+1. **Intensity theme pool** - low/medium/high/epic still control the overall celebration scale
+2. **Task motif extraction** - task title becomes a safe visual motif (call, writing, setup, cleanup, etc.)
+3. **Preference modifiers** - optional `state.json.user_preferences.rewards` values bias style, palette, and subject matter
+4. **Feedback weighting** - prior positive/negative reactions bias future theme-family, style, and palette selection
+
+Task titles are not copied blindly into the image prompt. The script first classifies the task and builds either:
+
+- **Literal motifs** for ordinary tasks: "glowing phone and confetti" for calls, "pages turning into stars" for writing
+- **Metaphorical motifs** for sensitive tasks: therapy/medical/personal/legal/financial tasks use abstract or symbolic celebration instead of literal depictions
+- **Generic progress imagery** when the title is too vague to trust
+
+#### Reward Delivery Contract (Issue #511)
+
+When `scripts/generate-reward-image.sh` returns a `.png`, the assistant-authored
+reward turn passed to OpenClaw should contain only:
+
+1. Celebration text for the completion
+2. One `MEDIA:<absolute-path-to-image>` line
+
+OpenClaw consumes the `MEDIA:` line as attachment markup. End users should see
+only the celebration text plus the rendered image attachment — never the raw
+filesystem path or transport syntax.
+
+Example assistant-authored reply:
+
+```text
+CRUSHED IT! 🔥💪✨
+MEDIA:/absolute/path/to/image.png
+```
+
+Reward Delivery Checklist:
+
+- [ ] Visible user copy is celebration only — no orchestration notes, no "Now let me...", no tool narration
+- [ ] Exactly one `MEDIA:` line in the assistant-authored turn
+- [ ] User sees rendered attachment, not raw `MEDIA:` syntax or filesystem path
+- [ ] No inline media tags such as `<media:image>` in the same reply
+- [ ] No second send of the same image via the `message` tool in the same turn
+- [ ] If the script returns a `.txt` fallback instead of `.png`, read the suggestion and send plain text only — no `MEDIA:` line
+- [ ] If the turn also includes an outing suggestion or other follow-up, send that as a separate plain-text message after the attachment-bearing reward reply
+
 #### Theme Pools by Intensity
 
-Each intensity level has 5+ thematic prompts. Random theme selected each time for variety.
+Each intensity level still has 5+ theme candidates, but selection is now weighted by preferences and feedback instead of being purely random.
 
 | Intensity | Theme Style | Examples |
 |-----------|-------------|---------|
@@ -268,6 +320,41 @@ Each intensity level has 5+ thematic prompts. Random theme selected each time fo
 | Medium | Enthusiastic, joyful | Fox dancing in wildflowers, confetti explosion, otter on rainbow waterfall |
 | High | Majestic, powerful | Phoenix rising from golden flames, astronaut planting flag, whale in starfield |
 | Epic | Cosmic, transcendent | Galaxy forming a crown, reality folding into light cathedral, cosmic phoenix |
+
+#### Sensitive Task Guardrail
+
+When the task classifier detects a private or shame-heavy completion (therapy, medical, legal, financial, or private admin work), reward generation switches to a stricter mode:
+
+- `task_mode` forced to `metaphorical`
+- theme/style/palette chosen only from calm abstract-or-symbolic allowlists
+- humor forced to `subtle`
+- literal task artifacts, mascots, animal scenes, paperwork, money, medical tools, and joke imagery excluded
+
+#### Reward Preference Schema
+
+Canonical reward image preferences live in `state.json.user_preferences.rewards`:
+
+```json
+{
+  "user_preferences": {
+    "rewards": {
+      "preferred_styles": ["storybook watercolor", "paper collage illustration"],
+      "preferred_palettes": ["cozy pastel glow", "aurora jewel tones"],
+      "favorite_subjects": ["space", "cats", "nature"],
+      "avoid": ["medical literal", "spiders"],
+      "humor_level": "playful"
+    }
+  }
+}
+```
+
+Supported preference dimensions:
+
+- **Styles** - e.g. watercolor, collage, 3D, graphic illustration
+- **Palettes** - warm, pastel, jewel-tone, neon, nature-led
+- **Subjects** - space, animals, nature, abstract, cozy
+- **Avoid list** - tags or vibes to suppress
+- **Humor level** - `subtle`, `playful`, or `maximal`
 
 #### Streak Enhancements
 
@@ -279,19 +366,39 @@ Streak count modifies generated image:
 | 3-4 | Three orbiting stars added |
 | 5+ | Trail of five glowing orbs added |
 
+#### Feedback Loop
+
+Generated rewards now leave two metadata trails:
+
+- `rewards/manifest.log` - stable tab-delimited recap manifest (`timestamp`, `intensity`, `task_title`, `file_path`)
+- `rewards/manifest.jsonl` - feedback metadata only (`reward_id`, `prompt_version`, `generated_at`, `timestamp`, `intensity`, `task_mode`, `task_profile`, `task_tags`, `theme_id`, `theme_family`, `theme_tags`, `style`, `palette`, `archive_file`)
+
+The companion script `scripts/log-reward-feedback.sh` records lightweight reactions:
+
+```bash
+# Record feedback for the most recent reward
+./scripts/log-reward-feedback.sh latest positive "Loved the space vibe"
+
+# Record feedback for a specific reward
+./scripts/log-reward-feedback.sh 2026-04-30_091530_medium_21422 negative "Too busy"
+```
+
+Those reactions append to `rewards/feedback.jsonl` and are used to bias future style/theme/palette selection. Feedback is intentionally bounded: recent reactions decay over time, aggregate weights are capped, and the result is only a nudge so novelty still matters.
+
 #### Novelty Mechanics (Issue #12)
 
 Image generation system inherently addresses novelty:
 
-1. **Random theme selection** — each intensity has 5+ themes, randomly chosen
-2. **AI variation** — same prompt produces different images each time
-3. **Streak-responsive** — visual elements change as streaks grow
-4. **Expandable pools** — new themes added to script without code changes
+1. **Weighted theme selection** - each intensity has 5+ themes, with preferences and bounded feedback nudging rather than dictating the outcome
+2. **Task motifs** - the same theme can feel different because the accomplished task changes the scene details
+3. **AI variation** - same prompt still produces different images each time
+4. **Streak-responsive** - visual elements change as streaks grow
+5. **Expandable pools** - new themes, styles, and palettes can be added without changing the delivery contract
 
 Future enhancements:
 - Seasonal/holiday theme injection
-- User preference learning (track which themes get positive reactions)
 - Milestone surprise themes (hidden achievements at 10th, 50th, 100th task)
+- Agent-side reaction capture directly from chat responses
 
 #### Graceful Degradation — Offline Fallback Rewards
 
@@ -311,13 +418,18 @@ Fallback writes suggestion to `.txt` file (instead of `.png`) and exits successf
 | Variable | Purpose |
 |----------|---------|
 | `OPENAI_API_KEY` | OpenAI API authentication for image generation |
+| `REWARD_STATE_FILE` | Optional override for where reward preferences are loaded from |
+| `REWARD_WORK_TYPE` | Optional task context used to shape composition |
+| `REWARD_ENERGY_LEVEL` | Optional task context used to tune intensity and gentleness |
 
 #### Image Archive & Collection
 
 Every generated reward image auto-archived to `rewards/` with metadata:
 
 - **File naming**: `YYYY-MM-DD_HHMMSS_<intensity>.png`
-- **Manifest log**: `rewards/manifest.log` tracks timestamp, intensity, task title, file path
+- **Recap manifest**: `rewards/manifest.log` tracks timestamp, intensity, task title, file path
+- **Metadata manifest**: `rewards/manifest.jsonl` tracks only feedback-loop selection fields plus archive path; raw task title, task motif, sensitive reason, and full prompt text are intentionally excluded
+- **Feedback log**: `rewards/feedback.jsonl` stores positive/neutral/negative reactions for future weighting
 - **Persistent**: Images survive across sessions — celebration history preserved
 
 #### Weekly Recap Video
@@ -703,11 +815,13 @@ initiation_score = min(initiation_ceiling, max(0, weighted_score - diminishing))
 
 ## Configuration Schema
 
-### User Preferences (stored in Notion or local config)
+### Reward Delivery Settings (runtime config)
+
+Image-style preferences live in `state.json.user_preferences.rewards`. The schema below is separate: it covers delivery-channel toggles and channel-specific runtime settings, not the user's reward-image taste profile.
 
 ```mermaid
 erDiagram
-    USER_REWARD_PREFS {
+    REWARD_CHANNEL_SETTINGS {
         boolean emoji_enabled "Default: true"
         boolean image_enabled "Default: true"
         boolean music_enabled "Default: false"
@@ -767,13 +881,13 @@ sequenceDiagram
     R->>R: Select reward channels
 
     par Parallel Reward Delivery
-        R->>AI: Emoji celebration message
-        R->>AI: AI-generated celebration image
+        R->>AI: Celebration message text
+        R->>AI: AI-generated image path
         R->>HA: Play victory music
         R->>SMS: Text significant other
     end
 
-    AI->>U: "CRUSHED IT! 🔥💪✨ [unique AI celebration image]"
+    AI->>U: "CRUSHED IT! 🔥💪✨" + single MEDIA attachment
 
     opt High intensity + cleared schedule
         R->>AI: Outing suggestion
@@ -835,6 +949,9 @@ Capabilities exposed via conversation commands, not HTTP endpoints. OpenClaw age
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `OPENAI_API_KEY` | OpenAI API for image generation | `sk-proj-xxxxxxxx` |
+| `REWARD_STATE_FILE` | Override reward preference source file | `/workspace/state.json` |
+| `REWARD_WORK_TYPE` | Optional work type hint for reward imagery | `focus` |
+| `REWARD_ENERGY_LEVEL` | Optional energy hint for reward imagery | `low` |
 | `TWILIO_ACCOUNT_SID` | Twilio authentication | `ACxxxxxxxx` |
 | `TWILIO_AUTH_TOKEN` | Twilio authentication | `xxxxxxxx` |
 | `TWILIO_PHONE_NUMBER` | Sender phone number | `+1234567890` |
@@ -873,7 +990,8 @@ gantt
     section Phase 5: Novelty
     Seasonal theme injection     :p5a, 6, 7
     Milestone surprises          :p5b, 6, 7
-    Preference learning          :p5c, 7, 8
+    Preference-weighted prompts  :done, p5c, 7, 8
+    Feedback capture baseline    :done, p5d, 7, 8
 
     section Phase 6: Polish
     Personalized outings         :p6a, 8, 9

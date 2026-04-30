@@ -43,6 +43,7 @@ flowchart TB
         General[General Preferences]
         WorkType[Work Type Specific]
         TaskPattern[Task Pattern Specific]
+        RewardImage[Reward Image Specific]
     end
 
     subgraph Context["Context Factors"]
@@ -55,6 +56,7 @@ flowchart TB
         Breakdown[Task Breakdown]
         Prep[Prep Steps]
         Environment[Environment Setup]
+        Rewards[Reward Image Selection]
     end
 
     Storage --> Context
@@ -125,16 +127,29 @@ Preferences for recurring task patterns.
 | meetings | prep | "Review agenda, prepare 1 question" |
 | exercise | motivation | "Put on workout playlist" |
 
+### 4. Reward Image Preferences
+
+Preferences that shape celebration imagery after completions.
+
+| Preference | Example Values | Usage |
+|------------|----------------|-------|
+| preferred_styles | storybook watercolor, digital illustration, gouache poster art | Bias image rendering style |
+| preferred_palettes | aurora jewel tones, cozy pastel glow | Bias color treatment |
+| favorite_subjects | space, cats, nature, abstract | Bias theme family + subject matter |
+| avoid | spiders, medical literal, neon | Downweight imagery user dislikes |
+| humor_level | subtle, playful, maximal | Controls how whimsical rewards feel |
+
 ---
 
 ## Preference Schema
 
-### User Preferences Table (Notion or Config)
+### state.json `user_preferences` Schema
+
+Canonical source of truth = `state.json.user_preferences`. Notion task rows can reference outcomes influenced by preferences, but preference storage itself lives in session state.
 
 ```mermaid
 erDiagram
     USER_PREFERENCES {
-        string user_id PK "User identifier"
         string preferred_beverage "tea|coffee|water|none"
         string comfort_spot "Description of favorite spot"
         string transition_ritual "Between-task ritual"
@@ -142,6 +157,7 @@ erDiagram
         string break_activity "Preferred break activity"
         json work_type_prefs "Work type specific JSON"
         json task_pattern_prefs "Pattern specific JSON"
+        json rewards "Reward image preferences JSON"
         json time_of_day_prefs "Morning/afternoon/evening"
         json energy_level_prefs "High/medium/low energy"
     }
@@ -204,6 +220,20 @@ erDiagram
   }
 }
 ```
+
+### Reward Image Preferences JSON Structure
+
+```json
+{
+  "preferred_styles": ["storybook watercolor", "paper collage illustration"],
+  "preferred_palettes": ["cozy pastel glow", "aurora jewel tones"],
+  "favorite_subjects": ["space", "cats", "nature"],
+  "avoid": ["medical literal", "spiders"],
+  "humor_level": "playful"
+}
+```
+
+This subtree maps directly to `state.json.user_preferences.rewards` and is the same reward-image preference object referenced by `docs/reward-system.md`.
 
 ---
 

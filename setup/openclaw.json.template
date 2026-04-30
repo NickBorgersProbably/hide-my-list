@@ -82,7 +82,7 @@
       "workspace": "{{OPENCLAW_HOME}}/workspace",
       "envelopeTimezone": "{{TZ_IDENTIFIER}}",
       "compaction": {
-        "mode": "safeguard"
+        "model": "litellm/claude-haiku-4-5"
       },
       "heartbeat": {
         "every": "60m",

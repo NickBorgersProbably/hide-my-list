@@ -52,6 +52,26 @@ For each reviewer blocker, decide:
    `git add`. Host step captures the working tree via `git add -A` and
    commits as one. Commit message is built from your `addressed[]` list.
 
+## Merge conflict resolution
+
+The pipeline attempted `git merge --no-commit --no-ff origin/main` before
+invoking you. Read `${MERGE_STATE}`:
+
+- `none` or `clean`: nothing to do; proceed with reviewer-driven fixes only.
+- `conflicts`: the merge left conflict markers (`<<<<<<<`, `=======`,
+  `>>>>>>>`) in the files listed in `${MERGE_CONFLICT_FILES}` (comma-
+  separated). You authored this PR — you have the original intent in
+  scrollback. Use that to pick the right resolution at each marker, on
+  top of main's recent changes. Resolve EVERY marker BEFORE addressing
+  reviewer blockers. When unsure, prefer main's structural changes and
+  re-apply the PR's intent on top.
+
+Same `.git/`-touch prohibition applies: edit files only, do not run
+`git add` / `merge` / `commit` / `abort` / etc. The pipeline's host step
+seals the merge after you exit. If any marker is still present, the
+pipeline aborts the merge and labels the PR `needs-human-review` —
+resolve them all.
+
 ## Procedure
 
 1. List reviewer artifacts:
