@@ -2,17 +2,19 @@
 
 ## Time and Timezone
 
-Heartbeat runs with `lightContext: true` — `USER.md` and `AGENTS.md` are NOT in bootstrap. The system clock is UTC. Do not reason about user-local time from system clock alone.
+Heartbeat runs with `lightContext: true` — `USER.md` and `AGENTS.md` are NOT in bootstrap. The system clock is UTC. Do not derive user-local calendar context from system clock alone.
 
-Before any check that compares wall-clock time to `Remind At`, computes lateness, or formats a date for the user, run:
+Before any check that formats a date for the user, or needs to convert a stored UTC instant such as `Remind At` into user-local calendar language, run:
 
 ```bash
-scripts/user-time-context.sh
+scripts/user-time-context.sh [reference_timestamp]
 ```
 
-The script returns JSON with `user_timezone`, `reference_utc`, `reference_local`, `local_date`, `local_day_of_week`, `tomorrow_date`. Use those fields — never compute "today" or "tomorrow" from `date(1)` directly.
+Pass `[reference_timestamp]` when converting a specific instant such as a reminder's `remind_at` value into user-local phrasing like "today", "tomorrow", day-of-week names, or "at 9am". Call the helper with no argument when only the current user-local calendar context is needed.
 
-This applies in particular to Check 1 lateness math: `now - Remind At > 15 min → status: missed` is a UTC arithmetic operation (both sides are UTC instants), so the lateness threshold is fine to compute directly. But any user-facing time string ("at 9am", "tomorrow", "later today") in delivery wording must be resolved through the helper.
+The script returns JSON with `user_timezone`, `reference_utc`, `reference_local`, `local_date`, `local_day_of_week`, `tomorrow_date`, `tomorrow_day_of_week`. Use those fields — never compute "today" or "tomorrow" from `date(1)` directly.
+
+Check 1 safety-net reminder status is produced upstream by `scripts/check-reminders.sh`: it compares UTC instants, determines `status: sent|missed`, and writes that status into the handoff file. Heartbeat consumes that handoff; it does not recompute `now - Remind At`. Use the helper only when delivery wording needs user-local phrasing derived from `remind_at` or from the current local date.
 
 Required here because heartbeat does not load `USER.md` or `AGENTS.md`, so this file is the only place the timezone contract lives for heartbeat-driven work — same pattern as the tone contract in Check 1.
 
