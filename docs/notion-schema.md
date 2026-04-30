@@ -394,7 +394,7 @@ Format:
 Set when user accepts and begins task. Used for:
 - Actual duration calc (with CompletedAt)
 - Initiation rewards
-- Per-user time estimation for time blindness compensation (Issue #6)
+- Per-user time estimation for time blindness compensation
 
 ### StepsCompleted (number)
 

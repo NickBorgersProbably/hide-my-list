@@ -87,6 +87,22 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 
 Treat OpenClaw prompt + spec file edits with care — change live app behavior. Psych reviewer validates user-facing changes against ADHD research.
 
+### Prompt & Spec Files — Present Tense Only
+
+The "OpenClaw Prompt & Spec Files" listed above are loaded into the runtime agent's session context every turn. They **are** the spec the agent operates from — not documentation of how the spec evolved. Write them like a system prompt, not a changelog.
+
+Rules:
+
+- **Present tense only.** Describe how the system behaves *right now*. No "now does X", "previously Y", "used to Z", "still N", "instead of being purely random", "previous architecture", "former bash daemons", "What changed:", "replaced old…", "before X shipped".
+- **No `(Issue #N)` / `(PR #N)` / `(#N)` suffixes** on section headers, list items, or callouts. Issue and PR numbers go in the commit message, the PR body, the linked issue itself — not in the runtime prompt. They rot, and they pull the agent's attention onto historical scaffolding instead of the current rule.
+- **Replace, don't diff.** When behavior changes, rewrite the section. Don't keep before/after framing or "Why we changed this:" notes in the spec — that belongs in the commit message.
+- **No roadmaps in spec files.** Gantt charts, "future enhancements" lists, `:done` markers, and similar in-flight tracking belong in GitHub issues/projects or a clearly-labeled non-spec roadmap doc, not in runtime prompts.
+- **Rationale belongs in present tense.** "Why this design:" framing is fine — explain the constraint that *currently* governs the choice. Avoid framing rationale as a post-mortem of an alternative that was tried and rejected.
+
+This rule applies to every file in the "OpenClaw Prompt & Spec Files" list above (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, all `docs/ai-prompts/*.md`, `docs/architecture.md`, `docs/openclaw-integration.md`, `docs/agent-capabilities.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/user-interactions.md`, `docs/user-preferences.md`, `docs/reward-system.md`, `design/adhd-priorities.md`).
+
+It does **not** apply to `docs/agentic-pipeline-learnings.md` or other contributor/CI-only guidance, which legitimately carry historical context about how the dev pipeline got to its current shape.
+
 ## Review Pipeline
 
 PRs reviewed by multi-agent review pipeline (Codex reviewers + fixer in v2). Roles same in both versions; orchestration differs.

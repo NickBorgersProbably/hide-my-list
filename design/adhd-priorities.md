@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Analyzes 8 open ADHD feature requests (Issues #5-#12) through ADHD psychology research. Classifies each as **foundational** (must shape core architecture day one) or **additive** (layer on later). Goal: embed right data structures, interaction patterns, extensibility points so ADHD accommodations are native, not retrofitted.
+Analyzes ADHD feature requests through ADHD psychology research. Classifies each as **foundational** (must shape core architecture day one) or **additive** (layer on later). Goal: embed right data structures, interaction patterns, extensibility points so ADHD accommodations are native, not retrofitted.
 
 ---
 
@@ -12,23 +12,23 @@ Analyzes 8 open ADHD feature requests (Issues #5-#12) through ADHD psychology re
 
 Address most disabling ADHD symptoms. Require data structures, interaction patterns, or architectural decisions expensive to retrofit.
 
-| Priority | Issue | Feature | Core ADHD Mechanism |
-|----------|-------|---------|---------------------|
-| F1 | #10 | Shame Prevention / RSD-Aware Messaging | Rejection Sensitive Dysphoria |
-| F2 | #11 | Decision Fatigue Prevention | Executive Function Depletion |
-| F3 | #7 | Task Initiation Rewards | Dopamine-Deficient Reward System |
-| F4 | #6 | Time Blindness Compensation | Impaired Time Perception |
+| Priority | Feature | Core ADHD Mechanism |
+|----------|---------|---------------------|
+| F1 | Shame Prevention / RSD-Aware Messaging | Rejection Sensitive Dysphoria |
+| F2 | Decision Fatigue Prevention | Executive Function Depletion |
+| F3 | Task Initiation Rewards | Dopamine-Deficient Reward System |
+| F4 | Time Blindness Compensation | Impaired Time Perception |
 
 ### Additive Features (Can Be Layered On Later)
 
 Enhance experience without fundamental architectural changes. Extend patterns from foundational features.
 
-| Priority | Issue | Feature | Core ADHD Mechanism |
-|----------|-------|---------|---------------------|
-| A1 | #8 | Transition/Task-Switching Support | Cognitive Flexibility Deficits |
-| A2 | #9 | Waiting Mode Recognition | Anticipatory Paralysis |
-| A3 | #12 | Novelty in Rewards | Habituation / Stimulation Seeking |
-| A4 | #5 | Body Doubling / Accountability | Social Dopamine Stimulation |
+| Priority | Feature | Core ADHD Mechanism |
+|----------|---------|---------------------|
+| A1 | Transition/Task-Switching Support | Cognitive Flexibility Deficits |
+| A2 | Waiting Mode Recognition | Anticipatory Paralysis |
+| A3 | Novelty in Rewards | Habituation / Stimulation Seeking |
+| A4 | Body Doubling / Accountability | Social Dopamine Stimulation |
 
 ---
 

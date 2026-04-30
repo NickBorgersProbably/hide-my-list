@@ -135,7 +135,7 @@ flowchart LR
     Epic --> EpicEmoji
 ```
 
-#### Initiation Reward Templates (Issue #7)
+#### Initiation Reward Templates
 
 > **Design principle:** Starting harder than finishing for ADHD brains. Initiation rewards acknowledge this truth. Feel like genuine encouragement from someone who understands, not participation trophies. Keep brief — user about to start working.
 
@@ -184,7 +184,7 @@ initiation-specific adjustments:
 - Never celebrate starting so much it diminishes completion celebration
 - Tone is **acknowledgment of difficulty**, not generic cheerleading
 - "You started" validates that starting is genuinely hard — don't trivialize it
-- First-time users always get initiation reward; returning users: vary frequency to avoid habituation (see Issue #12 for novelty)
+- First-time users always get initiation reward; returning users: vary frequency to avoid habituation
 
 #### Completion Celebration Message Templates
 
@@ -268,7 +268,7 @@ file.
 
 #### Prompt Personalization Pipeline
 
-Reward prompts are now built from four layers, not just a random theme:
+Reward prompts are built from four layers:
 
 1. **Intensity theme pool** - low/medium/high/epic still control the overall celebration scale
 2. **Task motif extraction** - task title becomes a safe visual motif (call, writing, setup, cleanup, etc.)
@@ -281,7 +281,7 @@ Task titles are not copied blindly into the image prompt. The script first class
 - **Metaphorical motifs** for sensitive tasks: therapy/medical/personal/legal/financial tasks use abstract or symbolic celebration instead of literal depictions
 - **Generic progress imagery** when the title is too vague to trust
 
-#### Reward Delivery Contract (Issue #511)
+#### Reward Delivery Contract
 
 When `scripts/generate-reward-image.sh` returns a `.png`, the assistant-authored
 reward turn passed to OpenClaw should contain only:
@@ -312,7 +312,7 @@ Reward Delivery Checklist:
 
 #### Theme Pools by Intensity
 
-Each intensity level still has 5+ theme candidates, but selection is now weighted by preferences and feedback instead of being purely random.
+Each intensity level has 5+ theme candidates. Selection is weighted by preferences and bounded feedback.
 
 | Intensity | Theme Style | Examples |
 |-----------|-------------|---------|
@@ -368,7 +368,7 @@ Streak count modifies generated image:
 
 #### Feedback Loop
 
-Generated rewards now leave two metadata trails:
+Generated rewards leave two metadata trails:
 
 - `rewards/manifest.log` - stable tab-delimited recap manifest (`timestamp`, `intensity`, `task_title`, `file_path`)
 - `rewards/manifest.jsonl` - feedback metadata only (`reward_id`, `prompt_version`, `generated_at`, `timestamp`, `intensity`, `task_mode`, `task_profile`, `task_tags`, `theme_id`, `theme_family`, `theme_tags`, `style`, `palette`, `archive_file`)
@@ -385,13 +385,13 @@ The companion script `scripts/log-reward-feedback.sh` records lightweight reacti
 
 Those reactions append to `rewards/feedback.jsonl` and are used to bias future style/theme/palette selection. Feedback is intentionally bounded: recent reactions decay over time, aggregate weights are capped, and the result is only a nudge so novelty still matters.
 
-#### Novelty Mechanics (Issue #12)
+#### Novelty Mechanics
 
 Image generation system inherently addresses novelty:
 
 1. **Weighted theme selection** - each intensity has 5+ themes, with preferences and bounded feedback nudging rather than dictating the outcome
 2. **Task motifs** - the same theme can feel different because the accomplished task changes the scene details
-3. **AI variation** - same prompt still produces different images each time
+3. **AI variation** - same prompt produces different images each time
 4. **Streak-responsive** - visual elements change as streaks grow
 5. **Expandable pools** - new themes, styles, and palettes can be added without changing the delivery contract
 
@@ -959,44 +959,6 @@ Capabilities exposed via conversation commands, not HTTP endpoints. OpenClaw age
 | `HOME_ASSISTANT_URL` | Home Assistant endpoint | `http://ha.local:8123` |
 | `HOME_ASSISTANT_TOKEN` | Home Assistant auth | `xxxxxxxx` |
 | `OPENWEATHER_API_KEY` | Weather for outings | `xxxxxxxx` |
-
----
-
-## Implementation Phases
-
-```mermaid
-gantt
-    title Reward System Implementation
-    dateFormat  X
-    axisFormat %s
-
-    section Phase 1: Core
-    Emoji celebrations           :done, p1a, 0, 1
-    Basic completion messages    :done, p1b, 0, 1
-
-    section Phase 2: AI Images
-    Image generation script      :done, p2a, 1, 2
-    Intensity-based themes       :done, p2b, 1, 2
-    Streak visual enhancements   :done, p2c, 1, 2
-
-    section Phase 3: Audio
-    Home audio integration       :p3a, 2, 3
-    Music preference config      :p3b, 3, 4
-
-    section Phase 4: Social
-    SMS notifications            :p4a, 4, 5
-    Multi-platform messaging     :p4b, 5, 6
-
-    section Phase 5: Novelty
-    Seasonal theme injection     :p5a, 6, 7
-    Milestone surprises          :p5b, 6, 7
-    Preference-weighted prompts  :done, p5c, 7, 8
-    Feedback capture baseline    :done, p5d, 7, 8
-
-    section Phase 6: Polish
-    Personalized outings         :p6a, 8, 9
-    A/B testing framework        :p6b, 9, 10
-```
 
 ---
 

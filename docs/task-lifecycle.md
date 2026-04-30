@@ -452,7 +452,7 @@ flowchart TD
     NextStep --> Working([User continues working])
 ```
 
-> **First-Step Rewards (Issue #7):** Completing first step = critical momentum point for ADHD brains. Reward lighter than task completion but acknowledges progress: "First step down. You're rolling." Bridges gap between initiation reward (accepting) and completion celebration.
+> **First-Step Rewards:** Completing first step = critical momentum point for ADHD brains. Reward lighter than task completion but acknowledges progress: "First step down. You're rolling." Bridges gap between initiation reward (accepting) and completion celebration.
 
 ### Step Tracking Examples
 
@@ -468,7 +468,7 @@ flowchart TD
 
 When user accepts task, system provides brief **initiation reward** acknowledging starting is hardest part.
 
-> **Task Initiation Rewards (Issue #7):** Starting harder than finishing for ADHD brains. Acceptance triggers brief acknowledgment: "You're in. That's the hardest part." Lighter than completion celebrations — encouragement, not party.
+> **Task Initiation Rewards:** Starting harder than finishing for ADHD brains. Acceptance triggers brief acknowledgment: "You're in. That's the hardest part." Lighter than completion celebrations — encouragement, not party.
 
 ## Phase 5: Check-In Follow-Up
 
@@ -633,7 +633,7 @@ flowchart TD
     CheckDuration -->|> 24 hours| AskConfirm([Ask: continue or abandon?])
 ```
 
-**Why single gate:** PR #50 attempted three-signal approach (session boundary, explicit phrase, inactivity gap) where some signals could bypass time threshold. Three of four reviewers identified contradiction producing unreliable behavior. Single-gate eliminates ambiguity: every resume goes through same conditions, every time.
+**Why single gate:** Multi-signal approaches with bypass conditions produce contradictory edge cases. Every resume goes through identical conditions to keep behavior predictable.
 
 ### Trigger Conditions (ALL required)
 
