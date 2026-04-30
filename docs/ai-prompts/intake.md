@@ -158,13 +158,17 @@ When detected:
 
 REMINDER PERSISTENCE (mandatory two-step):
 After `notion-cli.sh create-reminder` returns the Notion page object, register a
-one-shot OpenClaw cron in the SAME turn so the framework reminder-guard sees a
-successful cron add and suppresses its "Note: I did not schedule a reminder..."
-post-process. Skipping this step is the bug fix from issue #489 — the model
-never produces that note; OpenClaw's `agent-runner-reminder-guard` appends it
-when no cron was registered that turn.
+one-shot OpenClaw cron in the SAME turn. Real delivery depends on that job, and
+native `CronCreate` calls also satisfy the framework reminder-guard. If the
+runtime schedules via `exec` + `openclaw cron add`, the cron still registers
+and fires correctly, but OpenClaw does NOT increment `successfulCronAdds` for
+the reminder guard. Issue #497 adds the second half of the contract: reminder
+confirmations must stay regex-safe even when scheduling succeeded, because the
+framework note is appended after the model reply.
 
-Call CronCreate with:
+Register the one-shot job with the platform cron API. Prefer native
+`CronCreate`; if the runtime only exposes shell access, use `openclaw cron add`
+with the equivalent fields below:
 - name = "reminder-<page_id>" using the page id returned by create-reminder
 - durable: true
 - deleteAfterRun: true
@@ -178,12 +182,11 @@ Call CronCreate with:
   `setup/cron/reminder-delivery.md` (Prompt section), with <PAGE_ID>
   substituted in.
 
-If CronCreate fails: use degraded confirmation wording that does not promise exact
-timing (e.g., "Got it — I've saved your reminder; I'll check for it and send it
-your way"). Do not tell the user the reminder will arrive at an exact time — the
-reminder guard note may appear in this path since no cron add succeeded. The
-reminder is still saved in Notion; the backstop path catches it at the next
-15-min poll.
+If the cron registration step fails: still use regex-safe confirmation wording
+that does not promise exact timing (e.g., "Got it — reminder saved for around
+6pm PT: email Melanie."). Do not tell the user the reminder will arrive at an
+exact time. The reminder is still saved in Notion; the backstop path catches it
+at the next 15-min poll.
 
 Examples:
   "Remind me at 6pm PT to email Melanie" →
@@ -259,12 +262,14 @@ If task is too vague and clarification_count < 3:
 CONFIRMATION MESSAGE FORMAT:
 - For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
 - For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
-- For reminders: "Got it — I'll remind you Wednesday evening to set up your video call software for therapy."
+- For reminders: "Got it — reminder set for Wednesday evening: set up your video call software for therapy."
 
 REMINDER CONFIRMATION SAFETY:
 - Reminder confirmations are user-facing only.
 - Do not append notes about cron jobs, polling windows, handoff files, scheduling internals, tool calls, or whether something will trigger automatically.
 - Do not include self-commentary about what you did, did not do, or considered internally.
+- Do not use first-person reminder commitments that match OpenClaw's guard regex (`I'll remind`, `I will remind`, `I'll set/create/schedule a reminder`, etc.), even when reminder scheduling succeeded.
+- Prefer neutral wording such as "Reminder set for Wednesday evening: ..." or "Reminder saved for around 6pm PT: ...".
 - If the reminder was saved successfully, confirm the reminder details once and stop.
 
 IMPORTANT:

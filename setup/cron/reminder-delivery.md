@@ -8,9 +8,11 @@ The recurring `reminder-check` cron + `.reminder-signal` handoff path stays as a
 
 OpenClaw's `agent-runner-reminder-guard` post-processes every assistant reply that matches a reminder-commitment regex (`I'll remind you`, `I'll set a reminder`, etc.) and appends `"Note: I did not schedule a reminder in this turn, so this will not trigger automatically."` unless the same turn registered a cron job (`successfulCronAdds > 0`) or an enabled cron shares the current `sessionKey`.
 
-Registering this one-shot cron at intake satisfies the first condition, suppressing the framework note. It also delivers reminders at exact wall-clock time instead of relying on the up-to-~75-min worst-case latency of the polling backstop.
+Native `CronCreate` calls satisfy the first condition. Shell `openclaw cron add` calls made through `exec` still create the job and deliver on time, but they do not increment `successfulCronAdds`, so reminder confirmations must also avoid the guard regex (`I'll remind you ...`, `I'll set a reminder`, etc.). This one-shot cron still matters operationally either way: it delivers reminders at exact wall-clock time instead of relying on the up-to-~75-min worst-case latency of the polling backstop.
 
 ## Registration
+
+Prefer native `CronCreate` when the runtime exposes it. If the scheduler is invoked through `exec` + `openclaw cron add`, pass the same effective fields:
 
 ```
 CronCreate:
