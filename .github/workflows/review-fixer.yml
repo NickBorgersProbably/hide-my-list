@@ -50,10 +50,15 @@ permissions:
   # not GITHUB_TOKEN. Same for the `gh api .../statuses` claim and
   # any `gh pr` calls. Actions/checkout for the orchestration
   # workspace only needs read.
+  #
+  # `actions: read` is required so actions/download-artifact@v4 can
+  # fetch the author-session artifact uploaded by the resolve-issue
+  # run identified in the PR's `Author-Session:` trailer.
   contents: read
   packages: read
   pull-requests: read
   statuses: read
+  actions: read
 
 env:
   PR_WORKSPACE_PATH: pr-head
@@ -108,13 +113,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Detect author session for resume
+      - name: Parse Author-Session trailer
         # Three-way fixer dispatch: if the PR body carries an
         # `Author-Session: <agent>/<run-id>` trailer (written by
-        # resolve-issue) AND that session dir still exists on the
-        # host, resume the original author. Otherwise the fixer is a
-        # fresh Claude session, same as before this redesign.
-        id: detect-session
+        # resolve-issue) AND the matching artifact still exists on the
+        # original run, resume the original author. Otherwise the fixer
+        # is a fresh Claude session, same as before this redesign.
+        id: parse-trailer
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
@@ -140,16 +145,55 @@ jobs:
               || true)
           fi
 
+          {
+            echo "agent=${AGENT}"
+            echo "run_id=${RUN_ID}"
+            echo "issue_num=${ISSUE_NUM}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "trailer parse: agent=${AGENT:-none} run_id=${RUN_ID:-none} issue=${ISSUE_NUM:-none}"
+
+      # Cross-run download. Requires `actions: read` permission. Failure here
+      # (artifact missing/expired/unauthorized) → fallback in detect-session.
+      - name: Download author session artifact
+        id: download-session
+        if: steps.parse-trailer.outputs.agent != '' && steps.parse-trailer.outputs.run_id != '' && steps.parse-trailer.outputs.issue_num != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: author-session-${{ steps.parse-trailer.outputs.agent }}-${{ steps.parse-trailer.outputs.run_id }}
+          run-id: ${{ steps.parse-trailer.outputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/author-session-tar
+
+      - name: Detect author session for resume
+        id: detect-session
+        env:
+          AGENT: ${{ steps.parse-trailer.outputs.agent }}
+          RUN_ID: ${{ steps.parse-trailer.outputs.run_id }}
+          ISSUE_NUM: ${{ steps.parse-trailer.outputs.issue_num }}
+          DOWNLOAD_OUTCOME: ${{ steps.download-session.outcome }}
+        run: |
+          set -euo pipefail
+
           MODE="fallback"
           SESSION_HOST_DIR=""
-          if [ -n "$AGENT" ] && [ -n "$RUN_ID" ] && [ -n "$ISSUE_NUM" ]; then
-            SESSION_HOST_DIR=$(./scripts/ci-session-store.sh host-dir "$AGENT" "$ISSUE_NUM" "$RUN_ID")
-            if ./scripts/ci-session-store.sh validate "$AGENT" "$ISSUE_NUM" "$RUN_ID" 2>/dev/null; then
-              MODE="${AGENT}-resume"
+
+          if [ -n "$AGENT" ] && [ -n "$RUN_ID" ] && [ -n "$ISSUE_NUM" ] && [ "$DOWNLOAD_OUTCOME" = "success" ]; then
+            TAR="${RUNNER_TEMP}/author-session-tar/author-session.tgz"
+            if [ -f "$TAR" ]; then
+              SESSION_HOST_DIR=$(./scripts/ci-session-store.sh unpack "$AGENT" "$ISSUE_NUM" "$RUN_ID" "$TAR")
+              if ./scripts/ci-session-store.sh validate "$AGENT" "$ISSUE_NUM" "$RUN_ID" 2>/dev/null; then
+                MODE="${AGENT}-resume"
+              else
+                echo "::warning::Author session artifact downloaded (${AGENT}/${RUN_ID} for #${ISSUE_NUM}) but contents failed validation; falling back to fresh Claude"
+                SESSION_HOST_DIR=""
+              fi
             else
-              echo "::warning::Author-Session trailer present (${AGENT}/${RUN_ID} for #${ISSUE_NUM}) but session validation failed: ${SESSION_HOST_DIR}; falling back to fresh Claude"
-              SESSION_HOST_DIR=""
+              echo "::warning::Author session download succeeded but tar not found at ${TAR}; falling back to fresh Claude"
             fi
+          elif [ -n "$AGENT" ] && [ -n "$RUN_ID" ]; then
+            echo "::warning::Author-Session trailer present (${AGENT}/${RUN_ID}) but artifact download outcome=${DOWNLOAD_OUTCOME}; falling back to fresh Claude"
           fi
 
           {

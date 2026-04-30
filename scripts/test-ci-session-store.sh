@@ -99,6 +99,47 @@ assert_exit "validate claude populated dir succeeds" 0 "$HELPER" validate claude
 
 assert_exit "validate missing dir fails" 1 "$HELPER" validate codex 999 999
 
+# --- pack / unpack round-trip ---
+# Mirror the artifact transit path used by codex.yml + review-fixer.yml:
+# author packs a populated session dir → upload-artifact ships it →
+# fixer downloads + unpacks into a fresh job-local root → validate succeeds.
+PACK_DIR="$("$HELPER" prepare codex 300 400)"
+mkdir -p "$PACK_DIR/sessions"
+echo "session-data" > "$PACK_DIR/sessions/2026-01-01.jsonl"
+echo 'model = "x"' > "$PACK_DIR/config.toml"
+
+PACK_TAR="$TEST_ROOT/author-session.tgz"
+PACK_OUT="$("$HELPER" pack codex 300 400 "$PACK_TAR")"
+assert_eq "pack prints out-tar path" "$PACK_TAR" "$PACK_OUT"
+if [ -f "$PACK_TAR" ]; then
+  passes=$((passes + 1))
+  printf 'ok    pack writes tar file\n'
+else
+  failures=$((failures + 1))
+  printf 'FAIL  pack did not write tar at %q\n' "$PACK_TAR" >&2
+fi
+
+assert_exit "pack rejects empty session dir" 1 \
+  bash -c "CI_SESSION_ROOT='$TEST_ROOT' '$HELPER' pack codex 999 999 '$TEST_ROOT/empty.tgz'"
+assert_exit "pack requires out-tar arg" 64 "$HELPER" pack codex 300 400
+
+UNPACK_ROOT="$(mktemp -d /tmp/ci-session-test-unpack.XXXXXX)"
+trap 'rm -rf "$TEST_ROOT" "$UNPACK_ROOT"' EXIT
+UNPACK_OUT="$(CI_SESSION_ROOT="$UNPACK_ROOT" "$HELPER" unpack codex 300 400 "$PACK_TAR")"
+assert_eq "unpack prints host-dir path" "$UNPACK_ROOT/codex/300/400" "$UNPACK_OUT"
+if [ -f "$UNPACK_ROOT/codex/300/400/sessions/2026-01-01.jsonl" ]; then
+  passes=$((passes + 1))
+  printf 'ok    unpack restores session contents\n'
+else
+  failures=$((failures + 1))
+  printf 'FAIL  unpack missing expected session file\n' >&2
+fi
+assert_exit "unpack-extracted dir validates" 0 \
+  bash -c "CI_SESSION_ROOT='$UNPACK_ROOT' '$HELPER' validate codex 300 400"
+
+assert_exit "unpack rejects missing tar" 1 "$HELPER" unpack codex 1 1 "/tmp/does-not-exist.tgz"
+assert_exit "unpack requires tar-path arg" 64 "$HELPER" unpack codex 1 1
+
 # --- format-trailer ---
 assert_eq "format-trailer codex" \
   "Author-Session: codex/12345" \

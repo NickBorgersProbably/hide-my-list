@@ -376,6 +376,7 @@ jobs:
 
       - name: Validate author session persisted
         if: steps.check-existing.outputs.skip != 'true'
+        id: validate-session
         env:
           AGENT: ${{ needs.detect_autoresolve.outputs.agent }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -385,9 +386,37 @@ jobs:
           set -euo pipefail
           if ./scripts/ci-session-store.sh validate "${AGENT}" "${ISSUE_NUMBER}" "${RUN_ID}"; then
             echo "Author session persisted at $(./scripts/ci-session-store.sh host-dir "${AGENT}" "${ISSUE_NUMBER}" "${RUN_ID}")"
+            echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Author session not persisted; review-pipeline fixer will fall back to fresh Claude."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # Pack + upload the session as a workflow artifact so the v2 review-fixer
+      # can download it on a different (ephemeral) runner. Keyed by
+      # ${AGENT}-${{ github.run_id }} so the fixer can reconstruct the artifact
+      # name from the `Author-Session: <agent>/<run-id>` PR-body trailer.
+      - name: Pack author session for fixer transit
+        if: steps.check-existing.outputs.skip != 'true' && steps.validate-session.outputs.ok == 'true'
+        id: pack-session
+        env:
+          AGENT: ${{ needs.detect_autoresolve.outputs.agent }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          TAR="${RUNNER_TEMP}/author-session.tgz"
+          ./scripts/ci-session-store.sh pack "${AGENT}" "${ISSUE_NUMBER}" "${RUN_ID}" "${TAR}"
+          echo "tar=${TAR}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload author session artifact
+        if: steps.check-existing.outputs.skip != 'true' && steps.validate-session.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: author-session-${{ needs.detect_autoresolve.outputs.agent }}-${{ github.run_id }}
+          path: ${{ steps.pack-session.outputs.tar }}
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Upload issue resolution conversation log
         uses: actions/upload-artifact@v4

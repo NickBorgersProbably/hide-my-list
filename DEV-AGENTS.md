@@ -62,8 +62,7 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract + guardrail doc
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates/reuses canonical deduplicated GH Actions failure issue for diagnosis workflow
 - `scripts/check-doc-links.sh` — Internal doc link validator for local hooks + CI doc checks
-- `scripts/ci-session-store.sh` — Path-naming + trailer-parse helper for the per-(agent, issue, run-id) author-session store (`/srv/ci-sessions/<agent>/<issue>/<run-id>/`); used by both `resolve-issue` and v2 review-fixer
-- `scripts/cleanup-ci-sessions.sh` — Periodic prune of `/srv/ci-sessions/`; preserves sessions for open PRs, deletes others past `MAX_AGE_DAYS`
+- `scripts/ci-session-store.sh` — Path-naming, pack/unpack, and trailer-parse helper for the per-(agent, issue, run-id) author-session store (job-local under `${RUNNER_TEMP}/ci-sessions/<agent>/<issue>/<run-id>/`); used by both `resolve-issue` (pack + upload) and v2 review-fixer (download + unpack)
 - `scripts/test-ci-session-store.sh` — Self-contained unit tests for `ci-session-store.sh`; invoked by `review-fixer-resume-smoke.yml`
 - `scripts/pull-main.sh` — Branch sync helper
 - `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, workflow validations
@@ -104,12 +103,12 @@ Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` 
 
 ### Author-resume in the fixer stage
 
-`resolve-issue` accepts both **Codex** and **Claude Code** as first-class authors (selected per run via `/autoresolve <agent>` comment, `agent:codex` / `agent:claude` issue label, or repo default). The author's session state is bind-mounted from a per-(agent, issue, run-id) host directory under `/srv/ci-sessions/`, so it survives container exit. The author writes an `Author-Session: <agent>/<run-id>` trailer into the PR body.
+`resolve-issue` accepts both **Codex** and **Claude Code** as first-class authors (selected per run via `/autoresolve <agent>` comment, `agent:codex` / `agent:claude` issue label, or repo default). The author's session state is bind-mounted from a job-local directory during the author run, then packed (`scripts/ci-session-store.sh pack`) and uploaded as the `author-session-<agent>-<run-id>` workflow artifact so it can travel between ephemeral runners. The author writes an `Author-Session: <agent>/<run-id>` trailer into the PR body.
 
-When `review-fixer.yml` runs, `Detect author session for resume` parses the trailer. Three-way dispatch:
-- **`codex-resume`** → `review-codex-resume` action runs `codex exec resume --last` against the persisted session
+When `review-fixer.yml` runs, `Parse Author-Session trailer` extracts `<agent>/<run-id>`, `Download author session artifact` (`actions/download-artifact@v4` with `run-id` cross-run lookup; requires `actions: read`) fetches the tarball from the original `resolve-issue` run, and `Detect author session for resume` unpacks + validates it. Three-way dispatch:
+- **`codex-resume`** → `review-codex-resume` action runs `codex exec resume --last` against the unpacked session
 - **`claude-resume`** → `review-claude-resume` action runs `claude --continue`
-- **`fallback`** → existing `review-claude-run` (fresh Claude session) — used for human-authored PRs and any case where the trailer is absent or the session dir is missing
+- **`fallback`** → existing `review-claude-run` (fresh Claude session) — used for human-authored PRs and any case where the trailer is absent, the artifact is missing/expired, or unpack fails validation
 
 The resumed author re-enters the same conversation it had while authoring, this time with `${REVIEWER_ARTIFACTS_DIR}` available in scope. Because it has full context for the choices it originally made, it can revisit those choices instead of patching surface-level symptoms. Reviewers + judge always run regardless of dispatch mode — backstop catches anything the resumed author misses.
 

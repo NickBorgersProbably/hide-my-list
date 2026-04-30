@@ -1,36 +1,49 @@
 #!/usr/bin/env bash
 #
-# ci-session-store.sh — manage agent author-session storage on the
-# self-hosted runner host.
+# ci-session-store.sh — manage agent author-session storage so the v2
+# review pipeline's fixer can resume the original resolve-issue author.
 #
-# Background: the v2 review pipeline now resumes the original
-# resolve-issue author (Codex or Claude Code) in the fixer stage so
-# the author can revisit structural decisions in light of reviewer
-# feedback. Resume requires the agent's session state to persist
-# between containers. We bind-mount a per-(agent, issue, run-id)
-# host directory into the agent's home dir; this script owns the
-# path conventions.
+# Background: the fixer resumes the author (Codex or Claude Code) so it
+# can revisit structural decisions in light of reviewer feedback. Resume
+# requires the agent's session state (`~/.codex` or `~/.claude` on the
+# author run) to reach the fixer's container.
 #
-# Per-run subdirs (not per-issue) — leftover state from a previous
-# /autoresolve attempt would otherwise poison `codex exec resume
-# --last`, which picks the newest cwd-filtered session. Isolating
-# each run avoids the cleanup-race entirely; old subdirs are pruned
-# by scripts/cleanup-ci-sessions.sh against closed/merged PRs.
+# Transit model: GitHub Actions artifact. The author run packs its
+# session dir with `pack`, uploads it as
+# `author-session-<agent>-<run-id>`, and writes an
+# `Author-Session: <agent>/<run-id>` trailer into the PR body. The
+# fixer parses the trailer, downloads the artifact from the original
+# run, and `unpack`s it into a fresh job-local dir that's bind-mounted
+# back into the resume container.
+#
+# Job-local dirs (default `${RUNNER_TEMP:-/tmp}/ci-sessions/...`) avoid
+# any reliance on persistent host paths — homelab runners are
+# ephemeral, so cross-run state must travel through the artifact, not
+# through the host filesystem. Per-(agent, issue, run-id) layout
+# preserves the per-run isolation that prevents `codex exec resume
+# --last` from picking up state from a prior `/autoresolve` attempt.
 #
 # Subcommands:
 #   home-path <agent>                       — print container path to
 #                                              mount onto (codex:
 #                                              /home/ci/.codex,
 #                                              claude: /home/ci/.claude)
-#   host-dir <agent> <issue> <run-id>       — print host path to bind
+#   host-dir <agent> <issue> <run-id>       — print job-local path
+#                                              under CI_SESSION_ROOT
 #   prepare <agent> <issue> <run-id>        — mkdir + chmod 0777
 #                                              (UID 1000 inside the
 #                                              container needs write
 #                                              access regardless of
 #                                              host ownership)
-#   validate <agent> <issue> <run-id>       — non-zero exit if host
-#                                              dir missing or empty
-#                                              after an author run
+#   validate <agent> <issue> <run-id>       — non-zero exit if dir
+#                                              missing or empty after
+#                                              an author/unpack run
+#   pack <agent> <issue> <run-id> <out-tar> — tar.gz the session dir
+#                                              for upload-artifact;
+#                                              prints out-tar
+#   unpack <agent> <issue> <run-id> <tar>   — prepare dir + extract
+#                                              tar into it; prints
+#                                              host-dir path
 #   format-trailer <agent> <run-id>         — print the canonical PR
 #                                              body trailer line
 #   parse-trailer <pr-body>                 — print "<agent>\t<run-id>"
@@ -39,8 +52,8 @@
 #                                              PR trailer; empty if
 #                                              absent or malformed
 #
-# Host store root defaults to /srv/ci-sessions; override via
-# CI_SESSION_ROOT for tests or alternate runners.
+# Default root is `${RUNNER_TEMP:-/tmp}/ci-sessions`; override via
+# `CI_SESSION_ROOT` for tests or alternate layouts.
 
 set -euo pipefail
 
@@ -71,7 +84,7 @@ _ci_session_validate_args() {
 
 ci_session_host_dir() {
   _ci_session_validate_args "$1" "$2" "$3"
-  local root="${CI_SESSION_ROOT:-/srv/ci-sessions}"
+  local root="${CI_SESSION_ROOT:-${RUNNER_TEMP:-/tmp}/ci-sessions}"
   printf '%s\n' "${root}/${1}/${2}/${3}"
 }
 
@@ -107,6 +120,36 @@ ci_session_validate() {
   fi
 }
 
+ci_session_pack() {
+  local agent="$1" issue="$2" run_id="$3" out_tar="${4:-}"
+  if [ -z "$out_tar" ]; then
+    printf 'ci-session-store: pack requires <out-tar> path\n' >&2
+    return 64
+  fi
+  ci_session_validate "$agent" "$issue" "$run_id"
+  local dir
+  dir="$(ci_session_host_dir "$agent" "$issue" "$run_id")"
+  mkdir -p "$(dirname "$out_tar")"
+  tar -czf "$out_tar" -C "$dir" .
+  printf '%s\n' "$out_tar"
+}
+
+ci_session_unpack() {
+  local agent="$1" issue="$2" run_id="$3" tar_path="${4:-}"
+  if [ -z "$tar_path" ]; then
+    printf 'ci-session-store: unpack requires <tar-path>\n' >&2
+    return 64
+  fi
+  if [ ! -f "$tar_path" ]; then
+    printf 'ci-session-store: tar not found: %q\n' "$tar_path" >&2
+    return 1
+  fi
+  local dir
+  dir="$(ci_session_prepare "$agent" "$issue" "$run_id")"
+  tar -xzf "$tar_path" -C "$dir"
+  printf '%s\n' "$dir"
+}
+
 ci_session_format_trailer() {
   local agent="$1" run_id="$2"
   case "$agent" in codex|claude) ;; *)
@@ -131,7 +174,7 @@ ci_session_parse_trailer() {
 }
 
 usage() {
-  sed -n '3,46p' "$0"
+  sed -n '3,60p' "$0"
 }
 
 main() {
@@ -141,6 +184,8 @@ main() {
     host-dir) ci_session_host_dir "$@" ;;
     prepare) ci_session_prepare "$@" ;;
     validate) ci_session_validate "$@" ;;
+    pack) ci_session_pack "$@" ;;
+    unpack) ci_session_unpack "$@" ;;
     format-trailer) ci_session_format_trailer "$@" ;;
     parse-trailer) ci_session_parse_trailer "$@" ;;
     -h|--help|help|"") usage; [ -z "$sub" ] && return 64 || return 0 ;;
