@@ -227,8 +227,8 @@ flowchart TD
     end
 
     subgraph Delivery["Image Delivery"]
-        Chat[Embed in Chat Message]
-        Signal[Send via Signal/Telegram]
+        Reply[Celebration text only]
+        Media[Single MEDIA attachment]
     end
 
     Complete --> Intensity
@@ -257,6 +257,30 @@ Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
 OpenClaw then stages attachment delivery through `~/.openclaw/media/outbound/`,
 which must stay traversable (for example `0755`) so Signal can read the staged
 file.
+
+#### Reward Delivery Contract (Issue #511)
+
+When `scripts/generate-reward-image.sh` returns a `.png`, the user-facing reward
+reply must contain only:
+
+1. Celebration text for the completion
+2. One `MEDIA:<absolute-path-to-image>` line
+
+Example:
+
+```text
+CRUSHED IT! 🔥💪✨
+MEDIA:/tmp/reward-1714682000.png
+```
+
+Reward Delivery Checklist:
+
+- [ ] Celebration copy only — no orchestration notes, no "Now let me...", no tool narration
+- [ ] Exactly one `MEDIA:` line for the image
+- [ ] No inline media tags such as `<media:image>` in the same reply
+- [ ] No second send of the same image via the `message` tool in the same turn
+- [ ] If the script returns a `.txt` fallback instead of `.png`, read the suggestion and send plain text only — no `MEDIA:` line
+- [ ] If the turn also includes an outing suggestion or other follow-up, send that as a separate plain-text message after the attachment-bearing reward reply
 
 #### Theme Pools by Intensity
 
@@ -767,13 +791,13 @@ sequenceDiagram
     R->>R: Select reward channels
 
     par Parallel Reward Delivery
-        R->>AI: Emoji celebration message
-        R->>AI: AI-generated celebration image
+        R->>AI: Celebration message text
+        R->>AI: AI-generated image path
         R->>HA: Play victory music
         R->>SMS: Text significant other
     end
 
-    AI->>U: "CRUSHED IT! 🔥💪✨ [unique AI celebration image]"
+    AI->>U: "CRUSHED IT! 🔥💪✨" + single MEDIA attachment
 
     opt High intensity + cleared schedule
         R->>AI: Outing suggestion

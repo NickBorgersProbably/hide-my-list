@@ -867,7 +867,7 @@ flowchart TD
 
     subgraph RewardDelivery["Reward Delivery"]
         Emoji[Emoji celebration]
-        AIImage[AI-Generated Image]
+        AIImage[Single MEDIA image attachment]
         Music[Play music via home audio]
         TextSO[Text significant other]
     end
