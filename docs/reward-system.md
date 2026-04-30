@@ -229,8 +229,8 @@ flowchart TD
     end
 
     subgraph Delivery["Image Delivery"]
-        Chat[Embed in Chat Message]
-        Signal[Send via Signal/Telegram]
+        Reply[Celebration text only]
+        Media[Single MEDIA attachment]
     end
 
     Complete --> Intensity
@@ -280,6 +280,35 @@ Task titles are not copied blindly into the image prompt. The script first class
 - **Literal motifs** for ordinary tasks: "glowing phone and confetti" for calls, "pages turning into stars" for writing
 - **Metaphorical motifs** for sensitive tasks: therapy/medical/personal/legal/financial tasks use abstract or symbolic celebration instead of literal depictions
 - **Generic progress imagery** when the title is too vague to trust
+
+#### Reward Delivery Contract (Issue #511)
+
+When `scripts/generate-reward-image.sh` returns a `.png`, the assistant-authored
+reward turn passed to OpenClaw should contain only:
+
+1. Celebration text for the completion
+2. One `MEDIA:<absolute-path-to-image>` line
+
+OpenClaw consumes the `MEDIA:` line as attachment markup. End users should see
+only the celebration text plus the rendered image attachment — never the raw
+filesystem path or transport syntax.
+
+Example assistant-authored reply:
+
+```text
+CRUSHED IT! 🔥💪✨
+MEDIA:/absolute/path/to/image.png
+```
+
+Reward Delivery Checklist:
+
+- [ ] Visible user copy is celebration only — no orchestration notes, no "Now let me...", no tool narration
+- [ ] Exactly one `MEDIA:` line in the assistant-authored turn
+- [ ] User sees rendered attachment, not raw `MEDIA:` syntax or filesystem path
+- [ ] No inline media tags such as `<media:image>` in the same reply
+- [ ] No second send of the same image via the `message` tool in the same turn
+- [ ] If the script returns a `.txt` fallback instead of `.png`, read the suggestion and send plain text only — no `MEDIA:` line
+- [ ] If the turn also includes an outing suggestion or other follow-up, send that as a separate plain-text message after the attachment-bearing reward reply
 
 #### Theme Pools by Intensity
 
@@ -852,13 +881,13 @@ sequenceDiagram
     R->>R: Select reward channels
 
     par Parallel Reward Delivery
-        R->>AI: Emoji celebration message
-        R->>AI: AI-generated celebration image
+        R->>AI: Celebration message text
+        R->>AI: AI-generated image path
         R->>HA: Play victory music
         R->>SMS: Text significant other
     end
 
-    AI->>U: "CRUSHED IT! 🔥💪✨ [unique AI celebration image]"
+    AI->>U: "CRUSHED IT! 🔥💪✨" + single MEDIA attachment
 
     opt High intensity + cleared schedule
         R->>AI: Outing suggestion
