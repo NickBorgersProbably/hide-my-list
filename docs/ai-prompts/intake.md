@@ -26,7 +26,7 @@ flowchart TD
     Breakdown --> Save
 ```
 
-> **Decision Fatigue Prevention (Issue #11):** Intake flow strongly prefers inference over questions. Every field inferred from context, keywords, defaults when possible. When task genuinely too vague to act on (e.g., "do the thing", "handle that"), system may ask up to **3 clarifying questions per task**, **one at a time**. Each question depletes limited executive function — questions are last resort, not default. Research: 82% of ADHD participants report frequent decision-making difficulties; 58% experience decision paralysis weekly.
+> **Decision Fatigue Prevention:** Intake flow strongly prefers inference over questions. Every field inferred from context, keywords, defaults when possible. When task genuinely too vague to act on (e.g., "do the thing", "handle that"), system may ask up to **3 clarifying questions per task**, **one at a time**. Each question depletes limited executive function — questions are last resort, not default. Research: 82% of ADHD participants report frequent decision-making difficulties; 58% experience decision paralysis weekly.
 
 ### Task Intake Prompt
 
@@ -160,9 +160,9 @@ REMINDER PERSISTENCE (mandatory two-step):
 After `notion-cli.sh create-reminder` returns the Notion page object, register a
 one-shot OpenClaw cron in the SAME turn so the framework reminder-guard sees a
 successful cron add and suppresses its "Note: I did not schedule a reminder..."
-post-process. Skipping this step is the bug fix from issue #489 — the model
-never produces that note; OpenClaw's `agent-runner-reminder-guard` appends it
-when no cron was registered that turn.
+post-process. The model never produces that note itself — OpenClaw's
+`agent-runner-reminder-guard` appends it when no cron was registered that
+turn, so registering the cron in the same turn suppresses the note.
 
 Call CronCreate with:
 - name = "reminder-<page_id>" using the page id returned by create-reminder

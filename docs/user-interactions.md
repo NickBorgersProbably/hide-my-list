@@ -82,7 +82,6 @@ sequenceDiagram
 ```
 
 > **Decision Fatigue Prevention:** System prefers inference over questions. All labels (urgency, time, work type) inferred from context — never asked. When task too vague to identify (e.g., "do the thing"), up to 3 simple clarifying questions, one at a time. User can correct after ("actually that's urgent") but never forced to decide on labels.
-> See [Issue #11](https://github.com/NickBorgersProbably/hide-my-list/issues/11).
 
 ### Intake Flow (Inference-First, Questions as Last Resort)
 
