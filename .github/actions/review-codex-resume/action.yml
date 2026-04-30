@@ -5,9 +5,10 @@ description: >
   pipeline's fixer. The author's session state was packed + uploaded
   by the resolve-issue workflow as a workflow artifact, then downloaded
   + unpacked by review-fixer; this action bind-mounts the unpacked
-  directory back into /home/ci/.codex so `codex exec resume --last`
-  continues the same conversation, this time with reviewer artifacts in
-  scope. Used on every cycle for which a valid Author-Session trailer
+  directory back into /home/ci/.codex/sessions (scoped to the sessions
+  subdir to avoid shadowing the standalone-install symlink chain under
+  /home/ci/.codex/packages/) so `codex exec resume --last` continues
+  the same conversation, this time with reviewer artifacts in scope. Used on every cycle for which a valid Author-Session trailer
   is present (cycle 1, cycle 2, etc.) — not just retry cycles.
 
   Topology mirrors review-codex-run, plus the session bind-mount and
@@ -28,7 +29,7 @@ inputs:
       produced by scripts/ci-session-store.sh unpack codex ... after
       review-fixer downloads the author-session artifact from the
       original resolve-issue run. Bind-mounted into the container at
-      /home/ci/.codex.
+      /home/ci/.codex/sessions.
     required: true
   role:
     description: 'Role label used in artifact filenames (e.g. "design", "fixer")'
@@ -222,16 +223,21 @@ runs:
         CONTAINER_SCRIPT="${GITHUB_WORKSPACE}/.github/actions/review-codex-resume/run-in-container.sh"
 
         # In addition to the review-codex-run topology, bind-mount the
-        # author's persisted session at /home/ci/.codex so codex resume
-        # finds prior turns. Per-(issue, run-id) host subdirs guarantee
-        # the dir contains exactly the session we want resumed — `--last`
-        # in run-in-container.sh has only one candidate.
+        # author's persisted sessions at /home/ci/.codex/sessions so
+        # codex resume finds prior turns. We scope the mount to the
+        # sessions subdir (not the whole /home/ci/.codex) so the
+        # standalone-install symlink chain at /home/ci/.codex/packages/
+        # stays intact — bind-mounting an empty dir on top of
+        # /home/ci/.codex breaks `command -v codex`. Per-(issue, run-id)
+        # host subdirs guarantee the dir contains exactly the session we
+        # want resumed — `--last` in run-in-container.sh has only one
+        # candidate.
         docker run --rm \
           --network host \
           --workdir /workspace \
           -v "$WORKSPACE_HOST:/workspace" \
           -v "$CONTAINER_SCRIPT:/run-in-container.sh:ro" \
-          -v "$SESSION_HOST_DIR:/home/ci/.codex" \
+          -v "$SESSION_HOST_DIR:/home/ci/.codex/sessions" \
           --env-file "$CI_AGENT_ENV_FILE" \
           -e GIT_CONFIG_COUNT=1 \
           -e GIT_CONFIG_KEY_0=safe.directory \
