@@ -6,7 +6,7 @@
 # details to a signal file for the agent to pick up.
 #
 # The script does NOT update reminder status in Notion — the agent marks
-# reminders as sent or missed, and marks the task Completed, after confirmed
+# reminders as sent, and marks the task Completed, after confirmed
 # delivery. OpenClaw does not currently expose a post-announce delivery
 # acknowledgment hook, so moving the status mutation into this cron path would
 # risk dropping reminders permanently if the session died after the PATCH but
@@ -35,7 +35,7 @@
 #   - After confirmed delivery: appending/updating `state.json.recent_outbound`
 #     with a short-lived reminder entry (type, page_id, title, status, sent_at,
 #     awaiting_response: true, expires_at) and pruning expired entries
-#   - Running `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed` to
+#   - Running `scripts/notion-cli.sh complete-reminder PAGE_ID sent` to
 #     atomically set Notion `Status` and `Reminder Status`
 #   - Deleting the handoff file only after successful delivery and Notion
 #     updates (if delivery fails, leave the handoff file in place for retry)
@@ -44,8 +44,8 @@
 #   - Loads only REMINDER_SIGNAL_FILE into this shell; Notion creds stay scoped
 #     to notion-cli.sh
 #   - REMINDER_SIGNAL_FILE may override only the repo-root handoff filename
-#   - Signal file contains only task IDs and titles — no secrets
-#   - Missed reminders (>15 min past due) are flagged but still delivered
+#   - Signal file contains reminder metadata only (IDs, titles, due time, status) — no secrets
+#   - Reminder copy stays uniform even if the safety-net path delivers late
 
 set -euo pipefail
 
@@ -64,9 +64,6 @@ esac
 
 SIGNAL_FILE="$ROOT_DIR/$SIGNAL_BASENAME"
 NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-NOW_EPOCH=$(date +%s)
-# 15 minutes in seconds — reminders older than this are flagged as missed
-MISSED_THRESHOLD=900
 
 echo "check-reminders: checking at $NOW_ISO"
 
@@ -129,9 +126,7 @@ from datetime import datetime, timezone
 
 data = json.load(sys.stdin)
 results = data.get('results', [])
-now_epoch = int(sys.argv[1])
-missed_threshold = int(sys.argv[2])
-signal_file = sys.argv[3]
+signal_file = sys.argv[1]
 
 new_entries = []
 for task in results:
@@ -142,28 +137,15 @@ for task in results:
     title_prop = props.get('Title', {}).get('title', [])
     title = title_prop[0]['text']['content'] if title_prop else '(untitled)'
 
-    # Extract remind_at
+    # Extract remind_at for operator visibility in the handoff file/log output.
     remind_at_prop = props.get('Remind At', {}).get('date') or {}
     remind_at_str = remind_at_prop.get('start', '')
-
-    # Determine if missed (>15 min past due)
-    status = 'sent'
-    if remind_at_str:
-        try:
-            remind_at_str_clean = remind_at_str.replace('Z', '+00:00')
-            remind_dt = datetime.fromisoformat(remind_at_str_clean)
-            remind_epoch = int(remind_dt.timestamp())
-            if (now_epoch - remind_epoch) > missed_threshold:
-                status = 'missed'
-        except (ValueError, OSError) as exc:
-            print(f'check-reminders: warning: could not parse Remind At '
-                  f'{remind_at_str!r} for {page_id}: {exc}', file=sys.stderr)
 
     new_entries.append({
         'page_id': page_id,
         'title': title,
         'remind_at': remind_at_str,
-        'status': status,
+        'status': 'sent',
     })
 
 payload = json.dumps({
@@ -190,8 +172,7 @@ added = len(new_entries)
 print(f'check-reminders: wrote {added} reminder(s) to signal file')
 
 for e in new_entries:
-    flag = ' [MISSED]' if e['status'] == 'missed' else ''
-    print(f\"  - {e['title']} (due: {e['remind_at']}){flag}\")
-" "$NOW_EPOCH" "$MISSED_THRESHOLD" "$SIGNAL_FILE"
+    print(f\"  - {e['title']} (due: {e['remind_at']})\")
+" "$SIGNAL_FILE"
 
 echo "check-reminders: done"

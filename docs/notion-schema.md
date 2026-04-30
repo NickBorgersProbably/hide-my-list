@@ -36,7 +36,7 @@ erDiagram
         date last_resumed_at "De-dup guard for resume detection"
         checkbox is_reminder "True if task is a timed reminder"
         date remind_at "Wall-clock time to fire reminder (ISO 8601)"
-        select reminder_status "pending|sent|missed"
+        select reminder_status "pending|sent (legacy: missed)"
     }
 
     USER_PREFERENCES {
@@ -456,7 +456,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task created with `is_reminder = true`. AI parses time reference (including timezone like "6pm PT") and converts to full ISO 8601. Relative phrases such as "tomorrow", "tonight", and day-of-week names must be resolved against the user's timezone from `USER.md`, not UTC message metadata; use `scripts/user-time-context.sh` when a UTC timestamp needs conversion first.
 
-**Used by:** One-shot `reminder-<page_id>` cron (primary, registered at intake) which fires at exact `remind_at`. Also `check-reminders.sh`, run by isolated `reminder-check` cron every 15 min as safety net: due reminders found → script writes repo-root handoff file (default: `.reminder-signal`) for delivery by heartbeat (Check 1 in `docs/heartbeat-checks.md`) or main-session startup (AGENTS.md step 5). Both paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Malformed handoffs stay in place, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), and do not deliver, complete, or delete anything. Delivery failures also leave the handoff in place until retry succeeds. On successful delivery, the delivering session appends/updates `state.json.recent_outbound` with a short-lived reminder entry (`type: "reminder"`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later), pruning expired entries, then calls `scripts/notion-cli.sh complete-reminder PAGE_ID sent|missed`, then deletes the handoff file.
+**Used by:** One-shot `reminder-<page_id>` cron (primary, registered at intake) which fires at exact `remind_at`. Also `check-reminders.sh`, run by isolated `reminder-check` cron every 15 min as safety net: due reminders found → script writes repo-root handoff file (default: `.reminder-signal`) for delivery by heartbeat (Check 1 in `docs/heartbeat-checks.md`) or main-session startup (AGENTS.md step 5). Both paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Malformed handoffs stay in place, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), and do not deliver, complete, or delete anything. Delivery failures also leave the handoff in place until retry succeeds. On successful delivery, the delivering session appends/updates `state.json.recent_outbound` with a short-lived reminder entry (`type: "reminder"`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later), pruning expired entries, then calls `scripts/notion-cli.sh complete-reminder PAGE_ID sent`, then deletes the handoff file.
 
 ---
 
@@ -468,9 +468,10 @@ Tracks reminder delivery.
 |-------|-------------|---------|
 | `pending` | Not yet delivered | Default on creation |
 | `sent` | Delivered successfully | Delivering session confirms after one-shot delivery or handoff-file fallback |
-| `missed` | Delivered 15+ min late | Delivering session confirms via scheduler's missed flag |
 
-**Note:** When marked `sent` or `missed`, task `Status` also → `Completed` — reminder action (notifying user) done.
+**Note:** When marked `sent`, task `Status` also → `Completed` — reminder action (notifying user) done.
+
+**Legacy compatibility:** Older deployments may still have a `missed` select option or historical rows using it. Runtime behavior no longer produces that value; if a legacy handoff or record is touched during delivery, normalize it to `sent`.
 
 **Design constraint:** Isolated `reminder-check` cron does not set `Reminder Status` directly. OpenClaw exposes no post-announce delivery hook — pre-delivery mutation would drop reminder from `pending` query before confirmed delivery.
 

@@ -164,13 +164,15 @@ PYTHON
 
   complete-reminder)
     # Args: page_id reminder_status
+    # Runtime should pass "sent". Legacy "missed" remains accepted so older
+    # handoffs or manual repair flows can still be normalized safely.
     PAGE_ID="$2"
     REMINDER_STATUS="$3"
 
     case "$REMINDER_STATUS" in
       sent|missed) ;;
       *)
-        echo "Reminder status must be 'sent' or 'missed'" >&2
+        echo "Reminder status must be 'sent' (legacy 'missed' also accepted)" >&2
         exit 1
         ;;
     esac

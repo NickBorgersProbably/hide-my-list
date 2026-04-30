@@ -395,11 +395,6 @@ Image generation system inherently addresses novelty:
 4. **Streak-responsive** - visual elements change as streaks grow
 5. **Expandable pools** - new themes, styles, and palettes can be added without changing the delivery contract
 
-Future enhancements:
-- Seasonal/holiday theme injection
-- Milestone surprise themes (hidden achievements at 10th, 50th, 100th task)
-- Agent-side reaction capture directly from chat responses
-
 #### Graceful Degradation — Offline Fallback Rewards
 
 If image generation unavailable (API outage, missing key, network error, malformed response), script **does not fail silently**. Suggests fun non-digital real-life reward from pool of 12:

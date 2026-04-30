@@ -48,7 +48,7 @@ When a recurring reminder fires and the user completes the associated task:
 3. Never leave a recurring reminder artificially open — each instance is its own task
 
 ### Reminder DB Properties
-Notion database has: `Is Reminder` (checkbox), `Remind At` (date), `Reminder Status` (select: pending/sent/missed). Use `create-reminder` command in notion-cli.sh for new reminders.
+Notion database has: `Is Reminder` (checkbox), `Remind At` (date), `Reminder Status` (select: pending/sent; legacy `missed` may still exist on older rows). Use `create-reminder` command in notion-cli.sh for new reminders. New runtime reminder delivery writes `sent` and treats legacy `missed` as compatibility-only.
 
 ## Lessons Learned
 

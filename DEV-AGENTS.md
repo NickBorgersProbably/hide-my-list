@@ -93,7 +93,7 @@ The "OpenClaw Prompt & Spec Files" listed above are loaded into the runtime agen
 
 Rules:
 
-- **Present tense only.** Describe how the system behaves *right now*. No "now does X", "previously Y", "used to Z", "still N", "instead of being purely random", "previous architecture", "former bash daemons", "What changed:", "replaced old…", "before X shipped".
+- **Present tense only.** Describe how the system behaves *right now*. No "now does X", "previously Y", "used to Z", "still [uses old approach]" (historical comparisons), "instead of being purely random", "previous architecture", "former bash daemons", "What changed:", "replaced old…", "before X shipped". Present-state uses of "still" ("while still running", "agents still control") are fine.
 - **No `(Issue #N)` / `(PR #N)` / `(#N)` suffixes** on section headers, list items, or callouts. Issue and PR numbers go in the commit message, the PR body, the linked issue itself — not in the runtime prompt. They rot, and they pull the agent's attention onto historical scaffolding instead of the current rule.
 - **Replace, don't diff.** When behavior changes, rewrite the section. Don't keep before/after framing or "Why we changed this:" notes in the spec — that belongs in the commit message.
 - **No roadmaps in spec files.** Gantt charts, "future enhancements" lists, `:done` markers, and similar in-flight tracking belong in GitHub issues/projects or a clearly-labeled non-spec roadmap doc, not in runtime prompts.

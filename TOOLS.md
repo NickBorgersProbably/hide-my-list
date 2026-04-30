@@ -23,7 +23,8 @@
 - High, Medium, Low
 
 ### Reminder Status Values
-- pending, sent, missed
+- pending, sent
+- legacy compatibility: older rows or handoffs may still contain `missed`; new runtime writes use `sent` and normalize legacy `missed` flows to `sent`
 
 ## State File
 
