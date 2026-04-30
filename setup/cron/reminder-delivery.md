@@ -46,20 +46,18 @@ SYSTEM REMINDER DELIVERY for Notion page <PAGE_ID>.
 2. If Status is already "Completed", or Reminder Status is not "pending":
    reply NO_REPLY and stop. Another path already handled this reminder.
 
-3. Compute lateness: now - Remind At. If lateness > 15 minutes, treat as missed.
+3. Send via OpenClaw `message` tool (action: send, channel: signal):
+   - "Hey, time to <title>"
+   Wording stays shame-safe per SOUL.md — no guilt, no lateness framing,
+   no "you forgot", no pressure.
 
-4. Send via OpenClaw `message` tool (action: send, channel: signal):
-   - On-time:  "Hey, time to <title>"
-   - Missed:   "This was due a bit ago — <title>. Want to handle it now or reschedule?"
-   Wording stays shame-safe per SOUL.md — no guilt, no "you forgot", no pressure.
-
-5. Atomically update state.json.recent_outbound: read current state.json
+4. Atomically update state.json.recent_outbound: read current state.json
    (initialize if missing), prune expired recent_outbound entries, merge:
      {
        "type": "reminder",
        "page_id": "<PAGE_ID>",
        "title": "<title>",
-       "status": "<sent|missed>",
+       "status": "sent",
        "sent_at": "<now ISO>",
        "awaiting_response": true,
        "expires_at": "<now+24h ISO>"
@@ -67,12 +65,11 @@ SYSTEM REMINDER DELIVERY for Notion page <PAGE_ID>.
    Preserve all other top-level fields (active_task, streak, conversation_state).
    Write via temp file + rename.
 
-6. Run scripts/notion-cli.sh complete-reminder <PAGE_ID> sent|missed
-   (status matches what was delivered).
+5. Run scripts/notion-cli.sh complete-reminder <PAGE_ID> sent.
 
-7. Reply NO_REPLY.
+6. Reply NO_REPLY.
 
-If step 4 succeeds but step 5 or 6 fails: reply NO_REPLY, do NOT call
+If step 3 succeeds but step 4 or 5 fails: reply NO_REPLY, do NOT call
 complete-reminder again. The .reminder-signal backstop will pick the row
 up at the next 15-minute poll and re-deliver. Duplicate delivery is
 acceptable; missed delivery is not.

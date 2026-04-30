@@ -23,10 +23,8 @@ stateDiagram-v2
     Breakdown --> Pending: Sub-tasks created (hidden)
 
     Intake --> ReminderPending: Reminder task detected
-    ReminderPending --> ReminderSent: Delivered at remind_at via one-shot cron (or safety-net path)
-    ReminderPending --> ReminderMissed: Delivered >15 min late via one-shot cron or safety net
+    ReminderPending --> ReminderSent: Delivered via one-shot cron or safety-net path
     ReminderSent --> Completed: Reminder delivered
-    ReminderMissed --> Completed: Late reminder delivered
 
     Pending --> Selected: User requests task
     Pending --> Pending: Time passes (urgency static)
@@ -71,8 +69,7 @@ stateDiagram-v2
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
 | Cannot Finish | User indicates task too large | `in_progress` (triggers breakdown) |
 | Reminder Pending | Reminder waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
-| Reminder Sent | Reminder delivered on time | `Completed` (reminder_status=sent) |
-| Reminder Missed | Reminder >15 min late, delivered with apology | `Completed` (reminder_status=missed) |
+| Reminder Sent | Reminder delivered | `Completed` (reminder_status=sent) |
 | Completed | Task finished | `Completed` |
 
 ## Phase 1: Task Intake
@@ -930,20 +927,15 @@ flowchart TD
     OneShot -->|No fire<br/>CronCreate failed,<br/>gateway down,<br/>etc.| SafetyNet[reminder-check 15-min poll<br/>finds row still Pending]
     SafetyNet --> Handoff[check-reminders.sh writes<br/>.reminder-signal handoff]
     Handoff --> SafetyDeliver{Delivery path}
-    SafetyDeliver -->|User interacts:<br/>AGENTS.md step 5| Late
-    SafetyDeliver -->|Heartbeat: Check 1| Late
+    SafetyDeliver -->|User interacts:<br/>AGENTS.md step 5| Send
+    SafetyDeliver -->|Heartbeat: Check 1| Send
 
-    OneShotRun --> Late{>15 min past due?}
-    Late -->|No| Send[Deliver on-time reminder]
-    Late -->|Yes| SendMissed[Deliver late note +<br/>reschedule option]
+    OneShotRun --> Send[Deliver reminder]
 
     Send --> Context[Write recent_outbound context]
-    SendMissed --> Context2[Write recent_outbound context]
     Context --> Complete[Mark Completed +<br/>reminder_status=sent]
-    Context2 --> Complete2[Mark Completed +<br/>reminder_status=missed]
 
     Complete --> Done([Done])
-    Complete2 --> Done
 ```
 
 ### Reminder vs. Normal Task
@@ -951,15 +943,15 @@ flowchart TD
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
 | Selection | User requests → AI suggests | Per-reminder one-shot cron (`reminder-<page_id>`, `kind: at`) fires at exact `remind_at`; recurring `reminder-check` poll + heartbeat / main-session startup check is the safety net for unfired one-shots |
-| Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent` or `missed`) |
+| Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent`) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
 Primary path: at intake, the agent calls `notion-cli.sh create-reminder` then `CronCreate` for a one-shot job named `reminder-<page_id>` with `schedule.kind: "at"`, `at: remind_at`, `deleteAfterRun: true`, `sessionTarget: main`. Registering the cron in the same turn also suppresses OpenClaw's `agent-runner-reminder-guard` post-process note. See `setup/cron/reminder-delivery.md` for the full contract. When the one-shot fires, its agent turn delivers via the `message` tool, atomically updates `state.json.recent_outbound`, calls `complete-reminder`, and the job self-deletes.
 
-Safety net: isolated `reminder-check` cron writes handoff file and exits. Delivery through heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) or main-session startup check (AGENTS.md step 5, on every user interaction). Both paths first validate handoff is JSON with `reminders` array where each entry is object with string `page_id`, non-empty string `title`, and `status` exactly `sent` or `missed`. Any other shape or status = malformed handoff — file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing else delivered or completed. For valid late reminders, user-facing copy stays brief and nonjudgmental: `This was due a bit ago — [task]. Want to handle it now or reschedule?` If delivery fails, handoff file left in place for retry.
+Safety net: isolated `reminder-check` cron writes handoff file and exits. Delivery through heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min) or main-session startup check (AGENTS.md step 5, on every user interaction). Both paths first validate handoff is JSON with `reminders` array where each entry is object with string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Any other shape or status = malformed handoff — file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing else delivered or completed. Valid reminders always use the same shame-safe copy: `Hey, time to [task]`. If delivery fails, handoff file left in place for retry.
 
-After successful reminder delivery, the delivering session must also append/update `state.json.recent_outbound` with a short-lived entry describing what it just asked (`type: reminder`, `page_id`, `title`, `status`, `sent_at`, `awaiting_response: true`, `expires_at`). That entry bridges the gap between sessions: if the user replies "I did it" or "tomorrow at 9" in a fresh session, the agent can resolve the reply against the reminder it just sent instead of asking what they mean. Clear the matched entry once the reply is resolved.
+After successful reminder delivery, the delivering session must also append/update `state.json.recent_outbound` with a short-lived entry describing what it just sent (`type: reminder`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at`). That entry bridges the gap between sessions: if the user replies "I did it" or "tomorrow at 9" in a fresh session, the agent can resolve the reply against the reminder it just sent instead of asking what they mean. Clear the matched entry once the reply is resolved.
 
 ### Timezone Handling
 

@@ -138,9 +138,9 @@ RECENT_OUTBOUND_CONTEXT:
 If RECENT_OUTBOUND_CONTEXT contains a fresh entry with awaiting_response=true,
 use it to resolve short or elliptical replies before defaulting to CHAT.
 Examples:
-- Latest outbound = reminder asking "Want to handle it now or reschedule?"
+- Latest outbound = reminder "Hey, time to clean up boxes before noon."
   and user says "I did it" → COMPLETE
-- Latest outbound = reminder asking "Want to handle it now or reschedule?"
+- Latest outbound = reminder "Hey, time to clean up boxes before noon."
   and user says "tomorrow at 9" → ADD_TASK (new reminder inferred from context)
 - Latest outbound = task suggestion and user says "not that one" → REJECT
 
@@ -185,7 +185,7 @@ Intent:
 | "How does this work?" | CHAT |
 | "Hello" | CHAT |
 | "I did it" after a just-sent reminder | COMPLETE |
-| "Tomorrow at 9am" after "Want to handle it now or reschedule?" | ADD_TASK |
+| "Tomorrow at 9am" after a just-sent reminder | ADD_TASK |
 
 ### Cross-Session Reply Resolution
 
