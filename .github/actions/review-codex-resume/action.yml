@@ -2,9 +2,10 @@
 name: Resume a Codex author session in the CI image
 description: >
   Resumes the original resolve-issue Codex session as the v2 review
-  pipeline's fixer. The author's session state was persisted by the
-  resolve-issue workflow into a host directory; this action bind-mounts
-  that directory back into /home/ci/.codex so `codex exec resume --last`
+  pipeline's fixer. The author's session state was packed + uploaded
+  by the resolve-issue workflow as a workflow artifact, then downloaded
+  + unpacked by review-fixer; this action bind-mounts the unpacked
+  directory back into /home/ci/.codex so `codex exec resume --last`
   continues the same conversation, this time with reviewer artifacts in
   scope. Used on every cycle for which a valid Author-Session trailer
   is present (cycle 1, cycle 2, etc.) — not just retry cycles.
@@ -24,8 +25,10 @@ inputs:
   session_host_dir:
     description: >
       Absolute host path to the per-(issue, run-id) session directory
-      written by scripts/ci-session-store.sh prepare codex ... during
-      resolve-issue. Bind-mounted into the container at /home/ci/.codex.
+      produced by scripts/ci-session-store.sh unpack codex ... after
+      review-fixer downloads the author-session artifact from the
+      original resolve-issue run. Bind-mounted into the container at
+      /home/ci/.codex.
     required: true
   role:
     description: 'Role label used in artifact filenames (e.g. "design", "fixer")'

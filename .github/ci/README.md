@@ -96,10 +96,12 @@ selected by:
 2. `agent:codex` or `agent:claude` issue label
 3. Repo default (currently Codex)
 
-The author's session is persisted to `/srv/ci-sessions/<agent>/<issue>/<run-id>/`
-and an `Author-Session: <agent>/<run-id>` trailer is written into the
-PR body. The v2 fixer reads this trailer to resume the original author
-session for context-aware fixes rather than using a fresh model.
+The author's session is packed and uploaded as the
+`author-session-<agent>-<run-id>` workflow artifact, and an
+`Author-Session: <agent>/<run-id>` trailer is written into the PR body.
+The v2 fixer parses the trailer, downloads the artifact from the
+original `resolve-issue` run, and resumes the original author session
+for context-aware fixes rather than using a fresh model.
 
 The comment-command path is intentionally narrower than "any
 collaborator can point Codex at any issue": the commenter still has to
