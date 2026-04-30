@@ -759,7 +759,7 @@ sequenceDiagram
     OneShotCron->>Notion: get-page to check status
     OneShotCron->>User: Send reminder via message tool
     OneShotCron->>State: Save recent_outbound reminder context
-    OneShotCron->>Notion: complete-reminder(sent|missed)
+    OneShotCron->>Notion: complete-reminder(sent)
     Note over OneShotCron: Self-deletes after run
 
     Note over Cron,Delivery: Safety-net path (CronCreate failure, unfired jobs)
@@ -772,25 +772,25 @@ sequenceDiagram
         Delivery->>Signal: Validate handoff file
         Delivery->>User: Send reminder via message tool
         Delivery->>State: Save recent_outbound reminder context
-        Delivery->>Notion: complete-reminder(sent|missed)
+        Delivery->>Notion: complete-reminder(sent)
         Delivery->>Signal: Delete handoff file
     else Heartbeat runs (Check 1)
         Delivery->>Signal: Validate handoff file
         Delivery->>User: Send reminder via message tool
         Delivery->>State: Save recent_outbound reminder context
-        Delivery->>Notion: complete-reminder(sent|missed)
+        Delivery->>Notion: complete-reminder(sent)
         Delivery->>Signal: Delete handoff file
     end
 ```
 
-Primary path: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at` and delivers directly. Safety-net path: `reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Handoff delivery via main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, `status` exactly `sent` or `missed`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. On successful delivery, the session also appends/updates `state.json.recent_outbound` with a short-lived reminder entry so the next session can interpret terse replies like "I did it" or "tomorrow at 9" even though the handoff file is gone and the Notion reminder is already completed. Delivery failure = file stays for retry.
+Primary path: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at` and delivers directly. Safety-net path: `reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Handoff delivery via main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. On successful delivery, the session also appends/updates `state.json.recent_outbound` with a short-lived reminder entry so the next session can interpret terse replies like "I did it" or "tomorrow at 9" even though the handoff file is gone and the Notion reminder is already completed. Delivery failure = file stays for retry.
 
 ### Reminder Reply Continuity
 
 If the next session starts and the user replies to the reminder in shorthand, the agent should use `state.json.recent_outbound` before asking for clarification.
 
 Example:
-- Agent sends: "This was due a bit ago — clean up boxes before noon. Want to handle it now or reschedule?"
+- Agent sends: "Hey, time to clean up boxes before noon."
 - User opens a new session and says: "I did it"
 - Agent interprets that as completion of "clean up boxes before noon", delivers completion acknowledgment and reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears the matched `recent_outbound` entry
 
@@ -798,11 +798,8 @@ Example:
 
 Agent delivers reminders brief, casual — friend tapping your shoulder:
 
-**On-time delivery (at exact `remind_at` via one-shot cron, or next eligible safety-net path before missed threshold):**
-> "Hey — this is your reminder to email Melanie about availability."
-
-**Missed delivery (>15 minutes past due, flagged as missed):**
-> "This was due a bit ago — email Melanie about availability. Want to handle it now or reschedule?"
+**Reminder delivery (one-shot or safety-net path):**
+> "Hey, time to email Melanie about availability."
 
 ### Reminder Intake
 

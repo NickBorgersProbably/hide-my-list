@@ -71,7 +71,7 @@ Heartbeat intentionally not place to assume `config.patch` access. Config mutati
 
 Heartbeat also checks Notion connectivity and environment health. Production: treat as hourly infrastructure hygiene.
 
-Backstop stays in design because OpenClaw doesn't expose post-delivery acknowledgment hook for `announce`. Without that hook, announce-only cron would have to mark reminders `sent` or `missed` before platform could prove delivery succeeded — breaks durable retry if turn dies in between.
+Backstop stays in design because OpenClaw doesn't expose post-delivery acknowledgment hook for `announce`. Without that hook, announce-only cron would have to mark reminders `sent` before platform could prove delivery succeeded — breaks durable retry if turn dies in between.
 
 **What changed:** Heartbeat used to babysit bash daemons (PID files, restarting dead processes). With cron replacing daemons, now verifies durable cron registrations exist and match specs — cleaner than process management.
 
