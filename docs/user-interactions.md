@@ -794,10 +794,22 @@ Example:
 - User opens a new session and says: "I did it"
 - Agent interprets that as completion of "clean up boxes before noon", delivers completion acknowledgment and reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears the matched `recent_outbound` entry
 
-Reschedule example:
-- Agent sends: "This was due a bit ago — set up your video call software for therapy. Want to handle it now or reschedule?"
+Reschedule replay:
+- Seeded `recent_outbound` context:
+  ```json
+  [
+    {
+      "type": "reminder",
+      "title": "Set up your video call software for therapy",
+      "status": "missed",
+      "awaiting_response": true
+    }
+  ]
+  ```
+- Last visible agent message: "This was due a bit ago — set up your video call software for therapy. Want to handle it now or reschedule?"
 - User opens a new session and says: "remind me in an hour"
-- Agent treats that as a reschedule of the same reminder, does the replacement bookkeeping internally, and replies only: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
+- Visible reply must be one short sentence: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
+- Visible reply must not mention `recent_outbound`, Notion, cron jobs, reminder replacement, or cleanup steps.
 
 ### Reminder Delivery Messages
 
