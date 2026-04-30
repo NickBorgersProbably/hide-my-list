@@ -129,6 +129,17 @@ fi
 assert_exit "unpack-extracted dir validates" 0 \
   bash -c "CI_SESSION_ROOT='$UNPACK_ROOT' '$HELPER' validate codex 300 400"
 
+# Container UID 1000 must be able to write to extracted session files
+# (codex/claude resume appends new turns). Verify a+w bits on file + dir.
+PERM_FILE="$(stat -c '%a' "$UNPACK_ROOT/codex/300/400/2026-01-01.jsonl")"
+case "$PERM_FILE" in *6|*7) passes=$((passes+1)); printf 'ok    unpack chmod grants world-write to file (%s)\n' "$PERM_FILE" ;;
+  *) failures=$((failures+1)); printf 'FAIL  unpack file perms not world-writable: %s\n' "$PERM_FILE" >&2 ;;
+esac
+PERM_DIR="$(stat -c '%a' "$UNPACK_ROOT/codex/300/400")"
+case "$PERM_DIR" in 777) passes=$((passes+1)); printf 'ok    unpack dir is 0777\n' ;;
+  *) failures=$((failures+1)); printf 'FAIL  unpack dir perms not 0777: %s\n' "$PERM_DIR" >&2 ;;
+esac
+
 assert_exit "unpack rejects missing tar" 1 "$HELPER" unpack codex 1 1 "/tmp/does-not-exist.tgz"
 assert_exit "unpack requires tar-path arg" 64 "$HELPER" unpack codex 1 1
 
