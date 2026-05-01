@@ -10,7 +10,7 @@ CronCreate:
   durable: true
   name: "reminder-check"
   sessionTarget: isolated
-  model: litellm/gemma4-small  # must match modelTiers.cheap
+  model: litellm/qwen2.5  # must match modelTiers.cheap
   payload:
     kind: agentTurn
     lightContext: true  # empty bootstrap — cron prompt is self-contained

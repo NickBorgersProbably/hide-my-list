@@ -7,7 +7,7 @@ Heartbeat = built-in OpenClaw feature, not a cron job. Configured in `openclaw.j
 ```json
 "heartbeat": {
   "every": "60m",
-  "model": "litellm/gemma4-small",  // must match modelTiers.cheap
+  "model": "litellm/qwen2.5",  // must match modelTiers.cheap
   "lightContext": true,              // bootstrap = HEARTBEAT.md only
   "isolatedSession": true            // skip prior conversation transcript
 }
