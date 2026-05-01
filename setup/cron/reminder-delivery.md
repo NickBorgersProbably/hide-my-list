@@ -21,7 +21,7 @@ CronCreate:
     kind: "at"
     at: "<remind_at ISO 8601 with timezone>"
   sessionTarget: main
-  model: litellm/gemma4-small  # must match modelTiers.cheap
+  model: litellm/qwen2.5  # must match modelTiers.cheap
   payload:
     kind: agentTurn
     lightContext: false  # bootstrap loaded — agent needs SOUL.md tone, AGENTS.md state.json conventions
