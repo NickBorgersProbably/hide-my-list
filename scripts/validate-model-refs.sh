@@ -147,12 +147,13 @@ else
   fi
 fi
 
-# Check agents.defaults.heartbeat.{lightContext,isolatedSession} = true.
+# Check agents.defaults.heartbeat.lightContext = true and reject keys that the
+# OpenClaw heartbeat schema does not accept.
 if ! grep -qE '"lightContext"[[:space:]]*:[[:space:]]*true' <<<"$heartbeat_block"; then
   tier_errors+=("agents.defaults.heartbeat.lightContext must be true (strips bootstrap to HEARTBEAT.md only)")
 fi
-if ! grep -qE '"isolatedSession"[[:space:]]*:[[:space:]]*true' <<<"$heartbeat_block"; then
-  tier_errors+=("agents.defaults.heartbeat.isolatedSession must be true (skips transcript replay)")
+if grep -qE '"isolatedSession"[[:space:]]*:' <<<"$heartbeat_block"; then
+  tier_errors+=("agents.defaults.heartbeat.isolatedSession is not accepted by the OpenClaw config schema")
 fi
 
 # --- Invariant 3: cron-tier agreement -----------------------------------
