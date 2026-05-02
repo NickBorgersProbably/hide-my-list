@@ -30,7 +30,7 @@ Primary OpenClaw session. User-facing conversation. Loads repo bootstrap files (
 
 Only session with confirmed contract for higher-authority operational tools:
 
-- `config.get`, `config.patch`, `config.schema.lookup` for reading/patching `~/.openclaw/openclaw.json`
+- CLI access to `openclaw config get`, `openclaw config set`, and `openclaw config schema` for reading/updating `~/.openclaw/openclaw.json`
 - Full cron administration including manual runs and broader job management beyond heartbeat's drift-correction scope
 - `message` for proactive outbound delivery across configured channels
 - `edit` and `write` for repo files and direct workspace mutation
@@ -47,12 +47,12 @@ Main agent responsible for:
 - reading `state.json.recent_outbound` on startup so terse follow-up replies can be matched to recently-sent reminders or other outbound prompts
 - calling `scripts/notion-cli.sh complete-reminder PAGE_ID sent` after successful reminder delivery, then removing handoff file
 - recording delivered reminders into `state.json.recent_outbound` before cleanup and clearing/resolving those entries after the user's reply is understood
-- applying OpenClaw config changes requiring `config.patch`, including config-drift repair after template changes
+- applying OpenClaw config changes requiring `openclaw config set`, including per-subkey config-drift repair after template changes
 - operator/debugging work needing richer tools: reading logs, inspecting config, adjusting cron registrations, filing GitHub issues describing runtime failures
 
 ### Explicit boundary
 
-If workflow needs `config.get`, `config.patch`, or any `openclaw.json` mutation → **main-agent responsibility**. Heartbeat and isolated cron must not assume those tools.
+If workflow needs `openclaw config get`, `openclaw config set`, or any `openclaw.json` mutation → **main-agent responsibility**. Heartbeat and isolated cron must not assume those tools.
 
 Tool availability does not override `AGENTS.md` safety policy. External actions still require user approval. OpenClaw prompt/spec files go through GitHub issue -> PR -> review path, not direct runtime edits. Direct writes limited to `AGENTS.md` allowlist except documented dirty-pull recovery path.
 
@@ -72,7 +72,7 @@ Narrower confirmed contract:
 
 Treat these as unconfirmed for heartbeat sessions:
 
-- `config.get`, `config.patch`, `config.schema.lookup`
+- `openclaw config get`, `openclaw config set`, `openclaw config schema`
 - broader proactive `message` workflows beyond explicit reminder delivery and confirmed ops alerts to Signal
 - gateway lifecycle tools
 - general repo-edit/write as routine heartbeat behavior
@@ -104,7 +104,7 @@ Isolated cron prompts assume only what narrow script execution needs:
 
 - `exec` and `read` for running scripts and checking simple repo state
 - no direct user-delivery responsibility
-- no assumption of `config.patch`, gateway control, or full cron-admin authority
+- no assumption of `openclaw config get` / `openclaw config set`, gateway control, or full cron-admin authority
 
 Every isolated cron job stays silent unless prompt explicitly requires status reply. Current jobs intentionally end with `NO_REPLY`.
 
