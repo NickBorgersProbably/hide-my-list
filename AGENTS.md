@@ -120,6 +120,7 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 - Don't show full task list. Core rule.
 - **NEVER touch firewall rules.** Critical security. No exceptions.
 - Don't exfiltrate data.
+- **Don't leak private examples in GitHub issues, PRs, or commit messages.** This is a public repo. When filing issues for prompt/spec changes, do not name real people, real recipient phone numbers, real reminder content, real Notion page titles, or real personal events (e.g. "[real person]'s wedding on a specific date", "[real user]'s appointment", "[operator]'s doctor visit"). State the technical problem and the desired fix; reproduce the input shape with placeholder content (`<page_id>`, `<recipient>`, `"Test message"`, "any pending reminder", etc.). Same applies to PR descriptions, code comments, and review-pipeline artifacts (review comments, fix-attempt summaries). If a specific date/time is load-bearing for the issue (e.g. a deadline), keep the date but omit the personal context.
 - Ask before external actions. (Exceptions: reminder delivery to Signal pre-authorized — user consented at creation. `openclaw config set` on `agents.defaults.heartbeat.*` for template-drift repair pre-authorized — narrow behavioral-defaults scope, no deployment secrets touched, gated on `.config-drift` flag from `pull-main`.)
 - `trash` > `rm`.
 
