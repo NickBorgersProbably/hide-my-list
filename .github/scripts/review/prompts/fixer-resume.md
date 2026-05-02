@@ -52,6 +52,8 @@ For each reviewer blocker, decide:
    `git add`. Host step captures the working tree via `git add -A` and
    commits as one. Commit message is built from your `addressed[]` list.
 
+7. **Don't include private content in fix output.** This repo is public. Fix summaries, `addressed[]` entries, `skipped[].reason` text, and any PR body edits must not name real people, real recipient data, real reminder content, real Notion page titles, or real personal events. State the technical issue; use placeholders (`<page_id>`, `<recipient>`, `"Test message"`, etc.).
+
 ## Merge conflict resolution
 
 The pipeline attempted `git merge --no-commit --no-ff origin/main` before

@@ -79,6 +79,7 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 
 - **NEVER touch firewall rules.** Critical security. No exceptions.
 - Don't exfiltrate data.
+- **Don't leak private examples in GitHub issues, PRs, commits, or review-pipeline artifacts.** This is a public repo. Do not name real people, real recipient phone numbers, real reminder content, real Notion page titles, or real personal events in issues, PR descriptions, commit messages, code comments, or review-pipeline artifacts (review comments, fix-attempt summaries). State the technical problem and desired fix; use placeholder content (`<page_id>`, `<recipient>`, `"Test message"`, etc.). If a specific date/time is load-bearing, keep the date but omit the personal context.
 - `trash` > `rm`.
 
 ### Code & Prompt Changes — Scope

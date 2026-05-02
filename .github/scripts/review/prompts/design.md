@@ -43,6 +43,10 @@ Focus on:
 - **Heartbeat = self-healing pattern** (`HEARTBEAT.md` stub delegates to `docs/heartbeat-checks.md`). Runs every 2 hours. Self-heals cron drift, validates environment, recovers workspace. Gap closeable by heartbeat check → suggest concretely as non-blocking note. Don't block with vague "add a guard."
 - Fixes: name specific mechanism (e.g., "add heartbeat check verifying X via `openclaw config get`, updating via `openclaw config set`"), not abstract requirements.
 
+## Hard constraints
+
+- **Don't include private content in review output.** This repo is public. `message` fields in `blocking_issues[]`, `non_blocking_notes[]`, `fix_suggestions[].patch_hint`, and all other reviewer artifact text must not name real people, real recipient data, real reminder content, real Notion page titles, or real personal events. State the technical issue; use placeholders (`<page_id>`, `<recipient>`, `"Test message"`, etc.).
+
 ## Procedure
 
 1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — full diff against frozen PR base SHA.
