@@ -36,7 +36,7 @@ Required here because heartbeat does not load `USER.md` or `AGENTS.md`, so this 
   - After successful send, atomically update `state.json.recent_outbound`: read current `state.json` (initialize if missing), prune expired `recent_outbound` entries, merge the new reminder entry (`type: "reminder"`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later) while preserving all other fields (`active_task`, streak, conversation state), write via temp file + rename. If this state write fails, do not run `complete-reminder` or delete the handoff file — surface an ops alert (same channel/recipient as malformed-handoff alert above) and leave handoff for explicit recovery.
   - Then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent`.
 - After all valid reminders processed: delete handoff file once.
-- Hourly delivery safety net. Primary reminder delivery is the per-reminder one-shot cron registered at intake (`setup/cron/reminder-delivery.md`); this Check 1 + AGENTS.md startup check catch anything the one-shot fails to deliver.
+- Every-2-hours delivery safety net. Primary reminder delivery is the per-reminder one-shot cron registered at intake (`setup/cron/reminder-delivery.md`); this Check 1 + AGENTS.md startup check catch anything the one-shot fails to deliver.
 
 Why the `state.json` write matters: once reminder delivery succeeds, the handoff file is correctly deleted and Notion reminder record is already completed. Without `recent_outbound`, the next session loses the only bridge that makes a reply like "I did it" or "reschedule for tomorrow" interpretable.
 

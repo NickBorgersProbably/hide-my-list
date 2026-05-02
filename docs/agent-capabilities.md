@@ -19,7 +19,7 @@ Sessions have different responsibilities and different tools. Config patching be
 | Session | Trigger | User-facing | Primary responsibility |
 |---------|---------|-------------|------------------------|
 | Main agent | User message / normal conversation startup | Yes | Run product, manage tasks, handle operator actions needing richer tools |
-| Heartbeat session | Built-in OpenClaw heartbeat every 60 minutes | Usually no; may deliver reminders | Backstop operational health and stranded reminder delivery |
+| Heartbeat session | Built-in OpenClaw heartbeat every 2 hours | Usually no; may deliver reminders | Backstop operational health and stranded reminder delivery |
 | Isolated cron session | Durable cron schedule in `setup/cron/` | No | Cheap script-first background work, narrow scope |
 
 ## Main Agent
@@ -58,7 +58,7 @@ Tool availability does not override `AGENTS.md` safety policy. External actions 
 
 ## Heartbeat Session
 
-Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md` (bootstrap stub that delegates to `docs/heartbeat-checks.md`). Runs every 60 minutes with cheap-tier model (`modelTiers.cheap`).
+Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md` (bootstrap stub that delegates to `docs/heartbeat-checks.md`). Runs every 2 hours with `litellm/claude-haiku-4-5`, decoupled from `modelTiers.cheap` because heartbeat performs multi-step checks and cron drift detection that need reliable reasoning.
 
 ### Confirmed tool contract
 
@@ -83,7 +83,7 @@ Until explicitly confirmed, heartbeat instructions must not depend on them.
 
 Heartbeat responsible for:
 
-- reading reminder handoff file and delivering stranded reminders as hourly backstop
+- reading reminder handoff file and delivering stranded reminders as every-2-hours backstop
 - recording delivered reminder context in `state.json.recent_outbound` so later sessions can understand short replies
 - completing delivered reminders in Notion with `scripts/notion-cli.sh complete-reminder PAGE_ID sent`
 - verifying durable cron jobs exist and match canonical specs in `setup/cron/`
@@ -141,7 +141,7 @@ Not responsible for:
 Keep these boundaries intact when writing or reviewing runtime docs:
 
 - **Conversation and config mutation:** main agent
-- **Hourly health checks and stranded reminder delivery:** heartbeat
+- **Every-2-hours health checks and stranded reminder delivery:** heartbeat
 - **Cheap background polling or sync work:** isolated cron sessions
 
 That means:
