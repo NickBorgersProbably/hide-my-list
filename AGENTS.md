@@ -12,7 +12,10 @@
    - After delivery: atomically update `state.json.recent_outbound` — read current `state.json` (initialize if missing), prune expired `recent_outbound` entries, merge the new reminder entry (`type: "reminder"`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later) while preserving all other fields (`active_task`, streak, conversation state), write via temp file + rename. If this state write fails, do not run `complete-reminder` or delete the handoff file — surface an ops alert (same channel/recipient as malformed-handoff alert above) and leave the handoff file for explicit recovery. Then run `scripts/notion-cli.sh complete-reminder PAGE_ID sent` per item.
    - If delivery fails: leave file for retry
    - After all valid reminders processed: delete handoff file once.
-6. Check `.config-drift` flag (written by `scripts/pull-main.sh` only when `setup/openclaw.json.template` changed across a pull). Exists → read `agents.defaults.heartbeat` from template, `config.get` the same path from live config, `config.patch` if different, delete `.config-drift` on success. No user-facing note — this is background infrastructure hygiene, pre-authorized under Safety. `config.get`/`config.patch` fails: leave `.config-drift` in place, surface error, no silent retry. Template missing or parse fails: leave `.config-drift`, surface error. Scope narrow: only `agents.defaults.heartbeat` subtree syncs — deployment-local fields (gateway auth, channels, secrets) stay untouched.
+6. Check `.config-drift` flag (written by `scripts/pull-main.sh` only when `setup/openclaw.json.template` changed across a pull). Exists → read `agents.defaults.heartbeat` from `setup/openclaw.json.template` (parse the JSON), then for each subkey under that subtree:
+   - read the live value with `openclaw config get 'agents.defaults.heartbeat.<subkey>'`
+   - if different from template, write it with `openclaw config set 'agents.defaults.heartbeat.<subkey>' '<value>'` (use `--strict-json` if the value is a structured type)
+   On success delete `.config-drift`. No user-facing note — this is background infrastructure hygiene, pre-authorized under Safety. If `openclaw config get` or `openclaw config set` fails: leave `.config-drift` in place, surface error, no silent retry. Template missing or parse fails: leave `.config-drift`, surface error. Scope narrow: only `agents.defaults.heartbeat` subtree syncs — deployment-local fields (gateway auth, channels, secrets) stay untouched.
 7. Treat the timezone in `USER.md` as the source of truth for ALL relative dates/times ("today", "tomorrow", "tonight", day-of-week names). If the session timestamp is UTC or ambiguous, resolve user-local calendar context first with `scripts/user-time-context.sh [reference_timestamp]` before creating reminders; that helper falls back to `America/Chicago` when `USER.md` is missing or has no timezone.
 
 Then be ready. User might add task, ask what to do, say done, or chat.
@@ -117,7 +120,7 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 - Don't show full task list. Core rule.
 - **NEVER touch firewall rules.** Critical security. No exceptions.
 - Don't exfiltrate data.
-- Ask before external actions. (Exceptions: reminder delivery to Signal pre-authorized — user consented at creation. `config.patch` on `agents.defaults.heartbeat` for template-drift repair pre-authorized — narrow behavioral-defaults scope, no deployment secrets touched, gated on `.config-drift` flag from `pull-main`.)
+- Ask before external actions. (Exceptions: reminder delivery to Signal pre-authorized — user consented at creation. `openclaw config set` on `agents.defaults.heartbeat.*` for template-drift repair pre-authorized — narrow behavioral-defaults scope, no deployment secrets touched, gated on `.config-drift` flag from `pull-main`.)
 - `trash` > `rm`.
 
 ### Code & Prompt Changes (OpenClaw Agent Only)

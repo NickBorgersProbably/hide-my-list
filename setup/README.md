@@ -219,17 +219,10 @@ Manual regression playbook:
 - Or manually re-register per the definitions in `setup/cron/`
 
 **Heartbeat still loads full bootstrap after pulling the latest template:**
-- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, `AGENTS.md` step 6 reads the template's `agents.defaults.heartbeat` subtree and patches that subtree into the live `~/.openclaw/openclaw.json`.
-- Verify the repair ran: `.config-drift` should be gone after the next main-agent session, and the live `agents.defaults.heartbeat` block should include `lightContext: true` and `isolatedSession: true`.
-- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, edit `~/.openclaw/openclaw.json` manually and add the two fields under `agents.defaults.heartbeat`:
-  ```json
-  "heartbeat": {
-    "every": "60m",
-    "lightContext": true,
-    "isolatedSession": true
-  }
-  ```
-- Keep the existing heartbeat `model` unchanged. Only add the two new fields unless you intentionally also need to realign heartbeat with your instance's current cheap-tier model.
+- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, `AGENTS.md` step 6 parses the template's `agents.defaults.heartbeat` subtree, checks each live `agents.defaults.heartbeat.*` key with `openclaw config get`, and realigns drifted keys with `openclaw config set`.
+- Verify the repair ran: `.config-drift` should be gone after the next main-agent session, and the live `agents.defaults.heartbeat` block should match the template, including `model`, `lightContext`, and `isolatedSession`.
+- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign each drifted `agents.defaults.heartbeat.*` key with `openclaw config set` (use `--strict-json` for structured values). Example: `openclaw config set 'agents.defaults.heartbeat.model' 'litellm/qwen2.5'`
+- Do not preserve a stale heartbeat `model`. The template's `agents.defaults.heartbeat` subtree is canonical for this repair flow.
 - Then restart the gateway: `openclaw gateway`.
 - Verify: the next heartbeat run's context should only contain `HEARTBEAT.md` from bootstrap (not AGENTS.md, SOUL.md, etc.) — inspect the gateway logs or attach a debugger to confirm.
 
