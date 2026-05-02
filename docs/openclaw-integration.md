@@ -120,7 +120,7 @@ For production, use these timings unless clear reason to pay for tighter polling
 | `reminder-check` | Every 15 minutes | Safety-net polling; writes `.reminder-signal` for heartbeat/startup delivery when one-shot fails to fire |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps workspace fresh |
 
-Core principle: the one-shot cron registered at intake is the primary delivery path — fires at exact `remind_at`. The recurring `reminder-check` poll + handoff + heartbeat path is the safety net for `CronCreate` failures, gateway data loss, or jobs that fail to fire; in that fallback case, fully idle worst-case latency is ~75 min (15-min poll + 60-min heartbeat) unless the user interacts sooner.
+Core principle: the one-shot cron registered at intake is the primary delivery path — fires at exact `remind_at`. The recurring `reminder-check` poll + handoff + heartbeat path is the safety net for `CronCreate` failures, gateway data loss, or jobs that fail to fire; in that fallback case, fully idle worst-case latency is ~135 min (15-min poll + 120-min heartbeat) unless the user interacts sooner.
 
 ## Messaging Channels
 
