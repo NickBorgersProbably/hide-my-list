@@ -170,7 +170,7 @@ Canonical model list and tier mappings live in `setup/openclaw.json.template` (s
 - **Primary model (expensive tier):** Whatever `modelTiers.expensive` maps to for conversations and task management
 - **Heartbeat model (cheap tier):** Whatever `modelTiers.cheap` maps to for routine health checks
 - **Cron model (cheap tier):** Whatever `modelTiers.cheap` maps to for both isolated recurring cron work (reminder polling, workspace sync) and the per-reminder one-shot delivery cron
-- **Codex CLI model:** GPT-5.4, configured separately in `.codex/config.toml` via `.devcontainer/configure-codex.sh`; not served through the OpenClaw models array above.
+- **Codex CLI model:** GPT-5.5, configured separately in `.codex/config.toml` via `.devcontainer/configure-codex.sh`; not served through the OpenClaw models array above.
 
 **Our role:** No direct interaction with model selection. Prompts in `docs/ai-prompts/` model-agnostic. OpenClaw picks model from config.
 
