@@ -15,7 +15,7 @@ mkdir -p "$HOME/.codex"
 # Allow the Codex model configuration to be overridden for different LiteLLM
 # backends without requiring code changes. These defaults reflect the current
 # shared LiteLLM proxy deployment used in CI.
-CODEX_MODEL_DEFAULT="gpt-5.4"
+CODEX_MODEL_DEFAULT="gpt-5.5"
 CODEX_MODEL_PROVIDER_DEFAULT="litellm"
 CODEX_MODEL_PROVIDER_NAME_DEFAULT="LiteLLM"
 CODEX_MODEL_BASE_URL_DEFAULT="https://llm.featherback-mermaid.ts.net/v1"
