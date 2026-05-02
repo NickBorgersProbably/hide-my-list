@@ -170,7 +170,7 @@ Call CronCreate with:
 - deleteAfterRun: true
 - schedule: { kind: "at", at: "<remind_at ISO from above>" }
 - sessionTarget: main
-- model: litellm/<modelTiers.cheap value> (read from setup/openclaw.json.template)
+- model: litellm/claude-haiku-4-5 (read from setup/cron/reminder-delivery.md)
 - payload.kind: agentTurn
 - payload.lightContext: false
 - timeout-seconds: 300

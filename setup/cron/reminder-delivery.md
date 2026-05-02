@@ -8,7 +8,7 @@ The recurring `reminder-check` cron + `.reminder-signal` handoff path stays as a
 
 OpenClaw's `agent-runner-reminder-guard` post-processes every assistant reply that matches a reminder-commitment regex (`I'll remind you`, `I'll set a reminder`, etc.) and appends `"Note: I did not schedule a reminder in this turn, so this will not trigger automatically."` unless the same turn registered a cron job (`successfulCronAdds > 0`) or an enabled cron shares the current `sessionKey`.
 
-Registering this one-shot cron at intake satisfies the first condition, suppressing the framework note. It also delivers reminders at exact wall-clock time instead of relying on the up-to-~75-min worst-case latency of the polling backstop.
+Registering this one-shot cron at intake satisfies the first condition, suppressing the framework note. It also delivers reminders at exact wall-clock time instead of relying on the up-to-~135-min worst-case latency of the polling backstop.
 
 ## Registration
 
@@ -21,7 +21,7 @@ CronCreate:
     kind: "at"
     at: "<remind_at ISO 8601 with timezone>"
   sessionTarget: main
-  model: litellm/qwen2.5  # must match modelTiers.cheap
+  model: litellm/claude-haiku-4-5  # decoupled from cheap tier — multi-step user-facing flow needs reasoning
   payload:
     kind: agentTurn
     lightContext: false  # bootstrap loaded — agent needs SOUL.md tone, AGENTS.md state.json conventions
@@ -30,7 +30,7 @@ CronCreate:
   timeout-seconds: 300
 ```
 
-`sessionTarget: main` fires the delivery turn in the main agent session. `lightContext: false` keeps bootstrap loaded — the cheap model needs SOUL.md tone guidance and AGENTS.md `recent_outbound` schema without re-stating them inline. Model stays on `modelTiers.cheap` — delivery prompt is highly structured and well within cheap-tier reach. The delivery turn sends to the user via the `message` tool.
+`sessionTarget: main` fires the delivery turn in the main agent session. `lightContext: false` keeps bootstrap loaded so SOUL.md tone guidance and AGENTS.md `recent_outbound` conventions are in scope. Haiku is the chosen model for this multi-step user-facing flow: the delivery turn verifies Notion state, sends the user-facing message, mutates `state.json`, and completes the reminder. The delivery turn sends to the user via the `message` tool.
 
 `deleteAfterRun: true` causes OpenClaw to remove the job from the cron store after a successful run. The field defaults to `true` for `schedule.kind: "at"` jobs, but we set it explicitly for clarity.
 
@@ -83,5 +83,5 @@ acceptable; missed delivery is not.
 ## Notes
 
 - One-shot `reminder-*` jobs are NOT covered by the heartbeat drift / re-registration check (`docs/heartbeat-checks.md` Checks 2 / 2b). That check covers only the recurring canonical catalog (`reminder-check`, `pull-main`). One-shots self-delete after firing, so verifying their continued presence makes no sense.
-- `validate-model-refs.sh` (`scripts/validate-model-refs.sh`) hardcodes its canonical-cron list to `reminder-check.md` and `pull-main.md`, so this spec file is intentionally out of scope for tier validation. Keep `model: litellm/<modelTiers.cheap>` here as a contract anyway — drift here is invisible to CI but still operationally meaningful.
+- `validate-model-refs.sh` (`scripts/validate-model-refs.sh`) hardcodes its cheap-tier canonical-cron list to `reminder-check.md` and `pull-main.md`; this one-shot delivery spec is intentionally decoupled from `modelTiers.cheap`. Keep its concrete `model:` line aligned with the multi-step delivery contract above.
 - `validate-spec-catalog.sh` checks only `docs/*.md` membership, so this `setup/cron/*.md` file does not need to be listed in `docs/index.md` or `DEV-AGENTS.md`.

@@ -6,8 +6,8 @@ Heartbeat = built-in OpenClaw feature, not a cron job. Configured in `openclaw.j
 
 ```json
 "heartbeat": {
-  "every": "60m",
-  "model": "litellm/qwen2.5",  // must match modelTiers.cheap
+  "every": "120m",
+  "model": "litellm/claude-haiku-4-5",  // decoupled from cheap tier — heartbeat needs reasoning for drift detection
   "lightContext": true,              // bootstrap = HEARTBEAT.md only
   "isolatedSession": true            // skip prior conversation transcript
 }
@@ -17,7 +17,7 @@ Reminder delivery does not depend on `heartbeat.target`. Heartbeat Check 1 sends
 
 ## Behavior
 
-Every 60 min, OpenClaw runs agent with `HEARTBEAT.md` as context. Agent performs checks:
+Every 2 hours, OpenClaw runs agent with `HEARTBEAT.md` as context. Agent performs checks:
 
 1. Resolve reminder handoff path (`REMINDER_SIGNAL_FILE` when set, else `.reminder-signal`) and check for stranded handoffs. On successful delivery: atomically update `state.json.recent_outbound` (read-merge-prune-write via temp file + rename) per reminder before `complete-reminder`; if state write fails, halt delivery and surface ops alert without deleting handoff. Delete handoff file once after the full batch succeeds.
 2. Verify cron jobs registered (re-register if missing)
@@ -26,10 +26,10 @@ Every 60 min, OpenClaw runs agent with `HEARTBEAT.md` as context. Agent performs
 5. Verify environment intact
 6. Pull main if flagged
 
-Uses cheap-tier model — routine operational checks don't need reasoning. `lightContext: true` strips the main-session bootstrap (AGENTS.md, SOUL.md, etc.) from heartbeat context — heartbeat reads `docs/heartbeat-checks.md` on demand instead. `isolatedSession: true` skips replaying prior transcripts. Together they reduce heartbeat per-run context cost without changing behavior. Heartbeat also processes stranded handoff files; hourly cadence is part of production reminder-latency tradeoff.
+Heartbeat is decoupled from the cheap tier and uses Haiku because the May 2026 qwen2.5 incident false-positived on Check 2b cron drift detection. `lightContext: true` strips the main-session bootstrap (AGENTS.md, SOUL.md, etc.) from heartbeat context — heartbeat reads `docs/heartbeat-checks.md` on demand instead. `isolatedSession: true` skips replaying prior transcripts. Together they reduce heartbeat per-run context cost without changing behavior. Heartbeat also processes stranded handoff files; the 2-hour cadence is part of production reminder-latency tradeoff.
 
 ## Notes
 
 - Heartbeat = safety net for missing canonical cron jobs and spec drift. Job gone missing for any reason → next heartbeat re-registers. Live job drifts from `CronCreate` block in `setup/cron/` (`name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, unexpected `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`) → next heartbeat patches to spec. `docs/heartbeat-checks.md` defines authoritative comparison contract (HEARTBEAT.md is a bootstrap stub that delegates to it).
-- Also hourly backstop for reminder delivery. Isolated `reminder-check` cron writes `.reminder-signal`; heartbeat Check 1 reads and delivers stranded reminders.
+- Also every-2-hours backstop for reminder delivery. Isolated `reminder-check` cron writes `.reminder-signal`; heartbeat Check 1 reads and delivers stranded reminders.
 - Heartbeat managed by OpenClaw, does not expire.

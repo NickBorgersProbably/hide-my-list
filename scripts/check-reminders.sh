@@ -27,7 +27,7 @@
 #   - Opportunistic main-session startup check (AGENTS.md step 5): when a user
 #     interacts, the main session checks for the handoff file and delivers any
 #     pending reminders immediately.
-#   - HEARTBEAT.md Check 1 (every 60 minutes): the heartbeat session reads
+#   - HEARTBEAT.md Check 1 (every 2 hours): the heartbeat session reads
 #     stranded handoff files and delivers reminders as the idle-session backstop.
 #
 # The delivering session (heartbeat or main session) is responsible for:

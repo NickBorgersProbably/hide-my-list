@@ -782,7 +782,7 @@ sequenceDiagram
     end
 ```
 
-Primary path: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at` and delivers directly. Safety-net path: `reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Handoff delivery via main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 60 min). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. On successful delivery, the session also appends/updates `state.json.recent_outbound` with a short-lived reminder entry so the next session can interpret terse replies like "I did it" or "tomorrow at 9" even though the handoff file is gone and the Notion reminder is already completed. Delivery failure = file stays for retry.
+Primary path: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at` and delivers directly. Safety-net path: `reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Handoff delivery via main-session startup check (AGENTS.md step 5, on every user interaction) and heartbeat (Check 1 in `docs/heartbeat-checks.md`, every 2 hours). Both validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. On successful delivery, the session also appends/updates `state.json.recent_outbound` with a short-lived reminder entry so the next session can interpret terse replies like "I did it" or "tomorrow at 9" even though the handoff file is gone and the Notion reminder is already completed. Delivery failure = file stays for retry.
 
 ### Reminder Reply Continuity
 
@@ -829,7 +829,7 @@ AI detects reminder-style language and sets:
 **Confirmation message style (success path — `CronCreate` succeeded):**
 > "Got it — I'll remind you around 6pm PT to email Melanie."
 
-"Around" is intentional and stays even though the one-shot cron normally fires at exact `remind_at`. If the one-shot fails to fire and the safety-net polling path takes over, delivery can lag up to ~75 min. "Around 6pm" is calibrated to that worst case so we never overpromise; "at 6pm" would feel like a missed commitment when the safety net catches a stranded reminder.
+"Around" is intentional and stays even though the one-shot cron normally fires at exact `remind_at`. If the one-shot fails to fire and the safety-net polling path takes over, delivery can lag up to ~135 min. "Around 6pm" is calibrated to that worst case so we never overpromise; "at 6pm" would feel like a missed commitment when the safety net catches a stranded reminder.
 
 **Confirmation message style (degraded path — `CronCreate` failed at intake):**
 > "Got it — I've saved your reminder; I'll check for it and send it your way."
@@ -844,7 +844,7 @@ User timezone defaults to the configured timezone in `USER.md` (fall back to US 
 ### Reminder vs. Deadline
 
 Different concepts:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification firing at `remind_at` via the one-shot `reminder-<page_id>` cron registered at intake; if that fails to fire, the `reminder-check` poll + startup + heartbeat path delivers as safety net (up to ~75 min late in the worst-idle case, which is why intake confirmations say "around 6pm")
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification firing at `remind_at` via the one-shot `reminder-<page_id>` cron registered at intake; if that fails to fire, the `reminder-check` poll + startup + heartbeat path delivers as safety net (up to ~135 min late in the worst-idle case, which is why intake confirmations say "around 6pm")
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.

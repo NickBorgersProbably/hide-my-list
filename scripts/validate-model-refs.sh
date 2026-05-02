@@ -6,14 +6,17 @@
 #      file registered by review-classify's is_spec_md() must resolve in
 #      setup/openclaw.json.template's models array.
 #   2) Tier-config consistency: modelTiers in the template must match
-#      agents.defaults (expensive=primary, medium=fallback, cheap=heartbeat).
+#      agents.defaults where tiers still apply (expensive=primary,
+#      medium=fallback), and heartbeat.model must resolve to a configured
+#      model without being tied to modelTiers.cheap.
 #   3) Cron-tier agreement: cron spec files must use the cheap-tier model
 #      from modelTiers, and sibling docs' cron-contract sections must point
 #      back to the canonical setup/cron specs instead of drifting.
 #
 # Model tier mapping lives in setup/openclaw.json.template under modelTiers.
 # New instances: edit modelTiers + agents.defaults + cron spec model: lines,
-# then run this script to verify consistency.
+# then run this script to verify consistency. Heartbeat is configured directly
+# under agents.defaults.heartbeat.model and may use a non-cheap model.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -129,17 +132,22 @@ elif [[ "$fallback_model" != "litellm/$tier_medium" ]]; then
   tier_errors+=("agents.defaults.model.fallbacks[0] = $fallback_model, expected litellm/$tier_medium (medium tier)")
 fi
 
-# Check agents.defaults.heartbeat.model matches cheap tier
-heartbeat_model="$(grep -oE '"model":[[:space:]]*"litellm/[^"]+"' "$TEMPLATE" | tail -1 | grep -oE 'litellm/[^"]+')"
-if [[ "$heartbeat_model" != "litellm/$tier_cheap" ]]; then
-  tier_errors+=("agents.defaults.heartbeat.model = $heartbeat_model, expected litellm/$tier_cheap (cheap tier)")
+# Extract the heartbeat block so heartbeat-specific checks cannot be satisfied
+# by another `model` or `lightContext` key elsewhere in the template.
+heartbeat_block="$(awk '/"heartbeat":[[:space:]]*\{/,/^[[:space:]]*\}/' "$TEMPLATE")"
+
+# Check agents.defaults.heartbeat.model resolves to a configured model.
+heartbeat_model="$(grep -oE '"model":[[:space:]]*"litellm/[^"]+"' <<<"$heartbeat_block" | grep -oE 'litellm/[^"]+' | head -1)"
+if [[ -z "$heartbeat_model" ]]; then
+  tier_errors+=("agents.defaults.heartbeat.model not found in $TEMPLATE")
+else
+  heartbeat_id="${heartbeat_model#litellm/}"
+  if ! grep -qx "$heartbeat_id" <<<"$template_ids"; then
+    tier_errors+=("agents.defaults.heartbeat.model = $heartbeat_model (not in $TEMPLATE models[].id)")
+  fi
 fi
 
 # Check agents.defaults.heartbeat.{lightContext,isolatedSession} = true.
-# Extract the heartbeat block (inclusive of closing brace) so we only match
-# inside it — prevents a stray lightContext elsewhere in the template from
-# silencing this check.
-heartbeat_block="$(awk '/"heartbeat":[[:space:]]*\{/,/^[[:space:]]*\}/' "$TEMPLATE")"
 if ! grep -qE '"lightContext"[[:space:]]*:[[:space:]]*true' <<<"$heartbeat_block"; then
   tier_errors+=("agents.defaults.heartbeat.lightContext must be true (strips bootstrap to HEARTBEAT.md only)")
 fi
@@ -161,7 +169,7 @@ for f in "${canonical_cron_sources[@]}"; do
   fi
 done
 
-# Cron specs must have concrete model ID matching modelTiers.cheap
+# Cheap-tier cron specs must have concrete model ID matching modelTiers.cheap.
 cron_errors=()
 expected_cron_ref="litellm/$tier_cheap"
 
@@ -173,9 +181,9 @@ for f in "${canonical_cron_sources[@]}"; do
   elif [[ "$cron_model" != "$expected_cron_ref" ]]; then
     cron_errors+=("$f: model = $cron_model, expected $expected_cron_ref (cheap tier)")
   fi
-  # Check tier comment present
-  if ! grep -qE '^\s+model:.*# must match modelTiers\.cheap' "$f"; then
-    cron_errors+=("$f: missing '# must match modelTiers.cheap' comment on model: line")
+  # Check tier comment present.
+  if ! grep -qE '^\s+model:.*# must match modelTiers[.]cheap' "$f"; then
+    cron_errors+=("$f: missing cheap-tier coupling comment on model: line")
   fi
   # Check payload.lightContext: true present (skips bootstrap for isolated cron sessions)
   if ! grep -qE '^\s+lightContext:\s+true' "$f"; then
@@ -218,7 +226,7 @@ check_contract_window \
   'Both `reminder-check` and `pull-main` use `sessionTarget: isolated`' \
   4 \
   'cheap-tier model|modelTiers|setup/cron/' \
-  'litellm/claude-haiku' \
+  '' \
   "cron contract section"
 
 check_contract_window \
@@ -226,7 +234,7 @@ check_contract_window \
   "**Current registration contract:**" \
   4 \
   'setup/cron/.*modelTiers\.cheap|modelTiers\.cheap.*setup/cron/' \
-  'litellm/claude-haiku' \
+  '' \
   "cron contract section"
 
 check_contract_window \
@@ -267,8 +275,8 @@ if (( ${#all_errors[@]} > 0 )); then
   echo "ERROR: model reference validation failed:" >&2
   for e in "${all_errors[@]}"; do echo "$e" >&2; done
   echo "" >&2
-  echo "Fix: update modelTiers in $TEMPLATE, then ensure cron specs and docs match." >&2
+  echo "Fix: update modelTiers in $TEMPLATE, ensure cheap-tier cron specs/docs match, and keep heartbeat.model pointed at a configured model." >&2
   exit 1
 fi
 
-echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap); cron specs use cheap tier ($expected_cron_ref)"
+echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap, heartbeat=$heartbeat_model); cheap-tier cron specs use $expected_cron_ref"
