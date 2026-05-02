@@ -21,6 +21,10 @@ Lens:
 3. **Spec ↔ runtime drift.** Diff touches doc describing runtime behavior (cron, agent prompts, Notion schema) → verify runtime code/config still matches. Drift blocking — pick correct side, require other fixed.
 4. **Index and TOC freshness.** `docs/index.md`, `MEMORY.md`, "Key Files" in `AGENTS.md` (OpenClaw spec files) and `DEV-AGENTS.md` (infra/CI files) must mention new spec-bearing or infra files. Missing entries non-blocking unless file added by this PR.
 
+## Hard constraints
+
+- **Don't include private content in review output.** This repo is public. `message` fields in `blocking_issues[]`, `non_blocking_notes[]`, `fix_suggestions[].patch_hint`, and all other reviewer artifact text must not name real people, real recipient data, real reminder content, real Notion page titles, or real personal events. State the technical issue; use placeholders (`<page_id>`, `<recipient>`, `"Test message"`, etc.).
+
 ## Procedure
 
 1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — full diff against frozen PR base SHA.

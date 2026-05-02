@@ -22,6 +22,8 @@ Reflects current PR state, not push-time state.
 5. **Read-only git fine.** `git diff`, `git log`, `git status`, `git show`, `git ls-files` all work. Container entrypoint sets `safe.directory=/workspace` — no need to add. Use freely.
 6. **One logical fix batch, unstaged.** Write files, edit text. No `git add` — leave unstaged. Host step captures all working-tree changes via `git add -A`, commits as one. Commit message built from your `addressed[]` list — list every blocker actually addressed.
 
+7. **Don't include private content in fix output.** This repo is public. Fix summaries, `addressed[]` entries, `skipped[].reason` text, and any PR body edits must not name real people, real recipient data, real reminder content, real Notion page titles, or real personal events. State the technical issue; use placeholders (`<page_id>`, `<recipient>`, `"Test message"`, etc.).
+
 ## Merge conflict resolution
 
 The pipeline attempted `git merge --no-commit --no-ff origin/main` before invoking you. Read `${MERGE_STATE}`:

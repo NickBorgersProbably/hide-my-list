@@ -20,6 +20,10 @@ Four areas:
 
 Run `shellcheck scripts/*.sh .github/actions/**/*.sh` on shell changes. HIGH severity bugs: give precise fix (file, line, exact change) in `fix_suggestions[]`.
 
+## Hard constraints
+
+- **Don't include private content in review output.** This repo is public. `message` fields in `blocking_issues[]`, `non_blocking_notes[]`, `fix_suggestions[].patch_hint`, and all other reviewer artifact text must not name real people, real recipient data, real reminder content, real Notion page titles, or real personal events. State the technical issue; use placeholders (`<page_id>`, `<recipient>`, `"Test message"`, etc.).
+
 ## Procedure
 
 1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — full diff against frozen PR base SHA.
