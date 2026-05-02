@@ -220,9 +220,9 @@ Manual regression playbook:
 - Or manually re-register per the definitions in `setup/cron/`
 
 **Heartbeat still loads full bootstrap after pulling the latest template:**
-- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, `AGENTS.md` step 6 parses the template's `agents.defaults.heartbeat` subtree, checks each live `agents.defaults.heartbeat.*` key with `openclaw config get`, and realigns drifted keys with `openclaw config set`.
+- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, `AGENTS.md` step 6 parses the template's `agents.defaults.heartbeat` subtree, compares it with `openclaw config get 'agents.defaults.heartbeat'`, and realigns drift by setting the whole subtree with `openclaw config set 'agents.defaults.heartbeat' '<template-heartbeat-json>' --strict-json`. Whole-subtree repair also drops stale live keys removed from the template.
 - Verify the repair ran: `.config-drift` should be gone after the next main-agent session, and the live `agents.defaults.heartbeat` block should match the template, including `model` and `lightContext`.
-- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign each drifted `agents.defaults.heartbeat.*` key with `openclaw config set` (use `--strict-json` for structured values). Example: `openclaw config set 'agents.defaults.heartbeat.model' 'litellm/claude-haiku-4-5'`
+- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign the whole subtree with `openclaw config set 'agents.defaults.heartbeat' '<template-heartbeat-json>' --strict-json`.
 - Do not preserve a stale heartbeat `model`. The template's `agents.defaults.heartbeat` subtree is canonical for this repair flow.
 - Then restart the gateway: `openclaw gateway`.
 - Verify: the next heartbeat run's context should only contain `HEARTBEAT.md` from bootstrap (not AGENTS.md, SOUL.md, etc.) — inspect the gateway logs or attach a debugger to confirm.
