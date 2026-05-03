@@ -41,7 +41,7 @@ All task CRUD via `scripts/notion-cli.sh`:
 # Create a task
 notion-cli.sh create-task "title" "work_type" urgency time_est "energy" "inline_steps" "status" "parent_id" sequence
 
-# Create a reminder (followed by CronCreate one-shot in the same turn — see docs/ai-prompts/intake.md REMINDER PERSISTENCE)
+# Create a reminder (followed by framework-native CronCreate one-shot in the same turn — not exec/openclaw CLI; see docs/ai-prompts/intake.md REMINDER PERSISTENCE)
 notion-cli.sh create-reminder "title" "remind_at_iso8601"
 
 # Query pending tasks
@@ -131,7 +131,7 @@ Restrictions apply to **OpenClaw runtime agent** only — not Claude Code sessio
 - Infra & CI files outside restriction — but OpenClaw agent should still file issues; CI changes warrant review.
 - Restriction covers repo-managed content, not OpenClaw runtime features. Keep using OpenClaw heartbeat, durable cron, bootstrap loading, hooks, messaging as documented.
 - OpenClaw-owned runtime state (cron registrations, task records outside repo) not "managed content" under this rule.
-- Outside the self-contained dirty-pull recovery path in `scripts/pull-main.sh` (with `HEARTBEAT.md` only retrying stale `.pull-dirty` signals when recovery didn't complete), only files OpenClaw agent may write directly: `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, repo-root reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE`), temp `.reminder-signal-*.tmp` sibling in same dir for atomic replacement, and `.config-drift` (main agent deletes after successful config sync per step 6; `pull-main` writes it).
+- Outside the self-contained dirty-pull recovery path in `scripts/pull-main.sh` (with heartbeat cron only retrying stale `.pull-dirty` signals when recovery didn't complete), only files OpenClaw agent may write directly: `state.json`, `memory/`, `MEMORY.md`, `USER.md`, `.env`, repo-root reminder handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE`), temp `.reminder-signal-*.tmp` sibling in same dir for atomic replacement, and `.config-drift` (main agent deletes after successful config sync per step 6; `pull-main` writes it).
 
 ## Memory
 

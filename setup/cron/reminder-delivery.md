@@ -12,6 +12,11 @@ Registering this one-shot cron at intake satisfies the first condition, suppress
 
 ## Registration
 
+Register through the framework-native `CronCreate` tool/API path, not through
+`exec` or the `openclaw cron ...` CLI. The CLI path may create a working cron,
+but it bypasses the current turn's `successfulCronAdds` accounting and therefore
+does not satisfy `agent-runner-reminder-guard`.
+
 ```
 CronCreate:
   name: "reminder-<notion_page_id>"
@@ -82,6 +87,6 @@ acceptable; missed delivery is not.
 
 ## Notes
 
-- One-shot `reminder-*` jobs are NOT covered by the heartbeat drift / re-registration check (`docs/heartbeat-checks.md` Checks 2 / 2b). That check covers only the recurring canonical catalog (`reminder-check`, `pull-main`). One-shots self-delete after firing, so verifying their continued presence makes no sense.
-- `validate-model-refs.sh` (`scripts/validate-model-refs.sh`) hardcodes its cheap-tier canonical-cron list to `reminder-check.md` and `pull-main.md`; this one-shot delivery spec is intentionally decoupled from the cheap tier in `setup/model-tiers.json`. Keep its concrete `model:` line aligned with the multi-step delivery contract above.
+- One-shot `reminder-*` jobs are NOT covered by the heartbeat drift / re-registration check (`docs/heartbeat-checks.md` Checks 2 / 2b). That check covers only the recurring canonical catalog (`heartbeat`, `reminder-check`, `pull-main`). One-shots self-delete after firing, so verifying their continued presence makes no sense.
+- `validate-model-refs.sh` (`scripts/validate-model-refs.sh`) checks the cheap-tier canonical-cron list (`heartbeat.md`, `reminder-check.md`, `pull-main.md`); this one-shot delivery spec is intentionally decoupled from the cheap tier in `setup/model-tiers.json`. Keep its concrete `model:` line aligned with the multi-step delivery contract above.
 - `validate-spec-catalog.sh` checks only `docs/*.md` membership, so this `setup/cron/*.md` file does not need to be listed in `docs/index.md` or `DEV-AGENTS.md`.

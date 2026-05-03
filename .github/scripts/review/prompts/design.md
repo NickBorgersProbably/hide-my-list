@@ -40,7 +40,7 @@ Focus on:
 
 - Read `docs/architecture.md` for full system design.
 - **Agentic system.** OpenClaw runtime reads instructions, uses tools, acts beyond explicit code. Can inspect and modify own config at runtime via `openclaw config get`, `openclaw config set`, and `openclaw config schema`. No static-application reasoning.
-- **Heartbeat = self-healing pattern** (`HEARTBEAT.md` stub delegates to `docs/heartbeat-checks.md`). Runs every 2 hours. Self-heals cron drift, validates environment, recovers workspace. Gap closeable by heartbeat check → suggest concretely as non-blocking note. Don't block with vague "add a guard."
+- **Heartbeat = self-healing pattern** (`setup/cron/heartbeat.md` delegates to `docs/heartbeat-checks.md`). Runs every 2 hours. Self-heals cron drift, validates environment, recovers workspace. Gap closeable by heartbeat check → suggest concretely as non-blocking note. Don't block with vague "add a guard."
 - Fixes: name specific mechanism (e.g., "add heartbeat check verifying X via `openclaw config get`, updating via `openclaw config set`"), not abstract requirements.
 
 ## Hard constraints

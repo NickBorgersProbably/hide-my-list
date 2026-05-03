@@ -2,7 +2,7 @@
 
 ## Time and Timezone
 
-Heartbeat runs with `lightContext: true` — `USER.md` and `AGENTS.md` are NOT in bootstrap. The system clock is UTC. Do not derive user-local calendar context from system clock alone.
+Heartbeat runs as the durable cron job `heartbeat` with `payload.lightContext: true` — `USER.md` and `AGENTS.md` are NOT in bootstrap. The system clock is UTC. Do not derive user-local calendar context from system clock alone.
 
 Before any check that formats a date for the user, or needs to convert a stored UTC instant such as `Remind At` into user-local calendar language, run:
 
@@ -16,7 +16,7 @@ The script returns JSON with `user_timezone`, `reference_utc`, `reference_local`
 
 Check 1 safety-net reminder status is produced upstream by `scripts/check-reminders.sh`: it compares UTC instants, determines `status: sent|missed`, and writes that status into the handoff file. Heartbeat consumes that handoff; it does not recompute `now - Remind At`. Use the helper only when delivery wording needs user-local phrasing derived from `remind_at` or from the current local date.
 
-Required here because heartbeat does not load `USER.md` or `AGENTS.md`, so this file is the only place the timezone contract lives for heartbeat-driven work — same pattern as the tone contract in Check 1.
+Required here because the heartbeat cron does not load `USER.md` or `AGENTS.md`, so this file is the only place the timezone contract lives for heartbeat-driven work — same pattern as the tone contract in Check 1.
 
 ## Checks (in order)
 
@@ -45,15 +45,16 @@ Verify durable canonical cron jobs registered. Re-register any missing.
 
 | Job | Schedule | Action |
 |-----|----------|--------|
+| heartbeat | `0 */2 * * *` | Read this file and execute the heartbeat checks |
 | reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh` (query-only; writes reminder handoff if reminders due) |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; script handles dirty-pull recovery |
 
-Check via CronList. Missing → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Both jobs: `sessionTarget: isolated`, model = exact `model:` line from the canonical `setup/cron/<name>.md` spec (that line must match the cheap tier in `setup/model-tiers.json`), `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds` per canonical spec (`reminder-check`: 300, `pull-main`: 600). Cron jobs never deliver directly to Signal or other channels.
+Check via CronList. Missing → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. All three recurring jobs: `sessionTarget: isolated`, model = exact `model:` line from the canonical `setup/cron/<name>.md` spec (that line must match the cheap tier in `setup/model-tiers.json`), `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds` per canonical spec (`heartbeat`: 600, `reminder-check`: 300, `pull-main`: 600). Cron jobs never use direct-delivery routing; heartbeat Check 1 uses explicit `message` tool calls for reminder delivery and ops alerts.
 
-**Scope:** this check covers only the recurring canonical jobs above. Per-reminder one-shot `reminder-<page_id>` jobs (registered at intake per `setup/cron/reminder-delivery.md`) are NOT verified or re-registered here — they self-delete after firing, so checking for their presence makes no sense.
+**Scope:** this check covers only the recurring canonical jobs above. Per-reminder one-shot `reminder-<page_id>` jobs (registered at intake per `setup/cron/reminder-delivery.md`) are NOT verified or re-registered here — they self-delete after firing, so checking for their presence makes no sense. If the `heartbeat` cron is deleted entirely, it cannot re-register itself until the job is manually restored or another operator path invokes these checks; self-healing covers live drift and the other recurring jobs during normal heartbeat runs.
 
 ### 2b. Cron Spec Drift Check
-For each registered cron job (`reminder-check`, `pull-main`), compare live registration against canonical `CronCreate` spec in `setup/cron/<name>.md`.
+For each registered cron job (`heartbeat`, `reminder-check`, `pull-main`), compare live registration against canonical `CronCreate` spec in `setup/cron/<name>.md`.
 
 Check: CronList for live registrations, read spec files in `setup/cron/`.
 
@@ -62,7 +63,7 @@ Compare + correct these fields:
 - `durable`
 - `schedule`
 - `prompt`
-- `sessionTarget` (canonical: `isolated` both jobs)
+- `sessionTarget` (canonical: `isolated` for all three recurring jobs)
 - `model` (canonical: exact `model:` line in `setup/cron/<name>.md`; cron specs must keep that value aligned with the cheap tier in `setup/model-tiers.json`)
 - direct-delivery routing: live `to` if present (should not exist)
 - payload: canonical `payload.kind` + `payload.lightContext: true` (empty bootstrap — cron prompts self-contained)
@@ -71,6 +72,7 @@ Compare + correct these fields:
 Stale `pipeline-monitor` cron still registered → delete with CronDelete (job removed).
 
 Field differs from spec → patch with CronUpdate. Identity field (`name`, `durable`) can't be safely changed → delete + re-create from spec. Intended contract:
+- `heartbeat`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/heartbeat.md` (and matching the cheap tier in `setup/model-tiers.json`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 600`
 - `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/reminder-check.md` (and matching the cheap tier in `setup/model-tiers.json`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 300`
 - `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/pull-main.md` (and matching the cheap tier in `setup/model-tiers.json`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 600`
 

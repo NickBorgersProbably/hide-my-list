@@ -80,7 +80,7 @@
         "model": "litellm/claude-haiku-4-5"
       },
       "heartbeat": {
-        "every": "120m",
+        "every": 0,
         "model": "litellm/claude-haiku-4-5",
         "lightContext": true
       },

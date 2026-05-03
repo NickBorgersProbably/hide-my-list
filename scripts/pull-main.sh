@@ -224,6 +224,7 @@ if reason == 'uncommitted_tracked_changes':
         body += f\"\`\`\`diff\n{snippet}\n\`\`\`\n\n\"
 
     if dirty_paths & {
+        'setup/cron/heartbeat.md',
         'setup/cron/pull-main.md',
         'setup/cron/reminder-check.md',
         'setup/model-tiers.json',
@@ -231,11 +232,13 @@ if reason == 'uncommitted_tracked_changes':
     }:
         head_tiers = git_show_head('setup/model-tiers.json')
         head_cheap_tier = extract_cheap_tier(head_tiers)
+        head_heartbeat_model = extract_cron_model(git_show_head('setup/cron/heartbeat.md'))
         head_pull_model = extract_cron_model(git_show_head('setup/cron/pull-main.md'))
         head_reminder_model = extract_cron_model(git_show_head('setup/cron/reminder-check.md'))
         dirty_models = []
 
         for path in (
+            'setup/cron/heartbeat.md',
             'setup/cron/pull-main.md',
             'setup/cron/reminder-check.md',
         ):
@@ -251,6 +254,8 @@ if reason == 'uncommitted_tracked_changes':
         body += '## Canonical repo contract at HEAD\n\n'
         if head_cheap_tier:
             body += f'- setup/model-tiers.json cheap: {head_cheap_tier}\n'
+        if head_heartbeat_model:
+            body += f'- setup/cron/heartbeat.md: {head_heartbeat_model}\n'
         if head_pull_model:
             body += f'- setup/cron/pull-main.md: {head_pull_model}\n'
         if head_reminder_model:

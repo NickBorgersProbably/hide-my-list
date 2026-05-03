@@ -9,8 +9,7 @@ Use as source of truth when updating `AGENTS.md`, `HEARTBEAT.md`, `docs/heartbea
 hide-my-list runs multiple OpenClaw session types:
 
 - **main agent** — user talks to
-- built-in **heartbeat** session runs `HEARTBEAT.md` (stub; reads full checks from `docs/heartbeat-checks.md`)
-- isolated **durable cron sessions** like `reminder-check` and `pull-main`
+- isolated **durable cron sessions** like `heartbeat`, `reminder-check`, and `pull-main`
 
 Sessions have different responsibilities and different tools. Config patching belongs to main agent unless another session's access explicitly confirmed.
 
@@ -19,7 +18,7 @@ Sessions have different responsibilities and different tools. Config patching be
 | Session | Trigger | User-facing | Primary responsibility |
 |---------|---------|-------------|------------------------|
 | Main agent | User message / normal conversation startup | Yes | Run product, manage tasks, handle operator actions needing richer tools |
-| Heartbeat session | Built-in OpenClaw heartbeat every 2 hours | Usually no; may deliver reminders | Backstop operational health and stranded reminder delivery |
+| Heartbeat cron session | Durable `heartbeat` cron every 2 hours | Usually no; may deliver reminders | Backstop operational health and stranded reminder delivery |
 | Isolated cron session | Durable cron schedule in `setup/cron/` | No | Cheap script-first background work, narrow scope |
 
 ## Main Agent
@@ -56,9 +55,9 @@ If workflow needs `openclaw config get`, `openclaw config set`, or any `openclaw
 
 Tool availability does not override `AGENTS.md` safety policy. External actions still require user approval. OpenClaw prompt/spec files go through GitHub issue -> PR -> review path, not direct runtime edits. Direct writes limited to `AGENTS.md` allowlist except documented dirty-pull recovery path.
 
-## Heartbeat Session
+## Heartbeat Cron Session
 
-Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md` (bootstrap stub that delegates to `docs/heartbeat-checks.md`). Runs every 2 hours with `litellm/claude-haiku-4-5`, decoupled from the cheap tier in `setup/model-tiers.json` because heartbeat performs multi-step checks and cron drift detection that need reliable reasoning.
+Short durable cron session configured in `setup/cron/heartbeat.md`. Runs every 2 hours as an isolated cheap-tier session and reads `docs/heartbeat-checks.md` as the authoritative check list. Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` with `agents.defaults.heartbeat.every: 0`.
 
 ### Confirmed tool contract
 
@@ -70,7 +69,7 @@ Narrower confirmed contract:
 
 ### Do not assume
 
-Treat these as unconfirmed for heartbeat sessions:
+Treat these as unconfirmed for heartbeat cron sessions:
 
 - `openclaw config get`, `openclaw config set`, `openclaw config schema`
 - broader proactive `message` workflows beyond explicit reminder delivery and confirmed ops alerts to Signal
@@ -92,11 +91,11 @@ Heartbeat responsible for:
 
 ### Explicit boundary
 
-Heartbeat = **operations backstop**, not primary control plane. Keeps existing system healthy. Not where repo docs assume config mutation, broad gateway control, or user-conversation logic.
+Heartbeat cron = **operations backstop**, not primary control plane. Keeps existing system healthy. Not where repo docs assume config mutation, broad gateway control, or user-conversation logic. If the `heartbeat` cron itself is deleted entirely, restore it from `setup/cron/heartbeat.md`; once running, it can patch its own drift.
 
 ## Isolated Cron Sessions
 
-Durable OpenClaw jobs registered from `setup/cron/` with `sessionTarget: isolated`, `payload.kind: agentTurn`, `payload.lightContext: true` (empty bootstrap — prompts are self-contained scripts), lightweight model. Run cheap background work without loading main conversational context.
+Durable OpenClaw jobs registered from `setup/cron/` with `sessionTarget: isolated`, `payload.kind: agentTurn`, `payload.lightContext: true` (empty bootstrap — prompts are self-contained scripts or spec readers), cheap-tier model. Run cheap background work without loading main conversational context.
 
 ### Shared tool assumptions
 
@@ -107,6 +106,22 @@ Isolated cron prompts assume only what narrow script execution needs:
 - no assumption of `openclaw config get` / `openclaw config set`, gateway control, or full cron-admin authority
 
 Every isolated cron job stays silent unless prompt explicitly requires status reply. Current jobs intentionally end with `NO_REPLY`.
+
+### `heartbeat`
+
+Operational-health backstop. Responsible for:
+
+- read `docs/heartbeat-checks.md`
+- deliver stranded reminder handoffs through the explicit `message` tool path
+- verify canonical recurring cron registrations and patch drift
+- test Notion/environment health
+- retry dirty-pull recovery when `.pull-dirty` persists
+
+Not responsible for:
+
+- mutating `openclaw.json` through `openclaw config set`
+- normal user-conversation flow
+- broad gateway administration
 
 ### `reminder-check`
 
@@ -141,13 +156,13 @@ Not responsible for:
 Keep these boundaries intact when writing or reviewing runtime docs:
 
 - **Conversation and config mutation:** main agent
-- **Every-2-hours health checks and stranded reminder delivery:** heartbeat
+- **Every-2-hours health checks and stranded reminder delivery:** heartbeat cron
 - **Cheap background polling or sync work:** isolated cron sessions
 
 That means:
 
 - reminder discovery in isolated cron; primary reminder delivery via one-shot `reminder-<page_id>` cron registered at intake; startup path + heartbeat = safety net only
-- cron drift correction belongs to heartbeat, not isolated cron jobs
+- cron drift correction belongs to the heartbeat cron, not script-only cron jobs
 - `openclaw.json` drift repair belongs to main agent unless heartbeat config tool access explicitly confirmed
 
 If platform changes and new tools become available to heartbeat or isolated cron, update this document first, then update `docs/heartbeat-checks.md` or `setup/cron/` to rely on new contract.

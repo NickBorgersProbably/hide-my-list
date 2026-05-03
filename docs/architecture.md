@@ -21,7 +21,7 @@ flowchart TB
     end
 
     subgraph Scheduling["OpenClaw Scheduling"]
-        Heartbeat[Heartbeat<br/>every 120m]
+        HeartbeatCron[Heartbeat Cron<br/>every 120m]
         ReminderCron[Reminder Cron<br/>every 15m]
         PullMainCron[Pull-Main Cron<br/>every 10m]
     end
@@ -44,7 +44,7 @@ flowchart TB
     Scripts <-->|REST API| Notion
     ReminderCron -->|Isolated cheap-tier: query reminders| Scripts
     PullMainCron -->|Isolated cheap-tier: pull workspace| Scripts
-    Heartbeat -->|Haiku health checks + reminder delivery| AI
+    HeartbeatCron -->|Isolated cheap-tier: health checks + reminder delivery| AI
 ```
 
 
@@ -60,7 +60,7 @@ No standalone server. OpenClaw agent *is* the application. It:
 6. **Celebrates completions** with immediate positive reinforcement
 7. **Delivers scheduled reminders** even when chat is idle
 
-Interactive conversations: surface-agnostic. Durable cron jobs: isolated cheap-tier sessions for cost efficiency — execute scripts, write handoff files, no user-facing messages. Reminder delivery: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at`; `reminder-check` poll + heartbeat + startup check are safety-net paths only. All cron jobs silent when nothing actionable.
+Interactive conversations: surface-agnostic. Durable cron jobs: isolated cheap-tier sessions for cost efficiency — execute scripts, write handoff files, and run operational checks. Reminder delivery: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at`; `reminder-check` poll + `heartbeat` cron + startup check are safety-net paths only. All cron jobs silent when nothing actionable except the heartbeat cron's explicit `HEARTBEAT_OK` health result.
 
 ## Component Architecture
 
@@ -237,11 +237,11 @@ sequenceDiagram
 
 **Duplicate-delivery trade-off:** if the one-shot fires and delivers but crashes before `complete-reminder` succeeds, the safety net will pick the still-Pending row up at the next 15-min poll and re-deliver. We accept at-least-once over at-most-once — getting a reminder twice is far better than not getting it at all. The one-shot prompt runs `complete-reminder` immediately after delivery confirmation, with no other work in between, to minimize the duplicate window.
 
-Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the cheap-tier model (per `setup/model-tiers.json` and the canonical `setup/cron/` specs), `payload.kind: agentTurn`, and `payload.lightContext: true` (skips bootstrap file loading — cron prompts are self-contained scripts). Deliberate design: isolated cheap-tier cron with empty bootstrap keeps per-run cost low for routine script work, while multi-step user-facing delivery is decoupled to `litellm/claude-haiku-4-5`. The one-shot delivery cron is registered separately at intake and uses `sessionTarget: main` with `lightContext: false` so it has SOUL.md tone + AGENTS.md state.json conventions in scope. If reminder delivery fails after the one-shot fires: fail visibly without calling `complete-reminder`, and let the safety-net path deliver on its next sweep.
+The recurring jobs `heartbeat`, `reminder-check`, and `pull-main` use `sessionTarget: isolated` with the cheap-tier model (per `setup/model-tiers.json` and the canonical `setup/cron/` specs), `payload.kind: agentTurn`, and `payload.lightContext: true` (skips bootstrap file loading — cron prompts are self-contained scripts/spec readers). Deliberate design: isolated cheap-tier cron with empty bootstrap keeps per-run cost low for routine background work, while multi-step user-facing delivery is decoupled to `litellm/claude-haiku-4-5`. The one-shot delivery cron is registered separately at intake and uses `sessionTarget: main` with `lightContext: false` so it has SOUL.md tone + AGENTS.md state.json conventions in scope. If reminder delivery fails after the one-shot fires: fail visibly without calling `complete-reminder`, and let the safety-net path deliver on its next sweep.
 
 **Timezone handling:** AI converts user times (e.g., "6pm PT", "3pm Central") to full ISO 8601 with timezone offsets at intake. Relative phrases like "tomorrow", "tonight", and day-of-week references must be resolved against the user's configured timezone in `USER.md`, never against the UTC session header. `scripts/user-time-context.sh` provides the user-local date/day context when the agent needs to translate a UTC timestamp before building `remind_at`. Both the one-shot cron's `schedule.at` field and the polling check script compare against UTC — no timezone conversion at fire/check time.
 
-**Cron drift and re-registration:** Heartbeat (every 2 hours) verifies each canonical recurring job exists and matches its definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison against full `CronCreate` contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. This guards against manual deletion, gateway data loss, or other failure modes that drop the job. `docs/heartbeat-checks.md` = authoritative comparison checklist (HEARTBEAT.md is a bootstrap stub that delegates to it). One-shot `reminder-<page_id>` jobs are NOT covered by drift / re-registration — they self-delete after firing, so checking their continued presence makes no sense; the safety-net polling path catches anything that fails to fire. See `setup/cron/reminder-check.md`, `setup/cron/pull-main.md`, and `setup/cron/reminder-delivery.md` for job definitions.
+**Cron drift and re-registration:** The `heartbeat` cron (every 2 hours) verifies each canonical recurring job exists and matches its definition in `setup/cron/`, re-creating missing jobs and patching drifted ones. Drift comparison against full `CronCreate` contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. This guards against manual deletion, gateway data loss, or other failure modes that drop the job. `docs/heartbeat-checks.md` = authoritative comparison checklist; `setup/cron/heartbeat.md` is the cron prompt that reads it. One-shot `reminder-<page_id>` jobs are NOT covered by drift / re-registration — they self-delete after firing, so checking their continued presence makes no sense; the safety-net polling path catches anything that fails to fire. See `setup/cron/heartbeat.md`, `setup/cron/reminder-check.md`, `setup/cron/pull-main.md`, and `setup/cron/reminder-delivery.md` for job definitions.
 
 ## Technology Choices
 
@@ -250,7 +250,7 @@ Both `reminder-check` and `pull-main` use `sessionTarget: isolated` with the che
 | Runtime | OpenClaw Agent | Conversational AI *is* the app — no separate server needed |
 | Storage | Notion Database | Zero setup, visual backup, rich API, schema flexibility |
 | AI | Claude (via OpenClaw + LiteLLM) | Strong reasoning, structured output, conversation memory |
-| Messaging | OpenClaw Surfaces | Interactive chat multi-channel (web, Signal, Telegram, Discord); reminder delivery via one-shot `reminder-<page_id>` cron (exact time); heartbeat + startup = safety net |
+| Messaging | OpenClaw Surfaces | Interactive chat multi-channel (web, Signal, Telegram, Discord); reminder delivery via one-shot `reminder-<page_id>` cron (exact time); heartbeat cron + startup = safety net |
 | CI/CD | GitHub Actions | Multi-agent review pipeline; GitHub-hosted gate jobs handle untrusted dispatch, self-hosted Codex reviewers inherit homelab proxy and VLAN restrictions |
 | Scripts | Bash + curl | Minimal dependencies, runs anywhere |
 | Scheduled Reminders | OpenClaw native one-shot cron (`schedule.kind: at`, `deleteAfterRun: true`) registered at intake, with recurring `reminder-check` poll + `.reminder-signal` handoff as safety net | One-shot fires at exact `remind_at`; safety-net poll catches `CronCreate` failures or unfired jobs |
