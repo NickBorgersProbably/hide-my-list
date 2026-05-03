@@ -290,6 +290,13 @@ jobs:
             "${CI_IMAGE}" \
             -lc '
               set -euo pipefail
+
+              if [ -x .githooks/install-hooks.sh ]; then
+                bash .githooks/install-hooks.sh
+              else
+                echo "::warning::resolve-issue (codex): .githooks/install-hooks.sh not found; commits will skip pre-commit/pre-push validation"
+              fi
+
               source .devcontainer/configure-codex.sh
 
               ISSUE_TITLE=$(printf "%s" "$ISSUE_TITLE_B64" | base64 -d 2>/dev/null || echo "")
@@ -353,6 +360,12 @@ jobs:
             "${CI_IMAGE}" \
             -lc '
               set -euo pipefail
+
+              if [ -x .githooks/install-hooks.sh ]; then
+                bash .githooks/install-hooks.sh
+              else
+                echo "::warning::resolve-issue (claude): .githooks/install-hooks.sh not found; commits will skip pre-commit/pre-push validation"
+              fi
 
               ISSUE_TITLE=$(printf "%s" "$ISSUE_TITLE_B64" | base64 -d 2>/dev/null || echo "")
               export ISSUE_TITLE
