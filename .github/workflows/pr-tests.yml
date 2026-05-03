@@ -51,6 +51,7 @@ jobs:
       docs_files: ${{ steps.filter.outputs.docs_files }}
       workflows: ${{ steps.filter.outputs.workflows }}
       devcontainer: ${{ steps.filter.outputs.devcontainer }}
+      openclaw: ${{ steps.filter.outputs.openclaw }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,6 +70,8 @@ jobs:
               - 'docs/**'
               - 'design/**'
               - 'setup/**/*.md'
+              - 'setup/openclaw.json.template'
+              - 'setup/model-tiers.json'
               - 'README.md'
               - 'AGENTS.md'
               - 'scripts/check-doc-links.sh'
@@ -87,6 +90,18 @@ jobs:
               - 'scripts/validate-workflow-refs.sh'
             devcontainer:
               - '.devcontainer/**'
+            openclaw:
+              - 'AGENTS.md'
+              - 'HEARTBEAT.md'
+              - 'IDENTITY.md'
+              - 'SOUL.md'
+              - 'TOOLS.md'
+              - 'setup/openclaw.json.template'
+              - 'setup/model-tiers.json'
+              - 'setup/cron/**'
+              - 'scripts/validate-openclaw-config.sh'
+              - '.github/ci/versions.env'
+              - '.github/workflows/pr-tests.yml'
 
   script-validation:
     name: Script Validation
@@ -180,10 +195,34 @@ jobs:
       - name: Validate devcontainer configuration
         run: npx -y @devcontainers/cli@0.85.0 build --workspace-folder .
 
+  openclaw-validation:
+    name: OpenClaw Config Smoke
+    needs: changes
+    if: needs.changes.outputs.openclaw == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install OpenClaw
+        run: |
+          set -euo pipefail
+          OPENCLAW_VERSION="$(grep -E '^OPENCLAW_VERSION=' .github/ci/versions.env | cut -d= -f2-)"
+          npm install -g "openclaw@${OPENCLAW_VERSION}"
+
+      - name: Run OpenClaw config smoke
+        run: ./scripts/validate-openclaw-config.sh
+
   all-tests-passed:
     name: All Required Tests
     runs-on: ubuntu-latest
-    needs: [changes, script-validation, doc-validation, workflow-validation, devcontainer-validation]
+    needs: [changes, script-validation, doc-validation, workflow-validation, devcontainer-validation, openclaw-validation]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
@@ -212,6 +251,10 @@ jobs:
             echo "Devcontainer Build Check: ${{ needs.devcontainer-validation.result }}"
             failed=true
           fi
+          if ! check_result "${{ needs.openclaw-validation.result }}"; then
+            echo "OpenClaw Config Smoke: ${{ needs.openclaw-validation.result }}"
+            failed=true
+          fi
 
           if [ "$failed" = true ]; then
             echo ""
@@ -226,3 +269,4 @@ jobs:
           echo "  Doc Validation: ${{ needs.doc-validation.result }}"
           echo "  Workflow Validation: ${{ needs.workflow-validation.result }}"
           echo "  Devcontainer Build Check: ${{ needs.devcontainer-validation.result }}"
+          echo "  OpenClaw Config Smoke: ${{ needs.openclaw-validation.result }}"

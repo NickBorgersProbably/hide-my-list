@@ -10,14 +10,14 @@ CronCreate:
   durable: true
   name: "reminder-check"
   sessionTarget: isolated
-  model: litellm/qwen2.5  # must match modelTiers.cheap
+  model: litellm/qwen2.5  # must match setup/model-tiers.json cheap
   payload:
     kind: agentTurn
     lightContext: true  # empty bootstrap — cron prompt is self-contained
   timeout-seconds: 300
 ```
 
-Isolated cheap-tier session (see `modelTiers` in `setup/openclaw.json.template`). Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
+Isolated cheap-tier session (see `setup/model-tiers.json`). Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
 
 **Role: backstop.** Primary reminder delivery is the per-reminder one-shot cron registered at intake (`setup/cron/reminder-delivery.md`). This `reminder-check` polling job catches anything that primary path misses: `CronCreate` failures at intake, jobs that fail to fire (gateway down at the scheduled time, etc.), or reminders that lack a registered one-shot for any other reason.
 

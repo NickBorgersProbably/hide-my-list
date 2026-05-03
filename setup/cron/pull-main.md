@@ -10,14 +10,14 @@ CronCreate:
   durable: true
   name: "pull-main"
   sessionTarget: isolated
-  model: litellm/qwen2.5  # must match modelTiers.cheap
+  model: litellm/qwen2.5  # must match setup/model-tiers.json cheap
   payload:
     kind: agentTurn
     lightContext: true  # empty bootstrap — cron prompt is self-contained
   timeout-seconds: 600
 ```
 
-Isolated cheap-tier maintenance session (see `modelTiers` in `setup/openclaw.json.template`). Executes `scripts/pull-main.sh`, stays silent (`NO_REPLY`). Cron spec re-application after pulls handled by heartbeat drift correction (`docs/heartbeat-checks.md` Check 2b), not this job — isolated session can't reliably call CronList/CronUpdate.
+Isolated cheap-tier maintenance session (see `setup/model-tiers.json`). Executes `scripts/pull-main.sh`, stays silent (`NO_REPLY`). Cron spec re-application after pulls handled by heartbeat drift correction (`docs/heartbeat-checks.md` Check 2b), not this job — isolated session can't reliably call CronList/CronUpdate.
 
 ## Prompt
 

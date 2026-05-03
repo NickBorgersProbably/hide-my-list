@@ -71,7 +71,7 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
 - `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
-- `scripts/validate-model-refs.sh` — Enforces model tier consistency: every `litellm/<id>` resolves in template, `modelTiers` matches agent config, cron specs use cheap tier
+- `scripts/validate-model-refs.sh` — Enforces model tier consistency: every `litellm/<id>` resolves in template, `setup/model-tiers.json` matches agent config, cron specs use cheap tier
 - `scripts/validate-spec-catalog.sh` — Enforces that every `docs/*.md` spec file registered in the classifier's `is_spec_md()` is also listed in `docs/index.md` and this file's Key Files section
 - `setup/` — Cron + setup docs
 

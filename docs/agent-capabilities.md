@@ -58,7 +58,7 @@ Tool availability does not override `AGENTS.md` safety policy. External actions 
 
 ## Heartbeat Session
 
-Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md` (bootstrap stub that delegates to `docs/heartbeat-checks.md`). Runs every 2 hours with `litellm/claude-haiku-4-5`, decoupled from `modelTiers.cheap` because heartbeat performs multi-step checks and cron drift detection that need reliable reasoning.
+Short built-in OpenClaw session configured in `openclaw.json`, driven by `HEARTBEAT.md` (bootstrap stub that delegates to `docs/heartbeat-checks.md`). Runs every 2 hours with `litellm/claude-haiku-4-5`, decoupled from the cheap tier in `setup/model-tiers.json` because heartbeat performs multi-step checks and cron drift detection that need reliable reasoning.
 
 ### Confirmed tool contract
 

@@ -48,7 +48,7 @@ Verify durable canonical cron jobs registered. Re-register any missing.
 | reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh` (query-only; writes reminder handoff if reminders due) |
 | pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; script handles dirty-pull recovery |
 
-Check via CronList. Missing → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Both jobs: `sessionTarget: isolated`, model = exact `model:` line from the canonical `setup/cron/<name>.md` spec (that line must match `modelTiers.cheap` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds` per canonical spec (`reminder-check`: 300, `pull-main`: 600). Cron jobs never deliver directly to Signal or other channels.
+Check via CronList. Missing → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Both jobs: `sessionTarget: isolated`, model = exact `model:` line from the canonical `setup/cron/<name>.md` spec (that line must match the cheap tier in `setup/model-tiers.json`), `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds` per canonical spec (`reminder-check`: 300, `pull-main`: 600). Cron jobs never deliver directly to Signal or other channels.
 
 **Scope:** this check covers only the recurring canonical jobs above. Per-reminder one-shot `reminder-<page_id>` jobs (registered at intake per `setup/cron/reminder-delivery.md`) are NOT verified or re-registered here — they self-delete after firing, so checking for their presence makes no sense.
 
@@ -63,7 +63,7 @@ Compare + correct these fields:
 - `schedule`
 - `prompt`
 - `sessionTarget` (canonical: `isolated` both jobs)
-- `model` (canonical: exact `model:` line in `setup/cron/<name>.md`; cron specs must keep that value aligned with `modelTiers.cheap` in `setup/openclaw.json.template`)
+- `model` (canonical: exact `model:` line in `setup/cron/<name>.md`; cron specs must keep that value aligned with the cheap tier in `setup/model-tiers.json`)
 - direct-delivery routing: live `to` if present (should not exist)
 - payload: canonical `payload.kind` + `payload.lightContext: true` (empty bootstrap — cron prompts self-contained)
 - `timeout-seconds`
@@ -71,8 +71,8 @@ Compare + correct these fields:
 Stale `pipeline-monitor` cron still registered → delete with CronDelete (job removed).
 
 Field differs from spec → patch with CronUpdate. Identity field (`name`, `durable`) can't be safely changed → delete + re-create from spec. Intended contract:
-- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/reminder-check.md` (and matching `modelTiers.cheap`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 300`
-- `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/pull-main.md` (and matching `modelTiers.cheap`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 600`
+- `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/reminder-check.md` (and matching the cheap tier in `setup/model-tiers.json`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 300`
+- `pull-main`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/pull-main.md` (and matching the cheap tier in `setup/model-tiers.json`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 600`
 
 All match → report nothing. Any corrected → note which + what drift fixed.
 

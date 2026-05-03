@@ -192,9 +192,9 @@ def extract_cron_model(text):
     return match.group(1) if match else ''
 
 
-def extract_cheap_tier(template_text):
+def extract_cheap_tier(tier_text):
     try:
-        return json.loads(template_text).get('modelTiers', {}).get('cheap', '')
+        return json.loads(tier_text).get('cheap', '')
     except Exception:
         return ''
 
@@ -226,10 +226,11 @@ if reason == 'uncommitted_tracked_changes':
     if dirty_paths & {
         'setup/cron/pull-main.md',
         'setup/cron/reminder-check.md',
+        'setup/model-tiers.json',
         'setup/openclaw.json.template',
     }:
-        head_template = git_show_head('setup/openclaw.json.template')
-        head_cheap_tier = extract_cheap_tier(head_template)
+        head_tiers = git_show_head('setup/model-tiers.json')
+        head_cheap_tier = extract_cheap_tier(head_tiers)
         head_pull_model = extract_cron_model(git_show_head('setup/cron/pull-main.md'))
         head_reminder_model = extract_cron_model(git_show_head('setup/cron/reminder-check.md'))
         dirty_models = []
@@ -249,7 +250,7 @@ if reason == 'uncommitted_tracked_changes':
 
         body += '## Canonical repo contract at HEAD\n\n'
         if head_cheap_tier:
-            body += f'- modelTiers.cheap: {head_cheap_tier}\n'
+            body += f'- setup/model-tiers.json cheap: {head_cheap_tier}\n'
         if head_pull_model:
             body += f'- setup/cron/pull-main.md: {head_pull_model}\n'
         if head_reminder_model:
@@ -259,7 +260,7 @@ if reason == 'uncommitted_tracked_changes':
             for path, model in dirty_models:
                 body += f'- {path}: {model}\n'
         if head_cheap_tier:
-            body += '\nReview note: cron-spec model changes should normally stay aligned with modelTiers.cheap.\n\n'
+            body += '\nReview note: cron-spec model changes should normally stay aligned with setup/model-tiers.json cheap.\n\n'
 
 elif reason == 'merge_conflict':
     body += f\"**Error output:**\n\`\`\`\n{signal.get('error_output', '(none)')}\n\`\`\`\n\n\"
