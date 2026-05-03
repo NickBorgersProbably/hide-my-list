@@ -172,6 +172,15 @@ if grep -qE '"isolatedSession"[[:space:]]*:' <<<"$heartbeat_block"; then
   tier_errors+=("agents.defaults.heartbeat.isolatedSession is not accepted by the OpenClaw config schema")
 fi
 
+heartbeat_drift_file="$(mktemp)"
+# shellcheck disable=SC2016  # Backticks are literal markdown markers in the regex.
+if grep -R -nE '("every"[[:space:]]*:[[:space:]]*0|`every:[[:space:]]*0`|heartbeat[.]every[^`]*\(`0`\)|agents[.]defaults[.]heartbeat[.]every: 0|disabled with `every: 0`)' setup docs DEV-AGENTS.md >"$heartbeat_drift_file"; then
+  while IFS= read -r line; do
+    tier_errors+=("stale heartbeat disable value: $line")
+  done <"$heartbeat_drift_file"
+fi
+rm -f "$heartbeat_drift_file"
+
 # --- Invariant 3: cron-tier agreement -----------------------------------
 
 canonical_cron_sources=(

@@ -52,7 +52,7 @@ Production heartbeat = durable cron job `heartbeat` defined in `setup/cron/heart
 
 ```json
 "heartbeat": {
-  "every": 0,
+  "every": "0s",
   "model": "litellm/claude-haiku-4-5",
   "lightContext": true
 }
@@ -175,7 +175,7 @@ OpenClaw supports multiple model providers. We route through LiteLLM proxy on Ta
 Canonical model list lives in `setup/openclaw.json.template`; repo-only tier mappings live in `setup/model-tiers.json` so the generated `openclaw.json` stays valid against OpenClaw's schema. `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in classifier-listed spec files resolves against the template model list, that tier mappings are consistent with agent config where tiers still apply, that `agents.defaults.heartbeat.model` points at a configured model, and that cheap-tier cron specs plus sibling docs stay aligned with the cheap tier contract.
 
 - **Primary model (expensive tier):** Whatever `setup/model-tiers.json` maps `expensive` to for conversations and task management
-- **Built-in heartbeat model:** disabled with `every: 0`; retained only as a configured fallback for stale live configs
+- **Built-in heartbeat model:** disabled with `every: "0s"`; retained only as a configured fallback for stale live configs
 - **Recurring cron model (cheap tier):** Whatever `setup/model-tiers.json` maps `cheap` to for isolated recurring cron work (`heartbeat`, reminder polling, workspace sync)
 - **Reminder-delivery model:** `litellm/claude-haiku-4-5`, configured directly for the multi-step user-facing one-shot delivery cron
 - **Codex CLI model:** GPT-5.5, configured separately in `.codex/config.toml` via `.devcontainer/configure-codex.sh`; not served through the OpenClaw models array above.
