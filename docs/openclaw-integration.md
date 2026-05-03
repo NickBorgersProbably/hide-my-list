@@ -54,8 +54,7 @@ Production heartbeat = durable cron job `heartbeat` defined in `setup/cron/heart
 "heartbeat": {
   "every": 0,
   "model": "litellm/claude-haiku-4-5",
-  "lightContext": true,
-  "isolatedSession": true
+  "lightContext": true
 }
 ```
 
@@ -93,7 +92,7 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| `heartbeat` | `*/120 * * * *` | System health, recurring-cron re-registration, cron drift correction, stranded reminder delivery, ops alerts |
+| `heartbeat` | `0 */2 * * *` | System health, recurring-cron re-registration, cron drift correction, stranded reminder delivery, ops alerts |
 | `reminder-check` | `*/15 * * * *` | Safety-net poll for the one-shot delivery path; writes `.reminder-signal` handoff if a reminder slipped through |
 | `pull-main` | `*/10 * * * *` | `git pull origin main` hygiene; heartbeat handles cron drift correction |
 | `reminder-<page_id>` | `kind: "at"` (one-shot, registered at intake) | User-facing reminder delivery at exact `remind_at`; self-deletes after firing |

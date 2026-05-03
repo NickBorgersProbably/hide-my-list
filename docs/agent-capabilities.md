@@ -46,7 +46,7 @@ Main agent responsible for:
 - reading `state.json.recent_outbound` on startup so terse follow-up replies can be matched to recently-sent reminders or other outbound prompts
 - calling `scripts/notion-cli.sh complete-reminder PAGE_ID sent` after successful reminder delivery, then removing handoff file
 - recording delivered reminders into `state.json.recent_outbound` before cleanup and clearing/resolving those entries after the user's reply is understood
-- applying OpenClaw config changes requiring `openclaw config set`, including per-subkey config-drift repair after template changes
+- applying OpenClaw config changes requiring `openclaw config set`, including whole-subtree heartbeat config-drift repair after template changes
 - operator/debugging work needing richer tools: reading logs, inspecting config, adjusting cron registrations, filing GitHub issues describing runtime failures
 
 ### Explicit boundary

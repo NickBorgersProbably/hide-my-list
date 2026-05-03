@@ -90,9 +90,9 @@
    ```
 
 7. Register cron jobs (from within an agent session or via the control UI):
+   - See `setup/cron/heartbeat.md` for system health checks and cron drift repair
    - See `setup/cron/reminder-check.md` for the reminder polling job
    - See `setup/cron/pull-main.md` for automatic workspace sync
-   - The heartbeat is built-in and configured in `openclaw.json`
 
 ## Environment Variables
 
@@ -221,9 +221,9 @@ Manual regression playbook:
 - Or manually re-register per the definitions in `setup/cron/`
 
 **Built-in heartbeat still runs after pulling the latest template:**
-- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, `AGENTS.md` step 6 parses the template's `agents.defaults.heartbeat` subtree, checks each live `agents.defaults.heartbeat.*` key with `openclaw config get`, and realigns drifted keys with `openclaw config set`.
+- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, `AGENTS.md` step 6 parses the template's `agents.defaults.heartbeat` subtree, compares it with `openclaw config get 'agents.defaults.heartbeat'`, and realigns drift by setting the whole subtree with `openclaw config set 'agents.defaults.heartbeat' '<template-heartbeat-json>' --strict-json`. Whole-subtree repair also drops stale live keys removed from the template.
 - Verify the repair ran: `.config-drift` should be gone after the next main-agent session, and the live `agents.defaults.heartbeat` block should match the template, especially `every: 0`.
-- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign each drifted `agents.defaults.heartbeat.*` key with `openclaw config set` (use `--strict-json` for structured values). Example: `openclaw config set 'agents.defaults.heartbeat.every' '0'`
+- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign the whole subtree with `openclaw config set 'agents.defaults.heartbeat' '<template-heartbeat-json>' --strict-json`.
 - Do not preserve a stale enabled built-in heartbeat. The template's `agents.defaults.heartbeat` subtree is canonical for this repair flow.
 - Then restart the gateway: `openclaw gateway`.
 - Verify: `openclaw cron list` shows the durable `heartbeat` job from `setup/cron/heartbeat.md`, and no built-in heartbeat sessions continue to run.
