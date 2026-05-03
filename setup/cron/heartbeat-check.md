@@ -8,8 +8,7 @@ Heartbeat = built-in OpenClaw feature, not a cron job. Configured in `openclaw.j
 "heartbeat": {
   "every": "120m",
   "model": "litellm/claude-haiku-4-5",  // decoupled from cheap tier — heartbeat needs reasoning for drift detection
-  "lightContext": true,              // bootstrap = HEARTBEAT.md only
-  "isolatedSession": true            // skip prior conversation transcript
+  "lightContext": true               // bootstrap = HEARTBEAT.md only
 }
 ```
 
@@ -26,7 +25,7 @@ Every 2 hours, OpenClaw runs agent with `HEARTBEAT.md` as context. Agent perform
 5. Verify environment intact
 6. Pull main if flagged
 
-Heartbeat is decoupled from the cheap tier and uses Haiku because the May 2026 qwen2.5 incident false-positived on Check 2b cron drift detection. `lightContext: true` strips the main-session bootstrap (AGENTS.md, SOUL.md, etc.) from heartbeat context — heartbeat reads `docs/heartbeat-checks.md` on demand instead. `isolatedSession: true` skips replaying prior transcripts. Together they reduce heartbeat per-run context cost without changing behavior. Heartbeat also processes stranded handoff files; the 2-hour cadence is part of production reminder-latency tradeoff.
+Heartbeat is decoupled from the cheap tier and uses Haiku because the May 2026 qwen2.5 incident false-positived on Check 2b cron drift detection. `lightContext: true` strips the main-session bootstrap (AGENTS.md, SOUL.md, etc.) from heartbeat context — heartbeat reads `docs/heartbeat-checks.md` on demand instead. That reduces heartbeat per-run bootstrap cost without changing behavior. Heartbeat also processes stranded handoff files; the 2-hour cadence is part of production reminder-latency tradeoff.
 
 ## Notes
 
