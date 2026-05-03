@@ -164,7 +164,14 @@ post-process. The model never produces that note itself — OpenClaw's
 `agent-runner-reminder-guard` appends it when no cron was registered that
 turn, so registering the cron in the same turn suppresses the note.
 
-Call CronCreate with:
+Use the framework-native `CronCreate` tool/API path for this registration. Do
+not use `exec` to run `openclaw cron add`, `openclaw cron create`, or any other
+CLI command for one-shot reminder registration. CLI-created crons can still
+exist and fire, but they do not increment the framework turn context's
+`successfulCronAdds` counter, so the reminder guard will append the false
+"I did not schedule a reminder" note.
+
+Call `CronCreate` with:
 - name = "reminder-<page_id>" using the page id returned by create-reminder
 - durable: true
 - deleteAfterRun: true

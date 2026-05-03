@@ -41,7 +41,7 @@ All task CRUD via `scripts/notion-cli.sh`:
 # Create a task
 notion-cli.sh create-task "title" "work_type" urgency time_est "energy" "inline_steps" "status" "parent_id" sequence
 
-# Create a reminder (followed by CronCreate one-shot in the same turn — see docs/ai-prompts/intake.md REMINDER PERSISTENCE)
+# Create a reminder (followed by framework-native CronCreate one-shot in the same turn — not exec/openclaw CLI; see docs/ai-prompts/intake.md REMINDER PERSISTENCE)
 notion-cli.sh create-reminder "title" "remind_at_iso8601"
 
 # Query pending tasks
