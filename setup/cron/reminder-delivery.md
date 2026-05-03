@@ -12,6 +12,11 @@ Registering this one-shot cron at intake satisfies the first condition, suppress
 
 ## Registration
 
+Register through the framework-native `CronCreate` tool/API path, not through
+`exec` or the `openclaw cron ...` CLI. The CLI path may create a working cron,
+but it bypasses the current turn's `successfulCronAdds` accounting and therefore
+does not satisfy `agent-runner-reminder-guard`.
+
 ```
 CronCreate:
   name: "reminder-<notion_page_id>"
