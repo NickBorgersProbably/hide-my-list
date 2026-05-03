@@ -88,5 +88,5 @@ acceptable; missed delivery is not.
 ## Notes
 
 - One-shot `reminder-*` jobs are NOT covered by the heartbeat drift / re-registration check (`docs/heartbeat-checks.md` Checks 2 / 2b). That check covers only the recurring canonical catalog (`heartbeat`, `reminder-check`, `pull-main`). One-shots self-delete after firing, so verifying their continued presence makes no sense.
-- `validate-model-refs.sh` (`scripts/validate-model-refs.sh`) checks the cheap-tier canonical-cron list (`heartbeat.md`, `reminder-check.md`, `pull-main.md`); this one-shot delivery spec is intentionally decoupled from `modelTiers.cheap`. Keep its concrete `model:` line aligned with the multi-step delivery contract above.
+- `validate-model-refs.sh` (`scripts/validate-model-refs.sh`) checks the cheap-tier canonical-cron list (`heartbeat.md`, `reminder-check.md`, `pull-main.md`); this one-shot delivery spec is intentionally decoupled from the cheap tier in `setup/model-tiers.json`. Keep its concrete `model:` line aligned with the multi-step delivery contract above.
 - `validate-spec-catalog.sh` checks only `docs/*.md` membership, so this `setup/cron/*.md` file does not need to be listed in `docs/index.md` or `DEV-AGENTS.md`.

@@ -57,7 +57,7 @@ Tool availability does not override `AGENTS.md` safety policy. External actions 
 
 ## Heartbeat Cron Session
 
-Short durable cron session configured in `setup/cron/heartbeat.md`. Runs every 2 hours as an isolated cheap-tier session and reads `docs/heartbeat-checks.md` as the authoritative check list. Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` with `agents.defaults.heartbeat.every: 0`.
+Short durable cron session configured in `setup/cron/heartbeat.md`. Runs every 2 hours as an isolated cheap-tier session and reads `docs/heartbeat-checks.md` as the authoritative check list. Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` with `agents.defaults.heartbeat.every: "0s"`.
 
 ### Confirmed tool contract
 

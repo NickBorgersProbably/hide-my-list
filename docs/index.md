@@ -14,6 +14,9 @@ An AI-powered task manager where users never directly view their task list. The 
 - [Architecture](architecture.md) - System architecture, components, and data flow
 - [Agentic Pipeline Learnings](agentic-pipeline-learnings.md) - Prescriptive lessons from the agentic review and CI pipeline
 - [OpenClaw Integration](openclaw-integration.md) - How the repo maps onto the OpenClaw runtime
+- Setup/config specs:
+  - [Model Tiers](../setup/model-tiers.json) - Repo metadata mapping expensive, medium, and cheap model tiers used by validation and cron specs
+  - [OpenClaw Config Template](../setup/openclaw.json.template) - Runtime config template rendered into `openclaw.json`
 - AI Prompts (per-intent):
   - [Shared](ai-prompts/shared.md) - Base prompt, intent dispatch, user preferences context, output handling (entry point)
   - [Intake](ai-prompts/intake.md) - Task intake: inference rules, sub-task generation, reminder detection
