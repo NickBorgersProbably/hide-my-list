@@ -124,9 +124,9 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 | reminder-`<page_id>` | One-shot at `remind_at` (registered at intake) | User-facing reminder delivery; self-deletes on success |
 | reminder-check | Every 15 min | Safety-net poll for reminders the one-shot failed to deliver; writes the `.reminder-signal` handoff file for AGENTS.md step 5 / heartbeat Check 1 to consume |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
-| heartbeat (built-in) | Every 2 hours | System health, recurring-cron re-registration, cron drift correction, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
+| heartbeat | Every 2 hours | System health, recurring-cron re-registration, cron drift correction, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
 
-Heartbeat (every 2 hours) re-registers any missing canonical recurring cron job (`reminder-check`, `pull-main`) and patches live drift back to the `setup/cron/` specs — guards against manual deletion, gateway data loss, or other failure modes that drop the job. One-shot `reminder-<page_id>` jobs are out of scope for this check; they self-delete after firing, and the recurring `reminder-check` poll catches any that fail to fire. Recurring jobs run as isolated cron sessions (`sessionTarget: isolated`, cheap-tier model per `modelTiers` in `setup/openclaw.json.template`, `payload.kind: agentTurn`, `payload.lightContext: true` — empty bootstrap context since the prompts are self-contained scripts). The one-shot delivery cron uses `sessionTarget: main`, model `litellm/claude-haiku-4-5`, and `lightContext: false` so the fired agent turn has SOUL.md tone + AGENTS.md state.json conventions in scope (full contract in `setup/cron/reminder-delivery.md`).
+The `heartbeat` cron (every 2 hours) re-registers any missing canonical recurring cron job (`heartbeat`, `reminder-check`, `pull-main`) and patches live drift back to the `setup/cron/` specs — guards against manual deletion, gateway data loss, or other failure modes that drop the job. One-shot `reminder-<page_id>` jobs are out of scope for this check; they self-delete after firing, and the recurring `reminder-check` poll catches any that fail to fire. Recurring jobs run as isolated cron sessions (`sessionTarget: isolated`, cheap-tier model per `modelTiers` in `setup/openclaw.json.template`, `payload.kind: agentTurn`, `payload.lightContext: true` — empty bootstrap context since the prompts are self-contained scripts/spec readers). The one-shot delivery cron uses `sessionTarget: main`, model `litellm/claude-haiku-4-5`, and `lightContext: false` so the fired agent turn has SOUL.md tone + AGENTS.md state.json conventions in scope (full contract in `setup/cron/reminder-delivery.md`). Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` with `agents.defaults.heartbeat.every: 0`.
 
 Production recommendation: rely on the one-shot cron for primary delivery (fires at exact `remind_at`); keep `reminder-check` at 15-minute cadence and heartbeat every 2 hours as the safety net. In the unlikely fallback case where the one-shot fails to fire, reminder delivery can take up to about 135 minutes via the polling path before a user interaction picks it up.
 
@@ -138,17 +138,17 @@ Model assignments use a tier system defined in `setup/openclaw.json.template` un
 |------|------|---------|
 | `expensive` | Primary interactive agent | `claude-opus-4-6` |
 | `medium` | Fallback | `claude-sonnet-4-6` |
-| `cheap` | Simple isolated cron jobs (`reminder-check`, `pull-main`) | `qwen2.5` |
-| Decoupled direct model | Heartbeat and one-shot reminder delivery; multi-step flows need reliable reasoning and user-facing state mutation | `claude-haiku-4-5` |
+| `cheap` | Isolated recurring cron jobs (`heartbeat`, `reminder-check`, `pull-main`) | `qwen2.5` |
+| Decoupled direct model | One-shot reminder delivery; multi-step user-facing state mutation | `claude-haiku-4-5` |
 
-Default setup assumes LiteLLM fronts every configured model. If you want a direct Anthropic-only install, that is a custom setup: remap `modelTiers.cheap` to an Anthropic model you can access, then update the cheap-tier cron `model:` lines before first run. Heartbeat and reminder delivery are configured directly and only need to reference model IDs present in the template.
+Default setup assumes LiteLLM fronts every configured model. If you want a direct Anthropic-only install, that is a custom setup: remap `modelTiers.cheap` to an Anthropic model you can access, then update the cheap-tier cron `model:` lines before first run. One-shot reminder delivery is configured directly and only needs to reference a model ID present in the template.
 
 To remap tiers to your available models:
 
 1. Add your models to the `models[]` array in `setup/openclaw.json.template`
 2. Edit `modelTiers` values to point at your model IDs
-3. Update `agents.defaults` in the same file to match: `model.primary` = `litellm/<expensive>`, `model.fallbacks` = `[litellm/<medium>]`, `heartbeat.model` = a configured model appropriate for multi-step heartbeat checks
-4. Update `model:` lines in `setup/cron/reminder-check.md` and `setup/cron/pull-main.md` to `litellm/<cheap>`
+3. Update `agents.defaults` in the same file to match: `model.primary` = `litellm/<expensive>`, `model.fallbacks` = `[litellm/<medium>]`, and keep the built-in `heartbeat.every` disabled (`0`)
+4. Update `model:` lines in `setup/cron/heartbeat.md`, `setup/cron/reminder-check.md`, and `setup/cron/pull-main.md` to `litellm/<cheap>`
 5. Run `bash scripts/validate-model-refs.sh` — catches drift between tiers, agent config, cron specs, and documented defaults
 
 Most narrative docs use tier names ("cheap-tier", "medium-tier"). Concrete config snippets in `setup/cron/` and `docs/openclaw-integration.md` describe current defaults and must stay aligned when you remap tiers or direct-model assignments.
@@ -195,7 +195,7 @@ Manual regression playbook:
 
 **Heartbeat ops alerts not arriving:**
 - Verify `.env` contains `OPS_ALERT_SIGNAL_NUMBER` and that it points to the intended operator Signal recipient
-- Keep `heartbeat.target` unset or `"none"`; the supported delivery path is the explicit `message` call from `docs/heartbeat-checks.md` Check 1, not generic heartbeat reply routing
+- Keep `heartbeat.target` unset or `"none"` if present in a live config; the supported delivery path is the explicit `message` call from `docs/heartbeat-checks.md` Check 1, not generic heartbeat reply routing
 - Confirm the Signal channel itself is configured and healthy in `openclaw.json`
 
 **Signal attachments fail with `Permission denied`:**
@@ -215,17 +215,18 @@ Manual regression playbook:
 - Restart the gateway after changing `openclaw.json`
 
 **Cron jobs disappeared:**
-- If a canonical recurring cron job (`reminder-check`, `pull-main`) goes missing, the next heartbeat (every 2 hours) will re-register it from `setup/cron/`.
+- If a canonical recurring cron job (`reminder-check`, `pull-main`) goes missing, the next `heartbeat` cron run (every 2 hours) will re-register it from `setup/cron/`.
+- If the `heartbeat` cron itself disappeared, manually re-register it from `setup/cron/heartbeat.md`; once running, it can patch its own drift.
 - One-shot `reminder-<page_id>` jobs are expected to disappear after firing (`deleteAfterRun: true`). If a one-shot fails to fire before its scheduled time and goes missing, the recurring `reminder-check` poll will pick the still-Pending Notion row up and deliver via the safety net.
 - Or manually re-register per the definitions in `setup/cron/`
 
-**Heartbeat still loads full bootstrap after pulling the latest template:**
+**Built-in heartbeat still runs after pulling the latest template:**
 - `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, `AGENTS.md` step 6 parses the template's `agents.defaults.heartbeat` subtree, checks each live `agents.defaults.heartbeat.*` key with `openclaw config get`, and realigns drifted keys with `openclaw config set`.
-- Verify the repair ran: `.config-drift` should be gone after the next main-agent session, and the live `agents.defaults.heartbeat` block should match the template, including `model`, `lightContext`, and `isolatedSession`.
-- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign each drifted `agents.defaults.heartbeat.*` key with `openclaw config set` (use `--strict-json` for structured values). Example: `openclaw config set 'agents.defaults.heartbeat.model' 'litellm/claude-haiku-4-5'`
-- Do not preserve a stale heartbeat `model`. The template's `agents.defaults.heartbeat` subtree is canonical for this repair flow.
+- Verify the repair ran: `.config-drift` should be gone after the next main-agent session, and the live `agents.defaults.heartbeat` block should match the template, especially `every: 0`.
+- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign each drifted `agents.defaults.heartbeat.*` key with `openclaw config set` (use `--strict-json` for structured values). Example: `openclaw config set 'agents.defaults.heartbeat.every' '0'`
+- Do not preserve a stale enabled built-in heartbeat. The template's `agents.defaults.heartbeat` subtree is canonical for this repair flow.
 - Then restart the gateway: `openclaw gateway`.
-- Verify: the next heartbeat run's context should only contain `HEARTBEAT.md` from bootstrap (not AGENTS.md, SOUL.md, etc.) — inspect the gateway logs or attach a debugger to confirm.
+- Verify: `openclaw cron list` shows the durable `heartbeat` job from `setup/cron/heartbeat.md`, and no built-in heartbeat sessions continue to run.
 
 **Git pull conflicts:**
 - Agent-edited files (MEMORY.md, memory/*.md) are gitignored so won't conflict

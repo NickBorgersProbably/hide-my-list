@@ -7,16 +7,16 @@
 #      setup/openclaw.json.template's models array.
 #   2) Tier-config consistency: modelTiers in the template must match
 #      agents.defaults where tiers still apply (expensive=primary,
-#      medium=fallback), and heartbeat.model must resolve to a configured
-#      model without being tied to modelTiers.cheap.
+#      medium=fallback), and the disabled built-in heartbeat block must remain
+#      internally valid.
 #   3) Cron-tier agreement: cron spec files must use the cheap-tier model
 #      from modelTiers, and sibling docs' cron-contract sections must point
 #      back to the canonical setup/cron specs instead of drifting.
 #
 # Model tier mapping lives in setup/openclaw.json.template under modelTiers.
 # New instances: edit modelTiers + agents.defaults + cron spec model: lines,
-# then run this script to verify consistency. Heartbeat is configured directly
-# under agents.defaults.heartbeat.model and may use a non-cheap model.
+# then run this script to verify consistency. Built-in heartbeat is disabled;
+# the production heartbeat is a cheap-tier cron in setup/cron/heartbeat.md.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,7 +136,14 @@ fi
 # by another `model` or `lightContext` key elsewhere in the template.
 heartbeat_block="$(awk '/"heartbeat":[[:space:]]*\{/,/^[[:space:]]*\}/' "$TEMPLATE")"
 
-# Check agents.defaults.heartbeat.model resolves to a configured model.
+# Check agents.defaults.heartbeat.every disables the built-in heartbeat.
+heartbeat_every="$(grep -oE '"every":[[:space:]]*("[^"]+"|[0-9]+)' <<<"$heartbeat_block" | sed -E 's/.*:[[:space:]]*"?([^",]+)"?/\1/' | head -1)"
+if [[ "$heartbeat_every" != "0" ]]; then
+  tier_errors+=("agents.defaults.heartbeat.every must be 0 (built-in heartbeat disabled; use setup/cron/heartbeat.md)")
+fi
+
+# Check agents.defaults.heartbeat.model resolves to a configured model if a
+# stale live config invokes it before drift repair disables the built-in path.
 heartbeat_model="$(grep -oE '"model":[[:space:]]*"litellm/[^"]+"' <<<"$heartbeat_block" | grep -oE 'litellm/[^"]+' | head -1)"
 if [[ -z "$heartbeat_model" ]]; then
   tier_errors+=("agents.defaults.heartbeat.model not found in $TEMPLATE")
@@ -147,17 +154,19 @@ else
   fi
 fi
 
-# Check agents.defaults.heartbeat.{lightContext,isolatedSession} = true.
+# Check agents.defaults.heartbeat.{lightContext,isolatedSession} = true for
+# stale live configs that have not yet picked up every=0.
 if ! grep -qE '"lightContext"[[:space:]]*:[[:space:]]*true' <<<"$heartbeat_block"; then
-  tier_errors+=("agents.defaults.heartbeat.lightContext must be true (strips bootstrap to HEARTBEAT.md only)")
+  tier_errors+=("agents.defaults.heartbeat.lightContext must be true if stale built-in heartbeat config runs")
 fi
 if ! grep -qE '"isolatedSession"[[:space:]]*:[[:space:]]*true' <<<"$heartbeat_block"; then
-  tier_errors+=("agents.defaults.heartbeat.isolatedSession must be true (skips transcript replay)")
+  tier_errors+=("agents.defaults.heartbeat.isolatedSession must be true if stale built-in heartbeat config runs")
 fi
 
 # --- Invariant 3: cron-tier agreement -----------------------------------
 
 canonical_cron_sources=(
+  "setup/cron/heartbeat.md"
   "setup/cron/reminder-check.md"
   "setup/cron/pull-main.md"
 )
@@ -223,7 +232,7 @@ check_contract_window \
 # shellcheck disable=SC2016  # backticks are literal grep anchors, not command substitution
 check_contract_window \
   "docs/architecture.md" \
-  'Both `reminder-check` and `pull-main` use `sessionTarget: isolated`' \
+  'The recurring jobs `heartbeat`, `reminder-check`, and `pull-main` use `sessionTarget: isolated`' \
   4 \
   'cheap-tier model|modelTiers|setup/cron/' \
   '' \
@@ -275,8 +284,8 @@ if (( ${#all_errors[@]} > 0 )); then
   echo "ERROR: model reference validation failed:" >&2
   for e in "${all_errors[@]}"; do echo "$e" >&2; done
   echo "" >&2
-  echo "Fix: update modelTiers in $TEMPLATE, ensure cheap-tier cron specs/docs match, and keep heartbeat.model pointed at a configured model." >&2
+  echo "Fix: update modelTiers in $TEMPLATE, ensure cheap-tier cron specs/docs match, and keep built-in heartbeat disabled." >&2
   exit 1
 fi
 
-echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap, heartbeat=$heartbeat_model); cheap-tier cron specs use $expected_cron_ref"
+echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap, built-in heartbeat every=$heartbeat_every); cheap-tier cron specs use $expected_cron_ref"

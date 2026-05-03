@@ -85,7 +85,7 @@ Proxy also blocks connections to private network ranges (RFC 1918, loopback, lin
 ### Inbound exposure reduction
 
 - Old `socat`-based webhook listener removed; routine operations rely on durable cron, not required inbound listener
-- Durable cron polling (`reminder-check`, `pull-main`) covers routine operation, survives agent restarts via OpenClaw's cron subsystem
+- Durable cron polling (`heartbeat`, `reminder-check`, `pull-main`) covers routine operation, survives agent restarts via OpenClaw's cron subsystem
 - Heartbeat re-registers cron jobs if they disappear, ensuring continuity for cron path
 - Optional GitHub-triggered webhook notifications may still exist if operator configures `AGENT_WEBHOOK_URL` — inbound exposure reduced but not universally eliminated
 
