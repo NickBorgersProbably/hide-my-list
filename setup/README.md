@@ -90,9 +90,10 @@
    ```
 
 7. Register cron jobs (from within an agent session or via the control UI):
-   - See `setup/cron/heartbeat.md` for system health checks and cron drift repair
+   - See `setup/cron/heartbeat.md` for daily light-touch system health checks
    - See `setup/cron/reminder-check.md` for the reminder polling job
    - See `setup/cron/pull-main.md` for automatic workspace sync
+   - See `setup/cron/janitor.md` for weekly deep audit and cron drift repair
 
 ## Environment Variables
 
@@ -122,13 +123,14 @@ The agent uses OpenClaw's durable cron system instead of bash daemons:
 | Job | Schedule | Purpose |
 |-----|----------|---------|
 | reminder-`<page_id>` | One-shot at `remind_at` (registered at intake) | User-facing reminder delivery; self-deletes on success |
-| reminder-check | Every 15 min | Safety-net poll for reminders the one-shot failed to deliver; writes the `.reminder-signal` handoff file for AGENTS.md step 5 / heartbeat Check 1 to consume |
+| reminder-check | Every 15 min | Safety-net poll for reminders the one-shot failed to deliver; writes the `.reminder-signal` handoff file for AGENTS.md step 6 / heartbeat Check 1 to consume |
 | pull-main | Every 10 min | Pull `origin/main` and recover from dirty tracked-file states |
-| heartbeat | Every 2 hours | System health, recurring-cron re-registration, cron drift correction, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
+| heartbeat | Daily at 04:00 CT | Light-touch system health, recurring-cron existence repair, stranded reminder delivery, ops alerts to the separate operator Signal recipient |
+| janitor | Weekly Monday at 02:00 CT | Opus deep audit: cron drift correction, environment/state/data/memory/run-history review |
 
-The `heartbeat` cron (every 2 hours) re-registers any missing canonical recurring cron job (`heartbeat`, `reminder-check`, `pull-main`) and patches live drift back to the `setup/cron/` specs — guards against manual deletion, gateway data loss, or other failure modes that drop the job. One-shot `reminder-<page_id>` jobs are out of scope for this check; they self-delete after firing, and the recurring `reminder-check` poll catches any that fail to fire. Recurring jobs run as isolated cron sessions (`sessionTarget: isolated`, cheap-tier model per `modelTiers` in `setup/openclaw.json.template`, `payload.kind: agentTurn`, `payload.lightContext: true` — empty bootstrap context since the prompts are self-contained scripts/spec readers). The one-shot delivery cron uses `sessionTarget: main`, model `litellm/claude-haiku-4-5`, and `lightContext: false` so the fired agent turn has SOUL.md tone + AGENTS.md state.json conventions in scope (full contract in `setup/cron/reminder-delivery.md`). Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` with `agents.defaults.heartbeat.every: 0`.
+AGENTS.md startup checks and the daily `heartbeat` cron re-register any missing canonical recurring cron job (`heartbeat`, `reminder-check`, `pull-main`, `janitor`). The weekly `janitor` cron patches live drift back to the `setup/cron/` specs — guards against manual deletion, gateway data loss, or other failure modes that drop or stale the job. One-shot `reminder-<page_id>` jobs are out of scope for this check; they self-delete after firing, and the recurring `reminder-check` poll catches any that fail to fire. Routine recurring jobs run as isolated cron sessions (`sessionTarget: isolated`, cheap-tier model per `modelTiers` in `setup/openclaw.json.template`, `payload.kind: agentTurn`, `payload.lightContext: true` — empty bootstrap context since the prompts are self-contained scripts/spec readers). The weekly janitor is isolated but uses its explicit Opus model with `payload.lightContext: false` for a full-bootstrap deep audit. The one-shot delivery cron uses `sessionTarget: main`, model `litellm/claude-haiku-4-5`, and `lightContext: false` so the fired agent turn has SOUL.md tone + AGENTS.md state.json conventions in scope (full contract in `setup/cron/reminder-delivery.md`). Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` with `agents.defaults.heartbeat.every: 0`.
 
-Production recommendation: rely on the one-shot cron for primary delivery (fires at exact `remind_at`); keep `reminder-check` at 15-minute cadence and heartbeat every 2 hours as the safety net. In the unlikely fallback case where the one-shot fails to fire, reminder delivery can take up to about 135 minutes via the polling path before a user interaction picks it up.
+Production recommendation: rely on the one-shot cron for primary delivery (fires at exact `remind_at`); keep `reminder-check` at 15-minute cadence and heartbeat daily as the safety net. In the unlikely fallback case where the one-shot fails to fire, reminder delivery can take up to about 24 hours via the polling path before a user interaction picks it up.
 
 ## Customizing Model Tiers
 
@@ -138,8 +140,9 @@ Model assignments use a tier system defined in `setup/openclaw.json.template` un
 |------|------|---------|
 | `expensive` | Primary interactive agent | `claude-opus-4-6` |
 | `medium` | Fallback | `claude-sonnet-4-6` |
-| `cheap` | Isolated recurring cron jobs (`heartbeat`, `reminder-check`, `pull-main`) | `qwen2.5` |
+| `cheap` | Isolated routine recurring cron jobs (`heartbeat`, `reminder-check`, `pull-main`) | `qwen2.5` |
 | Decoupled direct model | One-shot reminder delivery; multi-step user-facing state mutation | `claude-haiku-4-5` |
+| Decoupled janitor model | Weekly deep audit | `claude-opus-4-6` |
 
 Default setup assumes LiteLLM fronts every configured model. If you want a direct Anthropic-only install, that is a custom setup: remap `modelTiers.cheap` to an Anthropic model you can access, then update the cheap-tier cron `model:` lines before first run. One-shot reminder delivery is configured directly and only needs to reference a model ID present in the template.
 
@@ -148,7 +151,7 @@ To remap tiers to your available models:
 1. Add your models to the `models[]` array in `setup/openclaw.json.template`
 2. Edit `modelTiers` values to point at your model IDs
 3. Update `agents.defaults` in the same file to match: `model.primary` = `litellm/<expensive>`, `model.fallbacks` = `[litellm/<medium>]`, and keep the built-in `heartbeat.every` disabled (`0`)
-4. Update `model:` lines in `setup/cron/heartbeat.md`, `setup/cron/reminder-check.md`, and `setup/cron/pull-main.md` to `litellm/<cheap>`
+4. Update `model:` lines in `setup/cron/heartbeat.md`, `setup/cron/reminder-check.md`, and `setup/cron/pull-main.md` to `litellm/<cheap>`. Leave `setup/cron/janitor.md` on its explicit Opus model unless you are intentionally changing the weekly deep-audit model.
 5. Run `bash scripts/validate-model-refs.sh` — catches drift between tiers, agent config, cron specs, and documented defaults
 
 Most narrative docs use tier names ("cheap-tier", "medium-tier"). Concrete config snippets in `setup/cron/` and `docs/openclaw-integration.md` describe current defaults and must stay aligned when you remap tiers or direct-model assignments.
@@ -215,8 +218,8 @@ Manual regression playbook:
 - Restart the gateway after changing `openclaw.json`
 
 **Cron jobs disappeared:**
-- If a canonical recurring cron job (`reminder-check`, `pull-main`) goes missing, the next `heartbeat` cron run (every 2 hours) will re-register it from `setup/cron/`.
-- If the `heartbeat` cron itself disappeared, manually re-register it from `setup/cron/heartbeat.md`; once running, it can patch its own drift.
+- If a canonical recurring cron job (`heartbeat`, `reminder-check`, `pull-main`, `janitor`) goes missing, the next main-agent startup check or daily `heartbeat` cron run will re-register it from `setup/cron/`.
+- If `heartbeat` drifted but still exists, weekly `janitor` patches it back to `setup/cron/heartbeat.md`.
 - One-shot `reminder-<page_id>` jobs are expected to disappear after firing (`deleteAfterRun: true`). If a one-shot fails to fire before its scheduled time and goes missing, the recurring `reminder-check` poll will pick the still-Pending Notion row up and deliver via the safety net.
 - Or manually re-register per the definitions in `setup/cron/`
 

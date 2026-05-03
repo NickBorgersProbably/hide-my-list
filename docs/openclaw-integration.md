@@ -26,7 +26,7 @@ OpenClaw "bootstrap files" = markdown at workspace root, loaded at session start
 
 OpenClaw loads via `bootstrap-extra-files` hook automatically. No special config needed — workspace root placement enough.
 
-**What we don't use:** `BOOT.md` (one-time gateway startup script). Could auto-register cron jobs, but heartbeat handles re-registration and `setup/bootstrap.sh` handles initial setup.
+**What we don't use:** `BOOT.md` (one-time gateway startup script). Canonical recurring cron registration is handled by AGENTS.md startup checks plus heartbeat backstop, and `setup/bootstrap.sh` handles initial setup.
 
 ## Envelope Timezone
 
@@ -58,17 +58,17 @@ Production heartbeat = durable cron job `heartbeat` defined in `setup/cron/heart
 }
 ```
 
-Every 2 hours, OpenClaw fires the durable `heartbeat` cron as an isolated session. The cron uses the concrete `model:` value in `setup/cron/heartbeat.md`, which must match `modelTiers.cheap` in `setup/openclaw.json.template`; cron model overrides have been more reliable than the built-in `heartbeat.model` override across OpenClaw versions.
+Daily, OpenClaw fires the durable `heartbeat` cron as an isolated session. The cron uses the concrete `model:` value in `setup/cron/heartbeat.md`, which must match `modelTiers.cheap` in `setup/openclaw.json.template`; cron model overrides have been more reliable than the built-in `heartbeat.model` override across OpenClaw versions.
 
-`payload.lightContext: true` gives the cron an empty bootstrap (no AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, USER.md, MEMORY.md). The cron prompt in `setup/cron/heartbeat.md` explicitly reads `docs/heartbeat-checks.md`, so the full spec is still available — it just does not sit in bootstrap for every run. `sessionTarget: isolated` skips replaying prior conversation transcripts into the heartbeat's context. Together they cut heartbeat per-run context cost substantially without changing what checks the heartbeat performs. Reminder delivery does not use `heartbeat.target` or generic cron output; Check 1 sends reminders explicitly with OpenClaw `message` tool (`action: send`, `channel: signal`). Ops alerts also use explicit `message(..., channel: signal, target: OPS_ALERT_SIGNAL_NUMBER)`.
+`payload.lightContext: true` gives the cron an empty bootstrap (no AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, USER.md, MEMORY.md). The cron prompt in `setup/cron/heartbeat.md` explicitly reads `docs/heartbeat-checks.md`, so the daily heartbeat contract is still available — it just does not sit in bootstrap for every run. `sessionTarget: isolated` skips replaying prior conversation transcripts into the heartbeat's context. Together they cut heartbeat per-run context cost substantially for the light-touch sweep. Reminder delivery does not use `heartbeat.target` or generic cron output; Check 1 sends reminders explicitly with OpenClaw `message` tool (`action: send`, `channel: signal`). Ops alerts also use explicit `message(..., channel: signal, target: OPS_ALERT_SIGNAL_NUMBER)`.
 
 **Our usage:** Two roles:
-1. **Reminder-delivery backstop:** Isolated `reminder-check` cron only writes `.reminder-signal` — no user delivery. Heartbeat Check 1 reads stranded signal files, validates, delivers to Signal via `message` tool every 2 hours. After each successful send, atomically updates `state.json.recent_outbound` (read-merge-prune-write via temp file + rename, preserving all other state fields) before running `complete-reminder`. If the state write fails, delivery halts — no `complete-reminder`, no handoff delete, ops alert surfaces instead. After all reminders in the batch are processed, deletes the handoff file once. AGENTS.md startup check provides the same delivery sequence for faster opportunistic delivery when user is active.
-2. **Cron safety net:** Verify durable cron jobs still match canonical `CronCreate` specs in `setup/cron/`: missing jobs get re-registered (gone-missing for any reason); drifted jobs get patched back. Comparison covers full effective registration contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. `docs/heartbeat-checks.md` = authoritative comparison checklist; `setup/cron/heartbeat.md` is the cron prompt that delegates to it.
+1. **Reminder-delivery backstop:** Isolated `reminder-check` cron only writes `.reminder-signal` — no user delivery. Heartbeat Check 1 reads stranded signal files, validates, delivers to Signal via `message` tool daily. After each successful send, atomically updates `state.json.recent_outbound` (read-merge-prune-write via temp file + rename, preserving all other state fields) before running `complete-reminder`. If the state write fails, delivery halts — no `complete-reminder`, no handoff delete, ops alert surfaces instead. After all reminders in the batch are processed, deletes the handoff file once. AGENTS.md startup check provides the same delivery sequence for faster opportunistic delivery when user is active.
+2. **Cron safety net:** AGENTS.md startup and daily heartbeat verify durable canonical cron jobs exist in OpenClaw: missing jobs get re-registered (gone-missing for any reason). Weekly janitor patches drift back to canonical `CronCreate` specs in `setup/cron/`. Comparison covers full effective registration contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. `docs/heartbeat-checks.md` = authoritative comparison checklist; `setup/cron/heartbeat.md` and `setup/cron/janitor.md` are the cron prompts that delegate to it.
 
 Heartbeat intentionally not place to assume `openclaw config get` / `openclaw config set` access. Config mutation = main-agent responsibility unless heartbeat support explicitly confirmed and documented in [Agent Capabilities](agent-capabilities.md).
 
-Heartbeat also checks Notion connectivity and environment health. Production: treat as every-2-hours infrastructure hygiene.
+Heartbeat also checks Notion connectivity and dirty-pull recovery. Production: treat as daily light-touch infrastructure hygiene. Weekly janitor handles full environment, state, memory, cron history, and drift audits with Opus.
 
 Backstop stays in design because OpenClaw doesn't expose post-delivery acknowledgment hook for `announce`. Without that hook, announce-only cron would have to mark reminders `sent` before platform could prove delivery succeeded — breaks durable retry if turn dies in between.
 
@@ -88,19 +88,20 @@ One repo-mutating runtime exception: dirty-pull recovery in `scripts/pull-main.s
 
 OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jobs persist to disk, survive gateway restarts.
 
-**Our usage:** Three recurring durable cron jobs run alongside a per-reminder one-shot family registered at intake:
+**Our usage:** Four recurring durable cron jobs run alongside a per-reminder one-shot family registered at intake:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| `heartbeat` | `0 */2 * * *` | System health, recurring-cron re-registration, cron drift correction, stranded reminder delivery, ops alerts |
+| `heartbeat` | `0 9 * * *` | Daily light-touch health, recurring-cron existence repair, stranded reminder delivery, ops alerts |
 | `reminder-check` | `*/15 * * * *` | Safety-net poll for the one-shot delivery path; writes `.reminder-signal` handoff if a reminder slipped through |
-| `pull-main` | `*/10 * * * *` | `git pull origin main` hygiene; heartbeat handles cron drift correction |
+| `pull-main` | `*/10 * * * *` | `git pull origin main` hygiene; janitor handles cron drift correction |
+| `janitor` | `0 7 * * 1` | Weekly Opus deep audit: cron drift correction, environment/state/data/memory/run-history review |
 | `reminder-<page_id>` | `kind: "at"` (one-shot, registered at intake) | User-facing reminder delivery at exact `remind_at`; self-deletes after firing |
 
 **Why durable cron:**
 - No PID files, no silent death, no orphaned processes
 - OpenClaw manages scheduling; failures visible in session
-- One-shot `reminder-<page_id>` cron delivers at exact `remind_at` (see `setup/cron/reminder-delivery.md`); safety-net `scripts/check-reminders.sh` writes `.reminder-signal` handoff for AGENTS.md step 5 + heartbeat Check 1 to deliver if the one-shot misses
+- One-shot `reminder-<page_id>` cron delivers at exact `remind_at` (see `setup/cron/reminder-delivery.md`); safety-net `scripts/check-reminders.sh` writes `.reminder-signal` handoff for AGENTS.md step 6 + heartbeat Check 1 to deliver if the one-shot misses
 - Recurring cron fires only when REPL idle — better for ADHD, won't interrupt mid-task; one-shot `kind: at` delivery crons (`reminder-<page_id>`) fire at the scheduled wall-clock time regardless of REPL state
 
 Reminder intake must register one-shot jobs through the framework-native
@@ -110,9 +111,9 @@ does not update the turn context's `successfulCronAdds` count, so OpenClaw's
 reminder guard can append a false "I did not schedule a reminder" note even
 though the cron exists.
 
-**Robustness backstop:** The `heartbeat` cron (every 2 hours) re-creates any canonical recurring cron job that has gone missing and patches drift via comparison against `CronCreate` blocks. Covers manual deletion, gateway data loss, or other failure modes that drop the job. One-shot `reminder-<page_id>` jobs are out of scope for this check — they self-delete after firing. If `heartbeat` itself is deleted entirely, restore it manually from `setup/cron/heartbeat.md`; once running, it can patch its own drift.
+**Robustness backstop:** The main-agent startup flow and daily `heartbeat` cron re-create any canonical recurring cron job that has gone missing. Weekly `janitor` patches drift via comparison against `CronCreate` blocks. Covers fresh installs, manual deletion, gateway data loss, or other failure modes that drop or stale the job. One-shot `reminder-<page_id>` jobs are out of scope for this check — they self-delete after firing.
 
-**Current registration contract:** the three recurring jobs (`heartbeat`, `reminder-check`, `pull-main`) run as isolated cheap-tier sessions with `sessionTarget: isolated`, the concrete `model:` value from the canonical `CronCreate` blocks in `setup/cron/` (those lines must match `modelTiers.cheap` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, `payload.lightContext: true` (OpenClaw strips bootstrap to empty for lightweight cron runs — our cron prompts are self-contained scripts/spec readers, so no bootstrap context is needed), `timeout-seconds` per canonical spec (`heartbeat`: 600, `reminder-check`: 300, `pull-main`: 600). Deliberate: separates cheap background work from user-facing delivery. Isolated cheap-tier sessions keep per-run cost low for routine work; the per-reminder one-shot (`reminder-<page_id>`) uses `sessionTarget: main`, `model: litellm/claude-haiku-4-5`, and `lightContext: false` so the fired turn has SOUL.md tone + AGENTS.md state.json conventions in scope. Full contract in `setup/cron/reminder-delivery.md`. Recurring script crons end with `NO_REPLY`; the heartbeat cron replies `HEARTBEAT_OK` when nothing needs attention. The one-shot prompt delivers to the user via the `message` tool inside the agent turn.
+**Current registration contract:** the routine recurring jobs (`heartbeat`, `reminder-check`, `pull-main`) run as isolated cheap-tier sessions with `sessionTarget: isolated`, the concrete `model:` value from the canonical `CronCreate` blocks in `setup/cron/` (those lines must match `modelTiers.cheap` in `setup/openclaw.json.template`), `payload.kind: agentTurn`, `payload.lightContext: true` (OpenClaw strips bootstrap to empty for lightweight cron runs — our cron prompts are self-contained scripts/spec readers, so no bootstrap context is needed), `timeout-seconds` per canonical spec (`heartbeat`: 600, `reminder-check`: 300, `pull-main`: 600). The weekly `janitor` cron is isolated too, but its concrete Opus `model:` is decoupled from `modelTiers.cheap` and `payload.lightContext: false` loads full bootstrap for a reasoning-heavy audit. Deliberate: separates cheap background work from user-facing delivery and weekly deep cleanup. Isolated cheap-tier sessions keep per-run cost low for routine work; the per-reminder one-shot (`reminder-<page_id>`) uses `sessionTarget: main`, `model: litellm/claude-haiku-4-5`, and `lightContext: false` so the fired turn has SOUL.md tone + AGENTS.md state.json conventions in scope. Full contract in `setup/cron/reminder-delivery.md`. Recurring script crons end with `NO_REPLY`; the heartbeat cron replies `HEARTBEAT_OK` when nothing needs attention; janitor stays silent on a clean week. The one-shot prompt delivers to the user via the `message` tool inside the agent turn.
 
 Isolated cron sessions intentionally narrow. Script runners, not substitute for main agent or heartbeat control paths. Detailed ownership split in [Agent Capabilities](agent-capabilities.md).
 
@@ -123,11 +124,12 @@ For production, use these timings unless clear reason to pay for tighter polling
 | Mechanism | Recommended cadence | Why |
 |-----------|---------------------|-----|
 | `reminder-<page_id>` (one-shot) | Fires at exact `remind_at` (registered at intake) | Primary user-facing reminder delivery; self-deletes on success |
-| `heartbeat` cron | Every 2 hours | Reminder safety-net delivery, recurring-cron drift correction, Notion/env health |
+| `heartbeat` cron | Daily at 04:00 CT | Reminder safety-net delivery, recurring-cron existence repair, Notion connectivity, dirty-pull recovery |
 | `reminder-check` | Every 15 minutes | Safety-net polling; writes `.reminder-signal` for heartbeat/startup delivery when one-shot fails to fire |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps workspace fresh |
+| `janitor` cron | Weekly Monday at 02:00 CT | Opus deep audit for cron drift, env/state/data/memory/run-history issues |
 
-Core principle: the one-shot cron registered at intake is the primary delivery path — fires at exact `remind_at`. The recurring `reminder-check` poll + handoff + heartbeat path is the safety net for `CronCreate` failures, gateway data loss, or jobs that fail to fire; in that fallback case, fully idle worst-case latency is ~135 min (15-min poll + 120-min heartbeat) unless the user interacts sooner.
+Core principle: the one-shot cron registered at intake is the primary delivery path — fires at exact `remind_at`. The recurring `reminder-check` poll + handoff + startup/heartbeat path is the safety net for `CronCreate` failures, gateway data loss, or jobs that fail to fire; in that fallback case, fully idle worst-case latency can be about 24 hours unless the user interacts sooner. That latency is acceptable because heartbeat is no longer on the critical path for normal reminder delivery.
 
 ## Messaging Channels
 
@@ -151,7 +153,7 @@ Primary deployed surface: Signal. OpenClaw handles:
 - Acknowledgment reactions
 - Session scoping (per-channel-peer)
 
-**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Recurring cron jobs (`heartbeat`, `reminder-check`, `pull-main`) = isolated cheap-tier sessions. Per-reminder one-shot crons (`reminder-<page_id>`) = `sessionTarget: main` Haiku sessions that deliver to the user via the `message` tool. Safety-net path: `reminder-check` writes `.reminder-signal` handoff, AGENTS.md step 5 + heartbeat Check 1 deliver from there.
+**Our role:** Zero for transport mechanics. We write conversational responses; OpenClaw delivers them. Routine recurring cron jobs (`heartbeat`, `reminder-check`, `pull-main`) = isolated cheap-tier sessions; weekly `janitor` = isolated Opus session. Per-reminder one-shot crons (`reminder-<page_id>`) = `sessionTarget: main` Haiku sessions that deliver to the user via the `message` tool. Safety-net path: `reminder-check` writes `.reminder-signal` handoff, AGENTS.md step 6 + heartbeat Check 1 deliver from there.
 
 ## Model Routing (LiteLLM Proxy)
 
@@ -176,7 +178,8 @@ Canonical model list and tier mappings live in `setup/openclaw.json.template` (s
 
 - **Primary model (expensive tier):** Whatever `modelTiers.expensive` maps to for conversations and task management
 - **Built-in heartbeat model:** disabled with `every: 0`; retained only as a configured fallback for stale live configs
-- **Recurring cron model (cheap tier):** Whatever `modelTiers.cheap` maps to for isolated recurring cron work (`heartbeat`, reminder polling, workspace sync)
+- **Routine recurring cron model (cheap tier):** Whatever `modelTiers.cheap` maps to for isolated recurring cron work (`heartbeat`, reminder polling, workspace sync)
+- **Janitor model:** `litellm/claude-opus-4-6`, configured directly and decoupled from `modelTiers.cheap` for the weekly deep audit
 - **Reminder-delivery model:** `litellm/claude-haiku-4-5`, configured directly for the multi-step user-facing one-shot delivery cron
 - **Codex CLI model:** GPT-5.5, configured separately in `.codex/config.toml` via `.devcontainer/configure-codex.sh`; not served through the OpenClaw models array above.
 
