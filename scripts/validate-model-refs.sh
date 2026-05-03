@@ -147,8 +147,8 @@ heartbeat_block="$(awk '/"heartbeat":[[:space:]]*\{/,/^[[:space:]]*\}/' "$TEMPLA
 
 # Check agents.defaults.heartbeat.every disables the built-in heartbeat.
 heartbeat_every="$(grep -oE '"every":[[:space:]]*("[^"]+"|[0-9]+)' <<<"$heartbeat_block" | sed -E 's/.*:[[:space:]]*"?([^",]+)"?/\1/' | head -1)"
-if [[ "$heartbeat_every" != "0" ]]; then
-  tier_errors+=("agents.defaults.heartbeat.every must be 0 (built-in heartbeat disabled; use setup/cron/heartbeat.md)")
+if [[ "$heartbeat_every" != "0s" ]]; then
+  tier_errors+=("agents.defaults.heartbeat.every must be \"0s\" (built-in heartbeat disabled; use setup/cron/heartbeat.md)")
 fi
 
 # Check agents.defaults.heartbeat.model resolves to a configured model if a

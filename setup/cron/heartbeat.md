@@ -1,6 +1,6 @@
 # Cron Job: heartbeat
 
-Runs every 2 hours via OpenClaw's durable cron system. This replaces the built-in OpenClaw heartbeat configured under `agents.defaults.heartbeat`; the template keeps that built-in path disabled with `every: 0`.
+Runs every 2 hours via OpenClaw's durable cron system. This replaces the built-in OpenClaw heartbeat configured under `agents.defaults.heartbeat`; the template keeps that built-in path disabled with `every: "0s"`.
 
 ## Registration
 
@@ -31,6 +31,6 @@ Read docs/heartbeat-checks.md and execute the checks in order. Use that file as 
 
 ## Notes
 
-- Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` (`agents.defaults.heartbeat.every: 0`) because `heartbeat.model` overrides have been less reliable across OpenClaw versions than cron `payload.model` overrides.
+- Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` (`agents.defaults.heartbeat.every: "0s"`) because `heartbeat.model` overrides have been less reliable across OpenClaw versions than cron `payload.model` overrides.
 - `heartbeat` belongs to the canonical recurring cron catalog with `reminder-check` and `pull-main`. Check 2/2b in `docs/heartbeat-checks.md` verifies all three jobs against their `setup/cron/` specs.
 - The job can patch its own drift while it is running. If the `heartbeat` job is deleted entirely, re-register it manually from this file or run the main agent startup flow after setup.
