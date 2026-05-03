@@ -21,7 +21,7 @@ The core insight: **for people with ADHD, seeing a long task list isn't motivati
 
 This is an **OpenClaw agent** backed by a **Notion database**. There is no standalone server — the AI conversation layer *is* the application.
 
-This repository is designed to be deployed directly as an OpenClaw workspace (`~/.openclaw/workspace/`). The markdown files at the root (`SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`, etc.) are the bootstrap files that OpenClaw loads at session start — they define the agent's personality, operations, and health checks.
+This repository is designed to be deployed directly as an OpenClaw workspace (`~/.openclaw/workspace/`). The markdown files at the root (`SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`, etc.) are the bootstrap files that OpenClaw can load at session start — they define the agent's personality and operations. Production health checks run through the durable cron job in `setup/cron/heartbeat.md`.
 
 - **Agent**: OpenClaw-managed conversational AI (Claude via LiteLLM proxy)
 - **Storage**: Notion database via API

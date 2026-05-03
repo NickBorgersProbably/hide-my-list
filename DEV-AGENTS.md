@@ -21,7 +21,7 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `SOUL.md` — Agent personality + core identity
 - `IDENTITY.md` — Agent identity metadata
 - `TOOLS.md` — Available tools + property references
-- `HEARTBEAT.md` — Bootstrap stub; delegates to `docs/heartbeat-checks.md` (keeps per-turn context small)
+- `HEARTBEAT.md` — Legacy built-in heartbeat redirect; production health checks run through `setup/cron/heartbeat.md`
 - `docs/heartbeat-checks.md` — Authoritative heartbeat check list (stranded reminders, cron health, drift, Notion connectivity, dirty-pull recovery)
 - `docs/ai-prompts/shared.md` — Base system prompt, intent dispatch, user preferences context, output/error/state handling (entry point for per-intent prompts)
 - `docs/ai-prompts/intake.md` — Task Intake module (ADD_TASK): inference rules, sub-task generation, reminder detection

@@ -23,7 +23,7 @@ Isolated cheap-tier session (see `modelTiers` in `setup/openclaw.json.template`)
 
 **Backstop delivery paths** (only fire when this poll finds a still-Pending reminder):
 1. **AGENTS.md step 5** (opportunistic): main session checks handoff file on every user interaction.
-2. **heartbeat Check 1** (every 2h safety net, `docs/heartbeat-checks.md`): heartbeat reads handoff file every 2 hours, delivers stranded reminders.
+2. **heartbeat cron Check 1** (every 2h safety net, `docs/heartbeat-checks.md`): heartbeat reads handoff file every 2 hours, delivers stranded reminders.
 
 Both paths validate before sending: must be JSON with `reminders` array, each entry has string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Any other shape/status is malformed → leave file, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff, no delivery, no `complete-reminder` call, no delete. Valid → send each via OpenClaw `message` tool (`action: send`, `channel: signal`) with uniform shame-safe wording (`Hey, time to [task]`), then append/update `state.json.recent_outbound` with a short-lived reminder entry (`type: "reminder"`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later), pruning expired entries, then call `scripts/notion-cli.sh complete-reminder PAGE_ID sent` to atomically set Notion `Status → Completed`, `Reminder Status → sent`, `Completed At`, then delete the handoff file.
 
@@ -40,7 +40,7 @@ Reply with ONLY: NO_REPLY
 
 ## Notes
 
-- Heartbeat (`docs/heartbeat-checks.md` Checks 2/2b) re-registers if missing, patches if drifted — guards against manual deletion, gateway data loss, or other failure modes that drop the canonical job.
+- The `heartbeat` cron (`docs/heartbeat-checks.md` Checks 2/2b) re-registers if missing, patches if drifted — guards against manual deletion, gateway data loss, or other failure modes that drop the canonical job.
 - 15-min polling = recommended cost/latency balance. Affects discovery only; idle delivery still depends on heartbeat or next interaction.
 - Cron fires only when REPL idle. Mid-conversation → script waits. Better for ADHD — no mid-task interrupts.
 - `check-reminders.sh` queries Notion, writes `.reminder-signal`. Delivery not this job's responsibility.
