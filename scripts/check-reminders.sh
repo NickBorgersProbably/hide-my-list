@@ -24,11 +24,13 @@
 # This script is the safety-net backstop for the primary one-shot reminder path
 # (reminder-<page_id> cron registered at intake, fires at exact remind_at).
 # Handoff-file delivery is handled by the delivering agent sessions:
-#   - Opportunistic main-session startup check (AGENTS.md step 5): when a user
+#   - Opportunistic main-session startup check (AGENTS.md step 6): when a user
 #     interacts, the main session checks for the handoff file and delivers any
 #     pending reminders immediately.
-#   - heartbeat cron Check 1 (every 2 hours): the heartbeat session reads
+#   - reminder-delivery-sweep (every 2 hours): a narrow isolated cron reads
 #     stranded handoff files and delivers reminders as the idle-session backstop.
+#   - heartbeat cron Check 1 (daily): heartbeat runs the same delivery check if
+#     the narrower sweep did not clear the handoff file.
 #
 # The delivering session (heartbeat or main session) is responsible for:
 #   - Reading the handoff file payload and delivering each reminder to the user

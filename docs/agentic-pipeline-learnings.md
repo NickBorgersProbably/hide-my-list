@@ -199,8 +199,8 @@ Required properties:
 **Before:** Reminders unreliable; pipeline monitoring inconsistent.
 **Evidence:** #112, #199, #263
 
-### 3.2 Heartbeat enforces cron spec drift, not just job existence
-**Why:** Heartbeat compares live cron jobs against canonical specs in `setup/cron/` and patches drift via `CronUpdate`. Cron spec re-application after `pull-main` happens on heartbeat's next cycle — isolated `pull-main` session cannot reliably call `CronList`/`CronUpdate`.
+### 3.2 Split cron existence repair from drift correction
+**Why:** Main-agent startup checks and daily heartbeat ensure canonical recurring crons exist. Weekly janitor compares live cron jobs against canonical specs in `setup/cron/` and patches drift via `CronUpdate`. Cron spec re-application after `pull-main` happens in janitor — isolated `pull-main` session cannot reliably call `CronList`/`CronUpdate`.
 **Before:** Cron jobs drifted from registered config, causing exponential backoff and silent failures.
 **Evidence:** #238, #266, #268, #277
 

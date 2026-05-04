@@ -9,14 +9,17 @@
 #      agents.defaults where tiers still apply (expensive=primary,
 #      medium=fallback), and the disabled built-in heartbeat block must remain
 #      internally valid.
-#   3) Cron-tier agreement: cron spec files must use the cheap-tier model
-#      from setup/model-tiers.json, and sibling docs' cron-contract sections must point
+#   3) Cron-tier agreement: routine cron spec files must use the cheap-tier
+#      model from setup/model-tiers.json, janitor must stay on a configured
+#      decoupled model, and sibling docs' cron-contract sections must point
 #      back to the canonical setup/cron specs instead of drifting.
 #
 # Model tier mapping is repo metadata, not OpenClaw runtime config.
-# New instances: edit setup/model-tiers.json + agents.defaults + cron spec model: lines,
-# then run this script to verify consistency. Built-in heartbeat is disabled;
-# the production heartbeat is a cheap-tier cron in setup/cron/heartbeat.md.
+# New instances: edit setup/model-tiers.json + agents.defaults + routine cron
+# spec model lines, then run this script to verify consistency. Built-in
+# heartbeat is disabled; the production heartbeat is a cheap-tier cron in
+# setup/cron/heartbeat.md. Weekly janitor is intentionally decoupled from the
+# cheap tier.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -183,10 +186,20 @@ rm -f "$heartbeat_drift_file"
 
 # --- Invariant 3: cron-tier agreement -----------------------------------
 
-canonical_cron_sources=(
+cheap_tier_cron_sources=(
   "setup/cron/heartbeat.md"
   "setup/cron/reminder-check.md"
+  "setup/cron/reminder-delivery-sweep.md"
   "setup/cron/pull-main.md"
+)
+
+decoupled_cron_sources=(
+  "setup/cron/janitor.md"
+)
+
+canonical_cron_sources=(
+  "${cheap_tier_cron_sources[@]}"
+  "${decoupled_cron_sources[@]}"
 )
 
 for f in "${canonical_cron_sources[@]}"; do
@@ -200,7 +213,7 @@ done
 cron_errors=()
 expected_cron_ref="litellm/$tier_cheap"
 
-for f in "${canonical_cron_sources[@]}"; do
+for f in "${cheap_tier_cron_sources[@]}"; do
   # Check that the model: line uses the cheap tier model
   cron_model="$(grep -E '^\s+model:\s+litellm/' "$f" | grep -oE 'litellm/[A-Za-z0-9._-]+' | head -1)"
   if [[ -z "$cron_model" ]]; then
@@ -215,6 +228,24 @@ for f in "${canonical_cron_sources[@]}"; do
   # Check payload.lightContext: true present (skips bootstrap for isolated cron sessions)
   if ! grep -qE '^\s+lightContext:\s+true' "$f"; then
     cron_errors+=("$f: missing 'lightContext: true' under payload — cron specs must opt into lightweight bootstrap")
+  fi
+done
+
+for f in "${decoupled_cron_sources[@]}"; do
+  cron_model="$(grep -E '^\s+model:\s+litellm/' "$f" | grep -oE 'litellm/[A-Za-z0-9._-]+' | head -1)"
+  if [[ -z "$cron_model" ]]; then
+    cron_errors+=("$f: no model: litellm/<id> line found")
+    continue
+  fi
+  cron_id="${cron_model#litellm/}"
+  if ! grep -qx "$cron_id" <<<"$template_ids"; then
+    cron_errors+=("$f: model = $cron_model (not in $TEMPLATE models[].id)")
+  fi
+  if ! grep -qE '^\s+model:.*# decoupled from modelTiers' "$f"; then
+    cron_errors+=("$f: missing decoupled-model comment on model: line")
+  fi
+  if ! grep -qE '^\s+lightContext:\s+false' "$f"; then
+    cron_errors+=("$f: missing 'lightContext: false' under payload — janitor must load full bootstrap")
   fi
 done
 
@@ -250,17 +281,17 @@ check_contract_window \
 # shellcheck disable=SC2016  # backticks are literal grep anchors, not command substitution
 check_contract_window \
   "docs/architecture.md" \
-  'The recurring jobs `heartbeat`, `reminder-check`, and `pull-main` use `sessionTarget: isolated`' \
-  4 \
-  'cheap-tier model|setup/model-tiers\.json|setup/cron/' \
+  'The routine recurring jobs `heartbeat`, `reminder-check`, `reminder-delivery-sweep`, and `pull-main` use `sessionTarget: isolated`' \
+  5 \
+  'cheap-tier model|setup/model-tiers\.json|setup/cron/|janitor.*Opus' \
   '' \
   "cron contract section"
 
 check_contract_window \
   "docs/openclaw-integration.md" \
   "**Current registration contract:**" \
-  4 \
-  'setup/cron/.*setup/model-tiers\.json|setup/model-tiers\.json.*setup/cron/' \
+  5 \
+  'setup/cron/.*setup/model-tiers\.json|setup/model-tiers\.json.*setup/cron/.*janitor|janitor.*decoupled' \
   '' \
   "cron contract section"
 
@@ -302,8 +333,8 @@ if (( ${#all_errors[@]} > 0 )); then
   echo "ERROR: model reference validation failed:" >&2
   for e in "${all_errors[@]}"; do echo "$e" >&2; done
   echo "" >&2
-  echo "Fix: update $TIER_MAP, ensure cheap-tier cron specs/docs match, and keep built-in heartbeat disabled." >&2
+  echo "Fix: update $TIER_MAP, ensure routine cheap-tier cron specs/docs match, keep janitor on a configured decoupled model, and keep built-in heartbeat disabled." >&2
   exit 1
 fi
 
-echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap, built-in heartbeat every=$heartbeat_every); cheap-tier cron specs use $expected_cron_ref"
+echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap, built-in heartbeat every=$heartbeat_every); routine cheap-tier cron specs use $expected_cron_ref; decoupled cron specs reference configured models"
