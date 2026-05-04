@@ -66,11 +66,15 @@ Check via CronList. Missing → re-create with CronCreate (durable: true) using 
   ```bash
   OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
   mkdir -p "$OPENCLAW_HOME/media/outbound"
-  chmod 755 "$OPENCLAW_HOME" "$OPENCLAW_HOME/media" "$OPENCLAW_HOME/media/outbound"
+  chmod 711 "$OPENCLAW_HOME" "$OPENCLAW_HOME/media"
+  chmod 755 "$OPENCLAW_HOME/media/outbound"
+  if [ -f "$OPENCLAW_HOME/openclaw.json" ]; then
+    chmod 600 "$OPENCLAW_HOME/openclaw.json"
+  fi
   namei -om "$OPENCLAW_HOME/media/outbound"
   ```
 - If creation, chmod, or verification fails, send an ops alert via `message` tool (`action: send`, `channel: signal`, `target: "$OPS_ALERT_TARGET"`) with error detail. Do not attempt broader filesystem permission changes.
-- This protects reward image `MEDIA:` attachments, which OpenClaw stages under `~/.openclaw/media/outbound/` before Signal reads them. Signal needs traversal permission on each directory in the path, not only the leaf `outbound/` directory.
+- This protects reward image `MEDIA:` attachments, which OpenClaw stages under `~/.openclaw/media/outbound/` before Signal reads them. Signal needs traversal permission on each directory in the path; parent directories should use traversal-only permissions, while the leaf `outbound/` directory remains readable. OpenClaw config files stay private.
 
 ### 5. Dirty Pull Recovery (safety net)
 - `.pull-dirty` exists + older than 20 min → pull-main cron may have failed recovery

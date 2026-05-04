@@ -67,7 +67,7 @@ Short durable cron session configured in `setup/cron/heartbeat.md`. Runs daily a
 Narrower confirmed contract:
 
 - `exec` and `read` for script execution and repo inspection
-- `message` for explicit reminder delivery to Signal from heartbeat Check 1 (`docs/heartbeat-checks.md`), and for ops-alert messages to the Signal recipient heartbeat resolves from `OPS_ALERT_SIGNAL_NUMBER` when critical failures require operator attention (malformed reminder handoff, Notion connectivity failure, persistent dirty-pull recovery failure)
+- `message` for explicit reminder delivery to Signal from heartbeat Check 1 (`docs/heartbeat-checks.md`), and for ops-alert messages to the Signal recipient heartbeat resolves from `OPS_ALERT_SIGNAL_NUMBER` when critical failures require operator attention (malformed reminder handoff, Notion connectivity failure, outbound media permission failure, persistent dirty-pull recovery failure)
 - CronList and CronCreate for durable cron inspection and missing-job re-registration defined in `docs/heartbeat-checks.md`
 
 ### Do not assume
@@ -91,6 +91,7 @@ Heartbeat responsible for:
 - completing delivered reminders in Notion with `scripts/notion-cli.sh complete-reminder PAGE_ID sent`
 - verifying durable cron jobs exist in OpenClaw
 - checking Notion connectivity
+- verifying outbound media staging permissions for Signal attachments
 - retrying dirty-pull recovery when `.pull-dirty` indicates isolated cron could not finish recovery path
 
 ### Explicit boundary
@@ -162,6 +163,7 @@ Operational-health backstop. Responsible for:
 - deliver stranded reminder handoffs through the explicit `message` tool path
 - verify canonical recurring cron registrations exist
 - test Notion connectivity
+- verify outbound media staging permissions for Signal attachments
 - retry dirty-pull recovery when `.pull-dirty` persists
 
 Not responsible for:

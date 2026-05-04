@@ -263,8 +263,10 @@ REWARD_WORK_TYPE=focus REWARD_ENERGY_LEVEL=low \
 
 Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
 Before returning a PNG path, the script creates and repairs the full OpenClaw
-media staging path (`~/.openclaw/`, `~/.openclaw/media/`, and
-`~/.openclaw/media/outbound/`) to `0755`. OpenClaw then stages attachment
+media staging path: traversal-only permissions (`0711`) for `~/.openclaw/` and
+`~/.openclaw/media/`, readable traversal (`0755`) for
+`~/.openclaw/media/outbound/`, and private config (`0600`) for
+`~/.openclaw/openclaw.json` when present. OpenClaw then stages attachment
 delivery through `~/.openclaw/media/outbound/`; every directory in that path
 must stay traversable so Signal can read the staged file.
 

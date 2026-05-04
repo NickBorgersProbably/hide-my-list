@@ -60,8 +60,16 @@ ensure_openclaw_media_staging() {
         suggest_offline_reward "could not create OpenClaw media staging directory"
     fi
 
-    if ! chmod 755 "$OPENCLAW_HOME" "$media_dir" "$outbound_dir"; then
+    if ! chmod 711 "$OPENCLAW_HOME" "$media_dir"; then
+        suggest_offline_reward "could not repair OpenClaw media staging parent directory permissions"
+    fi
+
+    if ! chmod 755 "$outbound_dir"; then
         suggest_offline_reward "could not repair OpenClaw media staging directory permissions"
+    fi
+
+    if [ -f "$OPENCLAW_HOME/openclaw.json" ] && ! chmod 600 "$OPENCLAW_HOME/openclaw.json"; then
+        suggest_offline_reward "could not protect OpenClaw config file permissions"
     fi
 
     for dir in "$OPENCLAW_HOME" "$media_dir" "$outbound_dir"; do

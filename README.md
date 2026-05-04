@@ -56,8 +56,8 @@ the visible session timestamp is UTC, but prompt context is less direct.
 
 `setup/bootstrap.sh` also provisions OpenClaw's media staging directories under
 `~/.openclaw/media/outbound` and repairs the full `~/.openclaw` staging path
-with traversable permissions so Signal can read staged attachments such as
-reward images.
+with traversal-only parent permissions so Signal can read staged attachments
+such as reward images without exposing config contents.
 
 See [setup/README.md](setup/README.md) for full setup instructions.
 

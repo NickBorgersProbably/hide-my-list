@@ -103,7 +103,11 @@ fi
 mkdir -p "$ROOT_DIR/memory"
 mkdir -p "$ROOT_DIR/rewards"
 mkdir -p "$OPENCLAW_HOME/media/outbound"
-chmod 755 "$OPENCLAW_HOME" "$OPENCLAW_HOME/media" "$OPENCLAW_HOME/media/outbound"
+chmod 711 "$OPENCLAW_HOME" "$OPENCLAW_HOME/media"
+chmod 755 "$OPENCLAW_HOME/media/outbound"
+if [ -f "$OPENCLAW_HOME/openclaw.json" ]; then
+    chmod 600 "$OPENCLAW_HOME/openclaw.json"
+fi
 echo "Ensured runtime directories exist"
 echo ""
 
