@@ -6,6 +6,10 @@ set -euo pipefail
 # session state lives at $HOME/.claude (bind-mounted from the host)
 # so `claude --continue` finds it.
 
+if [ ! -d .githooks ]; then
+  echo "::warning::review-claude-resume: .githooks/ not found (PR branched before hooks-in-CI landed); commits will skip pre-commit/pre-push validation"
+fi
+
 if [ ! -f "$REVIEW_PROMPT_PATH" ]; then
   echo "::error::review-claude-resume: prompt file not found at $REVIEW_PROMPT_PATH"
   exit 1

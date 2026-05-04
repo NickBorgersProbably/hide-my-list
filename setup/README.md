@@ -29,8 +29,9 @@
    ```
 
    `pre-commit` handles the fast staged-file checks, and `pre-push` reruns the
-   deterministic CI-equivalent checks for changed scripts, docs, and
-   workflow-related paths before GitHub is the first place they fail.
+   deterministic CI-equivalent checks for changed scripts, docs, workflow-related
+   paths, and OpenClaw config/bootstrap paths before GitHub is the first place
+   they fail.
 
 3. Create the `.env` file:
    ```bash
@@ -177,7 +178,7 @@ bash .githooks/install-hooks.sh
 
 The hook contract is:
 - `pre-commit` runs fast staged-file checks.
-- `pre-push` reruns the deterministic CI-equivalent checks for changed scripts, docs, and workflow-related paths, so those failures are caught locally before GitHub is the first place they fail.
+- `pre-push` reruns the deterministic CI-equivalent checks for changed scripts, docs, workflow-related paths, and OpenClaw config/bootstrap paths, so those failures are caught locally before GitHub is the first place they fail.
 
 `core.hooksPath` is stored per worktree, so `git worktree add` requires re-running `bash .githooks/install-hooks.sh` inside the new worktree.
 

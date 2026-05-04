@@ -180,9 +180,11 @@ runs:
           -v "$WORKSPACE_HOST:/workspace" \
           -v "$CONTAINER_SCRIPT:/run-in-container.sh:ro" \
           --env-file "$CI_AGENT_ENV_FILE" \
-          -e GIT_CONFIG_COUNT=1 \
+          -e GIT_CONFIG_COUNT=2 \
           -e GIT_CONFIG_KEY_0=safe.directory \
           -e GIT_CONFIG_VALUE_0=/workspace \
+          -e GIT_CONFIG_KEY_1=core.hooksPath \
+          -e GIT_CONFIG_VALUE_1=/workspace/.githooks \
           "$CI_AGENT_IMAGE" \
           -lc '/run-in-container.sh'
 

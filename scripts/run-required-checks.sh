@@ -10,6 +10,7 @@ readonly SCRIPT_TRIGGER_PATH_PATTERN='^(scripts/.*|setup/.*\.sh|\.githooks/.*)$'
 readonly DOC_PATH_PATTERN='^(docs/.*\.md|design/.*\.md|setup/.*\.md|setup/openclaw\.json\.template|setup/model-tiers\.json|README\.md|AGENTS\.md)$'
 readonly DOC_HELPER_PATH_PATTERN='^(scripts/check-doc-links\.sh|scripts/lint-mermaid-rendering\.sh|scripts/validate-mermaid\.sh|scripts/validate-model-refs\.sh|scripts/validate-spec-catalog\.sh)$'
 readonly WORKFLOW_PATH_PATTERN='^(\.github/workflows/.*\.ya?ml|\.github/actions/.*\.ya?ml|\.github/actionlint\.yaml|\.yamllint|\.githooks/(install-hooks\.sh|pre-commit|pre-push)|scripts/validate-gh-cli-usage\.sh|scripts/validate-pr-tests-workflow\.sh|scripts/validate-workflow-refs\.sh)$'
+readonly OPENCLAW_PATH_PATTERN='^(AGENTS\.md|HEARTBEAT\.md|IDENTITY\.md|SOUL\.md|TOOLS\.md|setup/openclaw\.json\.template|setup/model-tiers\.json|setup/cron/.*|scripts/validate-openclaw-config\.sh|\.github/ci/versions\.env|\.github/workflows/pr-tests\.yml)$'
 readonly CANONICAL_RUNNER='scripts/run-required-checks.sh'
 
 changed_files=()
@@ -24,6 +25,7 @@ Modes:
   ci-scripts    CI-equivalent shell/script validation.
   ci-docs       CI-equivalent documentation validation.
   ci-workflows  CI-equivalent workflow validation.
+  ci-openclaw   CI-equivalent OpenClaw config smoke (requires openclaw binary).
 EOF
 }
 
@@ -223,6 +225,42 @@ run_workflow_validation() {
   "$REPO_ROOT/scripts/validate-gh-cli-usage.sh"
 }
 
+run_openclaw_validation() {
+  local mode="${1:-soft}"
+  local smoke_script="$REPO_ROOT/scripts/validate-openclaw-config.sh"
+
+  if [ ! -x "$smoke_script" ]; then
+    if [ "$mode" = "strict" ]; then
+      echo "ERROR: $smoke_script not found or not executable."
+      exit 1
+    fi
+    echo "Skipping OpenClaw config smoke ($smoke_script absent on this branch)."
+    return 0
+  fi
+
+  if ! command -v openclaw >/dev/null 2>&1; then
+    if [ "$mode" = "strict" ]; then
+      echo "ERROR: 'openclaw' binary not installed (required for ci-openclaw mode)."
+      exit 1
+    fi
+    echo "Skipping OpenClaw config smoke (openclaw binary not installed)."
+    local versions_env="$REPO_ROOT/.github/ci/versions.env"
+    local pinned_version=""
+    if [ -f "$versions_env" ]; then
+      pinned_version="$(awk -F= '/^OPENCLAW_VERSION=/{print $2; exit}' "$versions_env")"
+    fi
+    if [ -n "$pinned_version" ]; then
+      echo "Install with: npm install -g openclaw@${pinned_version}"
+    else
+      echo "Install with: npm install -g openclaw  # OPENCLAW_VERSION pin not found in $versions_env"
+    fi
+    return 0
+  fi
+
+  echo "=== Running OpenClaw config smoke ==="
+  "$smoke_script"
+}
+
 run_pre_commit_script_checks() {
   local -a targets=()
 
@@ -308,6 +346,10 @@ run_pre_push() {
   if canonical_runner_changed || has_changed_path "$WORKFLOW_PATH_PATTERN"; then
     run_workflow_validation
   fi
+
+  if canonical_runner_changed || has_changed_path "$OPENCLAW_PATH_PATTERN"; then
+    run_openclaw_validation soft
+  fi
 }
 
 mode="${1:-}"
@@ -327,6 +369,9 @@ case "$mode" in
     ;;
   ci-workflows)
     run_workflow_validation
+    ;;
+  ci-openclaw)
+    run_openclaw_validation strict
     ;;
   *)
     usage
