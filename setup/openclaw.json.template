@@ -66,11 +66,6 @@
       }
     }
   },
-  "modelTiers": {
-    "expensive": "claude-opus-4-6",
-    "medium": "claude-sonnet-4-6",
-    "cheap": "qwen2.5"
-  },
   "agents": {
     "defaults": {
       "model": {
@@ -85,7 +80,7 @@
         "model": "litellm/claude-haiku-4-5"
       },
       "heartbeat": {
-        "every": 0,
+        "every": "0s",
         "model": "litellm/claude-haiku-4-5",
         "lightContext": true
       },
