@@ -249,17 +249,24 @@ flowchart TD
 
 ```bash
 # Generate a reward image
-./scripts/generate-reward-image.sh <intensity> [task_title] [streak_count]
+./scripts/generate-reward-image.sh <intensity> <streak_count> <task_description>...
 
 # Examples:
-./scripts/generate-reward-image.sh low "Call dentist" 0
-./scripts/generate-reward-image.sh medium "Review proposal" 2
-./scripts/generate-reward-image.sh epic "Complete Q4 report" 5
+./scripts/generate-reward-image.sh low 0 "Call dentist"
+./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
+./scripts/generate-reward-image.sh epic 5 "Draft report" "Send update" "Pay bill" "Book appointment" "Fold laundry"
 
 # Optional context from the caller:
 REWARD_WORK_TYPE=focus REWARD_ENERGY_LEVEL=low \
-  ./scripts/generate-reward-image.sh medium "Review proposal" 2
+  ./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
 ```
+
+The script validates its reward inputs before generation:
+
+- `streak_count` must be a non-negative integer.
+- When `streak_count` is `N`, the caller must provide exactly `N` task descriptions.
+- For the first completion (`streak_count` `0`), the caller must provide exactly one task description.
+- Empty or generic placeholder descriptions such as `task` or `stuff` are rejected.
 
 Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
 OpenClaw then stages attachment delivery through `~/.openclaw/media/outbound/`,
@@ -271,11 +278,11 @@ file.
 Reward prompts are built from four layers:
 
 1. **Intensity theme pool** - low/medium/high/epic still control the overall celebration scale
-2. **Task motif extraction** - task title becomes a safe visual motif (call, writing, setup, cleanup, etc.)
+2. **Task motif extraction** - validated task descriptions become safe visual motifs (call, writing, setup, cleanup, etc.)
 3. **Preference modifiers** - optional `state.json.user_preferences.rewards` values bias style, palette, and subject matter
 4. **Feedback weighting** - prior positive/negative reactions bias future theme-family, style, and palette selection
 
-Task titles are not copied blindly into the image prompt. The script first classifies the task and builds either:
+Task descriptions are not copied blindly into the image prompt. The script first validates the count against the streak, classifies the completed tasks, and builds either:
 
 - **Literal motifs** for ordinary tasks: "glowing phone and confetti" for calls, "pages turning into stars" for writing
 - **Metaphorical motifs** for sensitive tasks: therapy/medical/personal/legal/financial tasks use abstract or symbolic celebration instead of literal depictions
