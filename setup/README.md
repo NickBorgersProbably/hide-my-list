@@ -59,8 +59,8 @@
    Bootstrap also creates `~/.openclaw/media/` and
    `~/.openclaw/media/outbound/`, then repairs `~/.openclaw/` and
    `~/.openclaw/media/` to traversal-only `0711`,
-   `~/.openclaw/media/outbound/` to `0755`, and
-   `~/.openclaw/openclaw.json` to private `0600` when present so
+   `~/.openclaw/media/outbound/` to `0755`, locks down non-media top-level
+   children, and keeps `~/.openclaw/openclaw.json` private when present so
    OpenClaw-staged attachments remain readable to Signal without exposing
    config contents.
 
@@ -210,7 +210,7 @@ Manual regression playbook:
 
 **Signal attachments fail with `Permission denied`:**
 - Re-run `bash setup/bootstrap.sh` to recreate or repair the OpenClaw media staging directories with the expected permissions.
-- If you need the repair immediately, run `chmod 711 ~/.openclaw ~/.openclaw/media; chmod 755 ~/.openclaw/media/outbound; if [ -f ~/.openclaw/openclaw.json ]; then chmod 600 ~/.openclaw/openclaw.json; fi`.
+- If you need the repair immediately, run `scripts/ensure-openclaw-media-staging.sh`.
 - Verify every directory in the staging chain is traversable by the Signal process: `namei -om ~/.openclaw/media/outbound`.
 
 **Agent not responding:**

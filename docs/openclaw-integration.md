@@ -65,10 +65,11 @@ Daily, OpenClaw fires the durable `heartbeat` cron as an isolated session. The c
 **Our usage:** Two roles:
 1. **Reminder-delivery backstop:** Isolated `reminder-check` cron only writes `.reminder-signal` — no user delivery. Heartbeat Check 1 reads stranded signal files, validates, delivers to Signal via `message` tool daily. After each successful send, atomically updates `state.json.recent_outbound` (read-merge-prune-write via temp file + rename, preserving all other state fields) before running `complete-reminder`. If the state write fails, delivery halts — no `complete-reminder`, no handoff delete, ops alert surfaces instead. After all reminders in the batch are processed, deletes the handoff file once. AGENTS.md startup check provides the same delivery sequence for faster opportunistic delivery when user is active.
 2. **Cron safety net:** AGENTS.md startup and daily heartbeat verify durable canonical cron jobs exist in OpenClaw: missing jobs get re-registered (gone-missing for any reason). Weekly janitor patches drift back to canonical `CronCreate` specs in `setup/cron/`. Comparison covers full effective registration contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. `docs/heartbeat-checks.md` = authoritative comparison checklist; `setup/cron/heartbeat.md` and `setup/cron/janitor.md` are the cron prompts that delegate to it.
+3. **Outbound media permission guard:** Heartbeat verifies the OpenClaw media staging path remains safe and traversable for Signal attachments. It runs `scripts/ensure-openclaw-media-staging.sh`, which rejects unsafe `OPENCLAW_HOME` targets, locks down non-media top-level children, keeps config private, and repairs `~/.openclaw/media/outbound/` traversal.
 
 Heartbeat intentionally not place to assume `openclaw config get` / `openclaw config set` access. Config mutation = main-agent responsibility unless heartbeat support explicitly confirmed and documented in [Agent Capabilities](agent-capabilities.md).
 
-Heartbeat also checks Notion connectivity and dirty-pull recovery. Production: treat as daily light-touch infrastructure hygiene. Weekly janitor handles full environment, state, memory, cron history, and drift audits with Opus.
+Heartbeat also checks Notion connectivity, outbound media staging permissions, and dirty-pull recovery. Production: treat as daily light-touch infrastructure hygiene. Weekly janitor handles full environment, state, memory, cron history, and drift audits with Opus.
 
 Backstop stays in design because OpenClaw doesn't expose post-delivery acknowledgment hook for `announce`. Without that hook, announce-only cron would have to mark reminders `sent` before platform could prove delivery succeeded — breaks durable retry if turn dies in between.
 
@@ -92,7 +93,7 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| `heartbeat` | `0 9 * * *` | Daily light-touch health, recurring-cron existence repair, stranded reminder delivery, ops alerts |
+| `heartbeat` | `0 9 * * *` | Daily light-touch health, recurring-cron existence repair, stranded reminder delivery, outbound media permission repair, ops alerts |
 | `reminder-check` | `*/15 * * * *` | Safety-net poll for the one-shot delivery path; writes `.reminder-signal` handoff if a reminder slipped through |
 | `reminder-delivery-sweep` | `0 */2 * * *` | Narrow idle-session delivery sweep for stranded reminder handoff files |
 | `pull-main` | `*/10 * * * *` | `git pull origin main` hygiene; janitor handles cron drift correction |
@@ -127,7 +128,7 @@ For production, use these timings unless clear reason to pay for tighter polling
 | `reminder-<page_id>` (one-shot) | Fires at exact `remind_at` (registered at intake) | Primary user-facing reminder delivery; self-deletes on success |
 | `reminder-check` | Every 15 minutes | Safety-net polling; writes `.reminder-signal` for heartbeat/startup delivery when one-shot fails to fire |
 | `reminder-delivery-sweep` | Every 2 hours | Cheap idle-session delivery sweep for stranded reminder handoff files |
-| `heartbeat` cron | Daily at 04:00 CT | Reminder safety-net delivery, recurring-cron existence repair, Notion connectivity, dirty-pull recovery |
+| `heartbeat` cron | Daily at 04:00 CT | Reminder safety-net delivery, recurring-cron existence repair, Notion connectivity, outbound media permission repair, dirty-pull recovery |
 | `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps workspace fresh |
 | `janitor` cron | Weekly Monday at 02:00 CT | Opus deep audit for cron drift, env/state/data/memory/run-history issues |
 
