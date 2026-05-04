@@ -244,7 +244,16 @@ run_openclaw_validation() {
       exit 1
     fi
     echo "Skipping OpenClaw config smoke (openclaw binary not installed)."
-    echo "Install with: npm install -g \"openclaw@\$(grep -E '^OPENCLAW_VERSION=' .github/ci/versions.env | cut -d= -f2-)\""
+    local versions_env="$REPO_ROOT/.github/ci/versions.env"
+    local pinned_version=""
+    if [ -f "$versions_env" ]; then
+      pinned_version="$(awk -F= '/^OPENCLAW_VERSION=/{print $2; exit}' "$versions_env")"
+    fi
+    if [ -n "$pinned_version" ]; then
+      echo "Install with: npm install -g openclaw@${pinned_version}"
+    else
+      echo "Install with: npm install -g openclaw  # OPENCLAW_VERSION pin not found in $versions_env"
+    fi
     return 0
   fi
 
