@@ -2,8 +2,7 @@
 # Generate a celebratory reward image using OpenAI's image generation API.
 # Usage: ./generate-reward-image.sh <intensity> <streak_count> <task_description>...
 #
-# Provide exactly N task descriptions when streak_count is N. For a first
-# completion with streak_count 0, provide exactly one task description.
+# Provide exactly N task descriptions when streak_count is N.
 #
 # Optional context:
 #   REWARD_STATE_FILE=/path/to/state.json
@@ -24,11 +23,10 @@ Usage: ./scripts/generate-reward-image.sh <intensity> <streak_count> <task_descr
 
 Intensity: low, medium, high, epic
 
-Pass exactly N task descriptions when streak_count is N. For streak_count 0,
-pass exactly one task description for the completed task.
+Pass exactly N task descriptions when streak_count is N.
 
 Examples:
-  ./scripts/generate-reward-image.sh low 0 "Call dentist"
+  ./scripts/generate-reward-image.sh low 1 "Call dentist"
   ./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
   ./scripts/generate-reward-image.sh epic 5 "Draft report" "Send update" "Pay bill" "Book appointment" "Fold laundry"
 EOF
@@ -91,14 +89,14 @@ esac
 
 case "$STREAK" in
     ''|*[!0-9]*)
-        fail_usage "streak_count must be a non-negative integer"
+        fail_usage "streak_count must be a positive integer"
         ;;
 esac
 
 shift 2
 EXPECTED_TASK_COUNT="$STREAK"
 if [ "$EXPECTED_TASK_COUNT" -eq 0 ]; then
-    EXPECTED_TASK_COUNT=1
+    fail_usage "streak_count must be a positive integer"
 fi
 
 if [ "$#" -ne "$EXPECTED_TASK_COUNT" ]; then
@@ -117,29 +115,11 @@ import json
 import re
 import sys
 
-generic_titles = {
-    "a task",
-    "task",
-    "tasks",
-    "todo",
-    "to do",
-    "work",
-    "stuff",
-    "things",
-    "errands",
-    "chores",
-    "misc",
-    "miscellaneous",
-}
-
 normalized = []
 for raw in sys.argv[1:]:
     title = re.sub(r"\s+", " ", raw).strip()
     if not title:
         print("task descriptions must be non-empty", file=sys.stderr)
-        sys.exit(2)
-    if title.lower() in generic_titles:
-        print(f"task description is too generic: {title}", file=sys.stderr)
         sys.exit(2)
     normalized.append(title)
 
@@ -989,7 +969,6 @@ record = {
     "generated_at": context["generated_at"],
     "timestamp": int(os.environ["TIMESTAMP"]),
     "intensity": context["intensity"],
-    "task_titles": context["task_titles"],
     "task_mode": context["task_mode"],
     "task_profile": context["task_profile"],
     "task_profiles": context["task_profiles"],

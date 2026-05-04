@@ -252,7 +252,7 @@ flowchart TD
 ./scripts/generate-reward-image.sh <intensity> <streak_count> <task_description>...
 
 # Examples:
-./scripts/generate-reward-image.sh low 0 "Call dentist"
+./scripts/generate-reward-image.sh low 1 "Call dentist"
 ./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
 ./scripts/generate-reward-image.sh epic 5 "Draft report" "Send update" "Pay bill" "Book appointment" "Fold laundry"
 
@@ -263,10 +263,16 @@ REWARD_WORK_TYPE=focus REWARD_ENERGY_LEVEL=low \
 
 The script validates its reward inputs before generation:
 
-- `streak_count` must be a non-negative integer.
+- `streak_count` must be the positive, post-completion current streak length.
 - When `streak_count` is `N`, the caller must provide exactly `N` task descriptions.
-- For the first completion (`streak_count` `0`), the caller must provide exactly one task description.
-- Empty or generic placeholder descriptions such as `task` or `stuff` are rejected.
+- The first completion in a streak uses `streak_count` `1` and one task description.
+- Empty descriptions are rejected.
+
+Callers build the task-description list from the current completion session,
+ordered oldest to newest after the completed task has been counted. The list
+resets whenever the completion streak resets. If prior streak history is not
+available, callers must not invent descriptions or marker counts; they should
+start a fresh one-item streak list with the current completed task.
 
 Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
 OpenClaw then stages attachment delivery through `~/.openclaw/media/outbound/`,
@@ -369,16 +375,15 @@ Streak count modifies generated image:
 
 | Streak | Visual Enhancement |
 |--------|--------------------|
-| 0-2 | Base theme only |
-| 3-4 | Three orbiting stars added |
-| 5+ | Trail of five glowing orbs added |
+| 1 | One small glowing progress marker |
+| N > 1 | Exactly N small glowing progress markers, one per completed task in the current streak |
 
 #### Feedback Loop
 
 Generated rewards leave two metadata trails:
 
 - `rewards/manifest.log` - stable tab-delimited recap manifest (`timestamp`, `intensity`, `task_title`, `file_path`)
-- `rewards/manifest.jsonl` - feedback metadata only (`reward_id`, `prompt_version`, `generated_at`, `timestamp`, `intensity`, `task_mode`, `task_profile`, `task_tags`, `theme_id`, `theme_family`, `theme_tags`, `style`, `palette`, `archive_file`)
+- `rewards/manifest.jsonl` - feedback metadata only (`reward_id`, `prompt_version`, `generated_at`, `timestamp`, `intensity`, `task_mode`, `task_profile`, `task_profiles`, `task_tags`, `theme_id`, `theme_family`, `theme_tags`, `style`, `palette`, `archive_file`)
 
 The companion script `scripts/log-reward-feedback.sh` records lightweight reactions:
 
