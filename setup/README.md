@@ -57,8 +57,9 @@
    `America/Chicago`.
 
    Bootstrap also creates `~/.openclaw/media/` and
-   `~/.openclaw/media/outbound/` with `0755` permissions so OpenClaw-staged
-   attachments remain readable to Signal.
+   `~/.openclaw/media/outbound/`, then repairs `~/.openclaw/`,
+   `~/.openclaw/media/`, and `~/.openclaw/media/outbound/` to `0755` so
+   OpenClaw-staged attachments remain readable to Signal.
 
 5. Configure OpenClaw:
    ```bash
@@ -206,8 +207,8 @@ Manual regression playbook:
 
 **Signal attachments fail with `Permission denied`:**
 - Re-run `bash setup/bootstrap.sh` to recreate or repair the OpenClaw media staging directories with the expected permissions.
-- If you need the repair immediately, run `chmod 755 ~/.openclaw/media ~/.openclaw/media/outbound`.
-- Verify both directories are traversable by the Signal process: `namei -om ~/.openclaw/media/outbound`.
+- If you need the repair immediately, run `chmod 755 ~/.openclaw ~/.openclaw/media ~/.openclaw/media/outbound`.
+- Verify every directory in the staging chain is traversable by the Signal process: `namei -om ~/.openclaw/media/outbound`.
 
 **Agent not responding:**
 - Check `openclaw status` for channel health

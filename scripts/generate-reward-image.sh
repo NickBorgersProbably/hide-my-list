@@ -14,6 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/.."
+OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
 
 # --- Offline fallback rewards ---
 # When image generation is unavailable (API outage, missing key, network error),
@@ -50,6 +51,27 @@ suggest_offline_reward() {
     exit 0
 }
 
+ensure_openclaw_media_staging() {
+    local media_dir="$OPENCLAW_HOME/media"
+    local outbound_dir="$media_dir/outbound"
+    local dir
+
+    if ! mkdir -p "$outbound_dir"; then
+        suggest_offline_reward "could not create OpenClaw media staging directory"
+    fi
+
+    if ! chmod 755 "$OPENCLAW_HOME" "$media_dir" "$outbound_dir"; then
+        suggest_offline_reward "could not repair OpenClaw media staging directory permissions"
+    fi
+
+    for dir in "$OPENCLAW_HOME" "$media_dir" "$outbound_dir"; do
+        if [ ! -d "$dir" ] || [ ! -r "$dir" ] || [ ! -x "$dir" ]; then
+            suggest_offline_reward "OpenClaw media staging path is not traversable: $dir"
+        fi
+    done
+}
+
+# shellcheck disable=SC1091
 # shellcheck source=scripts/load-env.sh
 if ! source "$SCRIPT_DIR/load-env.sh" OPENAI_API_KEY?; then
     suggest_offline_reward "env file unavailable"
@@ -64,6 +86,8 @@ for cmd in python3 curl; do
         suggest_offline_reward "$cmd not found"
     fi
 done
+
+ensure_openclaw_media_staging
 
 INTENSITY="${1:-medium}"
 TASK_TITLE_RAW="${2:-a task}"

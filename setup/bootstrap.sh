@@ -103,7 +103,7 @@ fi
 mkdir -p "$ROOT_DIR/memory"
 mkdir -p "$ROOT_DIR/rewards"
 mkdir -p "$OPENCLAW_HOME/media/outbound"
-chmod 755 "$OPENCLAW_HOME/media" "$OPENCLAW_HOME/media/outbound"
+chmod 755 "$OPENCLAW_HOME" "$OPENCLAW_HOME/media" "$OPENCLAW_HOME/media/outbound"
 echo "Ensured runtime directories exist"
 echo ""
 
