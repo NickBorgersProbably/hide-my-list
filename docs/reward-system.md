@@ -298,6 +298,13 @@ assistant-authored reward turn passed to OpenClaw should contain only:
 1. Celebration text for the completion
 2. One `MEDIA:<absolute-path-to-image>` line
 
+Reward delivery is scoped to the user turn, not to each internal task update.
+If one user message completes multiple tasks, complete all hidden task/state
+work first, calculate the combined reward intensity, generate one representative
+image for the combined win, and send one final assistant-authored reward turn.
+That turn still contains exactly one celebration message and at most one
+`MEDIA:` line. Do not send one reward reply per task.
+
 OpenClaw consumes the `MEDIA:` line as attachment markup. End users should see
 only the celebration text plus the rendered image attachment — never the raw
 filesystem path or transport syntax.
@@ -313,13 +320,14 @@ Reward Delivery Checklist:
 
 - [ ] No interim user-visible messages were sent during reward scoring, state updates, Notion updates, or image generation
 - [ ] Visible user copy is celebration only — no orchestration notes, no "Now let me...", no tool narration
-- [ ] Exactly one `MEDIA:` line in the assistant-authored turn
+- [ ] At most one assistant-authored reward turn per user COMPLETE turn
+- [ ] Exactly one `MEDIA:` line in that turn when image generation returns `.png`; no `MEDIA:` line when using a `.txt` fallback
 - [ ] User sees rendered attachment, not raw `MEDIA:` syntax or filesystem path
 - [ ] No inline media tags such as `<media:image>` in the same reply
 - [ ] No second send of the same image via the `message` tool in the same turn
 - [ ] If the script returns a `.txt` fallback instead of `.png`, read the suggestion and send plain text only — no `MEDIA:` line
 - [ ] If the turn also includes an outing suggestion or other follow-up, send that as a separate plain-text message after the attachment-bearing reward reply
-- [ ] If multiple completions are handled in one user turn, per-task score math and tool work remain hidden; user-visible output is still only final celebration text plus each intended attachment/fallback
+- [ ] If multiple completions are handled in one user turn, per-task score math and tool work remain hidden; user-visible output is one combined celebration with one representative attachment/fallback at most
 
 #### Theme Pools by Intensity
 
