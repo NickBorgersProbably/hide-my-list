@@ -127,6 +127,10 @@ print(json.dumps(normalized, ensure_ascii=True))
 PY
 )" || exit 2
 
+if ! bash "$SCRIPT_DIR/ensure-openclaw-media-staging.sh"; then
+    suggest_offline_reward "could not repair OpenClaw media staging permissions"
+fi
+
 TIMESTAMP="$(date +%s)"
 DATE_STR="$(date +%Y-%m-%d)"
 TIME_STR="$(date +%H%M%S)"

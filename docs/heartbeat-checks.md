@@ -61,6 +61,16 @@ Check via CronList. Missing → re-create with CronCreate (durable: true) using 
 - Run `scripts/notion-cli.sh query-pending` with short timeout
 - Fails → send ops alert via `message` tool (`action: send`, `channel: signal`, `target: "$OPS_ALERT_TARGET"`) with error detail, no aggressive retry
 
+### 4. Outbound Media Permissions
+- Verify the full OpenClaw media staging path is traversable for Signal attachment delivery:
+  ```bash
+  OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
+  scripts/ensure-openclaw-media-staging.sh
+  namei -om "$OPENCLAW_HOME/media/outbound"
+  ```
+- If creation, chmod, or verification fails, send an ops alert via `message` tool (`action: send`, `channel: signal`, `target: "$OPS_ALERT_TARGET"`) with error detail. Do not attempt broader filesystem permission changes.
+- This protects reward image `MEDIA:` attachments, which OpenClaw stages under `~/.openclaw/media/outbound/` before Signal reads them. Signal needs traversal permission on each directory in the path; parent directories should use traversal-only permissions, while the leaf `outbound/` directory remains readable. The helper rejects unsafe `OPENCLAW_HOME` targets, locks down non-media top-level children, and keeps OpenClaw config files private.
+
 ### 5. Dirty Pull Recovery (safety net)
 - `.pull-dirty` exists + older than 20 min → pull-main cron may have failed recovery
 - Run `scripts/pull-main.sh --recover-only` after fixing underlying problem (restore interactive `gh` auth, export valid `GH_TOKEN`, or provide `GITHUB_PAT` in repo `.env` — helper exports as `GH_TOKEN`). Script creates GitHub issue + resets repo when recovery can proceed.

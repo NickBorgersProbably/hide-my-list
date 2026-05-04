@@ -17,7 +17,7 @@ CronCreate:
   timeout-seconds: 600
 ```
 
-Isolated cheap-tier maintenance session (see `setup/model-tiers.json`). Executes the daily safety-net checks in `docs/heartbeat-checks.md`: stranded reminder delivery, canonical recurring cron registration existence, Notion connectivity, and dirty-pull recovery. Deeper drift and environment audits are handled by the weekly `janitor` cron. The prompt is self-contained and does not depend on `HEARTBEAT.md` being loaded by OpenClaw's built-in heartbeat feature.
+Isolated cheap-tier maintenance session (see `setup/model-tiers.json`). Executes the daily safety-net checks in `docs/heartbeat-checks.md`: stranded reminder delivery, canonical recurring cron registration existence, Notion connectivity, outbound media permission verification, and dirty-pull recovery. Deeper drift and environment audits are handled by the weekly `janitor` cron. The prompt is self-contained and does not depend on `HEARTBEAT.md` being loaded by OpenClaw's built-in heartbeat feature.
 
 Reminder delivery does not depend on `heartbeat.target` or generic cron replies. Heartbeat Check 1 sends reminders explicitly with the OpenClaw `message` tool (`action: send`, `channel: signal`). Ops alerts also use explicit `message(..., channel: signal, target: OPS_ALERT_SIGNAL_NUMBER)` from `docs/heartbeat-checks.md`.
 
@@ -26,7 +26,7 @@ Reminder delivery does not depend on `heartbeat.target` or generic cron replies.
 ```
 You are the scheduled heartbeat cron for hide-my-list.
 
-Read docs/heartbeat-checks.md and execute the Daily Heartbeat Checks in order. Use that file as the authoritative contract for reminder handoff validation, cron registration existence repair, Notion connectivity, dirty-pull recovery, and final output.
+Read docs/heartbeat-checks.md and execute the Daily Heartbeat Checks in order. Use that file as the authoritative contract for reminder handoff validation, cron registration existence repair, Notion connectivity, outbound media permission verification, dirty-pull recovery, and final output.
 ```
 
 ## Notes

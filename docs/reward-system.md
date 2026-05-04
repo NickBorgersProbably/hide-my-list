@@ -275,9 +275,14 @@ available, callers must not invent descriptions or marker counts; they should
 start a fresh one-item streak list with the current completed task.
 
 Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
-OpenClaw then stages attachment delivery through `~/.openclaw/media/outbound/`,
-which must stay traversable (for example `0755`) so Signal can read the staged
-file.
+Before returning a PNG path, the script creates and repairs the full OpenClaw
+media staging path: traversal-only permissions (`0711`) for `~/.openclaw/` and
+`~/.openclaw/media/`, readable traversal (`0755`) for
+`~/.openclaw/media/outbound/`, and private config (`0600`) for
+`~/.openclaw/openclaw.json` when present. It also locks down non-media
+top-level children before opening traversal for attachments. OpenClaw then
+stages attachment delivery through `~/.openclaw/media/outbound/`; every
+directory in that path must stay traversable so Signal can read the staged file.
 
 #### Prompt Personalization Pipeline
 
