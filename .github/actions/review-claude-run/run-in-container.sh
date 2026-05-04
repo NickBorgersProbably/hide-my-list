@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ -x .githooks/install-hooks.sh ]; then
-  bash .githooks/install-hooks.sh
-else
-  echo "::warning::review-claude-run: .githooks/install-hooks.sh not found (PR branched before hooks-in-CI landed); commits will skip pre-commit/pre-push validation"
+if [ ! -d .githooks ]; then
+  echo "::warning::review-claude-run: .githooks/ not found (PR branched before hooks-in-CI landed); commits will skip pre-commit/pre-push validation"
 fi
 
 if [ ! -f "$REVIEW_PROMPT_PATH" ]; then

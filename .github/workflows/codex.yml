@@ -287,14 +287,15 @@ jobs:
             -e ISSUE_TITLE_B64 \
             -e REPO \
             -e RUN_ID \
+            -e GIT_CONFIG_COUNT=1 \
+            -e GIT_CONFIG_KEY_0=core.hooksPath \
+            -e GIT_CONFIG_VALUE_0=/workspace/.githooks \
             "${CI_IMAGE}" \
             -lc '
               set -euo pipefail
 
-              if [ -x .githooks/install-hooks.sh ]; then
-                bash .githooks/install-hooks.sh
-              else
-                echo "::warning::resolve-issue (codex): .githooks/install-hooks.sh not found; commits will skip pre-commit/pre-push validation"
+              if [ ! -d .githooks ]; then
+                echo "::warning::resolve-issue (codex): .githooks/ not found; commits will skip pre-commit/pre-push validation"
               fi
 
               source .devcontainer/configure-codex.sh
@@ -354,17 +355,17 @@ jobs:
             -e ISSUE_TITLE_B64 \
             -e REPO \
             -e RUN_ID \
-            -e GIT_CONFIG_COUNT=1 \
+            -e GIT_CONFIG_COUNT=2 \
             -e GIT_CONFIG_KEY_0=safe.directory \
             -e GIT_CONFIG_VALUE_0=/workspace \
+            -e GIT_CONFIG_KEY_1=core.hooksPath \
+            -e GIT_CONFIG_VALUE_1=/workspace/.githooks \
             "${CI_IMAGE}" \
             -lc '
               set -euo pipefail
 
-              if [ -x .githooks/install-hooks.sh ]; then
-                bash .githooks/install-hooks.sh
-              else
-                echo "::warning::resolve-issue (claude): .githooks/install-hooks.sh not found; commits will skip pre-commit/pre-push validation"
+              if [ ! -d .githooks ]; then
+                echo "::warning::resolve-issue (claude): .githooks/ not found; commits will skip pre-commit/pre-push validation"
               fi
 
               ISSUE_TITLE=$(printf "%s" "$ISSUE_TITLE_B64" | base64 -d 2>/dev/null || echo "")

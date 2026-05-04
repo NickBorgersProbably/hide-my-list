@@ -6,10 +6,8 @@ set -euo pipefail
 # Prior session state lives at $HOME/.codex (bind-mounted from the
 # host) so `codex exec resume --last` finds it.
 
-if [ -x .githooks/install-hooks.sh ]; then
-  bash .githooks/install-hooks.sh
-else
-  echo "::warning::review-codex-resume: .githooks/install-hooks.sh not found (PR branched before hooks-in-CI landed); commits will skip pre-commit/pre-push validation"
+if [ ! -d .githooks ]; then
+  echo "::warning::review-codex-resume: .githooks/ not found (PR branched before hooks-in-CI landed); commits will skip pre-commit/pre-push validation"
 fi
 
 # shellcheck disable=SC1091
