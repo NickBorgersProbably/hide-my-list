@@ -287,9 +287,11 @@ jobs:
             -e ISSUE_TITLE_B64 \
             -e REPO \
             -e RUN_ID \
-            -e GIT_CONFIG_COUNT=1 \
-            -e GIT_CONFIG_KEY_0=core.hooksPath \
-            -e GIT_CONFIG_VALUE_0=/workspace/.githooks \
+            -e GIT_CONFIG_COUNT=2 \
+            -e GIT_CONFIG_KEY_0=safe.directory \
+            -e GIT_CONFIG_VALUE_0=/workspace \
+            -e GIT_CONFIG_KEY_1=core.hooksPath \
+            -e GIT_CONFIG_VALUE_1=/workspace/.githooks \
             "${CI_IMAGE}" \
             -lc '
               set -euo pipefail
