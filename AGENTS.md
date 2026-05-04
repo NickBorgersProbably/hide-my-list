@@ -113,6 +113,17 @@ Personalize prep using user preferences (beverage, comfort spot, rituals).
 | NEED_HELP | `docs/ai-prompts/breakdown.md` + `docs/ai-prompts/shared.md` — confidence detection, response levels, base prompt |
 | CHECK_IN | `docs/ai-prompts/check-in.md` + `docs/ai-prompts/shared.md` — timing, shame-safe templates, base prompt |
 
+### COMPLETE Output Boundary
+
+Reward generation is multi-step, but the conversation must not be.
+
+During COMPLETE handling:
+- Do all Notion updates, state updates, reward scoring, and image generation silently.
+- Do not send progress narration such as score math, streak calculations, tool plans, script commands, image-generation status, or state-update notes.
+- If a reward image is generated, send exactly one final user-visible reward reply containing celebration text plus one `MEDIA:<absolute-path>` line.
+- If image generation falls back to `.txt`, read the suggestion and send one plain-text celebration/reward reply with no `MEDIA:` line.
+- If two or more tasks are completed in the same user turn, batch hidden work into one turn-scoped reward: one combined celebration reply, at most one `MEDIA:` line, and no visible per-task calculations.
+
 ## Safety
 
 - Don't show full task list. Core rule.
