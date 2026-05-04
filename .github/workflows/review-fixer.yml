@@ -85,6 +85,16 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}
 
+      - name: Configure git hooks (host runner)
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        run: |
+          set -euo pipefail
+          if [ -d .githooks ]; then
+            git config core.hooksPath "$(pwd)/.githooks"
+          else
+            echo "::warning::review-fixer: .githooks/ not found; commits will skip pre-commit/pre-push validation"
+          fi
+
       - name: Sync with main
         # Almost every PR in this repo is AI-authored — there is no
         # reliable human in the loop to resolve merge conflicts when

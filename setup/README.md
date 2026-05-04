@@ -29,8 +29,9 @@
    ```
 
    `pre-commit` handles the fast staged-file checks, and `pre-push` reruns the
-   deterministic CI-equivalent checks for changed scripts, docs, and
-   workflow-related paths before GitHub is the first place they fail.
+   deterministic CI-equivalent checks for changed scripts, docs, workflow-related
+   paths, and OpenClaw config/bootstrap paths before GitHub is the first place
+   they fail.
 
 3. Create the `.env` file:
    ```bash

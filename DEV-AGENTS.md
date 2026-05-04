@@ -68,7 +68,7 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/ci-session-store.sh` — Path-naming, pack/unpack, and trailer-parse helper for the per-(agent, issue, run-id) author-session store (job-local under `${RUNNER_TEMP}/ci-sessions/<agent>/<issue>/<run-id>/`); used by both `resolve-issue` (pack + upload) and v2 review-fixer (download + unpack)
 - `scripts/test-ci-session-store.sh` — Self-contained unit tests for `ci-session-store.sh`; invoked by `review-fixer-resume-smoke.yml`
 - `scripts/pull-main.sh` — Branch sync helper
-- `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, workflow validations
+- `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, workflow, and OpenClaw config smoke validations
 - `scripts/security-update.sh` — Security update automation
 - `scripts/validate-gh-cli-usage.sh` — GitHub CLI workflow usage validation
 - `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
