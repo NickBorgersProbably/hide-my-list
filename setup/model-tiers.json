@@ -1,0 +1,5 @@
+{
+  "expensive": "claude-opus-4-6",
+  "medium": "claude-sonnet-4-6",
+  "cheap": "qwen2.5"
+}

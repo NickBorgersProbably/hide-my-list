@@ -928,7 +928,7 @@ flowchart TD
     SafetyNet --> Handoff[check-reminders.sh writes<br/>.reminder-signal handoff]
     Handoff --> SafetyDeliver{Delivery path}
     SafetyDeliver -->|User interacts:<br/>AGENTS.md step 6| Send
-    SafetyDeliver -->|Heartbeat: Check 1| Send
+    SafetyDeliver -->|Delivery sweep / Heartbeat: Check 1| Send
 
     OneShotRun --> Send[Deliver reminder]
 
@@ -949,7 +949,7 @@ flowchart TD
 
 Primary path: at intake, the agent calls `notion-cli.sh create-reminder` then `CronCreate` for a one-shot job named `reminder-<page_id>` with `schedule.kind: "at"`, `at: remind_at`, `deleteAfterRun: true`, `sessionTarget: main`. Registering the cron in the same turn also suppresses OpenClaw's `agent-runner-reminder-guard` post-process note. See `setup/cron/reminder-delivery.md` for the full contract. When the one-shot fires, its agent turn delivers via the `message` tool, atomically updates `state.json.recent_outbound`, calls `complete-reminder`, and the job self-deletes.
 
-Safety net: isolated `reminder-check` cron writes handoff file and exits. Delivery through the `heartbeat` cron (Check 1 in `docs/heartbeat-checks.md`, daily) or main-session startup check (AGENTS.md step 6, on every user interaction). Both paths first validate handoff is JSON with `reminders` array where each entry is object with string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Any other shape or status = malformed handoff — file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing else delivered or completed. Valid reminders always use the same shame-safe copy: `Hey, time to [task]`. If delivery fails, handoff file left in place for retry.
+Safety net: isolated `reminder-check` cron writes handoff file and exits. Delivery through `reminder-delivery-sweep` (every 2 hours), the `heartbeat` cron (Check 1 in `docs/heartbeat-checks.md`, daily), or main-session startup check (AGENTS.md step 6, on every user interaction). Delivery paths first validate handoff is JSON with `reminders` array where each entry is object with string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Any other shape or status = malformed handoff — file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing else delivered or completed. Valid reminders always use the same shame-safe copy: `Hey, time to [task]`. If delivery fails, handoff file left in place for retry.
 
 After successful reminder delivery, the delivering session must also append/update `state.json.recent_outbound` with a short-lived entry describing what it just sent (`type: reminder`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at`). That entry bridges the gap between sessions: if the user replies "I did it" or "tomorrow at 9" in a fresh session, the agent can resolve the reply against the reminder it just sent instead of asking what they mean. Clear the matched entry once the reply is resolved.
 

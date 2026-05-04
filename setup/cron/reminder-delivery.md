@@ -8,7 +8,7 @@ The recurring `reminder-check` cron + `.reminder-signal` handoff path stays as a
 
 OpenClaw's `agent-runner-reminder-guard` post-processes every assistant reply that matches a reminder-commitment regex (`I'll remind you`, `I'll set a reminder`, etc.) and appends `"Note: I did not schedule a reminder in this turn, so this will not trigger automatically."` unless the same turn registered a cron job (`successfulCronAdds > 0`) or an enabled cron shares the current `sessionKey`.
 
-Registering this one-shot cron at intake satisfies the first condition, suppressing the framework note. It also delivers reminders at exact wall-clock time instead of relying on the up-to-~135-min worst-case latency of the polling backstop.
+Registering this one-shot cron at intake satisfies the first condition, suppressing the framework note. It also delivers reminders at exact wall-clock time instead of relying on the polling backstop. If the one-shot path fails, `reminder-check` plus `reminder-delivery-sweep` keeps fully idle fallback latency to about 135 minutes.
 
 ## Registration
 
@@ -87,6 +87,6 @@ acceptable; missed delivery is not.
 
 ## Notes
 
-- One-shot `reminder-*` jobs are NOT covered by recurring cron registration / drift checks (`docs/heartbeat-checks.md` Checks 2 / 2b). Those checks cover only the recurring canonical catalog (`heartbeat`, `reminder-check`, `pull-main`, `janitor`). One-shots self-delete after firing, so verifying their continued presence makes no sense.
-- `validate-model-refs.sh` (`scripts/validate-model-refs.sh`) checks the cheap-tier canonical-cron list (`heartbeat.md`, `reminder-check.md`, `pull-main.md`); this one-shot delivery spec is intentionally decoupled from `modelTiers.cheap`. Keep its concrete `model:` line aligned with the multi-step delivery contract above.
+- One-shot `reminder-*` jobs are NOT covered by recurring cron registration / drift checks (`docs/heartbeat-checks.md` Checks 2 / 2b). Those checks cover only the recurring canonical catalog (`heartbeat`, `reminder-check`, `reminder-delivery-sweep`, `pull-main`, `janitor`). One-shots self-delete after firing, so verifying their continued presence makes no sense.
+- `validate-model-refs.sh` (`scripts/validate-model-refs.sh`) checks the cheap-tier canonical-cron list (`heartbeat.md`, `reminder-check.md`, `reminder-delivery-sweep.md`, `pull-main.md`); this one-shot delivery spec is intentionally decoupled from the cheap tier in `setup/model-tiers.json`. Keep its concrete `model:` line aligned with the multi-step delivery contract above.
 - `validate-spec-catalog.sh` checks only `docs/*.md` membership, so this `setup/cron/*.md` file does not need to be listed in `docs/index.md` or `DEV-AGENTS.md`.

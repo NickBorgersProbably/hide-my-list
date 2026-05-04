@@ -10,20 +10,21 @@ CronCreate:
   durable: true
   name: "reminder-check"
   sessionTarget: isolated
-  model: litellm/qwen2.5  # must match modelTiers.cheap
+  model: litellm/qwen2.5  # must match setup/model-tiers.json cheap
   payload:
     kind: agentTurn
     lightContext: true  # empty bootstrap — cron prompt is self-contained
   timeout-seconds: 300
 ```
 
-Isolated cheap-tier session (see `modelTiers` in `setup/openclaw.json.template`). Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
+Isolated cheap-tier session (see `setup/model-tiers.json`). Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
 
 **Role: backstop.** Primary reminder delivery is the per-reminder one-shot cron registered at intake (`setup/cron/reminder-delivery.md`). This `reminder-check` polling job catches anything that primary path misses: `CronCreate` failures at intake, jobs that fail to fire (gateway down at the scheduled time, etc.), or reminders that lack a registered one-shot for any other reason.
 
 **Backstop delivery paths** (only fire when this poll finds a still-Pending reminder):
 1. **AGENTS.md step 6** (opportunistic): main session checks handoff file on every user interaction.
-2. **heartbeat cron Check 1** (daily safety net, `docs/heartbeat-checks.md`): heartbeat reads the handoff file daily, delivers stranded reminders.
+2. **reminder-delivery-sweep** (2-hour idle safety net, `setup/cron/reminder-delivery-sweep.md`): sweep reads the handoff file and delivers stranded reminders.
+3. **heartbeat cron Check 1** (daily safety net, `docs/heartbeat-checks.md`): heartbeat reads the handoff file daily, delivers stranded reminders if the narrower sweep did not.
 
 Both paths validate before sending: must be JSON with `reminders` array, each entry has string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Any other shape/status is malformed → leave file, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`) describing the malformed handoff, no delivery, no `complete-reminder` call, no delete. Valid → send each via OpenClaw `message` tool (`action: send`, `channel: signal`) with uniform shame-safe wording (`Hey, time to [task]`), then append/update `state.json.recent_outbound` with a short-lived reminder entry (`type: "reminder"`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later), pruning expired entries, then call `scripts/notion-cli.sh complete-reminder PAGE_ID sent` to atomically set Notion `Status → Completed`, `Reminder Status → sent`, `Completed At`, then delete the handoff file.
 

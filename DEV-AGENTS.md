@@ -23,6 +23,9 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `TOOLS.md` — Available tools + property references
 - `HEARTBEAT.md` — Legacy built-in heartbeat redirect; production health checks run through `setup/cron/heartbeat.md`
 - `docs/heartbeat-checks.md` — Authoritative heartbeat check list (stranded reminders, cron health, drift, Notion connectivity, dirty-pull recovery)
+- `setup/cron/heartbeat.md` — Daily light-touch heartbeat cron spec
+- `setup/cron/reminder-delivery-sweep.md` — Narrow idle-session reminder handoff delivery cron spec
+- `setup/cron/janitor.md` — Weekly deep audit and cron drift correction cron spec
 - `docs/ai-prompts/shared.md` — Base system prompt, intent dispatch, user preferences context, output/error/state handling (entry point for per-intent prompts)
 - `docs/ai-prompts/intake.md` — Task Intake module (ADD_TASK): inference rules, sub-task generation, reminder detection
 - `docs/ai-prompts/selection.md` — Task Selection module (GET_TASK): scoring weights, mood mapping
@@ -71,8 +74,10 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
 - `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
-- `scripts/validate-model-refs.sh` — Enforces model tier consistency: every `litellm/<id>` resolves in template, `modelTiers` matches agent config, cron specs use cheap tier
+- `scripts/validate-model-refs.sh` — Enforces model tier consistency: every `litellm/<id>` resolves in template, `setup/model-tiers.json` matches agent config, cron specs use cheap tier
+- `scripts/validate-openclaw-config.sh` — OpenClaw config smoke validator used by PR Tests to render, validate, read, write, and schema-check the template config
 - `scripts/validate-spec-catalog.sh` — Enforces that every `docs/*.md` spec file registered in the classifier's `is_spec_md()` is also listed in `docs/index.md` and this file's Key Files section
+- `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers for validation and cron-spec alignment
 - `setup/` — Cron + setup docs
 
 ## Safety

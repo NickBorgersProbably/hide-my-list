@@ -9,7 +9,7 @@ Use as source of truth when updating `AGENTS.md`, `HEARTBEAT.md`, `docs/heartbea
 hide-my-list runs multiple OpenClaw session types:
 
 - **main agent** — user talks to
-- isolated **durable cron sessions** like `heartbeat`, `reminder-check`, `pull-main`, and `janitor`
+- isolated **durable cron sessions** like `heartbeat`, `reminder-check`, `reminder-delivery-sweep`, `pull-main`, and `janitor`
 
 Sessions have different responsibilities and different tools. Config patching belongs to main agent unless another session's access explicitly confirmed.
 
@@ -19,6 +19,7 @@ Sessions have different responsibilities and different tools. Config patching be
 |---------|---------|-------------|------------------------|
 | Main agent | User message / normal conversation startup | Yes | Run product, manage tasks, handle operator actions needing richer tools |
 | Heartbeat cron session | Durable `heartbeat` cron daily | Usually no; may deliver reminders | Light-touch operational health and stranded reminder delivery |
+| Reminder delivery sweep | Durable `reminder-delivery-sweep` cron every 2 hours | Usually no; may deliver reminders | Narrow idle-session reminder handoff delivery |
 | Janitor cron session | Durable `janitor` cron weekly | No; may alert operator | Deep operational audit and cron drift correction |
 | Isolated cron session | Durable cron schedule in `setup/cron/` | No | Script-first background work, narrow scope |
 
@@ -59,7 +60,7 @@ Tool availability does not override `AGENTS.md` safety policy. External actions 
 
 ## Heartbeat Cron Session
 
-Short durable cron session configured in `setup/cron/heartbeat.md`. Runs daily as an isolated cheap-tier session and reads `docs/heartbeat-checks.md` as the authoritative check list. Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` with `agents.defaults.heartbeat.every: 0`.
+Short durable cron session configured in `setup/cron/heartbeat.md`. Runs daily as an isolated cheap-tier session and reads `docs/heartbeat-checks.md` as the authoritative check list. Built-in OpenClaw heartbeat is disabled in `setup/openclaw.json.template` with `agents.defaults.heartbeat.every: "0s"`.
 
 ### Confirmed tool contract
 
@@ -95,6 +96,22 @@ Heartbeat responsible for:
 ### Explicit boundary
 
 Heartbeat cron = **operations backstop**, not primary control plane. Keeps existing system healthy. Not where repo docs assume config mutation, broad gateway control, or user-conversation logic. If the `heartbeat` cron itself is deleted entirely, AGENTS.md startup checks restore it from `setup/cron/heartbeat.md` on the next user interaction.
+
+## Reminder Delivery Sweep
+
+Short durable cron session configured in `setup/cron/reminder-delivery-sweep.md`. Runs every 2 hours as an isolated cheap-tier session and executes only Check 1 from `docs/heartbeat-checks.md`.
+
+### Operational responsibilities
+
+Reminder delivery sweep responsible for:
+
+- reading reminder handoff file and delivering stranded reminders as the idle-session backstop
+- recording delivered reminder context in `state.json.recent_outbound`
+- completing delivered reminders in Notion with `scripts/notion-cli.sh complete-reminder PAGE_ID sent`
+
+### Explicit boundary
+
+Reminder delivery sweep does not run cron registration repair, drift correction, Notion connectivity checks, dirty-pull recovery, or janitor audits. It exists only to keep fallback reminder delivery on a short cadence while heartbeat stays daily.
 
 ## Janitor Cron Session
 

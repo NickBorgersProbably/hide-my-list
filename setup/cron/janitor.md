@@ -31,6 +31,6 @@ Read docs/heartbeat-checks.md and execute the Weekly Janitor Checks. Use that fi
 
 ## Notes
 
-- `janitor` is intentionally not tied to `modelTiers.cheap`. The model is concrete and must exist in `setup/openclaw.json.template`, but it is decoupled from tier remapping because this job is a weekly reasoning-heavy audit.
+- `janitor` is intentionally not tied to the cheap tier in `setup/model-tiers.json`. The model is concrete and must exist in `setup/openclaw.json.template`, but it is decoupled from tier remapping because this job is a weekly reasoning-heavy audit.
 - Janitor surfaces actionable findings to the operator via Signal using `OPS_ALERT_SIGNAL_NUMBER`. It stays silent on a clean week.
 - Janitor may patch cron registration drift, but it should not auto-prune suspicious Notion data; findings that require judgment are surfaced for operator decision.

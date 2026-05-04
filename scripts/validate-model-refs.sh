@@ -5,31 +5,41 @@
 #   1) Template membership: every `litellm/<id>` reference in each spec
 #      file registered by review-classify's is_spec_md() must resolve in
 #      setup/openclaw.json.template's models array.
-#   2) Tier-config consistency: modelTiers in the template must match
+#   2) Tier-config consistency: setup/model-tiers.json must match
 #      agents.defaults where tiers still apply (expensive=primary,
 #      medium=fallback), and the disabled built-in heartbeat block must remain
 #      internally valid.
 #   3) Cron-tier agreement: routine cron spec files must use the cheap-tier
-#      model from modelTiers, janitor must stay on a configured decoupled
-#      model, and sibling docs' cron-contract sections must point back to the
-#      canonical setup/cron specs instead of drifting.
+#      model from setup/model-tiers.json, janitor must stay on a configured
+#      decoupled model, and sibling docs' cron-contract sections must point
+#      back to the canonical setup/cron specs instead of drifting.
 #
-# Model tier mapping lives in setup/openclaw.json.template under modelTiers.
-# New instances: edit modelTiers + agents.defaults + routine cron spec model:
-# lines, then run this script to verify consistency. Built-in heartbeat is
-# disabled; the production heartbeat is a cheap-tier cron in
-# setup/cron/heartbeat.md. Weekly janitor is intentionally decoupled from
-# modelTiers.cheap.
+# Model tier mapping is repo metadata, not OpenClaw runtime config.
+# New instances: edit setup/model-tiers.json + agents.defaults + routine cron
+# spec model lines, then run this script to verify consistency. Built-in
+# heartbeat is disabled; the production heartbeat is a cheap-tier cron in
+# setup/cron/heartbeat.md. Weekly janitor is intentionally decoupled from the
+# cheap tier.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: required command 'jq' is not installed" >&2
+  exit 1
+fi
+
 TEMPLATE="setup/openclaw.json.template"
+TIER_MAP="setup/model-tiers.json"
 CLASSIFIER=".github/actions/review-classify/action.yml"
 if [[ ! -f "$TEMPLATE" ]]; then
   echo "ERROR: $TEMPLATE not found" >&2
+  exit 1
+fi
+if [[ ! -f "$TIER_MAP" ]]; then
+  echo "ERROR: $TIER_MAP not found" >&2
   exit 1
 fi
 if [[ ! -f "$CLASSIFIER" ]]; then
@@ -37,15 +47,14 @@ if [[ ! -f "$CLASSIFIER" ]]; then
   exit 1
 fi
 
-# --- Parse modelTiers from template ---------------------------------------
+# --- Parse model tiers ----------------------------------------------------
 
 extract_tier() {
   # $1 = tier name (expensive, medium, cheap)
-  # Matches "tierName": "model-id" on the same line
   local val
-  val="$(grep -E "\"$1\"[[:space:]]*:" "$TEMPLATE" | head -1 | sed -E 's/.*:[[:space:]]*"([^"]+)".*/\1/')"
+  val="$(jq -er --arg tier "$1" '.[$tier]' "$TIER_MAP")"
   if [[ -z "$val" ]]; then
-    echo "ERROR: modelTiers.$1 not found in $TEMPLATE" >&2
+    echo "ERROR: $TIER_MAP.$1 not found" >&2
     exit 1
   fi
   printf '%s' "$val"
@@ -117,7 +126,7 @@ tier_errors=()
 for tier_name in expensive medium cheap; do
   tier_val="$(extract_tier "$tier_name")"
   if ! grep -qx "$tier_val" <<<"$template_ids"; then
-    tier_errors+=("modelTiers.$tier_name = $tier_val (not in $TEMPLATE models[].id)")
+    tier_errors+=("$TIER_MAP.$tier_name = $tier_val (not in $TEMPLATE models[].id)")
   fi
 done
 
@@ -141,8 +150,8 @@ heartbeat_block="$(awk '/"heartbeat":[[:space:]]*\{/,/^[[:space:]]*\}/' "$TEMPLA
 
 # Check agents.defaults.heartbeat.every disables the built-in heartbeat.
 heartbeat_every="$(grep -oE '"every":[[:space:]]*("[^"]+"|[0-9]+)' <<<"$heartbeat_block" | sed -E 's/.*:[[:space:]]*"?([^",]+)"?/\1/' | head -1)"
-if [[ "$heartbeat_every" != "0" ]]; then
-  tier_errors+=("agents.defaults.heartbeat.every must be 0 (built-in heartbeat disabled; use setup/cron/heartbeat.md)")
+if [[ "$heartbeat_every" != "0s" ]]; then
+  tier_errors+=("agents.defaults.heartbeat.every must be \"0s\" (built-in heartbeat disabled; use setup/cron/heartbeat.md)")
 fi
 
 # Check agents.defaults.heartbeat.model resolves to a configured model if a
@@ -166,11 +175,21 @@ if grep -qE '"isolatedSession"[[:space:]]*:' <<<"$heartbeat_block"; then
   tier_errors+=("agents.defaults.heartbeat.isolatedSession is not accepted by the OpenClaw config schema")
 fi
 
+heartbeat_drift_file="$(mktemp)"
+# shellcheck disable=SC2016  # Backticks are literal markdown markers in the regex.
+if grep -R -nE '("every"[[:space:]]*:[[:space:]]*0|`every:[[:space:]]*0`|heartbeat[.]every[^`]*\(`0`\)|agents[.]defaults[.]heartbeat[.]every: 0|disabled with `every: 0`)' setup docs DEV-AGENTS.md >"$heartbeat_drift_file"; then
+  while IFS= read -r line; do
+    tier_errors+=("stale heartbeat disable value: $line")
+  done <"$heartbeat_drift_file"
+fi
+rm -f "$heartbeat_drift_file"
+
 # --- Invariant 3: cron-tier agreement -----------------------------------
 
 cheap_tier_cron_sources=(
   "setup/cron/heartbeat.md"
   "setup/cron/reminder-check.md"
+  "setup/cron/reminder-delivery-sweep.md"
   "setup/cron/pull-main.md"
 )
 
@@ -190,7 +209,7 @@ for f in "${canonical_cron_sources[@]}"; do
   fi
 done
 
-# Cheap-tier cron specs must have concrete model ID matching modelTiers.cheap.
+# Cheap-tier cron specs must have concrete model ID matching setup/model-tiers.json.
 cron_errors=()
 expected_cron_ref="litellm/$tier_cheap"
 
@@ -203,7 +222,7 @@ for f in "${cheap_tier_cron_sources[@]}"; do
     cron_errors+=("$f: model = $cron_model, expected $expected_cron_ref (cheap tier)")
   fi
   # Check tier comment present.
-  if ! grep -qE '^\s+model:.*# must match modelTiers[.]cheap' "$f"; then
+  if ! grep -qE '^\s+model:.*# must match setup/model-tiers[.]json cheap' "$f"; then
     cron_errors+=("$f: missing cheap-tier coupling comment on model: line")
   fi
   # Check payload.lightContext: true present (skips bootstrap for isolated cron sessions)
@@ -262,9 +281,9 @@ check_contract_window \
 # shellcheck disable=SC2016  # backticks are literal grep anchors, not command substitution
 check_contract_window \
   "docs/architecture.md" \
-  'The routine recurring jobs `heartbeat`, `reminder-check`, and `pull-main` use `sessionTarget: isolated`' \
+  'The routine recurring jobs `heartbeat`, `reminder-check`, `reminder-delivery-sweep`, and `pull-main` use `sessionTarget: isolated`' \
   5 \
-  'cheap-tier model|modelTiers|setup/cron/|janitor.*Opus' \
+  'cheap-tier model|setup/model-tiers\.json|setup/cron/|janitor.*Opus' \
   '' \
   "cron contract section"
 
@@ -272,7 +291,7 @@ check_contract_window \
   "docs/openclaw-integration.md" \
   "**Current registration contract:**" \
   5 \
-  'setup/cron/.*modelTiers\.cheap|modelTiers\.cheap.*setup/cron/.*janitor|janitor.*modelTiers\.cheap|janitor.*decoupled' \
+  'setup/cron/.*setup/model-tiers\.json|setup/model-tiers\.json.*setup/cron/.*janitor|janitor.*decoupled' \
   '' \
   "cron contract section"
 
@@ -280,8 +299,8 @@ check_contract_window \
   "docs/heartbeat-checks.md" \
   "Check via CronList." \
   24 \
-  'setup/cron/<name>\.md.*modelTiers\.cheap|modelTiers\.cheap.*setup/cron/<name>\.md' \
-  'litellm/<modelTiers\.cheap>' \
+  'setup/cron/<name>\.md.*setup/model-tiers\.json|setup/model-tiers\.json.*setup/cron/<name>\.md' \
+  'litellm/<cheap-tier model>' \
   "cron contract section"
 
 # Drift-correction contract (Check 2b) must list payload.lightContext
@@ -314,7 +333,7 @@ if (( ${#all_errors[@]} > 0 )); then
   echo "ERROR: model reference validation failed:" >&2
   for e in "${all_errors[@]}"; do echo "$e" >&2; done
   echo "" >&2
-  echo "Fix: update modelTiers in $TEMPLATE, ensure routine cheap-tier cron specs/docs match, keep janitor on a configured decoupled model, and keep built-in heartbeat disabled." >&2
+  echo "Fix: update $TIER_MAP, ensure routine cheap-tier cron specs/docs match, keep janitor on a configured decoupled model, and keep built-in heartbeat disabled." >&2
   exit 1
 fi
 
