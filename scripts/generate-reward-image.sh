@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Generate a celebratory reward image using OpenAI's image generation API.
-# Usage: ./generate-reward-image.sh <intensity> [task_title] [streak_count]
+# Usage: ./generate-reward-image.sh <intensity> <streak_count> <task_description>...
+#
+# Provide exactly N task descriptions when streak_count is N.
 #
 # Optional context:
 #   REWARD_STATE_FILE=/path/to/state.json
@@ -14,6 +16,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR/.."
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: ./scripts/generate-reward-image.sh <intensity> <streak_count> <task_description>...
+
+Intensity: low, medium, high, epic
+
+Pass exactly N task descriptions when streak_count is N.
+
+Examples:
+  ./scripts/generate-reward-image.sh low 1 "Call dentist"
+  ./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
+  ./scripts/generate-reward-image.sh epic 5 "Draft report" "Send update" "Pay bill" "Book appointment" "Fold laundry"
+EOF
+}
+
+fail_usage() {
+    echo "Error: $1" >&2
+    usage
+    exit 2
+}
 
 # --- Offline fallback rewards ---
 # When image generation is unavailable (API outage, missing key, network error),
@@ -50,13 +73,34 @@ suggest_offline_reward() {
     exit 0
 }
 
-# shellcheck source=scripts/load-env.sh
-if ! source "$SCRIPT_DIR/load-env.sh" OPENAI_API_KEY?; then
-    suggest_offline_reward "env file unavailable"
+INTENSITY="${1:-}"
+STREAK="${2:-}"
+
+[ -n "$INTENSITY" ] || fail_usage "missing intensity"
+[ -n "$STREAK" ] || fail_usage "missing streak_count"
+
+case "$INTENSITY" in
+    low|medium|high|epic)
+        ;;
+    *)
+        fail_usage "unknown intensity: $INTENSITY"
+        ;;
+esac
+
+case "$STREAK" in
+    ''|*[!0-9]*)
+        fail_usage "streak_count must be a positive integer"
+        ;;
+esac
+
+shift 2
+EXPECTED_TASK_COUNT="$STREAK"
+if [ "$EXPECTED_TASK_COUNT" -eq 0 ]; then
+    fail_usage "streak_count must be a positive integer"
 fi
 
-if [ -z "${OPENAI_API_KEY:-}" ]; then
-    suggest_offline_reward "OPENAI_API_KEY not set"
+if [ "$#" -ne "$EXPECTED_TASK_COUNT" ]; then
+    fail_usage "streak_count $STREAK requires $EXPECTED_TASK_COUNT task description(s), got $#"
 fi
 
 for cmd in python3 curl; do
@@ -65,32 +109,46 @@ for cmd in python3 curl; do
     fi
 done
 
-INTENSITY="${1:-medium}"
-TASK_TITLE_RAW="${2:-a task}"
-STREAK="${3:-0}"
+TASK_TITLES_JSON="$(
+    python3 - "$@" <<'PY'
+import json
+import re
+import sys
+
+normalized = []
+for raw in sys.argv[1:]:
+    title = re.sub(r"\s+", " ", raw).strip()
+    if not title:
+        print("task descriptions must be non-empty", file=sys.stderr)
+        sys.exit(2)
+    normalized.append(title)
+
+print(json.dumps(normalized, ensure_ascii=True))
+PY
+)" || exit 2
+
 TIMESTAMP="$(date +%s)"
 DATE_STR="$(date +%Y-%m-%d)"
 TIME_STR="$(date +%H%M%S)"
 REWARD_ID="${DATE_STR}_${TIME_STR}_${INTENSITY}_$RANDOM"
 STATE_FILE="${REWARD_STATE_FILE:-$REPO_ROOT/state.json}"
+TASK_TITLE="$(TASK_TITLES_JSON="$TASK_TITLES_JSON" python3 <<'PY'
+import json
+import os
 
-case "$INTENSITY" in
-    low|medium|high|epic)
-        ;;
-    *)
-        echo "Unknown intensity: $INTENSITY" >&2
-        exit 1
-        ;;
-esac
+print("; ".join(json.loads(os.environ["TASK_TITLES_JSON"])))
+PY
+)"
 
-case "$STREAK" in
-    ''|*[!0-9]*)
-        STREAK=0
-        ;;
-esac
+# shellcheck source=scripts/load-env.sh
+# shellcheck disable=SC1091
+if ! source "$SCRIPT_DIR/load-env.sh" OPENAI_API_KEY?; then
+    suggest_offline_reward "env file unavailable"
+fi
 
-TASK_TITLE="$(printf '%s' "$TASK_TITLE_RAW" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
-[ -n "$TASK_TITLE" ] || TASK_TITLE="a task"
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+    suggest_offline_reward "OPENAI_API_KEY not set"
+fi
 
 ARCHIVE_DIR="$REPO_ROOT/rewards"
 MANIFEST_FILE="$ARCHIVE_DIR/manifest.log"
@@ -104,6 +162,7 @@ ARCHIVE_FILE="${ARCHIVE_DIR}/${DATE_STR}_${TIME_STR}_${INTENSITY}.png"
 build_reward_context() {
     INTENSITY="$INTENSITY" \
     TASK_TITLE="$TASK_TITLE" \
+    TASK_TITLES_JSON="$TASK_TITLES_JSON" \
     STREAK="$STREAK" \
     REWARD_ID="$REWARD_ID" \
     STATE_FILE="$STATE_FILE" \
@@ -121,6 +180,7 @@ from pathlib import Path
 
 INTENSITY = os.environ["INTENSITY"]
 TASK_TITLE = " ".join(os.environ["TASK_TITLE"].split())
+TASK_TITLES = json.loads(os.environ["TASK_TITLES_JSON"])
 STREAK = int(os.environ.get("STREAK", "0") or 0)
 REWARD_ID = os.environ["REWARD_ID"]
 STATE_FILE = Path(os.environ["STATE_FILE"])
@@ -361,6 +421,7 @@ SENSITIVE_PATTERNS = [
 ]
 
 GENERIC_TITLES = {
+    "a task",
     "task",
     "tasks",
     "todo",
@@ -566,11 +627,23 @@ def find_task_profile(title: str):
     }
 
 
-def detect_sensitive_reason(title: str):
-    lowered = title.lower()
-    for pattern, reason in SENSITIVE_PATTERNS:
-        if re.search(pattern, lowered):
-            return reason
+def find_task_profiles(titles):
+    profiles = []
+    seen = set()
+    for title in titles:
+        profile = find_task_profile(title)
+        if profile["id"] not in seen:
+            profiles.append(profile)
+            seen.add(profile["id"])
+    return profiles
+
+
+def detect_sensitive_reason(titles):
+    for title in titles:
+        lowered = title.lower()
+        for pattern, reason in SENSITIVE_PATTERNS:
+            if re.search(pattern, lowered):
+                return reason
     return ""
 
 
@@ -628,26 +701,26 @@ def avoidance_penalty(option, avoid_terms, weight):
 
 
 def build_streak_detail(streak: int) -> str:
-    if streak >= 5:
-        return "Add a trail of five glowing orbs to signal a hot streak."
-    if streak >= 3:
-        return "Add three small orbiting stars to hint at momentum."
+    if streak > 0:
+        return f"Add exactly {streak} small glowing progress markers, one for each completed task in this streak."
     return ""
 
 
-def build_task_mode(task_title: str, sensitive_reason: str):
+def build_task_mode(task_titles, sensitive_reason: str):
     if sensitive_reason:
         return "metaphorical"
-    if is_vague_title(task_title):
+    if any(is_vague_title(title) for title in task_titles):
         return "abstract"
     return "literal"
 
 
-def build_task_motif(profile, task_mode: str):
+def build_task_motif(profiles, task_mode: str):
     if task_mode == "literal":
-        return profile["literal"]
+        motifs = [profile["literal"] for profile in profiles[:3]]
+        return "; ".join(motifs)
     if task_mode == "metaphorical":
-        return profile["metaphor"]
+        motifs = [profile["metaphor"] for profile in profiles[:3]]
+        return "; ".join(motifs)
     return "a clean burst of forward motion turning into a satisfying celebration"
 
 
@@ -701,10 +774,18 @@ def sensitive_palette_candidates():
 
 reward_preferences = load_reward_preferences(STATE_FILE)
 feedback = load_feedback(FEEDBACK_FILE)
-task_profile = find_task_profile(TASK_TITLE)
-sensitive_reason = detect_sensitive_reason(TASK_TITLE)
-task_mode = build_task_mode(TASK_TITLE, sensitive_reason)
-task_motif = build_task_motif(task_profile, task_mode)
+task_profiles = find_task_profiles(TASK_TITLES)
+sensitive_reason = detect_sensitive_reason(TASK_TITLES)
+task_mode = build_task_mode(TASK_TITLES, sensitive_reason)
+task_motif = build_task_motif(task_profiles, task_mode)
+task_profile_ids = [profile["id"] for profile in task_profiles]
+task_tags = []
+for profile in task_profiles:
+    task_tags.extend(profile["tags"])
+if WORK_TYPE:
+    task_tags.append(WORK_TYPE)
+if ENERGY_LEVEL:
+    task_tags.append(ENERGY_LEVEL)
 
 theme_options = THEMES[INTENSITY]
 style_options = STYLE_OPTIONS
@@ -734,7 +815,7 @@ if sensitive_reason:
 prompt_parts = [
     "Create a square celebratory reward image for a completed task.",
     f"Core scene: {theme['scene']}.",
-    f"Blend in task relevance with {task_motif}.",
+    f"Blend in motifs from the validated completed tasks: {task_motif}.",
 ]
 
 if sensitive_reason:
@@ -767,11 +848,13 @@ context = {
     "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "intensity": INTENSITY,
     "task_title": TASK_TITLE,
+    "task_titles": TASK_TITLES,
     "streak": STREAK,
     "task_mode": task_mode,
-    "task_profile": task_profile["id"],
+    "task_profile": ",".join(task_profile_ids),
+    "task_profiles": task_profile_ids,
     "task_motif": task_motif,
-    "task_tags": list(dict.fromkeys(task_profile["tags"] + ([WORK_TYPE] if WORK_TYPE else []) + ([ENERGY_LEVEL] if ENERGY_LEVEL else []))),
+    "task_tags": list(dict.fromkeys(task_tags)),
     "sensitive_reason": sensitive_reason or None,
     "theme_id": theme["id"],
     "theme_family": theme["family"],
@@ -888,6 +971,7 @@ record = {
     "intensity": context["intensity"],
     "task_mode": context["task_mode"],
     "task_profile": context["task_profile"],
+    "task_profiles": context["task_profiles"],
     "task_tags": context["task_tags"],
     "theme_id": context["theme_id"],
     "theme_family": context["theme_family"],
