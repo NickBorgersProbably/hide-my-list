@@ -19,17 +19,7 @@ CronCreate:
 
 Isolated cheap-tier session (see `setup/model-tiers.json`). Query-only: runs check script, writes handoff file (default: `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`) if reminders due, exits. Does not deliver.
 
-The script is shell-first: most runs only need a Notion query and a possible handoff-file write. Current OpenClaw cron registration still uses `agentTurn` because `shell` payloads and conditional `onNonZero` follow-up turns are not part of the supported durable cron contract yet. When OpenClaw supports shell payloads, migrate this job toward:
-
-```yaml
-payload:
-  kind: shell
-  command: "scripts/check-reminders.sh --exit-nonzero-on-due"
-  onExitCode:
-    "10":
-      kind: agentTurn
-      message: "Reminders are due. Read the handoff file and deliver them."
-```
+Most runs only need a Notion query and a possible handoff-file write. Current OpenClaw durable cron registration uses `agentTurn`; the reduced cadence limits routine LLM use.
 
 **Role: backstop.** Primary reminder delivery is the per-reminder one-shot cron registered at intake (`setup/cron/reminder-delivery.md`). This `reminder-check` polling job catches anything that primary path misses: `CronCreate` failures at intake, jobs that fail to fire (gateway down at the scheduled time, etc.), or reminders that lack a registered one-shot for any other reason.
 

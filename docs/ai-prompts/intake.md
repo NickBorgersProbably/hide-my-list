@@ -190,7 +190,7 @@ timing (e.g., "Got it — I've saved your reminder; I'll check for it and send i
 your way"). Do not tell the user the reminder will arrive at an exact time — the
 reminder guard note may appear in this path since no cron add succeeded. The
 reminder is still saved in Notion; the backstop path catches it at the next
-15-min poll.
+30-min poll.
 
 Examples:
   "Remind me at 6pm PT to email Melanie" →

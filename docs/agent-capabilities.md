@@ -143,7 +143,7 @@ Janitor can surface suspicious Notion or memory data but should not auto-prune r
 
 ## Isolated Cron Sessions
 
-Durable OpenClaw jobs registered from `setup/cron/` with `sessionTarget: isolated`, `payload.kind: agentTurn`, and a concrete model in the canonical cron spec. Routine jobs use `payload.lightContext: true` (empty bootstrap — prompts are self-contained scripts or spec readers) and cheap-tier model. Janitor is the exception: weekly Opus, `payload.lightContext: false`, full bootstrap. `pull-main` and `reminder-check` are intentionally shell-first and should move to shell cron payloads once OpenClaw supports them. Run background work without loading prior user conversation transcripts.
+Durable OpenClaw jobs registered from `setup/cron/` with `sessionTarget: isolated`, `payload.kind: agentTurn`, and a concrete model in the canonical cron spec. Routine jobs use `payload.lightContext: true` (empty bootstrap — prompts are self-contained scripts or spec readers) and cheap-tier model. Janitor is the exception: weekly Opus, `payload.lightContext: false`, full bootstrap. `pull-main` and `reminder-check` run self-contained scripts at reduced cadence to limit routine LLM use. Run background work without loading prior user conversation transcripts.
 
 ### Shared tool assumptions
 

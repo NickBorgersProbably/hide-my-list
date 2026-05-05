@@ -19,13 +19,7 @@ CronCreate:
 
 Isolated cheap-tier maintenance session (see `setup/model-tiers.json`). Executes `scripts/pull-main.sh`, stays silent (`NO_REPLY`). Cron spec re-application after pulls handled by weekly janitor drift correction (`docs/heartbeat-checks.md` Check 2b), not this job — isolated session can't reliably call CronList/CronUpdate.
 
-The script is fully self-contained, so the LLM adds no value after process launch. Current OpenClaw cron registration still uses `agentTurn` because `shell` payloads are not part of the supported durable cron contract yet. When OpenClaw supports shell payloads, migrate this job to:
-
-```yaml
-payload:
-  kind: shell
-  command: "scripts/pull-main.sh"
-```
+The script is fully self-contained, so the LLM adds no value after process launch. Current OpenClaw durable cron registration uses `agentTurn`; the reduced cadence limits routine LLM use.
 
 ## Prompt
 
