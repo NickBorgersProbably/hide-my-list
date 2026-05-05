@@ -829,12 +829,12 @@ AI detects reminder-style language and sets:
 **Confirmation message style (success path — `CronCreate` succeeded):**
 > "Got it — I'll remind you around 6pm PT to email Melanie."
 
-"Around" is intentional and stays even though the one-shot cron normally fires at exact `remind_at`. If the one-shot fails to fire and the safety-net polling path takes over, delivery can lag up to about 135 minutes before user interaction or `reminder-delivery-sweep` catches it. "Around 6pm" avoids overpromising exact wall-clock delivery if the safety net catches a stranded reminder.
+"Around" is intentional and stays even though the one-shot cron normally fires at exact `remind_at`. If the one-shot fails to fire and the safety-net polling path takes over, delivery can lag up to about 150 minutes before user interaction or `reminder-delivery-sweep` catches it. "Around 6pm" avoids overpromising exact wall-clock delivery if the safety net catches a stranded reminder.
 
 **Confirmation message style (degraded path — `CronCreate` failed at intake):**
 > "Got it — I've saved your reminder; I'll check for it and send it your way."
 
-Use this neutral wording only when the in-turn `CronCreate` call failed and the safety-net polling path is the only delivery route. Two reasons: (1) UX — don't promise a specific time when the primary scheduler already failed; (2) regex avoidance — the framework reminder-guard appends a "Note: I did not schedule a reminder..." string to any reply matching `i'll\s+remind` (and similar) when no cron was added that turn. The success-path wording above triggers that regex; this neutral wording does not. The reminder is still saved in Notion and the safety net catches it at the next 15-min poll.
+Use this neutral wording only when the in-turn `CronCreate` call failed and the safety-net polling path is the only delivery route. Two reasons: (1) UX — don't promise a specific time when the primary scheduler already failed; (2) regex avoidance — the framework reminder-guard appends a "Note: I did not schedule a reminder..." string to any reply matching `i'll\s+remind` (and similar) when no cron was added that turn. The success-path wording above triggers that regex; this neutral wording does not. The reminder is still saved in Notion and the safety net catches it at the next 30-min poll.
 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
 The same rule applies when a reminder is rescheduled from a prior reminder reply: one short confirmation sentence, no narration of internal cleanup or replacement steps.

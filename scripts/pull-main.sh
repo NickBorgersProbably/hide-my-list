@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pull-main.sh — Pull origin/main with script-managed dirty-pull recovery
 #
-# Runs on a 10-minute cron. Clean pulls happen silently. If the working tree
+# Runs on a 2-hour cron. Clean pulls happen silently. If the working tree
 # has uncommitted tracked-file changes or the pull hits a merge conflict, the
 # script creates a GitHub issue preserving the changes, then resets the repo.
 # The normal cron path never needs pull-state reasoning. HEARTBEAT only retries

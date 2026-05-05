@@ -924,7 +924,7 @@ flowchart TD
 
     Wait --> OneShot{One-shot fires<br/>at remind_at?}
     OneShot -->|Yes| OneShotRun[One-shot agent turn:<br/>get-page → message → state → complete-reminder]
-    OneShot -->|No fire<br/>CronCreate failed,<br/>gateway down,<br/>etc.| SafetyNet[reminder-check 15-min poll<br/>finds row still Pending]
+    OneShot -->|No fire<br/>CronCreate failed,<br/>gateway down,<br/>etc.| SafetyNet[reminder-check 30-min poll<br/>finds row still Pending]
     SafetyNet --> Handoff[check-reminders.sh writes<br/>.reminder-signal handoff]
     Handoff --> SafetyDeliver{Delivery path}
     SafetyDeliver -->|User interacts:<br/>AGENTS.md step 6| Send

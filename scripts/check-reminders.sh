@@ -14,7 +14,7 @@
 # treated as the source of truth for which reminders still need delivery, so
 # stale signal entries are cleared automatically once the agent updates Notion.
 #
-# Designed to run from the durable reminder-check cron job (15-minute cadence).
+# Designed to run from the durable reminder-check cron job (30-minute cadence).
 # The script queries Notion for reminder tasks whose Remind At time has arrived
 # and writes their details to a repo-root handoff file (default:
 # `.reminder-signal`, overridable via `REMINDER_SIGNAL_FILE` in `.env`). This
@@ -50,6 +50,19 @@
 #   - Reminder copy stays uniform even if the safety-net path delivers late
 
 set -euo pipefail
+
+EXIT_NONZERO_ON_DUE=false
+case "${1:-}" in
+    "")
+        ;;
+    --exit-nonzero-on-due)
+        EXIT_NONZERO_ON_DUE=true
+        ;;
+    *)
+        echo "check-reminders: unknown argument: $1" >&2
+        exit 2
+        ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -178,3 +191,7 @@ for e in new_entries:
 " "$SIGNAL_FILE"
 
 echo "check-reminders: done"
+
+if [ "$EXIT_NONZERO_ON_DUE" = true ]; then
+    exit 10
+fi
