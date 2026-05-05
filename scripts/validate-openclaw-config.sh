@@ -58,6 +58,12 @@ if grep -q '{{[A-Z0-9_]\+}}' "$config_path"; then
   exit 1
 fi
 
+echo "=== Checking default web tools are disabled ==="
+jq -e '
+  .tools.web.search.enabled == false
+  and .tools.web.fetch.enabled == false
+' "$config_path" >/dev/null
+
 export OPENCLAW_CONFIG_PATH="$config_path"
 export OPENCLAW_STATE_DIR="$state_dir"
 
