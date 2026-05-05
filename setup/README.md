@@ -74,6 +74,13 @@
    `agents.defaults.envelopeTimezone` is a required first-setup field. Set it to
    the same IANA timezone identifier from `USER.md`.
 
+   The template disables OpenClaw web search and fetch tools by default:
+   `tools.web.search.enabled: false` and `tools.web.fetch.enabled: false`.
+   Leave them disabled for routine installs to keep every agent turn's system
+   prompt small, especially for local models and cron sessions. Instances that
+   truly need web access can opt in by setting either flag to `true` in the live
+   `~/.openclaw/openclaw.json`.
+
    Example:
    ```json
    {
