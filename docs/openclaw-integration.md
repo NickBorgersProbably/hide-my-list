@@ -94,9 +94,9 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 | Job | Schedule | Purpose |
 |-----|----------|---------|
 | `heartbeat` | `0 9 * * *` | Daily light-touch health, recurring-cron existence repair, stranded reminder delivery, outbound media permission repair, ops alerts |
-| `reminder-check` | `*/15 * * * *` | Safety-net poll for the one-shot delivery path; writes `.reminder-signal` handoff if a reminder slipped through |
+| `reminder-check` | `*/30 * * * *` | Safety-net poll for the one-shot delivery path; writes `.reminder-signal` handoff if a reminder slipped through |
 | `reminder-delivery-sweep` | `0 */2 * * *` | Narrow idle-session delivery sweep for stranded reminder handoff files |
-| `pull-main` | `*/10 * * * *` | `git pull origin main` hygiene; janitor handles cron drift correction |
+| `pull-main` | `0 */2 * * *` | `git pull origin main` hygiene; janitor handles cron drift correction |
 | `janitor` | `0 7 * * 1` | Weekly Opus deep audit: cron drift correction, environment/state/data/memory/run-history review |
 | `reminder-<page_id>` | `kind: "at"` (one-shot, registered at intake) | User-facing reminder delivery at exact `remind_at`; self-deletes after firing |
 
@@ -115,7 +115,7 @@ though the cron exists.
 
 **Robustness backstop:** The main-agent startup flow and daily `heartbeat` cron re-create any canonical recurring cron job that has gone missing. Weekly `janitor` patches drift via comparison against `CronCreate` blocks. Covers fresh installs, manual deletion, gateway data loss, or other failure modes that drop or stale the job. One-shot `reminder-<page_id>` jobs are out of scope for this check — they self-delete after firing.
 
-**Current registration contract:** the routine recurring jobs (`heartbeat`, `reminder-check`, `reminder-delivery-sweep`, `pull-main`) run as isolated cheap-tier sessions with `sessionTarget: isolated`, the concrete `model:` value from the canonical `CronCreate` blocks in `setup/cron/` (those lines must match the cheap tier in `setup/model-tiers.json`), `payload.kind: agentTurn`, `payload.lightContext: true` (OpenClaw strips bootstrap to empty for lightweight cron runs — our cron prompts are self-contained scripts/spec readers, so no bootstrap context is needed), `timeout-seconds` per canonical spec (`heartbeat`: 600, `reminder-check`: 300, `reminder-delivery-sweep`: 600, `pull-main`: 600). The weekly `janitor` cron is isolated too, but its concrete Opus `model:` is decoupled from the cheap tier and `payload.lightContext: false` loads full bootstrap for a reasoning-heavy audit. Deliberate: separates cheap background work from user-facing delivery and weekly deep cleanup. Isolated cheap-tier sessions keep per-run cost low for routine work; the per-reminder one-shot (`reminder-<page_id>`) uses `sessionTarget: main`, `model: litellm/claude-haiku-4-5`, and `lightContext: false` so the fired turn has SOUL.md tone + AGENTS.md state.json conventions in scope. Full contract in `setup/cron/reminder-delivery.md`. Recurring script crons end with `NO_REPLY`; the heartbeat cron replies `HEARTBEAT_OK` when nothing needs attention; `reminder-delivery-sweep` and janitor stay silent on a clean run. The one-shot prompt delivers to the user via the `message` tool inside the agent turn.
+**Current registration contract:** the routine recurring jobs (`heartbeat`, `reminder-check`, `reminder-delivery-sweep`, `pull-main`) run as isolated cheap-tier sessions with `sessionTarget: isolated`, the concrete `model:` value from the canonical `CronCreate` blocks in `setup/cron/` (those lines must match the cheap tier in `setup/model-tiers.json`), `payload.kind: agentTurn`, `payload.lightContext: true` (OpenClaw strips bootstrap to empty for lightweight cron runs — our cron prompts are self-contained scripts/spec readers, so no bootstrap context is needed), `timeout-seconds` per canonical spec (`heartbeat`: 600, `reminder-check`: 300, `reminder-delivery-sweep`: 600, `pull-main`: 600). The weekly `janitor` cron is isolated too, but its concrete Opus `model:` is decoupled from the cheap tier and `payload.lightContext: false` loads full bootstrap for a reasoning-heavy audit. Deliberate: separates cheap background work from user-facing delivery and weekly deep cleanup. Isolated cheap-tier sessions keep per-run cost low for routine work; `pull-main` and `reminder-check` should migrate to shell payloads once OpenClaw supports them because their scripts are self-contained and most reminder polls find nothing due. The per-reminder one-shot (`reminder-<page_id>`) uses `sessionTarget: main`, `model: litellm/claude-haiku-4-5`, and `lightContext: false` so the fired turn has SOUL.md tone + AGENTS.md state.json conventions in scope. Full contract in `setup/cron/reminder-delivery.md`. Recurring script crons end with `NO_REPLY`; the heartbeat cron replies `HEARTBEAT_OK` when nothing needs attention; `reminder-delivery-sweep` and janitor stay silent on a clean run. The one-shot prompt delivers to the user via the `message` tool inside the agent turn.
 
 Isolated cron sessions intentionally narrow. Script runners, not substitute for main agent or heartbeat control paths. Detailed ownership split in [Agent Capabilities](agent-capabilities.md).
 
@@ -126,13 +126,13 @@ For production, use these timings unless clear reason to pay for tighter polling
 | Mechanism | Recommended cadence | Why |
 |-----------|---------------------|-----|
 | `reminder-<page_id>` (one-shot) | Fires at exact `remind_at` (registered at intake) | Primary user-facing reminder delivery; self-deletes on success |
-| `reminder-check` | Every 15 minutes | Safety-net polling; writes `.reminder-signal` for heartbeat/startup delivery when one-shot fails to fire |
+| `reminder-check` | Every 30 minutes | Safety-net polling; writes `.reminder-signal` for heartbeat/startup delivery when one-shot fails to fire |
 | `reminder-delivery-sweep` | Every 2 hours | Cheap idle-session delivery sweep for stranded reminder handoff files |
 | `heartbeat` cron | Daily at 04:00 CT | Reminder safety-net delivery, recurring-cron existence repair, Notion connectivity, outbound media permission repair, dirty-pull recovery |
-| `pull-main` | Every 10 minutes | Cheap script-only sync path; keeps workspace fresh |
+| `pull-main` | Every 2 hours | Cheap script-only sync path; keeps workspace fresh while avoiding routine LLM churn |
 | `janitor` cron | Weekly Monday at 02:00 CT | Opus deep audit for cron drift, env/state/data/memory/run-history issues |
 
-Core principle: the one-shot cron registered at intake is the primary delivery path — fires at exact `remind_at`. The recurring `reminder-check` poll + handoff + startup/`reminder-delivery-sweep`/heartbeat path is the safety net for `CronCreate` failures, gateway data loss, or jobs that fail to fire; in that fallback case, fully idle worst-case latency is about 135 minutes unless the user interacts sooner.
+Core principle: the one-shot cron registered at intake is the primary delivery path — fires at exact `remind_at`. The recurring `reminder-check` poll + handoff + startup/`reminder-delivery-sweep`/heartbeat path is the safety net for `CronCreate` failures, gateway data loss, or jobs that fail to fire; in that fallback case, fully idle worst-case latency is about 150 minutes unless the user interacts sooner.
 
 ## Messaging Channels
 

@@ -8,7 +8,7 @@ The recurring `reminder-check` cron + `.reminder-signal` handoff path stays as a
 
 OpenClaw's `agent-runner-reminder-guard` post-processes every assistant reply that matches a reminder-commitment regex (`I'll remind you`, `I'll set a reminder`, etc.) and appends `"Note: I did not schedule a reminder in this turn, so this will not trigger automatically."` unless the same turn registered a cron job (`successfulCronAdds > 0`) or an enabled cron shares the current `sessionKey`.
 
-Registering this one-shot cron at intake satisfies the first condition, suppressing the framework note. It also delivers reminders at exact wall-clock time instead of relying on the polling backstop. If the one-shot path fails, `reminder-check` plus `reminder-delivery-sweep` keeps fully idle fallback latency to about 135 minutes.
+Registering this one-shot cron at intake satisfies the first condition, suppressing the framework note. It also delivers reminders at exact wall-clock time instead of relying on the polling backstop. If the one-shot path fails, `reminder-check` plus `reminder-delivery-sweep` keeps fully idle fallback latency to about 150 minutes.
 
 ## Registration
 
@@ -76,7 +76,7 @@ SYSTEM REMINDER DELIVERY for Notion page <PAGE_ID>.
 
 If step 3 succeeds but step 4 or 5 fails: reply NO_REPLY, do NOT call
 complete-reminder again. The .reminder-signal backstop will pick the row
-up at the next 15-minute poll and re-deliver. Duplicate delivery is
+up at the next 30-minute poll and re-deliver. Duplicate delivery is
 acceptable; missed delivery is not.
 ```
 

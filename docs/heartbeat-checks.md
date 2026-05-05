@@ -48,12 +48,12 @@ Verify durable canonical recurring cron jobs are registered. Re-register any mis
 | Job | Schedule | Action |
 |-----|----------|--------|
 | heartbeat | `0 9 * * *` | Read this file and execute the Daily Heartbeat Checks |
-| reminder-check | `*/15 * * * *` | Run `scripts/check-reminders.sh` (query-only; writes reminder handoff if reminders due) |
+| reminder-check | `*/30 * * * *` | Run `scripts/check-reminders.sh` (query-only; writes reminder handoff if reminders due) |
 | reminder-delivery-sweep | `0 */2 * * *` | Execute only Check 1 to deliver stranded reminder handoff files |
-| pull-main | `*/10 * * * *` | Run `scripts/pull-main.sh`; script handles dirty-pull recovery |
+| pull-main | `0 */2 * * *` | Run `scripts/pull-main.sh`; script handles dirty-pull recovery |
 | janitor | `0 7 * * 1` | Read this file and execute the Weekly Janitor Checks |
 
-Check via CronList. Missing → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Canonical fields come from `setup/cron/<name>.md`: `sessionTarget`, exact `model:` line, `payload.kind`, `payload.lightContext`, and `timeout-seconds`. `heartbeat`, `reminder-check`, `reminder-delivery-sweep`, and `pull-main` must match the cheap tier in `setup/model-tiers.json`; `janitor` is decoupled from cheap tier and uses its explicit Opus model for weekly deep audits. Cron jobs never use direct-delivery routing; heartbeat Check 1 and `reminder-delivery-sweep` use explicit `message` tool calls for reminder delivery and ops alerts.
+Check via CronList. Missing → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Canonical fields come from `setup/cron/<name>.md`: `sessionTarget`, exact `model:` line, `payload.kind`, `payload.lightContext`, and `timeout-seconds`. `heartbeat`, `reminder-check`, `reminder-delivery-sweep`, and `pull-main` must match the cheap tier in `setup/model-tiers.json`; `janitor` is decoupled from cheap tier and uses its explicit Opus model for weekly deep audits. Cron jobs never use direct-delivery routing; heartbeat Check 1 and `reminder-delivery-sweep` use explicit `message` tool calls for reminder delivery and ops alerts. Until OpenClaw supports shell cron payloads, `reminder-check` and `pull-main` remain `agentTurn` jobs at reduced cadence even though their scripts are shell-first.
 
 **Scope:** this check covers only the recurring canonical jobs above. Per-reminder one-shot `reminder-<page_id>` jobs (registered at intake per `setup/cron/reminder-delivery.md`) are NOT verified or re-registered here — they self-delete after firing, so checking for their presence makes no sense. If the `heartbeat` cron is deleted entirely, AGENTS.md startup checks re-register it on the next user interaction; while heartbeat is running, it self-heals missing sibling jobs.
 
