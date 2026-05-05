@@ -6,9 +6,9 @@
 #      file registered by review-classify's is_spec_md() must resolve in
 #      setup/openclaw.json.template's models array.
 #   2) Tier-config consistency: setup/model-tiers.json must match
-#      agents.defaults where tiers still apply (expensive=primary,
-#      medium=fallback), and the disabled built-in heartbeat block must remain
-#      internally valid.
+#      agents.defaults where tiers still apply (expensive=primary), optional
+#      prompt-surface knobs must stay out of the baseline template, and the
+#      disabled built-in heartbeat block must remain internally valid.
 #   3) Cron-tier agreement: routine cron spec files must use the cheap-tier
 #      model from setup/model-tiers.json, janitor must stay on a configured
 #      decoupled model, and sibling docs' cron-contract sections must point
@@ -121,6 +121,7 @@ done
 # --- Invariant 2: tier-config consistency --------------------------------
 
 tier_errors=()
+baseline_errors=()
 
 # Check that each tier model exists in the models array
 for tier_name in expensive medium cheap; do
@@ -136,13 +137,24 @@ if [[ "$primary_model" != "litellm/$tier_expensive" ]]; then
   tier_errors+=("agents.defaults.model.primary = $primary_model, expected litellm/$tier_expensive (expensive tier)")
 fi
 
-# Check agents.defaults.model.fallbacks[0] matches medium tier
-fallback_model="$(grep -A2 '"fallbacks"' "$TEMPLATE" | grep -oE 'litellm/[A-Za-z0-9._-]+' | head -1)"
-if [[ -z "$fallback_model" ]]; then
-  tier_errors+=("agents.defaults.model.fallbacks not found in $TEMPLATE")
-elif [[ "$fallback_model" != "litellm/$tier_medium" ]]; then
-  tier_errors+=("agents.defaults.model.fallbacks[0] = $fallback_model, expected litellm/$tier_medium (medium tier)")
-fi
+reject_template_path() {
+  local jq_expr="$1"
+  local label="$2"
+
+  if jq -e "$jq_expr" "$TEMPLATE" >/dev/null; then
+    baseline_errors+=("$label must not be present in the canonical prompt-footprint baseline")
+  fi
+}
+
+# Check prompt-footprint baseline excludes optional tool/prompt-surface knobs.
+reject_template_path 'has("auth")' 'root auth profiles'
+reject_template_path '((.agents.defaults.model // {}) | has("fallbacks"))' 'agents.defaults.model.fallbacks'
+reject_template_path '((.agents.defaults // {}) | has("maxConcurrent"))' 'agents.defaults.maxConcurrent'
+reject_template_path '((.agents.defaults // {}) | has("subagents"))' 'agents.defaults.subagents'
+reject_template_path 'has("messages")' 'messages overrides'
+reject_template_path 'has("commands")' 'commands overrides'
+reject_template_path '((.skills // {}) | has("install"))' 'skills.install'
+reject_template_path '((.channels.signal // {}) | has("defaultTo"))' 'channels.signal.defaultTo'
 
 # Extract the heartbeat block so heartbeat-specific checks cannot be satisfied
 # by another `model` or `lightContext` key elsewhere in the template.
@@ -324,6 +336,10 @@ if (( ${#tier_errors[@]} > 0 )); then
   all_errors+=("Tier-config consistency errors:")
   for t in "${tier_errors[@]}"; do all_errors+=("  - $t"); done
 fi
+if (( ${#baseline_errors[@]} > 0 )); then
+  all_errors+=("Prompt-footprint baseline errors:")
+  for b in "${baseline_errors[@]}"; do all_errors+=("  - $b"); done
+fi
 if (( ${#cron_errors[@]} > 0 )); then
   all_errors+=("Cron-tier agreement errors:")
   for c in "${cron_errors[@]}"; do all_errors+=("  - $c"); done
@@ -333,8 +349,8 @@ if (( ${#all_errors[@]} > 0 )); then
   echo "ERROR: model reference validation failed:" >&2
   for e in "${all_errors[@]}"; do echo "$e" >&2; done
   echo "" >&2
-  echo "Fix: update $TIER_MAP, ensure routine cheap-tier cron specs/docs match, keep janitor on a configured decoupled model, and keep built-in heartbeat disabled." >&2
+  echo "Fix: update $TIER_MAP, ensure routine cheap-tier cron specs/docs match, keep janitor on a configured decoupled model, keep built-in heartbeat disabled, and keep optional prompt-surface knobs out of the template baseline." >&2
   exit 1
 fi
 
-echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap, built-in heartbeat every=$heartbeat_every); routine cheap-tier cron specs use $expected_cron_ref; decoupled cron specs reference configured models"
+echo "Model references consistent: template membership OK; tier-config OK (expensive=$tier_expensive, medium=$tier_medium, cheap=$tier_cheap, built-in heartbeat every=$heartbeat_every); prompt-footprint baseline OK; routine cheap-tier cron specs use $expected_cron_ref; decoupled cron specs reference configured models"
