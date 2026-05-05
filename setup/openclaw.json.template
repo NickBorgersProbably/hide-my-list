@@ -3,18 +3,6 @@
     "lastTouchedVersion": "{{OPENCLAW_VERSION}}",
     "lastTouchedAt": "{{SETUP_DATE}}"
   },
-  "auth": {
-    "profiles": {
-      "anthropic:default": {
-        "provider": "anthropic",
-        "mode": "token"
-      },
-      "openai:default": {
-        "provider": "openai",
-        "mode": "api_key"
-      }
-    }
-  },
   "models": {
     "providers": {
       "litellm": {
@@ -69,10 +57,7 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "litellm/claude-opus-4-6",
-        "fallbacks": [
-          "litellm/claude-sonnet-4-6"
-        ]
+        "primary": "litellm/claude-opus-4-6"
       },
       "workspace": "{{OPENCLAW_HOME}}/workspace",
       "envelopeTimezone": "{{TZ_IDENTIFIER}}",
@@ -83,10 +68,6 @@
         "every": "0s",
         "model": "litellm/claude-haiku-4-5",
         "lightContext": true
-      },
-      "maxConcurrent": 4,
-      "subagents": {
-        "maxConcurrent": 8
       }
     }
   },
@@ -99,15 +80,6 @@
         "enabled": false
       }
     }
-  },
-  "messages": {
-    "ackReactionScope": "group-mentions"
-  },
-  "commands": {
-    "native": "auto",
-    "nativeSkills": "auto",
-    "restart": true,
-    "ownerDisplay": "raw"
   },
   "session": {
     "dmScope": "per-channel-peer"
@@ -146,11 +118,6 @@
         "reminders.add",
         "sms.send"
       ]
-    }
-  },
-  "skills": {
-    "install": {
-      "nodeManager": "npm"
     }
   },
   "plugins": {

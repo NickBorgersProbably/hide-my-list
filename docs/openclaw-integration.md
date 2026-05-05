@@ -46,6 +46,31 @@ Canonical setup path:
 - Copy that same TZ identifier into `setup/openclaw.json.template` when creating
   `~/.openclaw/openclaw.json`
 
+## Canonical Config Baseline
+
+`setup/openclaw.json.template` is the standard prompt-footprint baseline for
+hide-my-list instances. New deployments should start from that template and
+replace only placeholder values such as LiteLLM URL, timezone, Signal account,
+gateway auth token, and control UI origin.
+
+Baseline config intentionally excludes optional OpenClaw features that add tools
+or prompt metadata:
+
+- root-level `auth.profiles`, including `openai:default`
+- `channels.signal.defaultTo`
+- `agents.defaults.model.fallbacks`
+- `agents.defaults.maxConcurrent` and `agents.defaults.subagents`
+- `messages.*`
+- `commands.*`
+- `skills.install.*`
+- web search/fetch tools, which stay disabled by default
+
+Instances that need one of those features can opt in by editing their live
+`~/.openclaw/openclaw.json`, but that is an explicit local divergence from the
+standard footprint. Reward image generation is script-driven through
+`OPENAI_API_KEY` in `.env`; it does not require OpenClaw's `image_generate` tool
+or an `openai:default` auth profile.
+
 ## Heartbeat
 
 Production heartbeat = durable cron job `heartbeat` defined in `setup/cron/heartbeat.md`. The built-in OpenClaw heartbeat block remains in `openclaw.json` only to keep the disabled setting explicit:
@@ -180,6 +205,7 @@ OpenClaw supports multiple model providers. We route through LiteLLM proxy on Ta
 Canonical model list lives in `setup/openclaw.json.template`; repo-only tier mappings live in `setup/model-tiers.json` so the generated `openclaw.json` stays valid against OpenClaw's schema. `scripts/validate-model-refs.sh` enforces that every `litellm/<id>` reference in classifier-listed spec files resolves against the template model list, that tier mappings are consistent with agent config where tiers still apply, that `agents.defaults.heartbeat.model` points at a configured model, and that cheap-tier cron specs plus sibling docs stay aligned with the cheap tier contract.
 
 - **Primary model (expensive tier):** Whatever `setup/model-tiers.json` maps `expensive` to for conversations and task management
+- **Medium model:** Present in the template model list for explicit live-config fallback opt-in, but not wired into `agents.defaults.model.fallbacks` in the canonical baseline
 - **Built-in heartbeat model:** disabled with `every: "0s"`; retained only as a configured fallback for stale live configs
 - **Routine recurring cron model (cheap tier):** Whatever `setup/model-tiers.json` maps `cheap` to for isolated recurring cron work (`heartbeat`, reminder polling, workspace sync)
 - **Janitor model:** `litellm/claude-opus-4-6`, configured directly and decoupled from the cheap tier for the weekly deep audit

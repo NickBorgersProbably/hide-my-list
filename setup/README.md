@@ -81,6 +81,17 @@
    truly need web access can opt in by setting either flag to `true` in the live
    `~/.openclaw/openclaw.json`.
 
+   The template is also the canonical prompt-footprint baseline for
+   hide-my-list instances. Keep optional prompt/tool-surface features out of the
+   baseline unless an instance deliberately opts in in its live config:
+   root-level `auth.profiles` such as `openai:default`, `channels.signal.defaultTo`,
+   `agents.defaults.model.fallbacks`, `agents.defaults.maxConcurrent`,
+   `agents.defaults.subagents`, `messages.*`, `commands.*`, and
+   `skills.install.*`. This keeps new deployments at the same system prompt size
+   instead of silently exposing extra tools or prompt metadata. Reward image
+   generation uses `OPENAI_API_KEY` from `.env`; it does not require an OpenClaw
+   `openai:default` auth profile.
+
    Example:
    ```json
    {
@@ -153,7 +164,7 @@ Model assignments use a tier system defined in `setup/model-tiers.json`. That fi
 | Tier | Role | Default |
 |------|------|---------|
 | `expensive` | Primary interactive agent | `claude-opus-4-6` |
-| `medium` | Fallback | `claude-sonnet-4-6` |
+| `medium` | Available model for explicit fallback opt-in | `claude-sonnet-4-6` |
 | `cheap` | Isolated routine recurring cron jobs (`heartbeat`, `reminder-check`, `reminder-delivery-sweep`, `pull-main`) | `qwen2.5` |
 | Decoupled direct model | One-shot reminder delivery; multi-step user-facing state mutation | `claude-haiku-4-5` |
 | Decoupled janitor model | Weekly deep audit | `claude-opus-4-6` |
@@ -164,7 +175,7 @@ To remap tiers to your available models:
 
 1. Add your models to the `models[]` array in `setup/openclaw.json.template`
 2. Edit `setup/model-tiers.json` values to point at your model IDs
-3. Update `agents.defaults` in `setup/openclaw.json.template` to match: `model.primary` = `litellm/<expensive>`, `model.fallbacks` = `[litellm/<medium>]`, and keep the built-in `heartbeat.every` disabled (`"0s"`)
+3. Update `agents.defaults` in `setup/openclaw.json.template` to match: `model.primary` = `litellm/<expensive>`, and keep the built-in `heartbeat.every` disabled (`"0s"`). Do not add `model.fallbacks` to the template baseline; live instances can opt in explicitly if they accept the extra prompt metadata.
 4. Update `model:` lines in `setup/cron/heartbeat.md`, `setup/cron/reminder-check.md`, `setup/cron/reminder-delivery-sweep.md`, and `setup/cron/pull-main.md` to `litellm/<cheap>`. Leave `setup/cron/janitor.md` on its explicit Opus model unless you are intentionally changing the weekly deep-audit model.
 5. Run `bash scripts/validate-model-refs.sh` — catches drift between tiers, agent config, cron specs, and documented defaults
 

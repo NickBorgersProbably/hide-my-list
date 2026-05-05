@@ -64,6 +64,18 @@ jq -e '
   and .tools.web.fetch.enabled == false
 ' "$config_path" >/dev/null
 
+echo "=== Checking prompt-footprint baseline excludes optional extras ==="
+jq -e '
+  (has("auth") | not)
+  and ((.agents.defaults.model // {}) | has("fallbacks") | not)
+  and ((.agents.defaults // {}) | has("maxConcurrent") | not)
+  and ((.agents.defaults // {}) | has("subagents") | not)
+  and (has("messages") | not)
+  and (has("commands") | not)
+  and ((.skills // {}) | has("install") | not)
+  and ((.channels.signal // {}) | has("defaultTo") | not)
+' "$config_path" >/dev/null
+
 export OPENCLAW_CONFIG_PATH="$config_path"
 export OPENCLAW_STATE_DIR="$state_dir"
 
