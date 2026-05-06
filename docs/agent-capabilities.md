@@ -11,7 +11,7 @@ hide-my-list runs multiple OpenClaw session types:
 - **main agent** — user talks to
 - isolated **durable cron sessions** like `heartbeat`, `reminder-check`, `reminder-delivery-sweep`, `pull-main`, and `janitor`
 
-Sessions have different responsibilities and different tools. Config patching belongs to main agent unless another session's access explicitly confirmed.
+Sessions have different responsibilities and different tools. Config patching belongs to main agent unless another session's access is explicitly confirmed for a narrow path.
 
 ## Session Summary
 
@@ -54,7 +54,7 @@ Main agent responsible for:
 
 ### Explicit boundary
 
-If workflow needs `openclaw config get`, `openclaw config set`, or any `openclaw.json` mutation → **main-agent responsibility**. Heartbeat and isolated cron must not assume those tools.
+If workflow needs `openclaw config get`, `openclaw config set`, or any `openclaw.json` mutation → **main-agent responsibility** unless a narrower session-specific exception is documented below. Heartbeat and routine isolated cron must not assume those tools.
 
 Tool availability does not override `AGENTS.md` safety policy. External actions still require user approval. OpenClaw prompt/spec files go through GitHub issue -> PR -> review path, not direct runtime edits. Direct writes limited to `AGENTS.md` allowlist except documented dirty-pull recovery path.
 
@@ -125,12 +125,14 @@ Janitor uses the same narrow operational tools as heartbeat where documented:
 - `exec` and `read` for script execution and repo inspection
 - `message` for concise ops-alert summaries to the Signal recipient resolved from `OPS_ALERT_SIGNAL_NUMBER`
 - CronList, CronCreate, CronUpdate, CronDelete for recurring cron drift correction and stale-job cleanup defined in `docs/heartbeat-checks.md`
+- `openclaw config get` and `openclaw config set` only for `.config-drift` repair defined in `docs/heartbeat-checks.md`: sync `agents.defaults.heartbeat` and `agents.defaults.envelopeTimezone` from `setup/openclaw.json.template`
 
 ### Operational responsibilities
 
 Janitor responsible for:
 
 - comparing canonical recurring cron specs against live registrations and patching drift
+- repairing narrow OpenClaw config drift when `.config-drift` exists: `agents.defaults.heartbeat` and `agents.defaults.envelopeTimezone` only
 - deeper environment and secrets sanity checks without printing secret values
 - Notion/state audits for stale reminders, missing recurring-task follow-ups, and expired `recent_outbound`
 - memory rot checks for stale or contradictory context
@@ -151,7 +153,7 @@ Isolated cron prompts assume only what narrow script execution needs:
 
 - `exec` and `read` for running scripts and checking simple repo state
 - no direct user-delivery responsibility
-- no assumption of `openclaw config get` / `openclaw config set`, gateway control, or full cron-admin authority
+- no assumption of `openclaw config get` / `openclaw config set`, gateway control, or full cron-admin authority unless a named cron section explicitly grants it
 
 Every isolated cron job stays silent unless prompt explicitly requires status reply. Current jobs intentionally end with `NO_REPLY`.
 
@@ -179,6 +181,7 @@ Weekly deep audit. Responsible for:
 
 - read `docs/heartbeat-checks.md`
 - compare live recurring cron jobs to canonical `setup/cron/` specs and patch drift
+- repair `.config-drift` by syncing only `agents.defaults.heartbeat` and `agents.defaults.envelopeTimezone` from `setup/openclaw.json.template`
 - audit environment, Notion/state consistency, memory rot, and cron run history
 - send one ops-alert summary only when findings are actionable
 
@@ -186,6 +189,7 @@ Not responsible for:
 
 - user-facing reminder delivery
 - broad gateway administration
+- broad `openclaw.json` mutation beyond the documented `.config-drift` repair keys
 - auto-pruning Notion or memory data that requires operator judgment
 
 ### `reminder-check`

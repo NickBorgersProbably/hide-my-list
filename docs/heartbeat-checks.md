@@ -81,6 +81,17 @@ Nothing needs attention → reply HEARTBEAT_OK.
 
 ## Weekly Janitor Checks (in order)
 
+### 2a. Config Drift Check
+If `.config-drift` exists, apply the same template-drift repair contract as AGENTS.md startup.
+
+- Read `agents.defaults.heartbeat` and `agents.defaults.envelopeTimezone` from `setup/openclaw.json.template` by parsing the JSON.
+- Read live values with `openclaw config get 'agents.defaults.heartbeat'` and `openclaw config get 'agents.defaults.envelopeTimezone'`.
+- If heartbeat differs from the template object, overwrite the whole heartbeat subtree with `openclaw config set 'agents.defaults.heartbeat' '<template-heartbeat-json>' --strict-json` so stale live keys removed from the template are dropped too.
+- If envelopeTimezone differs from the template value, overwrite it with `openclaw config set 'agents.defaults.envelopeTimezone' '<template-envelopeTimezone-json-string>' --strict-json`.
+- Delete `.config-drift` only after all needed reads and writes succeed. If template parsing, `openclaw config get`, or `openclaw config set` fails, leave `.config-drift` in place and include the failure in the janitor summary.
+
+Scope is intentionally narrow: only `agents.defaults.heartbeat` and `agents.defaults.envelopeTimezone` sync from the template. Deployment-local fields such as gateway auth, channel settings, tokens, and secrets stay untouched.
+
 ### 2b. Cron Spec Drift Check
 For each registered canonical recurring cron job (`heartbeat`, `reminder-check`, `reminder-delivery-sweep`, `pull-main`, `janitor`), compare live registration against canonical `CronCreate` spec in `setup/cron/<name>.md`.
 

@@ -31,27 +31,27 @@ OpenClaw loads via `bootstrap-extra-files` hook automatically. No special config
 ## Envelope Timezone
 
 OpenClaw also reads `agents.defaults.envelopeTimezone` from `openclaw.json`.
-For hide-my-list, set that field during first setup to the same IANA timezone
-identifier stored in `USER.md` (for example, `America/Chicago`).
+For hide-my-list, the canonical template pins that field to `America/Chicago`
+so OpenClaw injects the prompt envelope in the user's local timezone on fresh
+installs.
 
 Why it matters: OpenClaw injects a `Current time:` line into each prompt. If
-`envelopeTimezone` is unset, that line stays UTC-only. Reminder correctness
-still comes from the timezone stored in `USER.md`, with
-`scripts/user-time-context.sh` converting UTC timestamps into the user's local
-calendar when needed, but matching `envelopeTimezone` keeps prompt context
-direct and reduces date-resolution mistakes.
+`envelopeTimezone` is unset, that line stays UTC-only. Keeping the template's
+`America/Chicago` value makes the first time context the agent sees match the
+user-local calendar and reduces date-resolution mistakes.
 
 Canonical setup path:
-- Put the user's timezone in `USER.md`
-- Copy that same TZ identifier into `setup/openclaw.json.template` when creating
-  `~/.openclaw/openclaw.json`
+- Keep `setup/openclaw.json.template` at `America/Chicago`
+- Copy the template into `~/.openclaw/openclaw.json`
+- Let `.config-drift` repair sync `agents.defaults.envelopeTimezone` from the
+  template for existing deployments after template changes
 
 ## Canonical Config Baseline
 
 `setup/openclaw.json.template` is the standard prompt-footprint baseline for
 hide-my-list instances. New deployments should start from that template and
-replace only placeholder values such as LiteLLM URL, timezone, Signal account,
-gateway auth token, and control UI origin.
+replace only placeholder values such as LiteLLM URL, Signal account, gateway
+auth token, and control UI origin.
 
 Baseline config intentionally excludes optional OpenClaw features that add tools
 or prompt metadata:
@@ -92,7 +92,7 @@ Daily, OpenClaw fires the durable `heartbeat` cron as an isolated session. The c
 2. **Cron safety net:** AGENTS.md startup and daily heartbeat verify durable canonical cron jobs exist in OpenClaw: missing jobs get re-registered (gone-missing for any reason). Weekly janitor patches drift back to canonical `CronCreate` specs in `setup/cron/`. Comparison covers full effective registration contract: `name`, `durable`, `schedule`, `prompt`, `sessionTarget`, `model`, absence of direct-delivery `to`, `payload.kind`, `payload.lightContext`, `timeout-seconds`. `docs/heartbeat-checks.md` = authoritative comparison checklist; `setup/cron/heartbeat.md` and `setup/cron/janitor.md` are the cron prompts that delegate to it.
 3. **Outbound media permission guard:** Heartbeat verifies the OpenClaw media staging path remains safe and traversable for Signal attachments. It runs `scripts/ensure-openclaw-media-staging.sh`, which rejects unsafe `OPENCLAW_HOME` targets, locks down non-media top-level children, keeps config private, and repairs `~/.openclaw/media/outbound/` traversal.
 
-Heartbeat intentionally not place to assume `openclaw config get` / `openclaw config set` access. Config mutation = main-agent responsibility unless heartbeat support explicitly confirmed and documented in [Agent Capabilities](agent-capabilities.md).
+Heartbeat intentionally not place to assume `openclaw config get` / `openclaw config set` access. Config mutation = main-agent responsibility except the weekly janitor's documented `.config-drift` repair for `agents.defaults.heartbeat` and `agents.defaults.envelopeTimezone`; see [Agent Capabilities](agent-capabilities.md).
 
 Heartbeat also checks Notion connectivity, outbound media staging permissions, and dirty-pull recovery. Production: treat as daily light-touch infrastructure hygiene. Weekly janitor handles full environment, state, memory, cron history, and drift audits with Opus.
 

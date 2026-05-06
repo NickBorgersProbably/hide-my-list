@@ -824,7 +824,7 @@ AI detects reminder-style language and sets:
 - `remind_at` = full ISO 8601 timestamp with timezone
 - `reminder_status = pending`
 - `urgency = 90` (time-critical)
-- relative date phrases (`today`, `tomorrow`, `tonight`, day-of-week names) resolved from the user's timezone in `USER.md`, not the UTC message timestamp
+- relative date phrases (`today`, `tomorrow`, `tonight`, day-of-week names) resolved from the prompt envelope timezone, not the UTC message timestamp
 
 **Confirmation message style (success path — `CronCreate` succeeded):**
 > "Got it — I'll remind you around 6pm PT to email Melanie."
@@ -839,7 +839,7 @@ Use this neutral wording only when the in-turn `CronCreate` call failed and the 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
 The same rule applies when a reminder is rescheduled from a prior reminder reply: one short confirmation sentence, no narration of internal cleanup or replacement steps.
 
-User timezone defaults to the configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. If the visible session clock is UTC, agent resolves the user's local calendar first with `scripts/user-time-context.sh` (or equivalent timezone conversion) before deciding what "tomorrow" or "tonight" means.
+User timezone defaults to the prompt envelope timezone, configured as `America/Chicago` in `setup/openclaw.json.template`. AI converts timezone references (PT, CT, ET) to UTC offsets at intake. If the prompt envelope is missing or ambiguous, agent resolves the user's local calendar first with `scripts/user-time-context.sh` (or equivalent timezone conversion) before deciding what "tomorrow" or "tonight" means.
 
 ### Reminder vs. Deadline
 
