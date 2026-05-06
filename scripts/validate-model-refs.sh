@@ -309,7 +309,7 @@ check_contract_window \
 
 check_contract_window \
   "docs/heartbeat-checks.md" \
-  "Check via CronList." \
+  "openclaw cron list --json" \
   24 \
   'setup/cron/<name>\.md.*setup/model-tiers\.json|setup/model-tiers\.json.*setup/cron/<name>\.md' \
   'litellm/<cheap-tier model>' \

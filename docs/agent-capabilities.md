@@ -68,7 +68,7 @@ Narrower confirmed contract:
 
 - `exec` and `read` for script execution and repo inspection
 - `message` for explicit reminder delivery to Signal from heartbeat Check 1 (`docs/heartbeat-checks.md`), and for ops-alert messages to the Signal recipient heartbeat resolves from `OPS_ALERT_SIGNAL_NUMBER` when critical failures require operator attention (malformed reminder handoff, Notion connectivity failure, outbound media permission failure, persistent dirty-pull recovery failure)
-- CronList and CronCreate for durable cron inspection and missing-job re-registration defined in `docs/heartbeat-checks.md`
+- `openclaw cron list --json` and `openclaw cron add` via `exec` for durable cron inspection and missing-job re-registration defined in `docs/heartbeat-checks.md`
 
 ### Do not assume
 
@@ -76,7 +76,7 @@ Treat these as unconfirmed for heartbeat cron sessions:
 
 - `openclaw config get`, `openclaw config set`, `openclaw config schema`
 - broader proactive `message` workflows beyond explicit reminder delivery and confirmed ops alerts to Signal
-- CronUpdate/CronDelete drift correction; weekly janitor owns that path unless heartbeat support is explicitly re-expanded and documented
+- cron drift update/delete operations; weekly janitor owns that path unless heartbeat support is explicitly re-expanded and documented
 - gateway lifecycle tools
 - general repo-edit/write as routine heartbeat behavior
 
@@ -124,7 +124,7 @@ Janitor uses the same narrow operational tools as heartbeat where documented:
 
 - `exec` and `read` for script execution and repo inspection
 - `message` for concise ops-alert summaries to the Signal recipient resolved from `OPS_ALERT_SIGNAL_NUMBER`
-- CronList, CronCreate, CronUpdate, CronDelete for recurring cron drift correction and stale-job cleanup defined in `docs/heartbeat-checks.md`
+- `openclaw cron list --json`, `openclaw cron add`, and the CLI-supported update/delete equivalents via `exec` for recurring cron drift correction and stale-job cleanup defined in `docs/heartbeat-checks.md`
 
 ### Operational responsibilities
 

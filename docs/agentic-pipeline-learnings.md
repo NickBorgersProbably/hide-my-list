@@ -200,7 +200,7 @@ Required properties:
 **Evidence:** #112, #199, #263
 
 ### 3.2 Split cron existence repair from drift correction
-**Why:** Main-agent startup checks and daily heartbeat ensure canonical recurring crons exist. Weekly janitor compares live cron jobs against canonical specs in `setup/cron/` and patches drift via `CronUpdate`. Cron spec re-application after `pull-main` happens in janitor — isolated `pull-main` session cannot reliably call `CronList`/`CronUpdate`.
+**Why:** Main-agent startup checks and daily heartbeat ensure canonical recurring crons exist. Weekly janitor compares live cron jobs against canonical specs in `setup/cron/` and patches drift via the CLI-supported cron update path. Cron spec re-application after `pull-main` happens in janitor — isolated `pull-main` session stays on the script-only path and does not perform cron drift reads/updates itself.
 **Before:** Cron jobs drifted from registered config, causing exponential backoff and silent failures.
 **Evidence:** #238, #266, #268, #277
 

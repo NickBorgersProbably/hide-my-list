@@ -112,7 +112,7 @@ One repo-mutating runtime exception: dirty-pull recovery in `scripts/pull-main.s
 
 ## Cron (Durable Scheduled Jobs)
 
-OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jobs persist to disk, survive gateway restarts.
+OpenClaw provides durable cron storage for recurring agent prompts. In this agent, runtime cron management is done through `exec` and the `openclaw cron ...` CLI. `durable: true` = jobs persist to disk, survive gateway restarts.
 
 **Our usage:** Five recurring durable cron jobs run alongside a per-reminder one-shot family registered at intake:
 
@@ -131,12 +131,12 @@ OpenClaw provides `CronCreate` for recurring agent prompts. `durable: true` = jo
 - One-shot `reminder-<page_id>` cron delivers at exact `remind_at` (see `setup/cron/reminder-delivery.md`); safety-net `scripts/check-reminders.sh` writes `.reminder-signal` handoff for AGENTS.md step 6 + heartbeat Check 1 to deliver if the one-shot misses
 - Recurring cron fires only when REPL idle — better for ADHD, won't interrupt mid-task; one-shot `kind: at` delivery crons (`reminder-<page_id>`) fire at the scheduled wall-clock time regardless of REPL state
 
-Reminder intake must register one-shot jobs through the framework-native
-`CronCreate` tool/API path. Shelling out with `exec` to `openclaw cron add` or
-another CLI command is not equivalent for user-facing reminders: CLI registration
-does not update the turn context's `successfulCronAdds` count, so OpenClaw's
-reminder guard can append a false "I did not schedule a reminder" note even
-though the cron exists.
+Reminder intake registers one-shot jobs with `exec` and `openclaw cron add`
+because this agent's tool set does not expose the framework-native `CronCreate`
+tool. CLI registration creates a working cron, but does not update the turn
+context's `successfulCronAdds` count. User-facing reminder confirmations
+therefore avoid first-person reminder/scheduling phrases that trigger
+OpenClaw's reminder guard.
 
 **Robustness backstop:** The main-agent startup flow and daily `heartbeat` cron re-create any canonical recurring cron job that has gone missing. Weekly `janitor` patches drift via comparison against `CronCreate` blocks. Covers fresh installs, manual deletion, gateway data loss, or other failure modes that drop or stale the job. One-shot `reminder-<page_id>` jobs are out of scope for this check — they self-delete after firing.
 
@@ -157,7 +157,7 @@ For production, use these timings unless clear reason to pay for tighter polling
 | `pull-main` | Every 2 hours | Cheap script-only sync path; keeps workspace fresh while avoiding routine LLM churn |
 | `janitor` cron | Weekly Monday at 02:00 CT | Opus deep audit for cron drift, env/state/data/memory/run-history issues |
 
-Core principle: the one-shot cron registered at intake is the primary delivery path — fires at exact `remind_at`. The recurring `reminder-check` poll + handoff + startup/`reminder-delivery-sweep`/heartbeat path is the safety net for `CronCreate` failures, gateway data loss, or jobs that fail to fire; in that fallback case, fully idle worst-case latency is about 150 minutes unless the user interacts sooner.
+Core principle: the one-shot cron registered at intake is the primary delivery path — fires at exact `remind_at`. The recurring `reminder-check` poll + handoff + startup/`reminder-delivery-sweep`/heartbeat path is the safety net for registration failures, gateway data loss, or jobs that fail to fire; in that fallback case, fully idle worst-case latency is about 150 minutes unless the user interacts sooner.
 
 ## Messaging Channels
 
@@ -234,7 +234,7 @@ OpenClaw gateway = WebSocket server managing agent sessions, channel routing, co
 
 OpenClaw agent sessions built on Claude Code REPL. Claude Code hook system works inside OpenClaw — `.claude/settings.json` at project level respected.
 
-**Reminder confirmation guard:** OpenClaw's `agent-runner-reminder-guard` (in the OpenClaw plugin SDK, post-process step in the agent runner) appends `"Note: I did not schedule a reminder in this turn, so this will not trigger automatically."` to any model reply that matches a reminder-commitment regex unless the same turn registered a cron job (`successfulCronAdds > 0`) or an enabled cron shares the current `sessionKey`. The fix lives in the intake flow, not in a hook: `docs/ai-prompts/intake.md` REMINDER PERSISTENCE step requires the agent to call the framework-native `CronCreate` tool/API in the same turn as `notion-cli.sh create-reminder`, which increments `successfulCronAdds` and suppresses the guard note. Do not substitute `exec` plus `openclaw cron add`; that can create a cron without updating the guard-visible counter. No `PostToolUse` hook is needed — and any prompt-level instruction telling the model not to produce the note would be ineffective, since the note is appended by the framework after the model reply.
+**Reminder confirmation guard:** OpenClaw's `agent-runner-reminder-guard` (in the OpenClaw plugin SDK, post-process step in the agent runner) appends `"Note: I did not schedule a reminder in this turn, so this will not trigger automatically."` to any model reply that matches a reminder-commitment regex unless the same turn registered a cron job (`successfulCronAdds > 0`) or an enabled cron shares the current `sessionKey`. This agent does not currently receive the framework-native `CronCreate` tool, so `docs/ai-prompts/intake.md` REMINDER PERSISTENCE registers one-shot reminders through `exec` and `openclaw cron add`. That creates and fires the cron, but cannot update the guard-visible counter. The suppression contract therefore lives in the visible wording: reminder confirmations must be regex-safe and avoid phrases like "I'll remind you", "I'll set a reminder", "I scheduled", and close variants. No `PostToolUse` hook is needed — and any prompt-level instruction telling the model not to produce the note would be ineffective, since the note is appended by the framework after the model reply.
 
 **Key distinction:**
 - **OpenClaw hooks** (`openclaw hooks list`): Platform events — bootstrap, session-memory, command-logging. Configured in `openclaw.json`.
