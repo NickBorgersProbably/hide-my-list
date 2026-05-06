@@ -800,12 +800,12 @@ Reschedule replay:
     {
       "type": "reminder",
       "title": "Set up your video call software for therapy",
-      "status": "missed",
+      "status": "sent",
       "awaiting_response": true
     }
   ]
   ```
-- Last visible agent message: "This was due a bit ago — set up your video call software for therapy. Want to handle it now or reschedule?"
+- Last visible agent message: "Hey, time to set up your video call software for therapy."
 - User opens a new session and says: "remind me in an hour"
 - Visible reply must be one short sentence: "Got it — in about an hour: set up your video call software for therapy."
 - Visible reply must not mention `recent_outbound`, Notion, cron jobs, reminder replacement, or cleanup steps.
