@@ -158,20 +158,19 @@ When detected:
 
 REMINDER PERSISTENCE (mandatory two-step):
 After `notion-cli.sh create-reminder` returns the Notion page object, register a
-one-shot OpenClaw cron in the SAME turn so the framework reminder-guard sees a
-successful cron add and suppresses its "Note: I did not schedule a reminder..."
-post-process. The model never produces that note itself — OpenClaw's
-`agent-runner-reminder-guard` appends it when no cron was registered that
-turn, so registering the cron in the same turn suppresses the note.
+one-shot OpenClaw cron in the SAME turn with `exec` and the `openclaw cron add`
+CLI. The framework-native `CronCreate` tool is not available in this agent's
+tool set. CLI-created crons still exist and fire, but they do not increment the
+framework turn context's `successfulCronAdds` counter.
 
-Use the framework-native `CronCreate` tool/API path for this registration. Do
-not use `exec` to run `openclaw cron add`, `openclaw cron create`, or any other
-CLI command for one-shot reminder registration. CLI-created crons can still
-exist and fire, but they do not increment the framework turn context's
-`successfulCronAdds` counter, so the reminder guard will append the false
-"I did not schedule a reminder" note.
+Because `successfulCronAdds` stays at 0, the visible confirmation MUST avoid
+OpenClaw reminder-guard trigger phrases such as "I'll remind you", "I'll set a
+reminder", "I scheduled", "I set a reminder", or similar first-person reminder
+commitments. The model never produces the guard note itself — OpenClaw's
+`agent-runner-reminder-guard` appends it after the model reply when the reply
+matches its regex and no guard-visible cron add happened.
 
-Call `CronCreate` with:
+Call `openclaw cron add` with the CLI-supported equivalent of:
 - name = "reminder-<page_id>" using the page id returned by create-reminder
 - durable: true
 - deleteAfterRun: true
@@ -185,12 +184,15 @@ Call `CronCreate` with:
   `setup/cron/reminder-delivery.md` (Prompt section), with <PAGE_ID>
   substituted in.
 
-If CronCreate fails: use degraded confirmation wording that does not promise exact
-timing (e.g., "Got it — I've saved your reminder; I'll check for it and send it
-your way"). Do not tell the user the reminder will arrive at an exact time — the
-reminder guard note may appear in this path since no cron add succeeded. The
-reminder is still saved in Notion; the backstop path catches it at the next
-30-min poll.
+If `openclaw cron add` succeeds: use a regex-safe confirmation that states the
+time without first-person reminder/scheduling language, e.g. "Got it — around
+6pm PT: email Melanie."
+
+If `openclaw cron add` fails: use degraded confirmation wording that is also
+regex-safe and does not promise exact timing, e.g. "Got it — saved; I'll check
+for it and send it your way." Do not tell the user the reminder will arrive at
+an exact time. The reminder is still saved in Notion; the backstop path catches
+it at the next 30-min poll.
 
 Examples:
   "Remind me at 6pm PT to email Melanie" →
@@ -216,7 +218,7 @@ reminder reschedule using the matched entry's title:
 - Register the new one-shot cron per REMINDER PERSISTENCE above.
 - In this `recent_outbound` path, the prior reminder was already delivered, so
   its Notion row is already `Completed` and its one-shot cron has already fired
-  and self-deleted. No `CronDelete` is needed here.
+  and self-deleted. No old cron delete is needed here.
 - Rare pre-fire reschedules are a separate operational path. If the user
   changes the time before the reminder fires, follow the pre-fire rules in
   `setup/cron/reminder-delivery.md` instead.
@@ -228,7 +230,7 @@ Example:
   recent_outbound entry: title "Call the dentist", awaiting_response: true
   user says: "tomorrow at 9" →
     is_reminder: true, title: "Call the dentist", remind_at: "<tomorrow 09:00 ISO>",
-    confirmation_message: "Got it — I'll remind you around 9 tomorrow to call the dentist.",
+    confirmation_message: "Got it — around 9 tomorrow: call the dentist.",
     then clear matched recent_outbound entry
 
 Example:
@@ -236,7 +238,7 @@ Example:
   user says: "remind me in an hour" →
     is_reminder: true, title: "Set up your video call software for therapy",
     remind_at: "<now+1h ISO>",
-    confirmation_message: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
+    confirmation_message: "Got it — in about an hour: set up your video call software for therapy."
 
 OUTPUT (JSON):
 
@@ -278,16 +280,17 @@ If task is too vague and clarification_count < 3:
 CONFIRMATION MESSAGE FORMAT:
 - For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
 - For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
-- For reminders: "Got it — I'll remind you Wednesday evening to set up your video call software for therapy."
+- For reminders: "Got it — Wednesday evening: set up your video call software for therapy."
 
 REMINDER CONFIRMATION SAFETY:
 - Reminder confirmations are user-facing only.
 - Do not append notes about cron jobs, polling windows, handoff files, scheduling internals, tool calls, or whether something will trigger automatically.
 - Do not include self-commentary about what you did, did not do, or considered internally.
 - This applies equally to reminder reschedules created from `recent_outbound`.
-- Do not mention `recent_outbound`, prior reminder pages, reminder replacement, CronDelete/CronCreate, or Notion status cleanup.
+- Do not mention `recent_outbound`, prior reminder pages, reminder replacement, cron deletion/creation, or Notion status cleanup.
 - The visible confirmation should be a single short sentence, then stop.
 - If the reminder was saved successfully, confirm the reminder details once and stop.
+- Avoid first-person reminder/scheduling phrases that trigger OpenClaw's reminder guard, including "I'll remind you", "I'll set a reminder", "I scheduled", and close variants.
 
 IMPORTANT:
 - The user should always see specific next actions, never just "Added - focus work, ~30 min".

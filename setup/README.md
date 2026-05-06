@@ -216,7 +216,7 @@ Manual regression playbook:
 **Reminders not firing:**
 - Reminder delivery uses the OpenClaw `message` tool with `channel: signal` — it does not rely on `heartbeat.target` or session reply routing. Verify that the Signal channel is configured and enabled in `openclaw.json`.
 - `heartbeat.target` should stay unset or `"none"`. Heartbeat operator alerts use explicit `message(..., channel: signal, target: OPS_ALERT_SIGNAL_NUMBER)` routing instead of generic heartbeat output.
-- Check that the reminder-check cron is registered (ask the agent to check CronList)
+- Check that the reminder-check cron is registered (ask the agent to run `openclaw cron list --json`)
 - Verify `.env` has correct `NOTION_API_KEY` and `NOTION_DATABASE_ID`
 - Run `scripts/check-reminders.sh` manually to test Notion connectivity
 - If you overrode `REMINDER_SIGNAL_FILE`, verify it is just a filename and that the repo root is writable

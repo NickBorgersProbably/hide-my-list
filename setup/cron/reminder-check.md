@@ -21,7 +21,7 @@ Isolated cheap-tier session (see `setup/model-tiers.json`). Query-only: runs che
 
 Most runs only need a Notion query and a possible handoff-file write. Current OpenClaw durable cron registration uses `agentTurn`; the reduced cadence limits routine LLM use.
 
-**Role: backstop.** Primary reminder delivery is the per-reminder one-shot cron registered at intake (`setup/cron/reminder-delivery.md`). This `reminder-check` polling job catches anything that primary path misses: `CronCreate` failures at intake, jobs that fail to fire (gateway down at the scheduled time, etc.), or reminders that lack a registered one-shot for any other reason.
+**Role: backstop.** Primary reminder delivery is the per-reminder one-shot cron registered at intake (`setup/cron/reminder-delivery.md`). This `reminder-check` polling job catches anything that primary path misses: registration failures at intake, jobs that fail to fire (gateway down at the scheduled time, etc.), or reminders that lack a registered one-shot for any other reason.
 
 **Backstop delivery paths** (only fire when this poll finds a still-Pending reminder):
 1. **AGENTS.md step 6** (opportunistic): main session checks handoff file on every user interaction.

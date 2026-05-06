@@ -53,7 +53,7 @@ Verify durable canonical recurring cron jobs are registered. Re-register any mis
 | pull-main | `0 */2 * * *` | Run `scripts/pull-main.sh`; script handles dirty-pull recovery |
 | janitor | `0 7 * * 1` | Read this file and execute the Weekly Janitor Checks |
 
-Check via CronList. Missing → re-create with CronCreate (durable: true) using schedule, prompt, options from `setup/cron/`. Canonical fields come from `setup/cron/<name>.md`: `sessionTarget`, exact `model:` line, `payload.kind`, `payload.lightContext`, and `timeout-seconds`. `heartbeat`, `reminder-check`, `reminder-delivery-sweep`, and `pull-main` must match the cheap tier in `setup/model-tiers.json`; `janitor` is decoupled from cheap tier and uses its explicit Opus model for weekly deep audits. Cron jobs never use direct-delivery routing; heartbeat Check 1 and `reminder-delivery-sweep` use explicit `message` tool calls for reminder delivery and ops alerts. Current OpenClaw durable cron registration uses `agentTurn`; reduced `reminder-check` and `pull-main` cadence limits routine LLM use.
+Check via `openclaw cron list --json`. Missing → re-create with `openclaw cron add` (durable: true) using schedule, prompt, options from `setup/cron/`. Canonical fields come from `setup/cron/<name>.md`: `sessionTarget`, exact `model:` line, `payload.kind`, `payload.lightContext`, and `timeout-seconds`. `heartbeat`, `reminder-check`, `reminder-delivery-sweep`, and `pull-main` must match the cheap tier in `setup/model-tiers.json`; `janitor` is decoupled from cheap tier and uses its explicit Opus model for weekly deep audits. Cron jobs never use direct-delivery routing; heartbeat Check 1 and `reminder-delivery-sweep` use explicit `message` tool calls for reminder delivery and ops alerts. Current OpenClaw durable cron registration uses `agentTurn`; reduced `reminder-check` and `pull-main` cadence limits routine LLM use.
 
 **Scope:** this check covers only the recurring canonical jobs above. Per-reminder one-shot `reminder-<page_id>` jobs (registered at intake per `setup/cron/reminder-delivery.md`) are NOT verified or re-registered here — they self-delete after firing, so checking for their presence makes no sense. If the `heartbeat` cron is deleted entirely, AGENTS.md startup checks re-register it on the next user interaction; while heartbeat is running, it self-heals missing sibling jobs.
 
@@ -84,7 +84,7 @@ Nothing needs attention → reply HEARTBEAT_OK.
 ### 2b. Cron Spec Drift Check
 For each registered canonical recurring cron job (`heartbeat`, `reminder-check`, `reminder-delivery-sweep`, `pull-main`, `janitor`), compare live registration against canonical `CronCreate` spec in `setup/cron/<name>.md`.
 
-Check: CronList for live registrations, read spec files in `setup/cron/`.
+Check: `openclaw cron list --json` for live registrations, read spec files in `setup/cron/`.
 
 Compare + correct these fields:
 - `name`
@@ -97,9 +97,9 @@ Compare + correct these fields:
 - payload: canonical `payload.kind` + `payload.lightContext` from the spec
 - `timeout-seconds`
 
-Stale `pipeline-monitor` cron still registered → delete with CronDelete (job removed).
+Stale `pipeline-monitor` cron still registered → delete with the CLI-supported cron delete command (job removed).
 
-Field differs from spec → patch with CronUpdate. Identity field (`name`, `durable`) can't be safely changed → delete + re-create from spec. Intended contract:
+Field differs from spec → patch with the CLI-supported cron update command. Identity field (`name`, `durable`) can't be safely changed → delete + re-create from spec. Intended contract:
 - `heartbeat`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/heartbeat.md` (and matching the cheap tier in `setup/model-tiers.json`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 600`
 - `reminder-check`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/reminder-check.md` (and matching the cheap tier in `setup/model-tiers.json`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 300`
 - `reminder-delivery-sweep`: `name`, `durable`, `schedule`, `prompt`, `sessionTarget: isolated`, `model` exactly as declared in `setup/cron/reminder-delivery-sweep.md` (and matching the cheap tier in `setup/model-tiers.json`), no `to`, `payload.kind: agentTurn`, `payload.lightContext: true`, `timeout-seconds: 600`

@@ -17,7 +17,7 @@ CronCreate:
   timeout-seconds: 600
 ```
 
-Isolated cheap-tier maintenance session (see `setup/model-tiers.json`). Executes `scripts/pull-main.sh`, stays silent (`NO_REPLY`). Cron spec re-application after pulls handled by weekly janitor drift correction (`docs/heartbeat-checks.md` Check 2b), not this job — isolated session can't reliably call CronList/CronUpdate.
+Isolated cheap-tier maintenance session (see `setup/model-tiers.json`). Executes `scripts/pull-main.sh`, stays silent (`NO_REPLY`). Cron spec re-application after pulls handled by weekly janitor drift correction (`docs/heartbeat-checks.md` Check 2b), not this job — isolated session stays on the script-only path and does not perform cron drift reads/updates itself.
 
 The script is fully self-contained, so the LLM adds no value after process launch. Current OpenClaw durable cron registration uses `agentTurn`; the reduced cadence limits routine LLM use.
 
