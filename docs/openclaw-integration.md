@@ -31,27 +31,27 @@ OpenClaw loads via `bootstrap-extra-files` hook automatically. No special config
 ## Envelope Timezone
 
 OpenClaw also reads `agents.defaults.envelopeTimezone` from `openclaw.json`.
-For hide-my-list, set that field during first setup to the same IANA timezone
-identifier stored in `USER.md` (for example, `America/Chicago`).
+For hide-my-list, the canonical template pins that field to `America/Chicago`
+so OpenClaw injects the prompt envelope in the user's local timezone on fresh
+installs.
 
 Why it matters: OpenClaw injects a `Current time:` line into each prompt. If
-`envelopeTimezone` is unset, that line stays UTC-only. Reminder correctness
-still comes from the timezone stored in `USER.md`, with
-`scripts/user-time-context.sh` converting UTC timestamps into the user's local
-calendar when needed, but matching `envelopeTimezone` keeps prompt context
-direct and reduces date-resolution mistakes.
+`envelopeTimezone` is unset, that line stays UTC-only. Keeping the template's
+`America/Chicago` value makes the first time context the agent sees match the
+user-local calendar and reduces date-resolution mistakes.
 
 Canonical setup path:
-- Put the user's timezone in `USER.md`
-- Copy that same TZ identifier into `setup/openclaw.json.template` when creating
-  `~/.openclaw/openclaw.json`
+- Keep `setup/openclaw.json.template` at `America/Chicago`
+- Copy the template into `~/.openclaw/openclaw.json`
+- Let `.config-drift` repair sync `agents.defaults.envelopeTimezone` from the
+  template for existing deployments after template changes
 
 ## Canonical Config Baseline
 
 `setup/openclaw.json.template` is the standard prompt-footprint baseline for
 hide-my-list instances. New deployments should start from that template and
-replace only placeholder values such as LiteLLM URL, timezone, Signal account,
-gateway auth token, and control UI origin.
+replace only placeholder values such as LiteLLM URL, Signal account, gateway
+auth token, and control UI origin.
 
 Baseline config intentionally excludes optional OpenClaw features that add tools
 or prompt metadata:

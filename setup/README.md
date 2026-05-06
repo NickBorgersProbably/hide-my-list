@@ -53,8 +53,7 @@
    ```
 
    Before continuing, make sure `USER.md` has the correct timezone line for the
-   user, including the IANA TZ identifier in parentheses, such as
-   `America/Chicago`.
+   user. For this deployment, the canonical timezone is `America/Chicago`.
 
    Bootstrap also creates `~/.openclaw/media/` and
    `~/.openclaw/media/outbound/`, then repairs `~/.openclaw/` and
@@ -71,8 +70,9 @@
    # Edit ~/.openclaw/openclaw.json — replace all {{PLACEHOLDER}} values
    ```
 
-   `agents.defaults.envelopeTimezone` is a required first-setup field. Set it to
-   the same IANA timezone identifier from `USER.md`.
+   `agents.defaults.envelopeTimezone` is a required first-setup field. The
+   template sets it to `America/Chicago`; keep that value unless intentionally
+   deploying this repo for a different user timezone.
 
    The template disables OpenClaw web search and fetch tools by default:
    `tools.web.search.enabled: false` and `tools.web.fetch.enabled: false`.
@@ -239,7 +239,7 @@ Manual regression playbook:
 - Confirm `USER.md` has the correct IANA timezone identifier in the `Timezone`
   line
 - Confirm `~/.openclaw/openclaw.json` sets `agents.defaults.envelopeTimezone` to
-  that same identifier
+  `America/Chicago` for this deployment
 - Restart the gateway after changing `openclaw.json`
 
 **Cron jobs disappeared:**
@@ -249,10 +249,10 @@ Manual regression playbook:
 - Or manually re-register per the definitions in `setup/cron/`
 
 **Built-in heartbeat still runs after pulling the latest template:**
-- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, the AGENTS.md config-drift startup check parses the template's `agents.defaults.heartbeat` subtree, compares it with `openclaw config get 'agents.defaults.heartbeat'`, and realigns drift by setting the whole subtree with `openclaw config set 'agents.defaults.heartbeat' '<template-heartbeat-json>' --strict-json`. Whole-subtree repair also drops stale live keys removed from the template.
-- Verify the repair ran: `.config-drift` should be gone after the next main-agent session, and the live `agents.defaults.heartbeat` block should match the template, especially `every: "0s"`.
-- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign the whole subtree with `openclaw config set 'agents.defaults.heartbeat' '<template-heartbeat-json>' --strict-json`.
-- Do not preserve a stale enabled built-in heartbeat. The template's `agents.defaults.heartbeat` subtree is canonical for this repair flow.
+- `scripts/pull-main.sh` writes `.config-drift` when `setup/openclaw.json.template` changes. On the next main-agent startup/interaction, the AGENTS.md config-drift startup check parses the template's `agents.defaults.heartbeat` subtree and `agents.defaults.envelopeTimezone`, compares them with `openclaw config get`, and realigns drift with `openclaw config set`. Heartbeat repair writes the whole subtree with `--strict-json`, so stale live keys removed from the template are dropped too.
+- Verify the repair ran: `.config-drift` should be gone after the next main-agent session, the live `agents.defaults.heartbeat` block should match the template, especially `every: "0s"`, and `agents.defaults.envelopeTimezone` should match the template.
+- If you need the change before another main-agent session runs, or `.config-drift` remains because config repair failed, compare `setup/openclaw.json.template` against the live config and realign the heartbeat subtree with `openclaw config set 'agents.defaults.heartbeat' '<template-heartbeat-json>' --strict-json`, then realign the timezone with `openclaw config set 'agents.defaults.envelopeTimezone' '<template-envelopeTimezone-json-string>' --strict-json`.
+- Do not preserve a stale enabled built-in heartbeat or stale prompt-envelope timezone. The template's `agents.defaults.heartbeat` subtree and `agents.defaults.envelopeTimezone` value are canonical for this repair flow.
 - Then restart the gateway: `openclaw gateway`.
 - Verify: `openclaw cron list` shows the durable `heartbeat` job from `setup/cron/heartbeat.md`, and no built-in heartbeat sessions continue to run.
 

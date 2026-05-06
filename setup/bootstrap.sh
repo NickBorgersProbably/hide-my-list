@@ -129,15 +129,14 @@ if [ -f "$OPENCLAW_HOME/openclaw.json" ]; then
 else
     echo "NOTE: openclaw.json template is at setup/openclaw.json.template"
     echo "Copy it to $OPENCLAW_HOME/openclaw.json and fill in the {{PLACEHOLDER}} values."
-    echo "IMPORTANT: set agents.defaults.envelopeTimezone to the TZ identifier from USER.md."
+    echo "IMPORTANT: agents.defaults.envelopeTimezone is set in the template."
     if [ -n "$USER_TZ_IDENTIFIER" ]; then
-        echo "  Use: \"$USER_TZ_IDENTIFIER\""
+        echo "  USER.md timezone currently reads: \"$USER_TZ_IDENTIFIER\""
     else
-        echo "  Example: \"America/Chicago\""
+        echo "  Canonical value: \"America/Chicago\""
     fi
-    echo "  Without it, OpenClaw injects Current time in UTC."
-    echo "  Reminder correctness still comes from USER.md plus scripts/user-time-context.sh,"
-    echo "  but matching envelopeTimezone keeps prompt context in the user's local time."
+    echo "  Keep the template's \"America/Chicago\" value for this deployment."
+    echo "  Without envelopeTimezone, OpenClaw injects Current time in UTC."
 fi
 echo ""
 

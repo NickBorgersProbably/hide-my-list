@@ -60,7 +60,7 @@
         "primary": "litellm/claude-opus-4-6"
       },
       "workspace": "{{OPENCLAW_HOME}}/workspace",
-      "envelopeTimezone": "{{TZ_IDENTIFIER}}",
+      "envelopeTimezone": "America/Chicago",
       "compaction": {
         "model": "litellm/claude-haiku-4-5"
       },

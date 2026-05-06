@@ -40,7 +40,6 @@ replacements = {
     "LITELLM_BASE_URL": "http://127.0.0.1:4000",
     "LITELLM_API_KEY": "ci-litellm-key",
     "OPENCLAW_HOME": openclaw_home,
-    "TZ_IDENTIFIER": "America/Chicago",
     "SIGNAL_PHONE_NUMBER": "+15555550100",
     "CONTROL_UI_ORIGIN": "http://127.0.0.1:18789",
     "GATEWAY_AUTH_TOKEN": "ci-gateway-token-0000000000000000",
@@ -63,6 +62,9 @@ jq -e '
   .tools.web.search.enabled == false
   and .tools.web.fetch.enabled == false
 ' "$config_path" >/dev/null
+
+echo "=== Checking envelope timezone baseline ==="
+jq -e '.agents.defaults.envelopeTimezone == "America/Chicago"' "$config_path" >/dev/null
 
 echo "=== Checking prompt-footprint baseline excludes optional extras ==="
 jq -e '
@@ -93,6 +95,16 @@ jq -e \
 echo "=== Validating heartbeat subtree write path ==="
 openclaw config set agents.defaults.heartbeat "$heartbeat_json" --strict-json --dry-run >/dev/null
 openclaw config set agents.defaults.heartbeat "$heartbeat_json" --strict-json >/dev/null
+
+echo "=== Validating envelope timezone write path ==="
+envelope_timezone_json="$(openclaw config get agents.defaults.envelopeTimezone --json)"
+template_envelope_timezone_json="$(jq -c '.agents.defaults.envelopeTimezone' "$config_path")"
+jq -e \
+  --argjson expected "$template_envelope_timezone_json" \
+  --argjson actual "$envelope_timezone_json" \
+  -n '$actual == $expected' >/dev/null
+openclaw config set agents.defaults.envelopeTimezone "$envelope_timezone_json" --strict-json --dry-run >/dev/null
+openclaw config set agents.defaults.envelopeTimezone "$envelope_timezone_json" --strict-json >/dev/null
 
 echo "=== Re-validating after OpenClaw config write ==="
 openclaw config validate --json | jq -e '.valid == true' >/dev/null
