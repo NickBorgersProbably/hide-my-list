@@ -1,0 +1,73 @@
+version: "3.9"
+
+# Internal network: app <-> postgres <-> signal-cli
+# No host firewall rules are specified here.
+# Deployment-side egress enforcement is the infra agent's concern.
+# Documented outbound dependencies (for the infra/VM operator):
+#   - api.notion.com        (Notion CRUD)
+#   - api.anthropic.com     (primary LLM)
+#   - api.openai.com        (reward image generation)
+#   - Signal infrastructure  (managed by signal-cli container)
+
+networks:
+  internal:
+    driver: bridge
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - NOTION_API_KEY=${NOTION_API_KEY:-}
+      - NOTION_DATABASE_ID=${NOTION_DATABASE_ID:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DATABASE_URL=postgresql://hml:hml@postgres:5432/hml
+      - SIGNAL_CLI_URL=http://signal-cli:8080
+      - ENABLE_LANGGRAPH_PATH=${ENABLE_LANGGRAPH_PATH:-false}
+      # LangSmith guard: requires explicit opt-in with ALLOW_PRIVATE_TRACE_EXPORT=true
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
+      - ALLOW_PRIVATE_TRACE_EXPORT=${ALLOW_PRIVATE_TRACE_EXPORT:-false}
+      - USER_TZ=${USER_TZ:-America/Chicago}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: unless-stopped
+
+  signal-cli:
+    # Image pinned by sha256 digest.
+    # Lookup: docker pull bbernhard/signal-cli-rest-api:latest
+    #         docker inspect bbernhard/signal-cli-rest-api:latest --format='{{index .RepoDigests 0}}'
+    # Pinned: 2025-05-15 against bbernhard/signal-cli-rest-api:latest
+    image: bbernhard/signal-cli-rest-api@sha256:96578363477d97cb1d8da303791b2ad686b374a255fce4d78c7c6f00ef56cba8
+    environment:
+      - MODE=native
+    volumes:
+      - signal-cli-data:/home/.local/share/signal-cli
+    networks:
+      - internal
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=hml
+      - POSTGRES_PASSWORD=hml
+      - POSTGRES_DB=hml
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hml -d hml"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  signal-cli-data:

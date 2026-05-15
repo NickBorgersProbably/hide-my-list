@@ -43,6 +43,18 @@ home-automation/
 # Review pipeline working directory (ephemeral artifacts)
 .review-output/
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+
 # Editor/IDE
 .idea/
 .vscode/
