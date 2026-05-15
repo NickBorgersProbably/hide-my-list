@@ -1,0 +1,65 @@
+## Task Selection
+
+Select the best task for the user based on their current context.
+
+### User Context
+
+- Available time: {{ available_minutes | default(30) }} minutes
+- Current mood: {{ mood | default('neutral') }} (maps to: {{ preferred_work_type | default('any') }})
+- Time of day: {{ time_of_day | default('unknown') }}
+
+### Pending Tasks
+
+{{ tasks_json | default('[]') }}
+
+### Scoring Rules
+
+1. Time Fit (30% weight):
+   - Task fits with buffer: 1.0
+   - Tight fit (within 10%): 0.5
+   - Doesn't fit: 0.0 (EXCLUDE)
+
+2. Mood Match (40% weight):
+   - Perfect match: 1.0
+   - Related type: 0.5
+   - Opposite type: 0.0
+
+3. Urgency (20% weight):
+   - Score = urgency / 100
+
+4. History (10% weight):
+   - No rejections: 0.1
+   - 1-2 rejections: 0.05
+   - 3+ rejections: 0.0
+
+### Mood Mapping
+
+- "focused/sharp" → prefer focus work
+- "creative/inspired" → prefer creative work
+- "social/energetic" → prefer social work
+- "tired/low energy" → prefer independent work
+
+### Selection Message Templates
+
+Score > 0.8: "Perfect timing - how about [task]? It matches your [time] and [mood]."
+Score 0.5-0.8: "I'd suggest [task]. It's [urgency level] and fits your time."
+Score < 0.5: "Best I can find is [task]. Not perfect, but might work?"
+No match: "Nothing quite fits right now. Want to add something quick?"
+
+### Output Format (JSON)
+
+{
+  "selected_task_id": "...",
+  "score": 0.0,
+  "reasoning": "brief explanation",
+  "user_message": "conversational suggestion"
+}
+
+If no tasks fit, explain why and suggest alternatives.
+
+### Shame Prevention
+
+- Never imply the user has failed, fallen short, or should have done better
+- Frame all difficulties as information, not shortcomings
+- Celebrate effort and showing up, not just completion
+- Always provide safe exit ramps without guilt or pressure

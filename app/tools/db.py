@@ -5,9 +5,13 @@ Provides connection management and migration runner.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
 import psycopg
+import psycopg.rows
 import structlog
 
 log = structlog.get_logger(__name__)
@@ -17,6 +21,21 @@ _MIGRATIONS_DIR = Path(__file__).parent.parent.parent / "migrations"
 
 def get_connection_string() -> str:
     return os.environ["DATABASE_URL"]
+
+
+@asynccontextmanager
+async def get_db_conn() -> AsyncGenerator[psycopg.AsyncConnection[Any], None]:
+    """Async context manager for a short-lived psycopg connection.
+
+    Usage:
+        async with get_db_conn() as conn:
+            await conn.execute(...)
+    """
+    conn_str = get_connection_string()
+    async with await psycopg.AsyncConnection.connect(
+        conn_str, row_factory=psycopg.rows.dict_row
+    ) as conn:
+        yield conn
 
 
 def run_migrations() -> None:
