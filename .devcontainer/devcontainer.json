@@ -1,5 +1,5 @@
 {
-  "name": "Hide My List (OpenClaw Agent)",
+  "name": "Hide My List (Python + LangGraph)",
   "build": {
     "dockerfile": "Dockerfile"
   },
@@ -11,7 +11,7 @@
   },
   "onCreateCommand": "bash .devcontainer/setup-user.sh \"${localEnv:USER}\"",
   "initializeCommand": "bash .devcontainer/init-host-credentials.sh",
-  "postCreateCommand": "bash .devcontainer/post-create.sh && bash .githooks/install-hooks.sh",
+  "postCreateCommand": "bash .devcontainer/post-create.sh && bash .githooks/install-hooks.sh && docker compose -f docker/compose.yaml up -d postgres signal-cli",
   "postStartCommand": "bash .devcontainer/fix-dns-order.sh && sudo chown -R \"$(id -u):$(id -g)\" /workspaces 2>/dev/null || true",
   "mounts": [
     "source=${localEnv:HOME}/.claude,target=/tmp/devcontainer-host/.claude,type=bind,readonly,consistency=cached",
@@ -33,7 +33,9 @@
   "customizations": {
     "vscode": {
       "extensions": [
-        "bierner.markdown-mermaid"
+        "bierner.markdown-mermaid",
+        "ms-python.python",
+        "charliermarsh.ruff"
       ]
     }
   },
