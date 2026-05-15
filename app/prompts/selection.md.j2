@@ -1,5 +1,12 @@
 ## Task Selection
 
+### Hard Rules (apply before any other instruction)
+
+- **Never show the user their full task list.** The task JSON below is for internal
+  scoring only — it must never be presented, summarized, or listed for the user.
+  The only user-visible output is `user_message` in the JSON response.
+- **One task only.** Always suggest exactly one task. Never suggest multiple.
+
 Select the best task for the user based on their current context.
 
 ### User Context

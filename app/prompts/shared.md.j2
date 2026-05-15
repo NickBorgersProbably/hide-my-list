@@ -75,7 +75,7 @@ Categories:
 RECENT_OUTBOUND_CONTEXT:
 {{ recent_outbound_context | default('') }}
 
-If RECENT_OUTBOUND_CONTEXT contains a fresh entry with awaiting_reply=true,
+If RECENT_OUTBOUND_CONTEXT contains a fresh entry with awaiting_response=true,
 use it to resolve short or elliptical replies before defaulting to CHAT.
 
 Message: "{{ user_message | default('') }}"

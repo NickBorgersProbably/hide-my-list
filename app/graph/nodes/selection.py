@@ -14,7 +14,7 @@ from typing import Any
 
 import structlog
 
-from app.graph.state import OutboundDraft, State
+from app.graph.state import ActiveTask, OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
@@ -127,10 +127,36 @@ async def selection_node(state: State) -> dict[str, Any]:
             "notion_page_id": selected_page_id,
         }
 
+        # Mark selected task In Progress and set active_task in state.
+        # This is required for COMPLETE/reward to work correctly (psy-001):
+        # without active_task set here, the complete node skips Notion completion
+        # and maybe_reward, breaking the dopamine timing loop.
+        active_task: ActiveTask | None = None
+        if selected_page_id:
+            try:
+                await notion.update_status(selected_page_id, "In Progress")
+            except Exception:
+                log.exception("selection_node.mark_in_progress_failed", notion_page_id=selected_page_id)
+
+            # Build a minimal ActiveTask from the simplified task list
+            selected_simplified = next(
+                (t for t in simplified if t.get("id") == selected_page_id), {}
+            )
+            active_task = ActiveTask(
+                page_id=selected_page_id,
+                title=selected_simplified.get("title", ""),
+                status="In Progress",
+                work_type=selected_simplified.get("work_type", ""),
+                urgency=int(selected_simplified.get("urgency", 50)),
+                time_estimate=int(selected_simplified.get("time_estimate", 30)),
+                energy_required=selected_simplified.get("energy_required", "Medium"),
+            )
+
         log.info("selection_node.suggestion", peer=peer, notion_page_id=selected_page_id)
         return {
             "pending_outbound": [draft],
-            "conversation_state": "selection",
+            "active_task": active_task,
+            "conversation_state": "active" if active_task else "selection",
         }
 
     except Exception:

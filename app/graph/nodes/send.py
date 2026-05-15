@@ -44,10 +44,11 @@ async def send_node(state: State) -> dict[str, Any]:
 
     if not _ENABLE_LANGGRAPH_PATH:
         for draft in pending:
+            # Log recipient only — body is private conversation content
             log.debug(
                 "send_node.dormant",
                 recipient=draft.get("recipient"),
-                body_preview=str(draft.get("body", ""))[:80],
+                has_body=bool(draft.get("body")),
             )
         return {}
 
@@ -59,7 +60,12 @@ async def send_node(state: State) -> dict[str, Any]:
         notion_page_id = draft.get("notion_page_id")
 
         if not recipient or not body:
-            log.warning("send_node.skip_empty_draft", draft=draft)
+            # Log booleans only — no body content (private data discipline)
+            log.warning(
+                "send_node.skip_empty_draft",
+                has_recipient=bool(recipient),
+                has_body=bool(body),
+            )
             continue
 
         # Generate idempotency key from content hash for deduplication

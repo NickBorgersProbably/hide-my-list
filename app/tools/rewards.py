@@ -186,8 +186,10 @@ def get_celebration_emoji(intensity: str, sensitive_task: bool = False) -> str:
         Celebration string.
     """
     if sensitive_task:
-        # Muted reward for sensitive tasks — warm but no fanfare
-        return "Done. That took courage."
+        # Muted reward for sensitive tasks — calm and warm, no fanfare.
+        # "That took courage." can over-label routine private tasks as emotionally loaded.
+        # "That mattered." is neutral, affirming, and applies to any private task category.
+        return "Done. That mattered."
 
     templates = _EMOJI_TEMPLATES.get(intensity, _EMOJI_TEMPLATES["low"])
     return random.choice(templates)

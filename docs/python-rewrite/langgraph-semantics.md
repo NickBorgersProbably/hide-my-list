@@ -34,8 +34,8 @@ independent.
 
 **Caveat:** Thread isolation is enforced by the caller passing distinct `thread_id` values.
 If the signal listener ever passes the same `thread_id` for two different peers (e.g., due
-to a bug), state would merge. The `peer` field in State is validated at intake node entry
-as a defense.
+to a bug), state would merge. Peer field validation at node entry is a future hardening item
+for Phase C — not yet implemented in Phase B intake.
 
 ---
 
@@ -60,8 +60,9 @@ and re-executes the crashed node from scratch.
   key is generated deterministically from `(peer, incoming_hash)` so signal-cli can
   deduplicate where supported.
 - The intake node creates Notion tasks. If it creates a task and crashes, the next run
-  creates the task again. Mitigation: check for existing task with the same
-  `idempotency_key` field before creating. This is implemented in the intake node.
+  creates the task again. Mitigation (future work): check for existing task with the same
+  `idempotency_key` field before creating. The Phase B intake node does not yet implement
+  this check — it is tracked as a hardening item for Phase C.
 
 **Tested in:** `tests/spike/test_restart_semantics.py` — injects a mock node that raises
 on first call, verifies the next invocation re-enters the node cleanly.
@@ -82,16 +83,16 @@ running outside the graph cannot mutate a checkpoint without invoking the graph.
 and directly write to checkpoint tables — coupling the worker to LangGraph internals.
 Storing it in a plain Postgres table decouples the worker completely.
 
-**Pattern:**
+**Pattern (target — not yet implemented in Phase B classifier):**
 
 ```python
-# In the classify_intent node (first node in the graph):
+# Target pattern for classify_intent (Phase B classifier does not yet read this):
 async def classify_intent(state: State) -> dict:
     peer = state["peer"]
     # Read recent_outbound from Postgres — NOT from checkpoint state
     async with get_db_conn() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM recent_outbound WHERE peer = $1 AND awaiting_reply = true "
+            "SELECT * FROM recent_outbound WHERE peer = $1 AND awaiting_response = true "
             "AND expires_at > now() ORDER BY sent_at DESC LIMIT 5",
             peer
         )
@@ -100,6 +101,12 @@ async def classify_intent(state: State) -> dict:
     intent = await llm_classify(state["incoming"], recent_outbound_context)
     return {"intent": intent}
 ```
+
+The Phase B implementation in `app/graph/routing.py` passes `RECENT_OUTBOUND_CONTEXT`
+as a placeholder in the classifier prompt but does not yet query the `recent_outbound`
+table. The Phase B prompt template references the variable, and the node must supply it.
+Full DB-backed recent_outbound read is targeted for Phase C once the worker populates
+the table during live operation.
 
 **Worker writes:**
 

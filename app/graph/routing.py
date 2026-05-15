@@ -105,11 +105,10 @@ async def classify_intent(state: State) -> dict[str, Intent | None]:
 
         # CHECK_IN must never be inferred from user messages
         if classified == "CHECK_IN":
+            # Log peer only — no message content (private data discipline)
             log.warning(
                 "classify_intent.check_in_from_user_message",
                 peer=state.get("peer"),
-                incoming=incoming[:50],
-                raw_response=raw[:100],
             )
             classified = "CHAT"
 

@@ -34,91 +34,6 @@ _ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower(
     "true", "1", "yes"
 )
 
-_INTAKE_SYSTEM_PROMPT = """\
-The user wants to add a task. Extract details, infer labels, and ALWAYS generate sub-tasks.
-
-User said: "{user_message}"
-Previous context: {conversation_history}
-User preferences: {user_preferences_context}
-Clarification count so far: {clarification_count} (max 3)
-Current user time: {current_time}
-User timezone: {user_timezone}
-
-CORE PRINCIPLE: Users interpret vague goals as infinite and avoid them.
-Every task MUST have explicit sub-tasks that define exactly what "done" looks like.
-
-DECISION FATIGUE PREVENTION:
-Prefer inference over questions. Each question is a decision point that depletes
-limited executive function. Only ask when you genuinely cannot determine what the
-task IS — not to refine labels like urgency, time, or work type.
-
-INFERENCE FIRST (always try these before asking):
-- If urgency is unclear, default to 50 (moderate)
-- If time is unclear, estimate from task type (calls: 15min, writing: 45min, etc.)
-- If work type is ambiguous, pick the most likely one
-- If task is somewhat vague, infer scope from the most common interpretation
-
-CLARIFYING QUESTIONS (last resort):
-- Ask ONLY when the task description is too vague to identify what the task actually IS
-- Ask ONE question at a time — never multiple questions in a single message
-- Maximum 3 clarifying questions per task — after 3, infer and save with best guess
-- Never ask about labels (urgency, time, energy) — always infer those
-
-REMINDER DETECTION:
-When the user's message contains a specific wall-clock time for a notification:
-- Set is_reminder = true
-- Parse the time reference and convert to ISO 8601 with timezone offset
-- Default timezone: {user_timezone}
-- Resolve ALL relative references ("today", "tomorrow", "tonight") against current_time
-- Set urgency = 90 (reminders are inherently time-critical)
-- Set reminder_status = "pending"
-
-SUB-TASK GENERATION (ALWAYS REQUIRED):
-- Quick tasks (15-30 min): 2-3 inline steps
-- Standard tasks (30-60 min): 3-5 inline steps
-- Large tasks (60+ min): use_hidden_subtasks = true
-
-SHAME PREVENTION (MANDATORY):
-- Never imply the user has failed, fallen short, or should have done better
-- Never use "you didn't", "you should have", "you forgot", or "you failed"
-- Frame ALL difficulties as information, not shortcomings
-
-OUTPUT (JSON):
-
-If task is clear enough to save:
-{{
-  "action": "save",
-  "title": "...",
-  "work_type": "focus|creative|social|independent",
-  "urgency": 50,
-  "time_estimate_minutes": 30,
-  "energy_required": "High|Medium|Low",
-  "is_reminder": false,
-  "remind_at": null,
-  "use_hidden_subtasks": false,
-  "sub_tasks": [
-    {{"title": "...", "time_estimate_minutes": 10, "done_criteria": "...", "sequence": 1}}
-  ],
-  "inline_steps": "1. First step\\n2. Second step\\n3. Third step",
-  "confirmation_message": "Got it — focus, ~30 min. Plan: 1) X, 2) Y, 3) Z"
-}}
-
-If task is too vague and clarification_count < 3:
-{{
-  "action": "clarify",
-  "clarification_question": "...",
-  "clarification_count": 1
-}}
-
-CONFIRMATION MESSAGE FORMAT:
-- For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
-- For reminders: "Got it — I'll remind you [time description] to [task]."
-
-REMINDER CONFIRMATION SAFETY:
-- Never mention cron jobs, polling, outbox, Notion writes, or scheduling internals
-- The visible confirmation should be a single short sentence, then stop
-"""
-
 
 async def intake_node(state: State) -> dict[str, Any]:
     """ADD_TASK handler: infer labels, generate sub-tasks, detect reminders."""
@@ -162,14 +77,16 @@ async def intake_node(state: State) -> dict[str, Any]:
         # Clarification count tracking (use messages history length as proxy)
         clarification_count = 0
 
-        prompt_text = _INTAKE_SYSTEM_PROMPT.format(
-            user_message=incoming,
-            conversation_history=conversation_history,
-            user_preferences_context=user_prefs_context,
-            clarification_count=clarification_count,
-            current_time=current_time,
-            user_timezone=user_timezone,
-        )
+        from app.prompts.loader import render_with_defaults
+        prompt_context = {
+            "user_message": incoming,
+            "conversation_history": conversation_history,
+            "user_preferences_context": user_prefs_context,
+            "clarification_count": clarification_count,
+            "current_time": current_time,
+            "user_timezone": user_timezone,
+        }
+        prompt_text = render_with_defaults("intake.md.j2", prompt_context)
 
         model = llm("medium")
         messages = [
@@ -209,11 +126,8 @@ async def intake_node(state: State) -> dict[str, Any]:
                 peer=peer,
                 title=task_title,
                 work_type=work_type,
-                urgency=urgency,
-                time_estimate=time_estimate,
                 energy_required=energy_required,
                 remind_at_str=remind_at_str,
-                inline_steps=inline_steps,
             )
         else:
             notion_page = await notion.create_task(
@@ -270,13 +184,14 @@ async def _create_reminder(
     peer: str,
     title: str,
     work_type: str,
-    urgency: int,
-    time_estimate: int,
     energy_required: str,
     remind_at_str: str,
-    inline_steps: str,
 ) -> dict[str, Any]:
-    """Create a Notion reminder row and enqueue the outbox row."""
+    """Create a Notion reminder row and enqueue the outbox row.
+
+    notion.create_reminder() accepts: title, remind_at_iso, work_type, energy_required.
+    Urgency, time_estimate, and inline_steps are set by the Notion function internally.
+    """
     from app.tools import notion
     from app.tools.db import get_db_conn
     from app.tools.reminders import enqueue
@@ -286,13 +201,9 @@ async def _create_reminder(
 
     notion_page = await notion.create_reminder(
         title=title,
-        remind_at=remind_at.isoformat(),
-        peer=peer,
+        remind_at_iso=remind_at.isoformat(),
         work_type=work_type,
-        urgency=urgency,
-        time_estimate=time_estimate,
         energy_required=energy_required,
-        inline_steps=inline_steps,
     )
 
     page_id = (notion_page or {}).get("id", "")

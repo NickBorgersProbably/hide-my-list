@@ -31,6 +31,11 @@ An AI-powered task manager where users never directly view their task list. The 
 - [User Preferences](user-preferences.md) - Personalization behavior spec
 - [Reward System](reward-system.md) - Multi-channel reward and celebration system
 
+## Python Rewrite (Phase B)
+
+- [LangGraph Semantics](python-rewrite/langgraph-semantics.md) - Durability spike findings: per-peer isolation, restart semantics, worker-to-graph state pattern, schema migration behavior
+- [Reward Deferred Features](python-rewrite/reward-deferred.md) - Features deferred from v1 reward subsystem (audio rewards, outing suggestions, video compilation)
+
 ## Design
 
 - [ADHD Priorities](../design/adhd-priorities.md) - Core design principles grounded in ADHD research

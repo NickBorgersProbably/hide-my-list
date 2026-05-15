@@ -60,7 +60,7 @@ class TestSensitiveTaskSuppression:
         from app.tools.rewards import get_celebration_emoji
         result = get_celebration_emoji("epic", sensitive_task=True)
         # Must be warm but not fanfare — no emoji characters
-        assert result == "Done. That took courage."
+        assert result == "Done. That mattered."
         # Confirm no emoji present
         assert "🏆" not in result
         assert "🔥" not in result
@@ -84,7 +84,7 @@ class TestSensitiveTaskSuppression:
         # Run multiple times to sample across pool (random.choice)
         results = {get_celebration_emoji("epic", sensitive_task=False) for _ in range(10)}
         # None of the results should be the sensitive-only muted message
-        assert "Done. That took courage." not in results
+        assert "Done. That mattered." not in results
 
     @pytest.mark.asyncio
     async def test_maybe_reward_sensitive_skips_image(self) -> None:
