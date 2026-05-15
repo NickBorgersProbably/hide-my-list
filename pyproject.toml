@@ -15,6 +15,7 @@ dependencies = [
     "apscheduler==3.10.4",
     "psycopg[binary]==3.3.4",
     "httpx==0.28.1",
+    "websockets==16.0",
     "structlog==25.5.0",
     "pydantic==2.13.4",
     "anyio==4.13.0",
@@ -27,7 +28,7 @@ dev = [
     "pytest-httpserver==1.1.5",
     "ruff==0.15.13",
     "mypy==2.1.0",
-    "types-psycopg2==2.9.21.20241008",
+    "types-psycopg2==2.9.21.20260509",
 ]
 
 [tool.setuptools.packages.find]

@@ -16,6 +16,8 @@ from typing import Any
 
 import httpx
 import structlog
+import websockets
+import websockets.exceptions
 
 log = structlog.get_logger(__name__)
 
@@ -113,28 +115,26 @@ async def receive_messages(
     url_base = base_url or _signal_base_url()
     acct = account or _account()
 
-    # Build WebSocket URL: http://... -> ws://...
-    ws_url = url_base.replace("http://", "ws://").replace("https://", "wss://")
+    # Build WebSocket URL: http://... -> ws://..., https://... -> wss://...
+    ws_url = url_base.replace("https://", "wss://").replace("http://", "ws://")
     ws_endpoint = f"{ws_url}/v1/receive/{acct}"
 
     delay = _RETRY_BASE_DELAY
     while True:
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=_CONNECT_TIMEOUT, read=None, write=30.0, pool=10.0),
-            ) as client:
-                async with client.stream("GET", ws_endpoint) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            yield json.loads(line)
-                        except json.JSONDecodeError:
-                            log.warning("signal_client.receive.bad_json", bytes=len(line))
-            delay = _RETRY_BASE_DELAY  # reset on clean close
-        except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+            async with websockets.connect(ws_endpoint) as ws:
+                delay = _RETRY_BASE_DELAY  # reset on successful connect
+                async for raw_message in ws:
+                    if not raw_message:
+                        continue
+                    try:
+                        yield json.loads(raw_message)
+                    except json.JSONDecodeError:
+                        log.warning("signal_client.receive.bad_json")
+        except (
+            websockets.exceptions.WebSocketException,
+            OSError,
+        ) as exc:
             log.warning("signal_client.receive.reconnect", error=str(exc), delay=delay)
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60.0)
