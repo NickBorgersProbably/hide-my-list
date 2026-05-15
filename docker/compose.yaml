@@ -25,6 +25,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - DATABASE_URL=postgresql://hml:hml@postgres:5432/hml
       - SIGNAL_CLI_URL=http://signal-cli:8080
+      # SIGNAL_ACCOUNT: E.164 phone number registered with signal-cli (required when
+      # ENABLE_LANGGRAPH_PATH=true; set in the operator's .env file).
+      - SIGNAL_ACCOUNT=${SIGNAL_ACCOUNT:-}
       - ENABLE_LANGGRAPH_PATH=${ENABLE_LANGGRAPH_PATH:-false}
       # LangSmith guard: requires explicit opt-in with ALLOW_PRIVATE_TRACE_EXPORT=true
       - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
@@ -35,7 +38,10 @@ services:
         condition: service_healthy
     networks:
       - internal
-    restart: unless-stopped
+    # restart: on-failure keeps the service alive on crashes but does NOT restart it
+    # when it exits 0 (skeleton mode with ENABLE_LANGGRAPH_PATH=false).
+    # Using unless-stopped here would cause a restart loop in dormant/skeleton mode.
+    restart: on-failure
 
   signal-cli:
     # Image pinned by sha256 digest.

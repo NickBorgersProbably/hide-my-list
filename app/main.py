@@ -35,10 +35,11 @@ def _check_langsmith_guard() -> None:
 
 async def _run_app() -> None:
     """Start Signal ingress and APScheduler when ENABLE_LANGGRAPH_PATH=true."""
+    from app.graph.graph import build_graph, build_postgres_checkpointer
     from app.ingress.signal_listener import SignalListener
     from app.scheduler.jobs import reconcile_jobstore
     from app.scheduler.scheduler import build_scheduler
-    from app.tools.db import run_migrations
+    from app.tools.db import get_connection_string, run_migrations
 
     log.info("app.starting", enable_langgraph_path=True)
 
@@ -49,9 +50,12 @@ async def _run_app() -> None:
     scheduler.resume()
     log.info("scheduler.started")
 
-    listener = SignalListener()
-    log.info("ingress.starting")
-    await listener.run()
+    database_url = get_connection_string()
+    async with build_postgres_checkpointer(database_url) as checkpointer:
+        graph = build_graph(checkpointer=checkpointer)
+        listener = SignalListener(graph=graph)
+        log.info("ingress.starting")
+        await listener.run()
 
 
 def main() -> None:

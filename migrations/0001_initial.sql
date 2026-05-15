@@ -27,8 +27,16 @@ CREATE TABLE IF NOT EXISTS recent_outbound (
   peer                 TEXT NOT NULL,
   signal_timestamp     BIGINT NOT NULL,
   notion_page_id       TEXT NOT NULL,
+  -- reminder_type: e.g. 'reminder', 'check_in', 'task_complete'
+  -- required for context-free reply classification (avoids asking user to clarify)
+  reminder_type        TEXT NOT NULL DEFAULT 'reminder',
+  -- title: the reminder/task title, enables "I did it" -> COMPLETE without re-asking
+  title                TEXT NOT NULL DEFAULT '',
+  -- prompt_kind: e.g. 'sent', 'missed' — status context for follow-up replies
+  prompt_kind          TEXT NOT NULL DEFAULT 'sent',
   sent_at              TIMESTAMPTZ NOT NULL,
   awaiting_reply       BOOLEAN NOT NULL DEFAULT true,
+  -- expires_at uses 24h for reminders (reduces stale-context misclassification)
   expires_at           TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (peer, signal_timestamp)
 );

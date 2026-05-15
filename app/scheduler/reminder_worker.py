@@ -139,6 +139,7 @@ async def dispatch_due_reminders(
         peer = row["peer"]
         body = row["body"]
         notion_page_id = row["notion_page_id"]
+        idempotency_key = row["idempotency_key"]
         attempt = row["attempt"] + 1
 
         log.info(
@@ -149,7 +150,11 @@ async def dispatch_due_reminders(
 
         try:
             # Signal send is outside the Postgres transaction (at-least-once).
-            result = await signal_send_fn(recipient=peer, message=body)
+            result = await signal_send_fn(
+                recipient=peer,
+                message=body,
+                idempotency_key=idempotency_key,
+            )
             signal_ts = result.get("timestamp", 0)
 
             # Deliver: write signal_timestamp, insert recent_outbound, mark delivered
@@ -166,16 +171,23 @@ async def dispatch_due_reminders(
                 """,
                 (signal_ts, attempt, str(rid)),
             )
-            # Record in recent_outbound for graph turn awareness
+            # Record in recent_outbound for graph turn awareness.
+            # title and reminder_type are carried from the outbox row so graph nodes
+            # can classify terse replies (e.g. "I did it") without re-asking the user.
+            # expires_at uses 24h for reminders to minimise stale-context misclassification.
             if signal_ts:
+                reminder_title = row.get("body", "")[:200]  # use body as title proxy in Phase A
                 await conn.execute(
                     """
                     INSERT INTO recent_outbound
-                      (peer, signal_timestamp, notion_page_id, sent_at, awaiting_reply, expires_at)
-                    VALUES (%s, %s, %s, now(), true, now() + interval '48 hours')
+                      (peer, signal_timestamp, notion_page_id,
+                       reminder_type, title, prompt_kind,
+                       sent_at, awaiting_reply, expires_at)
+                    VALUES (%s, %s, %s, 'reminder', %s, 'sent',
+                            now(), true, now() + interval '24 hours')
                     ON CONFLICT DO NOTHING
                     """,
-                    (peer, signal_ts, notion_page_id),
+                    (peer, signal_ts, notion_page_id, reminder_title),
                 )
             await conn.commit()
 

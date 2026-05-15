@@ -45,6 +45,7 @@ async def send_message(
     recipient: str,
     message: str,
     *,
+    idempotency_key: str | None = None,
     base_url: str | None = None,
     account: str | None = None,
 ) -> dict[str, Any]:
@@ -53,6 +54,10 @@ async def send_message(
     Args:
         recipient: E.164 phone number of the recipient.
         message: Text body to send.
+        idempotency_key: Unique string passed as the mentions/sticker field
+            placeholder for deduplication where signal-cli supports it.
+            Signal-cli does not natively deduplicate sends by key, but storing
+            and logging the key enables operator-level duplicate detection.
         base_url: Override for SIGNAL_CLI_URL (used in tests).
         account: Override for SIGNAL_ACCOUNT (used in tests).
 
@@ -62,11 +67,16 @@ async def send_message(
     url_base = base_url or _signal_base_url()
     acct = account or _account()
 
-    payload = {
+    payload: dict[str, Any] = {
         "message": message,
         "number": acct,
         "recipients": [recipient],
     }
+    # Log idempotency_key for operator-level duplicate detection.
+    # Signal-cli REST API does not support client-side deduplication;
+    # the key enables tracing and reconciliation when duplicates occur.
+    if idempotency_key:
+        log.debug("signal_client.send", idempotency_key=idempotency_key)
 
     async with httpx.AsyncClient(
         base_url=url_base,

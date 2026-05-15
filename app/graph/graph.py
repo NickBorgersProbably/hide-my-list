@@ -2,10 +2,17 @@
 
 Phase A: 2-node graph (classify_intent -> echo) with PostgresSaver checkpointer.
 Each peer gets its own conversation thread via thread_id=peer.
+
+Checkpointer lifecycle:
+  AsyncPostgresSaver is an async context manager that must be entered before the
+  graph is compiled. Use build_postgres_checkpointer() as an async context manager
+  in app startup, then pass the entered instance to build_graph(). For tests,
+  pass a MemorySaver directly.
 """
 from __future__ import annotations
 
-import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from langgraph.graph import StateGraph
@@ -29,17 +36,44 @@ def _echo_node(state: State) -> dict[str, Any]:
     }
 
 
+@asynccontextmanager
+async def build_postgres_checkpointer(
+    database_url: str,
+) -> AsyncGenerator[Any, None]:
+    """Async context manager that sets up and tears down a PostgresSaver.
+
+    Usage:
+        async with build_postgres_checkpointer(DATABASE_URL) as cp:
+            graph = build_graph(checkpointer=cp)
+            ...
+
+    The entered checkpointer is passed to build_graph(); compiling the graph
+    with an un-entered AsyncPostgresSaver would leave it without an active
+    connection pool.
+    """
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+    async with AsyncPostgresSaver.from_conn_string(database_url) as saver:
+        await saver.setup()
+        yield saver
+
+
 def build_graph(checkpointer: Any = None) -> Any:
     """Build and compile the LangGraph state machine.
 
     Args:
-        checkpointer: Optional LangGraph checkpointer. When None, uses
-            PostgresSaver connected to DATABASE_URL. Pass a MemorySaver
-            in tests that don't need Postgres.
+        checkpointer: An already-entered LangGraph checkpointer instance.
+            Pass a MemorySaver for unit tests. In production, pass the
+            entered saver from build_postgres_checkpointer().
+            When None, falls back to MemorySaver (no persistence).
 
     Returns:
         Compiled LangGraph app.
     """
+    if checkpointer is None:
+        from langgraph.checkpoint.memory import MemorySaver
+        checkpointer = MemorySaver()
+
     builder: StateGraph[State] = StateGraph(State)
     builder.add_node("classify_intent", classify_intent)
     builder.add_node("echo", _echo_node)
@@ -51,15 +85,5 @@ def build_graph(checkpointer: Any = None) -> Any:
         {"echo": "echo"},
     )
     builder.add_edge("echo", "__end__")
-
-    if checkpointer is None:
-        database_url = os.environ.get("DATABASE_URL", "")
-        if database_url:
-            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-            checkpointer = AsyncPostgresSaver.from_conn_string(database_url)
-        else:
-            # No DB configured (e.g. unit tests without Postgres env)
-            from langgraph.checkpoint.memory import MemorySaver
-            checkpointer = MemorySaver()
 
     return builder.compile(checkpointer=checkpointer)
