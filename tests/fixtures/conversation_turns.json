@@ -1,0 +1,212 @@
+[
+  {
+    "id": "turn-001",
+    "peer": "<test-peer-1>",
+    "incoming": "I have 30 minutes",
+    "intent": "GET_TASK",
+    "context": {"available_minutes": 30, "mood": "neutral"}
+  },
+  {
+    "id": "turn-002",
+    "peer": "<test-peer-1>",
+    "incoming": "Not that one",
+    "intent": "REJECT",
+    "context": {"task_title": "Placeholder task", "rejection_reason": "Not feeling it"}
+  },
+  {
+    "id": "turn-003",
+    "peer": "<test-peer-1>",
+    "incoming": "Done",
+    "intent": "COMPLETE",
+    "context": {"task_title": "Placeholder completed task"}
+  },
+  {
+    "id": "turn-004",
+    "peer": "<test-peer-2>",
+    "incoming": "I need to do some work",
+    "intent": "ADD_TASK",
+    "context": {"user_message": "I need to do some work"}
+  },
+  {
+    "id": "turn-005",
+    "peer": "<test-peer-2>",
+    "incoming": "This is too big",
+    "intent": "CANNOT_FINISH",
+    "context": {"task_title": "Placeholder large task", "time_estimate": 60}
+  },
+  {
+    "id": "turn-006",
+    "peer": "<test-peer-2>",
+    "incoming": "How do I start?",
+    "intent": "NEED_HELP",
+    "context": {"task_title": "Placeholder task", "inline_steps": "1. Step one\n2. Step two"}
+  },
+  {
+    "id": "turn-007",
+    "peer": "<test-peer-3>",
+    "incoming": "I have an hour",
+    "intent": "GET_TASK",
+    "context": {"available_minutes": 60, "mood": "focused"}
+  },
+  {
+    "id": "turn-008",
+    "peer": "<test-peer-3>",
+    "incoming": "Something else please",
+    "intent": "REJECT",
+    "context": {"task_title": "Placeholder task 2", "rejection_reason": "Not in the mood"}
+  },
+  {
+    "id": "turn-009",
+    "peer": "<test-peer-3>",
+    "incoming": "I'm stuck",
+    "intent": "NEED_HELP",
+    "context": {"task_title": "Placeholder task 3"}
+  },
+  {
+    "id": "turn-010",
+    "peer": "<test-peer-3>",
+    "incoming": "I can't finish this",
+    "intent": "CANNOT_FINISH",
+    "context": {"task_title": "Placeholder large task 2", "time_estimate": 90}
+  },
+  {
+    "id": "turn-011",
+    "peer": "<test-peer-4>",
+    "incoming": "I need to complete a project",
+    "intent": "ADD_TASK",
+    "context": {"user_message": "I need to complete a project"}
+  },
+  {
+    "id": "turn-012",
+    "peer": "<test-peer-4>",
+    "incoming": "Remind me at 5pm to check my tasks",
+    "intent": "ADD_TASK",
+    "context": {"user_message": "Remind me at 5pm to check my tasks"}
+  },
+  {
+    "id": "turn-013",
+    "peer": "<test-peer-4>",
+    "incoming": "What should I work on?",
+    "intent": "GET_TASK",
+    "context": {"available_minutes": 45, "mood": "creative"}
+  },
+  {
+    "id": "turn-014",
+    "peer": "<test-peer-5>",
+    "incoming": "I completed my task",
+    "intent": "COMPLETE",
+    "context": {"task_title": "Placeholder completed task 2"}
+  },
+  {
+    "id": "turn-015",
+    "peer": "<test-peer-5>",
+    "incoming": "ugh I can't do anything today",
+    "intent": "CHAT",
+    "context": {}
+  },
+  {
+    "id": "turn-016",
+    "peer": "<test-peer-5>",
+    "incoming": "not that one, something simpler",
+    "intent": "REJECT",
+    "context": {"task_title": "Placeholder complex task", "rejection_reason": "Too complex"}
+  },
+  {
+    "id": "turn-017",
+    "peer": "<test-peer-6>",
+    "incoming": "I have 15 minutes",
+    "intent": "GET_TASK",
+    "context": {"available_minutes": 15, "mood": "tired"}
+  },
+  {
+    "id": "turn-018",
+    "peer": "<test-peer-6>",
+    "incoming": "This is overwhelming",
+    "intent": "CANNOT_FINISH",
+    "context": {"task_title": "Placeholder overwhelming task", "time_estimate": 120}
+  },
+  {
+    "id": "turn-019",
+    "peer": "<test-peer-6>",
+    "incoming": "What's the next step?",
+    "intent": "NEED_HELP",
+    "context": {"task_title": "Placeholder task step", "inline_steps": "1. First\n2. Second\n3. Third"}
+  },
+  {
+    "id": "turn-020",
+    "peer": "<test-peer-7>",
+    "incoming": "add a task: complete the report",
+    "intent": "ADD_TASK",
+    "context": {"user_message": "add a task: complete the report"}
+  },
+  {
+    "id": "turn-021",
+    "peer": "<test-peer-7>",
+    "incoming": "I did it!",
+    "intent": "COMPLETE",
+    "context": {"task_title": "Placeholder finished task"}
+  },
+  {
+    "id": "turn-022",
+    "peer": "<test-peer-7>",
+    "incoming": "break this down for me",
+    "intent": "NEED_HELP",
+    "context": {"task_title": "Placeholder breakdown task"}
+  },
+  {
+    "id": "turn-023",
+    "peer": "<test-peer-8>",
+    "incoming": "I need to organize my files",
+    "intent": "ADD_TASK",
+    "context": {"user_message": "I need to organize my files"}
+  },
+  {
+    "id": "turn-024",
+    "peer": "<test-peer-8>",
+    "incoming": "no not that",
+    "intent": "REJECT",
+    "context": {"task_title": "Placeholder rejected task", "rejection_reason": "No"}
+  },
+  {
+    "id": "turn-025",
+    "peer": "<test-peer-8>",
+    "incoming": "I'm done with the filing",
+    "intent": "COMPLETE",
+    "context": {"task_title": "Placeholder filing task"}
+  },
+  {
+    "id": "turn-026",
+    "peer": "<test-peer-9>",
+    "incoming": "I have 2 hours free",
+    "intent": "GET_TASK",
+    "context": {"available_minutes": 120, "mood": "focused"}
+  },
+  {
+    "id": "turn-027",
+    "peer": "<test-peer-9>",
+    "incoming": "can't finish this one",
+    "intent": "CANNOT_FINISH",
+    "context": {"task_title": "Placeholder unfinished task", "time_estimate": 60}
+  },
+  {
+    "id": "turn-028",
+    "peer": "<test-peer-9>",
+    "incoming": "how do I begin?",
+    "intent": "NEED_HELP",
+    "context": {"task_title": "Placeholder task to begin"}
+  },
+  {
+    "id": "turn-029",
+    "peer": "<test-peer-10>",
+    "incoming": "remind me tomorrow at 9am to send a message",
+    "intent": "ADD_TASK",
+    "context": {"user_message": "remind me tomorrow at 9am to send a message"}
+  },
+  {
+    "id": "turn-030",
+    "peer": "<test-peer-10>",
+    "incoming": "I finished everything!",
+    "intent": "COMPLETE",
+    "context": {"task_title": "Placeholder all tasks"}
+  }
+]

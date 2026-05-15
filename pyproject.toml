@@ -19,6 +19,8 @@ dependencies = [
     "structlog==25.5.0",
     "pydantic==2.13.4",
     "anyio==4.13.0",
+    "jinja2==3.1.6",
+    "openai==1.82.0",
 ]
 
 [project.optional-dependencies]
