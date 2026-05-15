@@ -79,6 +79,12 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/validate-spec-catalog.sh` — Enforces that every `docs/*.md` spec file registered in the classifier's `is_spec_md()` is also listed in `docs/index.md` and this file's Key Files section
 - `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers for validation and cron-spec alignment
 - `setup/` — Cron + setup docs
+- `pyproject.toml` — Python 3.12 dependency manifest for the dormant LangGraph scaffold; runtime and dev deps pinned by version
+- `docker/Dockerfile` — Multi-stage Python 3.12-slim image for the LangGraph app service
+- `docker/compose.yaml` — Compose spec: `app` + `signal-cli` + `postgres:16-alpine`; production path dormant while `ENABLE_LANGGRAPH_PATH=false`
+- `migrations/0001_initial.sql` — Initial schema: `reminder_outbox`, `recent_outbound`, `ops_alerts_throttle` tables
+- `app/` — Dormant Python/LangGraph application code: tools (Notion, Signal, reminders), graph (state, routing), scheduler (APScheduler jobs + worker), ingress (Signal listener); all paths disabled while `ENABLE_LANGGRAPH_PATH=false`
+- `tests/` — Unit and integration tests for the Python scaffold; integration tests skip without `DATABASE_URL`
 
 ## Safety
 

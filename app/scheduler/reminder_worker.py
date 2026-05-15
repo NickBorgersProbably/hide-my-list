@@ -98,8 +98,10 @@ async def _claim_due_reminders(
                    worker_id = %s
              WHERE id IN (
                SELECT id FROM reminder_outbox
-               WHERE state IN ('pending', 'scheduled')
-                 AND due_at <= now()
+               WHERE (
+                 (state IN ('pending', 'scheduled') AND due_at <= now())
+                 OR (state = 'delivering' AND locked_until IS NOT NULL AND locked_until <= now())
+               )
                ORDER BY due_at ASC
                LIMIT %s
                FOR UPDATE SKIP LOCKED

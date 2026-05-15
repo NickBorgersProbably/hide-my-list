@@ -132,7 +132,7 @@ async def receive_messages(
                         try:
                             yield json.loads(line)
                         except json.JSONDecodeError:
-                            log.warning("signal_client.receive.bad_json", line=line[:200])
+                            log.warning("signal_client.receive.bad_json", bytes=len(line))
             delay = _RETRY_BASE_DELAY  # reset on clean close
         except (httpx.TransportError, httpx.HTTPStatusError) as exc:
             log.warning("signal_client.receive.reconnect", error=str(exc), delay=delay)
