@@ -238,10 +238,9 @@ def test_dry_run_loads_fixture_and_prints_plan(
     assert "recent_outbound" in out
     assert "streak" in out  # Discarded items listed
     assert "active_task" in out
-    # Verify no private data values are printed (we check for the word 'tea'
-    # which is a preference value, not a task title — this is acceptable in
-    # a dry-run context since it's the key count, not values, that matters).
-    # The important invariant: task_title and reminder body are not printed.
+    # Peer (phone number) must not appear in dry-run output.
+    assert "+10000000001" not in out
+    assert "+10000000001" not in err
     assert "Placeholder task" not in out
     assert err == ""
 

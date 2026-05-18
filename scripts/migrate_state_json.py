@@ -229,7 +229,7 @@ def _print_plan(
     """Print a human-readable dry-run plan. No private values."""
     print("=== DRY RUN — no DB writes ===")
     print()
-    print(f"Peer (Signal number): {peer}")
+    print("Peer (Signal number): <redacted>")
     print()
     print("user_prefs UPSERT:")
     print(f"  prefs_json keys: {sorted(prefs.keys())!r} ({len(prefs)} keys)")
@@ -351,7 +351,7 @@ def main() -> None:
 
     if not peer.startswith("+"):
         print(
-            f"WARNING: peer '{peer}' does not look like an E.164 number (expected '+...').",
+            "WARNING: peer value does not look like an E.164 number (expected '+...').",
             file=sys.stderr,
         )
 

@@ -32,7 +32,7 @@ This makes the exact state of main before cutover identifiable.
 
 ```bash
 cd <repo_root>
-docker/backup.sh --backup-dir ./backups
+POSTGRES_USER=hml POSTGRES_DB=hml docker/backup.sh --backup-dir ./backups
 ```
 
 Verify the output file exists and is non-empty:
@@ -123,7 +123,7 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: /var/lib/docker/volumes/hide-my-list_signal-cli-data/_data
+      device: /var/lib/docker/volumes/hide-my-list_signal-cli-data/_data.pre-cutover-<DATE>
 ```
 
 If cutover fails, the original volume is untouched and OpenClaw resumes.

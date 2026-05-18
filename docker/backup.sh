@@ -84,6 +84,11 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
+if [[ ! "${RETAIN}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: --retain must be a positive integer, got: ${RETAIN}" >&2
+  exit 1
+fi
+
 TIMESTAMP="$(date -u '+%Y%m%d-%H%M%S')"
 BACKUP_FILE="${BACKUP_DIR}/postgres-${TIMESTAMP}.sql.gz"
 

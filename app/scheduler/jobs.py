@@ -87,7 +87,6 @@ async def run_state_audit() -> None:
     Operations:
       1. VACUUM on the Postgres database (reclaims dead tuple space).
       2. Delete recent_outbound rows older than 90 days.
-      3. Delete messages (LangGraph checkpoint history) older than 30 days.
 
     Idempotent: safe to re-run. Rows already pruned are not re-deleted.
     Only runs when ENABLE_LANGGRAPH_PATH=true; logs a dormancy message otherwise.
@@ -103,7 +102,6 @@ async def run_state_audit() -> None:
 
     now = datetime.now(UTC)
     recent_outbound_cutoff = now - timedelta(days=90)
-    messages_cutoff = now - timedelta(days=30)
 
     try:
         async with get_db_conn() as conn:
@@ -126,25 +124,6 @@ async def run_state_audit() -> None:
                 "state_audit.recent_outbound.pruned",
                 deleted=deleted_outbound,
                 cutoff=recent_outbound_cutoff.isoformat(),
-            )
-
-        async with get_db_conn() as conn:
-            result = await conn.execute(
-                """
-                DELETE FROM messages
-                WHERE thread_id IN (
-                  SELECT DISTINCT thread_id FROM messages
-                  WHERE created_at < %s
-                )
-                AND created_at < %s
-                """,
-                (messages_cutoff, messages_cutoff),
-            )
-            deleted_messages = result.rowcount
-            log.info(
-                "state_audit.messages.pruned",
-                deleted=deleted_messages,
-                cutoff=messages_cutoff.isoformat(),
             )
 
     except Exception as exc:

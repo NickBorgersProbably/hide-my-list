@@ -170,7 +170,7 @@ async def drain() -> None:
             )
             async with get_db_conn() as conn:
                 await conn.execute(
-                    "UPDATE ops_alerts SET state = 'failed', error = %s WHERE id = %s",
+                    "UPDATE ops_alerts SET error = %s WHERE id = %s",
                     (str(exc), alert_id),
                 )
 

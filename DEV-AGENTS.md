@@ -69,7 +69,7 @@ The Python/LangGraph application, gated by `ENABLE_LANGGRAPH_PATH` (default fals
 - `app/graph/nodes/complete.py` — COMPLETE intent node
 - `app/graph/nodes/send.py` — Terminal send node
 - `app/scheduler/scheduler.py` — APScheduler v3 wiring with PostgresJobStore
-- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore
+- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `weekly_recap`
 - `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker
 - `app/ingress/signal_listener.py` — WebSocket consumer routing to graph
 - `app/prompts/` — Jinja2 prompt templates (`*.md.j2`) for each intent

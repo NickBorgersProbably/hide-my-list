@@ -35,7 +35,7 @@ Run `shellcheck scripts/*.sh .github/actions/**/*.sh docker/*.sh` on shell chang
 1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — full diff against frozen PR base SHA.
 2. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline comments. Blocking change requests go in `blocking_issues[]` with `source: "inline_comment"`.
 3. If diff touches review orchestration files (e.g. `.github/workflows/review-*.yml`, `.github/actions/review-classify/action.yml`, or routing/gating code), compare before/after routing — don't trust PR description. Verify classifier/gating still routes prompt/spec changes to intended specialists, especially `.github/scripts/review/prompts/*.md`.
-4. Apply four-area lens.
+4. Apply five-area lens.
 5. Same logical change across multiple files: verify wording/structure consistency. Unjustified variation = blocking.
 6. Write JSON artifact to `$OUTPUT_PATH`.
 

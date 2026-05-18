@@ -27,6 +27,8 @@ import psycopg
 import psycopg.rows
 import structlog
 
+from app.tools import ops_alerts
+
 log = structlog.get_logger(__name__)
 
 _MAX_ATTEMPTS = 5
@@ -78,9 +80,7 @@ async def _throttled_ops_alert(
         """,
         (alert_kind, _now()),
     )
-    # In Phase A, ops alerts are logged as structured events.
-    # Phase C will implement actual notification delivery.
-    log.error("ops_alert", alert_kind=alert_kind, message=message)
+    await ops_alerts.enqueue(kind=alert_kind, body=message, severity="critical")
 
 
 async def _claim_due_reminders(

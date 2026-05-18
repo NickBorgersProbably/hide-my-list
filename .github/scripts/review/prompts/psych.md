@@ -36,7 +36,7 @@ Pure infra/CI diff, no user-facing change, no `app/prompts/*.md.j2` change → s
 
 1. `git diff "${REVIEW_BASE_SHA}...HEAD"` — full diff against frozen PR base SHA.
 2. `gh api repos/${REPO}/pulls/${PR_NUMBER}/comments` — read inline comments. Fold blocking ones into `blocking_issues[]` with `source: "inline_comment"`.
-3. Apply four-lens framework.
+3. Apply five-lens framework.
 4. Same logical change across multiple files → verify wording/structure consistency. Unjustified variation is blocking.
 5. Write JSON artifact to `$OUTPUT_PATH`.
 
