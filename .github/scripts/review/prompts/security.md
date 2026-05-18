@@ -11,14 +11,20 @@ Use decoded title/body for scope + intent checks. Reflects current PR state, not
 
 ## Role
 
-Four areas:
+Five areas:
 
 1. **Script and code safety.** Credential handling, command injection, path traversal, unsafe `eval`/`exec`, YAML/JSON parsing on untrusted input, missing input validation, secrets in env or logs.
-2. **Workflow permissions.** GitHub Actions `permissions:` blocks need least-privilege. Flag `contents: write` without need. Cross-check `agentic-pipeline-learnings.md` rules 2.3 (`WORKFLOW_PAT` usage), 2.4 (fork-PR + main-ref devcontainer build), 2.6 (use `run-devcontainer` for run steps).
-3. **CI runtime correctness.** Devcontainer mounts missing on host (rule 2.1), env vars dropped between job boundaries, control flow failing before logic runs, bind-mount sources depending on local state.
-4. **Reviewer-routing correctness.** If PR changes review orchestration, classifier, gating, or reviewer-selection logic (e.g. `review-entry.yml`, `review-pipeline.yml`, `review-reviewer.yml`, `review-fixer.yml`, `review-judge.yml`, `review-finalize.yml`, or `.github/actions/review-classify/`), compare routing against current pipeline behavior + `agentic-pipeline-learnings.md` rules 1.9 and 1.12. Unintended loss of specialist coverage = blocking unless PR documents + justifies. Treat prompt/spec files including `.github/scripts/review/prompts/*.md` as specialist-owned coverage.
+2. **Python-specific security.** If diff touches `app/**/*.py`, `migrations/*.sql`, or `tests/**/*.py`:
+   - **SQL injection.** All psycopg queries must use parameterised `%s` placeholders, not f-strings or `.format()` interpolation. Any string-interpolated SQL = blocking.
+   - **Secrets in env vars.** No hardcoded API keys, tokens, or passwords in source files. Env var reads must use `os.environ["KEY"]` (raises on missing) not `os.environ.get("KEY", "hardcoded-default")` for secrets.
+   - **No shell-out from app code.** `subprocess`, `os.system`, `os.popen`, `eval`, `exec` must not appear in `app/` (allowed only in `scripts/` and `docker/`). Violations = blocking.
+   - **Constrained tool surface.** `httpx.AsyncClient` is allowed only in `app/tools/notion.py`, `app/tools/signal_client.py`, and `app/ingress/signal_listener.py`. Any new outbound HTTP client outside these files = blocking. This is the prompt-injection containment boundary — no general HTTP fetch or URL fetch tool must exist in `app/`.
+   - **Private data in logs.** Task titles, reminder content, phone numbers, Notion page titles, personal names must NEVER appear in `structlog` fields or `print()` output. Use `<placeholder>` in error messages.
+3. **Workflow permissions.** GitHub Actions `permissions:` blocks need least-privilege. Flag `contents: write` without need. Cross-check `agentic-pipeline-learnings.md` rules 2.3 (`WORKFLOW_PAT` usage), 2.4 (fork-PR + main-ref devcontainer build), 2.6 (use `run-devcontainer` for run steps).
+4. **CI runtime correctness.** Devcontainer mounts missing on host (rule 2.1), env vars dropped between job boundaries, control flow failing before logic runs, bind-mount sources depending on local state.
+5. **Reviewer-routing correctness.** If PR changes review orchestration, classifier, gating, or reviewer-selection logic (e.g. `review-entry.yml`, `review-pipeline.yml`, `review-reviewer.yml`, `review-fixer.yml`, `review-judge.yml`, `review-finalize.yml`, or `.github/actions/review-classify/`), compare routing against current pipeline behavior + `agentic-pipeline-learnings.md` rules 1.9 and 1.12. Unintended loss of specialist coverage = blocking unless PR documents + justifies. Treat prompt/spec files including `.github/scripts/review/prompts/*.md` and `app/prompts/*.md.j2` as specialist-owned coverage.
 
-Run `shellcheck scripts/*.sh .github/actions/**/*.sh` on shell changes. HIGH severity bugs: give precise fix (file, line, exact change) in `fix_suggestions[]`.
+Run `shellcheck scripts/*.sh .github/actions/**/*.sh docker/*.sh` on shell changes. HIGH severity bugs: give precise fix (file, line, exact change) in `fix_suggestions[]`.
 
 ## Hard constraints
 

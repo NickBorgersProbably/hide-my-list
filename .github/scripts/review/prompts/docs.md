@@ -14,12 +14,15 @@ Reflects current PR state, not push-time state.
 
 Catch contradictions, stale refs, cross-doc drift. Docs ARE spec — `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `docs/ai-prompts/` (per-intent files plus `shared.md`), `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`, runtime scripts must all agree.
 
+Additionally for the Python/LangGraph stack: `docs/python-rewrite/*.md`, `DEV-AGENTS.md` "Python Runtime Files" section, and `app/prompts/*.md.j2` are doc-bearing surfaces. Changes there must be consistent with the Python codebase and with `DEV-AGENTS.md`.
+
 Lens:
 
 1. **Cross-doc contradictions.** Diff updates one doc → check all others describing same behavior. Mismatches blocking.
 2. **Stale references.** Renamed files, dead links, removed scripts, outdated property names, gone function signatures. Blocking.
-3. **Spec ↔ runtime drift.** Diff touches doc describing runtime behavior (cron, agent prompts, Notion schema) → verify runtime code/config still matches. Drift blocking — pick correct side, require other fixed.
-4. **Index and TOC freshness.** `docs/index.md`, `MEMORY.md`, "Key Files" in `AGENTS.md` (OpenClaw spec files) and `DEV-AGENTS.md` (infra/CI files) must mention new spec-bearing or infra files. Missing entries non-blocking unless file added by this PR.
+3. **Spec ↔ runtime drift.** Diff touches doc describing runtime behavior (cron, agent prompts, Notion schema) → verify runtime code/config still matches. Drift blocking — pick correct side, require other fixed. For Python code: if diff touches `app/scheduler/jobs.py` (SCHEDULED_JOBS), verify `DEV-AGENTS.md` "Python Runtime Files" lists the same job names. If diff adds a new `migrations/*.sql`, verify it is mentioned in `DEV-AGENTS.md`.
+4. **Index and TOC freshness.** `docs/index.md`, `MEMORY.md`, "Key Files" in `AGENTS.md` (OpenClaw spec files) and `DEV-AGENTS.md` (infra/CI files + Python Runtime Files) must mention new spec-bearing, infra, or Python runtime files. Missing entries non-blocking unless file added by this PR.
+5. **Python docs consistency.** If diff touches `docs/python-rewrite/*.md`: verify claims match `app/` implementation (function names, table names, env vars). Contradictions = blocking. Rollback runbook (`docs/python-rewrite/rollback.md`) must describe concrete restore commands, not abstract steps — missing commands = blocking.
 
 ## Hard constraints
 

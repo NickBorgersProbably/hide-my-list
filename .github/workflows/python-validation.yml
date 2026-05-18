@@ -1,0 +1,177 @@
+name: Python Validation
+
+# Runs ruff, mypy, and pytest on every PR that touches Python source files
+# under app/, migrations/, tests/, or scripts/*.py.
+#
+# This is a required check: ALL three gates (ruff, mypy, pytest-unit) must
+# pass before merge. Integration tests (pytest-integration) run only when
+# DATABASE_URL is available in the environment; they are advisory in CI
+# (no DATABASE_URL secret exposed) and pass as skipped.
+#
+# Security model:
+# - GitHub-hosted runners (ubuntu-latest): ephemeral, safe for untrusted code
+# - READ-ONLY permissions (contents: read, pull-requests: read)
+# - No secrets are exposed to PR builds
+# - Fork PRs are blocked (same-repo-only policy)
+#
+# INVARIANT: Every job must either transitively depend on `changes` (which
+# blocks forks) or include the fork check in its own `if` condition.
+# The `python-all-passed` job uses `if: always()` and needs the fork check.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - '**'
+    paths:
+      - 'app/**'
+      - 'migrations/**'
+      - 'tests/**'
+      - 'scripts/*.py'
+      - 'pyproject.toml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to test (branch name or SHA)'
+        required: false
+        type: string
+
+concurrency:
+  group: python-validation-${{ github.event.pull_request.head.ref || github.ref_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    name: Detect Python Changes
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for Python changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'app/**'
+              - 'migrations/**'
+              - 'tests/**'
+              - 'scripts/*.py'
+              - 'pyproject.toml'
+
+  ruff:
+    name: Ruff Lint
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --quiet -e ".[dev]"
+
+      - name: Run ruff
+        run: ruff check app/ tests/ scripts/
+
+  mypy:
+    name: Mypy Type Check
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --quiet -e ".[dev]"
+
+      - name: Run mypy
+        run: mypy app/
+
+  pytest-unit:
+    name: Pytest Unit Tests
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --quiet -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -x -q
+
+  python-all-passed:
+    name: Python Validation Required
+    runs-on: ubuntu-latest
+    needs: [changes, ruff, mypy, pytest-unit]
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+
+    steps:
+      - name: Check Python validation results
+        run: |
+          check_result() {
+            local result=$1
+            [[ "$result" == "success" || "$result" == "skipped" ]]
+          }
+
+          failed=false
+
+          if ! check_result "${{ needs.ruff.result }}"; then
+            echo "Ruff Lint: ${{ needs.ruff.result }}"
+            failed=true
+          fi
+          if ! check_result "${{ needs.mypy.result }}"; then
+            echo "Mypy Type Check: ${{ needs.mypy.result }}"
+            failed=true
+          fi
+          if ! check_result "${{ needs.pytest-unit.result }}"; then
+            echo "Pytest Unit Tests: ${{ needs.pytest-unit.result }}"
+            failed=true
+          fi
+
+          if [ "$failed" = true ]; then
+            echo ""
+            echo "Python validation failed. Fix ruff/mypy/pytest errors before merge."
+            exit 1
+          fi
+
+          echo "Python validation passed."
+          echo ""
+          echo "Job Results:"
+          echo "  Ruff Lint: ${{ needs.ruff.result }}"
+          echo "  Mypy Type Check: ${{ needs.mypy.result }}"
+          echo "  Pytest Unit Tests: ${{ needs.pytest-unit.result }}"

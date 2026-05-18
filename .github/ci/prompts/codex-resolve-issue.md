@@ -8,16 +8,52 @@ YOUR TASK:
 3. Analyze issue, understand what to do
 4. Explore codebase, find relevant files
 5. Implement fix or feature
-6. Run `shellcheck scripts/*.sh` and `yamllint .github/workflows/*.yml` to verify
+6. Run verification steps (see below)
 7. Create branch, commit, open PR
 
-IMPORTANT RULES:
-- OpenClaw agent project, not compiled application
-- Use `shellcheck scripts/*.sh` for shell linting
-- Use `yamllint .github/workflows/*.yml` for workflow validation
-- Check docs links not broken
-- Reference `docs/architecture.md` for system design
+## Project structure
+
+This repo contains TWO runtimes living side-by-side until the Phase D cutover:
+- **OpenClaw runtime** (spec files: `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`,
+  `docs/ai-prompts/`, `setup/cron/`, `docs/heartbeat-checks.md`, etc.). These files ARE the
+  application — editing one changes live app behavior. Do NOT edit them during Phases A–C.
+- **Python/LangGraph stack** (`app/`, `migrations/`, `tests/`, `docker/`, `pyproject.toml`).
+  Gated by `ENABLE_LANGGRAPH_PATH` (default false). Safe to edit.
+
+Read `DEV-AGENTS.md` for the full file list and safety rules before touching any file.
+
+## Verification (run before committing)
+
+**For shell script changes:**
+- `shellcheck scripts/*.sh docker/*.sh`
+- `yamllint .github/workflows/*.yml`
+- `scripts/check-doc-links.sh` (doc link validation)
+
+**For Python changes (`app/`, `migrations/`, `tests/`):**
+- `ruff check app/ tests/` — linting (must pass)
+- `mypy app/` — type checking (must pass)
+- `pytest tests/unit/ -x` — unit tests (must pass without DATABASE_URL)
+- `pytest tests/integration/ -x` — integration tests (requires DATABASE_URL; skip if not set)
+
+**For all changes:**
+- `shellcheck scripts/*.sh` for any shell script touched
+- `yamllint .github/workflows/*.yml` for any workflow touched
 - Never use `git push --no-verify`
+
+## IMPORTANT RULES
+
+- Do NOT touch OpenClaw runtime files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`,
+  `docs/ai-prompts/`, `setup/cron/`, `docs/heartbeat-checks.md`, `docs/openclaw-integration.md`,
+  `docs/agent-capabilities.md`, `docs/architecture.md`, `docs/task-lifecycle.md`,
+  `docs/notion-schema.md`, `docs/user-interactions.md`, `docs/user-preferences.md`,
+  `docs/reward-system.md`, `design/adhd-priorities.md`) unless the issue explicitly targets
+  OpenClaw behavior. These are Phase D deletion targets.
+- No general HTTP fetch tools in `app/` — `httpx.AsyncClient` only in the three authorized
+  modules (`app/tools/notion.py`, `app/tools/signal_client.py`, `app/ingress/signal_listener.py`).
+- No subprocess, os.system, eval, exec in `app/`.
+- All psycopg queries must use parameterised `%s` placeholders — no string interpolation.
+- Private data (task titles, phone numbers, reminder content) must never appear in log fields.
+- Reference `docs/architecture.md` and `DEV-AGENTS.md` for system design.
 
 BRANCH NAMING: Use `codex/issue-${ISSUE_NUMBER}`.
 

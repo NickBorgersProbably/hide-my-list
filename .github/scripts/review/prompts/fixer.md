@@ -22,6 +22,21 @@ Reflects current PR state, not push-time state.
 5. **Read-only git fine.** `git diff`, `git log`, `git status`, `git show`, `git ls-files` all work. Container entrypoint sets `safe.directory=/workspace` — no need to add. Use freely.
 6. **One logical fix batch, unstaged.** Write files, edit text. No `git add` — leave unstaged. Host step captures all working-tree changes via `git add -A`, commits as one. Commit message built from your `addressed[]` list — list every blocker actually addressed.
 
+## Python fix operations
+
+When fixing Python files (`app/**/*.py`, `migrations/*.sql`, `tests/**/*.py`):
+- Fix only the specific lines named by the reviewer (`file` and `line` in the blocker). Do not restructure modules or rename symbols.
+- SQL fixes: replace string-interpolated queries with parameterised `%s` placeholders. This is a mechanical one-liner per query.
+- Env var fixes: replace `os.environ.get("KEY", "default")` with `os.environ["KEY"]` for secrets. Confirm the env var is documented in `docker/compose.yaml` or `DEV-AGENTS.md` before removing the default.
+- Tool surface fixes: if a reviewer flags an unauthorized `httpx.AsyncClient` import in a non-allowed module, move the HTTP logic to the appropriate tool module (`app/tools/notion.py` or `app/tools/signal_client.py`) and import the function instead.
+- Do NOT run `ruff`, `mypy`, or `pytest` — those are CI gate steps, not fixer steps. Leave unstaged.
+
+When fixing Markdown files (`.md`, `.md.j2`, reviewer prompts):
+- Apply wording changes exactly as suggested. Preserve surrounding document structure.
+- Prompt parity fixes: add the missing heading from the source doc. Copy the heading text verbatim; do NOT synthesize content below it.
+
+OpenClaw runtime files (listed in `DEV-AGENTS.md` "OpenClaw Prompt & Spec Files") must NOT be modified by the fixer during Phases A–C. If a reviewer asks to edit one, skip it (`skipped[]`) and note: "OpenClaw runtime file — Phase D deletion target; not modified in Phase C per plan constraint."
+
 7. **Don't include private content in fix output.** This repo is public. Fix summaries, `addressed[]` entries, `skipped[].reason` text, and any PR body edits must not name real people, real recipient data, real reminder content, real Notion page titles, or real personal events. State the technical issue; use placeholders (`<page_id>`, `<recipient>`, `"Test message"`, etc.).
 
 ## Merge conflict resolution
