@@ -11,6 +11,9 @@ Covers all 9 verbs from scripts/notion-cli.sh:
   8. update_property
   9. get_page
 
+Plus:
+  health_check() — lightweight connectivity probe used by notion_health job.
+
 This module is the only authorised place that imports httpx.AsyncClient
 for Notion calls. All requests go through _client() to allow test injection.
 """
@@ -303,3 +306,29 @@ async def get_page(page_id: str) -> dict[str, Any]:
         resp = await client.get(f"/pages/{page_id}")
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
+
+
+# ---------------------------------------------------------------------------
+# Health check — used by notion_health APScheduler job
+# ---------------------------------------------------------------------------
+
+async def health_check() -> bool:
+    """Probe Notion API connectivity via GET /v1/users/me.
+
+    Returns True on success, False on any HTTP or network error.
+    Caller is responsible for logging and raising ops alerts on failure.
+    Raises nothing — designed for scheduler job use where exceptions
+    would crash the job rather than mark it failed.
+    """
+    import structlog
+    _log = structlog.get_logger(__name__)
+
+    try:
+        async with _client_factory() as client:
+            resp = await client.get("/users/me")
+            resp.raise_for_status()
+        _log.info("notion.health_check.ok", status=resp.status_code)
+        return True
+    except Exception as exc:
+        _log.error("notion.health_check.failed", error=str(exc))
+        return False
