@@ -83,7 +83,7 @@ The Python/LangGraph application, gated by `ENABLE_LANGGRAPH_PATH` (default fals
 - `docs/python-rewrite/` — Python stack contributor docs and runbooks
 - `docs/python-rewrite/rollback.md` — Cutover rollback runbook (Phase C)
 - `docs/python-rewrite/langgraph-semantics.md` — LangGraph durability spike findings
-- `scripts/migrate_state_json.py` — One-shot OpenClaw → Postgres state migration (Phase C)
+- `scripts/migrate_state_json.py` — One-shot OpenClaw → Postgres state migration (Phase C); requires `--peer <E.164>` (the inbound user peer, NOT `SIGNAL_ACCOUNT`; use `SIGNAL_PEER` env var as fallback)
 - `docker/backup.sh` — Postgres pg_dump wrapper with retention policy (Phase C)
 
 ### Infrastructure & CI Files

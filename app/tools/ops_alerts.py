@@ -168,9 +168,13 @@ async def drain() -> None:
                 kind=kind,
                 error=str(exc),
             )
+            # Leave state = 'pending' so the next drain cycle retries.
+            # Record the error for diagnostics but do NOT mark 'failed' —
+            # that would permanently suppress this alert (drain only selects pending).
+            # At-least-once contract: transient failures must not drop alerts.
             async with get_db_conn() as conn:
                 await conn.execute(
-                    "UPDATE ops_alerts SET error = %s WHERE id = %s",
+                    "UPDATE ops_alerts SET error = %s WHERE id = %s AND state = 'pending'",
                     (str(exc), alert_id),
                 )
 

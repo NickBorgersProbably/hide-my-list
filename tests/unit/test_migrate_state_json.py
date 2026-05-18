@@ -267,8 +267,8 @@ def test_main_exits_without_peer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         sys, "argv",
         ["migrate_state_json.py", "--state-json", str(state_file), "--dry-run"],
     )
-    # Remove SIGNAL_ACCOUNT so the env fallback doesn't kick in.
-    monkeypatch.delenv("SIGNAL_ACCOUNT", raising=False)
+    # Remove SIGNAL_PEER so the env fallback doesn't kick in.
+    monkeypatch.delenv("SIGNAL_PEER", raising=False)
 
     with pytest.raises(SystemExit) as exc_info:
         mig.main()

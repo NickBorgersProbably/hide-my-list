@@ -19,17 +19,19 @@ What is NOT migrated (explicitly discarded):
     separately. See docs/python-rewrite/rollback.md for details.
 
 Usage:
-  python scripts/migrate_state_json.py [--state-json PATH] [--peer PEER] [--dry-run]
+  python scripts/migrate_state_json.py [--state-json PATH] --peer PEER [--dry-run]
 
 Arguments:
   --state-json PATH   Path to state.json (default: state.json in repo root)
-  --peer PEER         E.164 Signal number of the user (required for DB write)
-                      Reads SIGNAL_ACCOUNT env var as fallback.
+  --peer PEER         E.164 Signal number of the inbound user peer (required).
+                      This is the number that sends messages TO the assistant,
+                      NOT the assistant's own SIGNAL_ACCOUNT registration number.
+                      Reads SIGNAL_PEER env var as fallback (not SIGNAL_ACCOUNT).
   --dry-run           Print what would be written without touching the DB.
 
 Environment:
   DATABASE_URL        Postgres DSN (required unless --dry-run)
-  SIGNAL_ACCOUNT      Fallback for --peer
+  SIGNAL_PEER         Fallback for --peer (the inbound user's E.164 number)
 
 Exit codes:
   0  success (or dry-run completed)
@@ -42,6 +44,7 @@ or other user-private data.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -65,8 +68,12 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--peer",
-        default=os.environ.get("SIGNAL_ACCOUNT", ""),
-        help="E.164 Signal number for the user (or set SIGNAL_ACCOUNT env var)",
+        default=os.environ.get("SIGNAL_PEER", ""),
+        help=(
+            "E.164 Signal number of the inbound user peer — the number that sends "
+            "messages TO the assistant (not the assistant's own SIGNAL_ACCOUNT). "
+            "Can also be set via the SIGNAL_PEER env var."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -146,12 +153,15 @@ def _extract_recent_outbound(state: dict[str, Any], peer: str) -> list[dict[str,
             continue
 
         # Determine signal_timestamp.
-        # OpenClaw state.json may not have this; generate a synthetic one.
+        # OpenClaw state.json may not have this; generate a deterministic synthetic one
+        # so re-runs produce the same value and ON CONFLICT DO NOTHING stays idempotent.
         signal_ts = entry.get("signal_timestamp")
         if signal_ts is None:
-            # Use a synthetic timestamp: index-based offset from epoch milliseconds.
-            # Guaranteed unique within this migration run.
-            signal_ts = int(now.timestamp() * 1000) + i
+            # Hash (page_id, sent_at_raw) to produce a stable int timestamp.
+            # Truncated to 13 decimal digits (millisecond epoch range).
+            sent_at_key = str(entry.get("sent_at", ""))
+            hash_input = f"{page_id}:{sent_at_key}".encode()
+            signal_ts = int(hashlib.sha256(hash_input).hexdigest()[:12], 16) % (10**13)
 
         # Parse expires_at.
         expires_at_raw = entry.get("expires_at")
@@ -350,7 +360,7 @@ def main() -> None:
 
     if not peer.startswith("+"):
         print(
-            "WARNING: peer value does not look like an E.164 number (expected '+...').",
+            "WARNING: --peer value does not look like an E.164 number (expected '+<country><number>').",
             file=sys.stderr,
         )
 

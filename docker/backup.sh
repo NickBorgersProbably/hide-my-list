@@ -43,8 +43,8 @@ BACKUP_DIR="${REPO_ROOT}/backups"
 RETAIN=30
 DRY_RUN=false
 
-POSTGRES_USER="${POSTGRES_USER:-postgres}"
-POSTGRES_DB="${POSTGRES_DB:-postgres}"
+POSTGRES_USER="${POSTGRES_USER:-hml}"
+POSTGRES_DB="${POSTGRES_DB:-hml}"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -91,11 +91,12 @@ fi
 
 TIMESTAMP="$(date -u '+%Y%m%d-%H%M%S')"
 BACKUP_FILE="${BACKUP_DIR}/postgres-${TIMESTAMP}.sql.gz"
+BACKUP_TMP="${BACKUP_DIR}/postgres-${TIMESTAMP}.sql.gz.tmp"
 
 echo "backup.sh: starting Postgres backup"
 echo "  Compose file : ${COMPOSE_FILE}"
 echo "  Backup dir   : ${BACKUP_DIR}"
-echo "  Output file  : ${BACKUP_FILE}"
+echo "  Output file  : ${BACKUP_FILE} (via temp file)"
 echo "  Retain       : ${RETAIN} backups"
 echo "  Dry run      : ${DRY_RUN}"
 
@@ -114,24 +115,25 @@ mkdir -p "${BACKUP_DIR}"
 # Run pg_dump via docker compose exec
 # ---------------------------------------------------------------------------
 
+# Write to a temp file first; rename to final path only after verification.
+# This prevents a corrupt file from appearing as the newest backup if pg_dump fails.
 docker compose --file "${COMPOSE_FILE}" exec -T postgres \
   pg_dump --username="${POSTGRES_USER}" --dbname="${POSTGRES_DB}" \
-  | gzip > "${BACKUP_FILE}"
-
-echo "backup.sh: wrote ${BACKUP_FILE}"
+  | gzip > "${BACKUP_TMP}"
 
 # ---------------------------------------------------------------------------
-# Verify the dump is non-empty
+# Verify the dump is non-empty before promoting to final path
 # ---------------------------------------------------------------------------
 
-FILESIZE=$(stat -c '%s' "${BACKUP_FILE}" 2>/dev/null || stat -f '%z' "${BACKUP_FILE}" 2>/dev/null || echo 0)
+FILESIZE=$(stat -c '%s' "${BACKUP_TMP}" 2>/dev/null || stat -f '%z' "${BACKUP_TMP}" 2>/dev/null || echo 0)
 if [[ "${FILESIZE}" -lt 100 ]]; then
   echo "ERROR: backup file appears too small (${FILESIZE} bytes) — may be corrupt." >&2
-  rm -f "${BACKUP_FILE}"
+  rm -f "${BACKUP_TMP}"
   exit 1
 fi
 
-echo "backup.sh: verified (${FILESIZE} bytes)"
+mv "${BACKUP_TMP}" "${BACKUP_FILE}"
+echo "backup.sh: wrote ${BACKUP_FILE} (${FILESIZE} bytes)"
 
 # ---------------------------------------------------------------------------
 # Retention: keep the most recent RETAIN backups; delete older ones

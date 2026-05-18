@@ -32,7 +32,7 @@ This makes the exact state of main before cutover identifiable.
 
 ```bash
 cd <repo_root>
-POSTGRES_USER=hml POSTGRES_DB=hml docker/backup.sh --backup-dir ./backups
+bash docker/backup.sh --backup-dir ./backups
 ```
 
 Verify the output file exists and is non-empty:
@@ -77,21 +77,23 @@ Before the real cutover, verify the Postgres backup can be restored in a
 sandboxed environment:
 
 ```bash
-# Start a throwaway Postgres container:
+# Start a throwaway Postgres container with the same user/db shape as the compose stack:
 docker run -d --name pg-restore-test \
-  -e POSTGRES_PASSWORD=testpass \
+  -e POSTGRES_USER=hml \
+  -e POSTGRES_PASSWORD=hml \
+  -e POSTGRES_DB=hml \
   -p 5433:5432 \
   postgres:16-alpine
 
 # Wait for it to be ready:
-until docker exec pg-restore-test pg_isready -U postgres; do sleep 1; done
+until docker exec pg-restore-test pg_isready -U hml -d hml; do sleep 1; done
 
 # Restore the most recent backup:
 BACKUP=$(ls -t backups/postgres-*.sql.gz | head -1)
-gunzip -c "$BACKUP" | docker exec -i pg-restore-test psql -U postgres
+gunzip -c "$BACKUP" | docker exec -i pg-restore-test psql -U hml -d hml
 
 # Verify key tables exist:
-docker exec pg-restore-test psql -U postgres -c "\dt"
+docker exec pg-restore-test psql -U hml -d hml -c "\dt"
 
 # Tear down:
 docker rm -f pg-restore-test
@@ -116,7 +118,7 @@ compose stack, point the new volume at the COPY, not the original:
 services:
   signal-cli:
     volumes:
-      - signal-cli-data:/home/user/.local/share/signal-cli
+      - signal-cli-data:/home/.local/share/signal-cli
 
 volumes:
   signal-cli-data:
@@ -208,17 +210,19 @@ If the Postgres data was corrupted or needs to be reset:
 # Stop any containers using Postgres:
 docker compose -f docker/compose.yaml down
 
-# Start a fresh Postgres:
+# Start a fresh Postgres with the same user/db shape as the compose stack:
 docker run -d --name pg-restore \
-  -e POSTGRES_PASSWORD=<db_password> \
+  -e POSTGRES_USER=hml \
+  -e POSTGRES_PASSWORD=hml \
+  -e POSTGRES_DB=hml \
   -p 5432:5432 \
   postgres:16-alpine
 
-until docker exec pg-restore pg_isready -U postgres; do sleep 1; done
+until docker exec pg-restore pg_isready -U hml -d hml; do sleep 1; done
 
-# Restore:
+# Restore into the hml database:
 BACKUP=$(ls -t backups/postgres-*.sql.gz | head -1)
-gunzip -c "$BACKUP" | docker exec -i pg-restore psql -U postgres
+gunzip -c "$BACKUP" | docker exec -i pg-restore psql -U hml -d hml
 
 docker stop pg-restore
 docker rm pg-restore
