@@ -86,8 +86,8 @@ async def rejection_node(state: State) -> dict[str, Any]:
         from langchain_core.messages import HumanMessage, SystemMessage
 
         from app.models import llm
-        from app.tools import notion
         from app.prompts.loader import render_with_defaults
+        from app.tools import notion
 
         incoming = state.get("incoming", "")
         active_task = state.get("active_task")

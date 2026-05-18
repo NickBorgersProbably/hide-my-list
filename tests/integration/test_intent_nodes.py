@@ -20,7 +20,6 @@ import pytest
 
 from app.graph.state import State
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -124,7 +123,6 @@ async def test_rejection_node_dormant_when_flag_off() -> None:
 
 def test_rejection_prompt_parity() -> None:
     """rejection.md.j2 must contain all required sections from source doc."""
-    from pathlib import Path
     from app.prompts.loader import render_with_defaults
 
     rendered = render_with_defaults(

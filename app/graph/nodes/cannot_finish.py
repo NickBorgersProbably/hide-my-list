@@ -90,7 +90,6 @@ async def cannot_finish_node(state: State) -> dict[str, Any]:
         from langchain_core.messages import HumanMessage, SystemMessage
 
         from app.models import llm
-        from app.tools import notion
         from app.prompts.loader import render_with_defaults
 
         incoming = state.get("incoming", "")

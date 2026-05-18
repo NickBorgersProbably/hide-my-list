@@ -45,6 +45,47 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `scripts/notion-cli.sh` — Notion API helper for task CRUD
 - `scripts/user-time-context.sh` — Timezone helper: resolves a reference timestamp to user-local date/time for reminder intake
 
+### Python Runtime Files
+
+The Python/LangGraph application, gated by `ENABLE_LANGGRAPH_PATH` (default false). Safe to edit via PRs. Phase D flips the flag and removes OpenClaw files.
+
+- `app/tools/notion.py` — Notion API client (9 verbs + health_check)
+- `app/tools/signal_client.py` — Signal bridge async client
+- `app/tools/reminders.py` — Reminder outbox CRUD
+- `app/tools/rewards.py` — Reward delivery (emoji + image; v1 scope)
+- `app/tools/ops_alerts.py` — Ops alert enqueue + drain (Phase C)
+- `app/tools/time_context.py` — Timezone helper
+- `app/tools/db.py` — Postgres connection + migration runner
+- `app/graph/state.py` — LangGraph State TypedDict
+- `app/graph/graph.py` — LangGraph graph definition
+- `app/graph/routing.py` — Intent classification + conditional edges
+- `app/graph/nodes/intake.py` — ADD_TASK intent node
+- `app/graph/nodes/selection.py` — GET_TASK intent node
+- `app/graph/nodes/chat.py` — CHAT intent node
+- `app/graph/nodes/rejection.py` — REJECT intent node
+- `app/graph/nodes/cannot_finish.py` — CANNOT_FINISH intent node
+- `app/graph/nodes/need_help.py` — NEED_HELP intent node
+- `app/graph/nodes/check_in.py` — CHECK_IN intent node
+- `app/graph/nodes/complete.py` — COMPLETE intent node
+- `app/graph/nodes/send.py` — Terminal send node
+- `app/scheduler/scheduler.py` — APScheduler v3 wiring with PostgresJobStore
+- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `weekly_recap`
+- `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker
+- `app/ingress/signal_listener.py` — WebSocket consumer routing to graph
+- `app/prompts/` — Jinja2 prompt templates (`*.md.j2`) for each intent
+- `migrations/0001_initial.sql` — Initial schema: outbox, recent_outbound, ops_alerts_throttle
+- `migrations/0002_reward_manifests.sql` — Reward manifests table
+- `migrations/0003_ops_alerts.sql` — Ops alerts table (Phase C)
+- `migrations/0004_user_prefs.sql` — User preferences table (Phase C)
+- `tests/unit/` — Unit tests (no DATABASE_URL required)
+- `tests/integration/` — Integration tests (require DATABASE_URL)
+- `tests/spike/` — Durability spike tests
+- `docs/python-rewrite/` — Python stack contributor docs and runbooks
+- `docs/python-rewrite/rollback.md` — Cutover rollback runbook (Phase C)
+- `docs/python-rewrite/langgraph-semantics.md` — LangGraph durability spike findings
+- `scripts/migrate_state_json.py` — One-shot OpenClaw → Postgres state migration (Phase C); requires `--peer <E.164>` (the inbound user peer, NOT `SIGNAL_ACCOUNT`; use `SIGNAL_PEER` env var as fallback)
+- `docker/backup.sh` — Postgres pg_dump wrapper with retention policy (Phase C)
+
 ### Infrastructure & CI Files
 
 Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contributor or agent (Claude Code, Codex, etc.).
@@ -79,12 +120,10 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/validate-spec-catalog.sh` — Enforces that every `docs/*.md` spec file registered in the classifier's `is_spec_md()` is also listed in `docs/index.md` and this file's Key Files section
 - `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers for validation and cron-spec alignment
 - `setup/` — Cron + setup docs
-- `pyproject.toml` — Python 3.12 dependency manifest for the dormant LangGraph scaffold; runtime and dev deps pinned by version
+- `pyproject.toml` — Python 3.12 dependency manifest for the LangGraph stack; runtime and dev deps pinned by version
 - `docker/Dockerfile` — Multi-stage Python 3.12-slim image for the LangGraph app service
 - `docker/compose.yaml` — Compose spec: `app` + `signal-cli` + `postgres:16-alpine`; production path dormant while `ENABLE_LANGGRAPH_PATH=false`
-- `migrations/0001_initial.sql` — Initial schema: `reminder_outbox`, `recent_outbound`, `ops_alerts_throttle` tables
-- `app/` — Dormant Python/LangGraph application code: tools (Notion, Signal, reminders), graph (state, routing), scheduler (APScheduler jobs + worker), ingress (Signal listener); all paths disabled while `ENABLE_LANGGRAPH_PATH=false`
-- `tests/` — Unit and integration tests for the Python scaffold; integration tests skip without `DATABASE_URL`
+- `.github/workflows/python-validation.yml` — Required CI gate: ruff + mypy + pytest-unit on every PR touching Python source files
 
 ## Safety
 
@@ -119,12 +158,14 @@ It does **not** apply to `docs/agentic-pipeline-learnings.md` or other contribut
 
 PRs reviewed by multi-agent review pipeline (Codex reviewers + fixer in v2). Roles same in both versions; orchestration differs.
 
+Reviewers handle both Markdown spec changes (OpenClaw runtime files) and Python source changes (`app/`, `migrations/`, `tests/`). The classifier (`review-classify` action) detects which file classes are present and routes accordingly. Python source files (`app/**/*.py`, `migrations/*.sql`, `tests/**/*.py`) always trigger security review; `app/prompts/*.md.j2` triggers prompt + psych review.
+
 **Reviewer roles**:
-1. Design Review — validates intent + design quality; runs docs-as-spec consistency check on spec-critical changes
-2. Security & Infrastructure Review — script safety, credential handling, workflow permissions, GH Actions/runtime correctness
-3. Psych Research Review — validates against ADHD clinical research
-4. Prompt Engineering Review — validates prompt clarity, constraints, cross-prompt consistency
-5. Documentation Consistency Review — contradictions, stale refs, cross-doc consistency
+1. Design Review — validates intent + design quality; runs docs-as-spec consistency check on spec-critical changes; evaluates Python module design, async correctness, LangGraph node patterns, constrained-tool-surface invariant
+2. Security & Infrastructure Review — script safety, credential handling, workflow permissions, GH Actions/runtime correctness; Python: SQL injection (parameterised queries), secrets in env, no shell-out from app code, constrained-tool-surface invariant
+3. Psych Research Review — validates against ADHD clinical research; evaluates `app/prompts/*.md.j2` for banned-phrase regex + shame-safety contract
+4. Prompt Engineering Review — validates prompt clarity, constraints, cross-prompt consistency; evaluates `app/prompts/*.md.j2` for prompt-parity contract (section headings from `docs/ai-prompts/` source present in template)
+5. Documentation Consistency Review — contradictions, stale refs, cross-doc consistency; includes `docs/python-rewrite/*.md` and Python Runtime Files listed in this file
 6. Judge / Merge Decision — synthesizes all reviews into verdict
 
 Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. Judge = deterministic Node script (`.github/scripts/review/aggregate.mjs`) with `permissions: contents: read` — cannot push by construction. Fixer runs after reviewers, before judge; pushes new commit first, then claims that SHA on `review/pipeline` immediately after push (GitHub rejects status for unpublished commit); only stage with write permission. The fixer also attempts `git merge --no-commit --no-ff origin/main` before invoking the agent so AI-authored PRs stay mergeable without a human in the loop — clean merges seal on the host, conflicts go through the agent for marker resolution, unresolved conflicts abort the merge and label `needs-human-review`. Verdicts binary **GO** / **NO-GO**; NO-GO labels PR `needs-human-review`, stops without closing or auto-creating issues. Reviewer prompts = standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 + §1.5 for design decisions.

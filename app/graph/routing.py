@@ -77,10 +77,6 @@ async def classify_intent(state: State) -> dict[str, Intent | None]:
 
         model = llm("medium")
 
-        # Build context from recent_outbound if available
-        # (actual Postgres read happens in the node; here we use what's in state)
-        recent_context = state.get("user_prefs", {})  # placeholder; real context from DB
-
         messages = [
             SystemMessage(content=_INTENT_SYSTEM_PROMPT),
             HumanMessage(content=f"Message: {incoming!r}"),

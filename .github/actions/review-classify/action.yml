@@ -10,9 +10,16 @@ description: >
     - design:    always
     - docs:      always
     - security:  unless docs_only (all changed files are inert docs),
-                 OR always for review-orchestration / routing files
-    - psych:     unless config_only (pure CI/infrastructure config)
-    - prompt:    unless config_only (pure CI/infrastructure config)
+                 OR always for review-orchestration / routing files,
+                 OR always for python_runtime files (app/**/*.py, migrations/*.sql,
+                 tests/**/*.py) — security review owns SQL injection, secrets,
+                 and constrained-tool-surface invariants for Python code
+    - psych:     unless config_only (pure CI/infrastructure config);
+                 also triggered by python_prompt_template files (app/prompts/*.md.j2)
+                 for banned-phrase and shame-safety contract evaluation
+    - prompt:    unless config_only (pure CI/infrastructure config);
+                 also triggered by python_prompt_template files (app/prompts/*.md.j2)
+                 for prompt-parity contract evaluation
 
   These mirror the conditions enforced by the current review pipeline's
   reviewer routing. Centralizing them here means adding a new role is
@@ -31,6 +38,10 @@ description: >
   docs/user-preferences.md, docs/reward-system.md,
   docs/openclaw-integration.md, and
   .github/scripts/review/prompts/*.md.
+
+  Python source file classes (added in Phase C):
+    - python_runtime:        app/**/*.py, migrations/*.sql, tests/**/*.py
+    - python_prompt_template: app/prompts/*.md.j2
 
 inputs:
   base_ref:
@@ -51,6 +62,12 @@ outputs:
   config_only:
     description: '"true" if the diff only touches CI/infrastructure config'
     value: ${{ steps.classify.outputs.config_only }}
+  python_runtime:
+    description: '"true" if diff includes app/**/*.py, migrations/*.sql, or tests/**/*.py'
+    value: ${{ steps.classify.outputs.python_runtime }}
+  python_prompt_template:
+    description: '"true" if diff includes app/prompts/*.md.j2'
+    value: ${{ steps.classify.outputs.python_prompt_template }}
 
 runs:
   using: composite
@@ -121,11 +138,47 @@ runs:
           esac
         }
 
+        # Python runtime source files: app/**/*.py, migrations/*.sql, tests/**/*.py.
+        # Security reviewer evaluates SQL injection, secrets, constrained-tool-surface.
+        # Design reviewer evaluates module design, async correctness, LangGraph patterns.
+        is_python_runtime() {
+          case "$1" in
+            app/*.py|app/**/*.py) return 0 ;;
+            migrations/*.sql) return 0 ;;
+            tests/*.py|tests/**/*.py) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
+        # Python prompt template files: app/prompts/*.md.j2.
+        # Psych reviewer evaluates banned-phrase + shame-safety contract.
+        # Prompt reviewer evaluates prompt-parity contract (headings present in source).
+        is_python_prompt_template() {
+          case "$1" in
+            app/prompts/*.md.j2) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
+        HAS_PYTHON_RUNTIME=false
+        HAS_PYTHON_PROMPT_TEMPLATE=false
+
         while IFS= read -r f; do
           [ -z "$f" ] && continue
 
           if is_security_routing_file "$f"; then
             FORCE_SECURITY=true
+          fi
+
+          # Python runtime files force security review (SQL injection, secrets, tool surface).
+          if is_python_runtime "$f"; then
+            HAS_PYTHON_RUNTIME=true
+            FORCE_SECURITY=true
+          fi
+
+          # Python prompt templates force psych + prompt review.
+          if is_python_prompt_template "$f"; then
+            HAS_PYTHON_PROMPT_TEMPLATE=true
           fi
 
           # Anything outside config/CI invalidates config_only.
@@ -137,6 +190,9 @@ runs:
 
           # Spec MDs and any non-doc/design file invalidate docs_only.
           if is_spec_md "$f" || is_review_prompt_md "$f"; then
+            DOCS_ONLY=false
+          elif is_python_runtime "$f" || is_python_prompt_template "$f"; then
+            # Python source files are not inert docs.
             DOCS_ONLY=false
           else
             case "$f" in
@@ -150,7 +206,7 @@ runs:
         if [ "$DOCS_ONLY" != "true" ] || [ "$FORCE_SECURITY" = "true" ]; then
           ROLES=$(echo "$ROLES" | jq -c '. + ["security"]')
         fi
-        if [ "$CONFIG_ONLY" != "true" ]; then
+        if [ "$CONFIG_ONLY" != "true" ] || [ "$HAS_PYTHON_PROMPT_TEMPLATE" = "true" ]; then
           ROLES=$(echo "$ROLES" | jq -c '. + ["psych","prompt"]')
         fi
 
@@ -158,6 +214,8 @@ runs:
           echo "roles_json=$ROLES"
           echo "docs_only=$DOCS_ONLY"
           echo "config_only=$CONFIG_ONLY"
+          echo "python_runtime=$HAS_PYTHON_RUNTIME"
+          echo "python_prompt_template=$HAS_PYTHON_PROMPT_TEMPLATE"
         } >> "$GITHUB_OUTPUT"
 
-        echo "review-classify: roles=$ROLES docs_only=$DOCS_ONLY config_only=$CONFIG_ONLY"
+        echo "review-classify: roles=$ROLES docs_only=$DOCS_ONLY config_only=$CONFIG_ONLY python_runtime=$HAS_PYTHON_RUNTIME python_prompt_template=$HAS_PYTHON_PROMPT_TEMPLATE"

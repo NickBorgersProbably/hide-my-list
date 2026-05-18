@@ -27,6 +27,8 @@ import psycopg
 import psycopg.rows
 import structlog
 
+from app.tools import ops_alerts
+
 log = structlog.get_logger(__name__)
 
 _MAX_ATTEMPTS = 5
@@ -55,7 +57,13 @@ async def _throttled_ops_alert(
     alert_kind: str,
     message: str,
 ) -> None:
-    """Send an ops alert, throttled to at most once per _OPS_ALERT_THROTTLE_HOURS."""
+    """Enqueue an ops alert, gated by a reminder-worker-side rate check.
+
+    Checks the ops_alerts_throttle table to avoid flooding the queue with
+    duplicate dead-reminder alerts. The throttle record is written by
+    ops_alerts.drain() only after successful delivery — not here — so that
+    drain() can deliver the enqueued alert without immediately re-throttling it.
+    """
     async with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
         await cur.execute(
             "SELECT last_sent_at FROM ops_alerts_throttle WHERE alert_kind = %s",
@@ -69,18 +77,9 @@ async def _throttled_ops_alert(
             log.debug("ops_alert.throttled", alert_kind=alert_kind)
             return
 
-    # Upsert throttle record
-    await conn.execute(
-        """
-        INSERT INTO ops_alerts_throttle (alert_kind, last_sent_at)
-        VALUES (%s, %s)
-        ON CONFLICT (alert_kind) DO UPDATE SET last_sent_at = EXCLUDED.last_sent_at
-        """,
-        (alert_kind, _now()),
-    )
-    # In Phase A, ops alerts are logged as structured events.
-    # Phase C will implement actual notification delivery.
-    log.error("ops_alert", alert_kind=alert_kind, message=message)
+    # Enqueue for delivery by ops_alerts_drain job; drain writes the throttle record
+    # after successful Signal send to avoid suppressing this very alert.
+    await ops_alerts.enqueue(kind=alert_kind, body=message, severity="critical")
 
 
 async def _claim_due_reminders(

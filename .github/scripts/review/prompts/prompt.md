@@ -17,11 +17,12 @@ Lens:
 
 1. **Constraint clarity.** MUST / MUST NOT / SHOULD explicit? Hidden/implied constraints blocking.
 2. **Tool allowlist alignment.** Prompt instructs tool use → verify workflow grants it. Mismatches blocking.
-3. **Cross-prompt consistency.** Overlapping modules in `docs/ai-prompts/` (per-intent files plus `shared.md`) must agree on names, thresholds, ordering. Drift blocking.
+3. **Cross-prompt consistency.** Overlapping modules in `docs/ai-prompts/` (per-intent files plus `shared.md`) must agree on names, thresholds, ordering. Drift blocking. Also applies to `app/prompts/*.md.j2` — if a template covers the same intent as a `docs/ai-prompts/` file, named section headings must be present in both.
 4. **Failure mode coverage.** Prompt handle missing/malformed/empty input? "Trust the input" not answer. Missing failure-mode handling non-blocking unless high-stakes op (cron handoff, reminder delivery, fixer push).
 5. **Output contract.** Structured output prompt → specify schema and write destination. v2 reviewer contract: "write JSON to `$OUTPUT_PATH` conforming to `schema/reviewer-v1.json`". Drift blocking.
+6. **Python prompt-parity contract.** If diff touches `app/prompts/*.md.j2`: verify the template covers the same logical sections as the corresponding `docs/ai-prompts/` source file. The parity check is semantic (intent presence), not verbatim-heading-match — source files may use `## Module N: Heading` while templates use shorter anchors, and `need_help.md.j2` corresponds to `breakdown.md`. For each changed template, use `grep -n "^## " docs/ai-prompts/<intent>.md` to list source sections, then verify the template addresses each section's behavioral intent. A section is missing only if the template has no corresponding content at all — name mismatches alone are not blocking.
 
-Diff touches no prompt or `.md` agent-spec file → set `decision: abstain` with one-line `summary`.
+Diff touches no prompt, `.md` agent-spec file, or `app/prompts/*.md.j2` file → set `decision: abstain` with one-line `summary`.
 
 ## Hard constraints
 

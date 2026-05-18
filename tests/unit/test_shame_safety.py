@@ -19,8 +19,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 _FIXTURES_PATH = Path(__file__).parent.parent / "fixtures" / "conversation_turns.json"
 _PROMPTS_DIR = Path(__file__).parent.parent.parent / "app" / "prompts"
 
@@ -166,7 +164,7 @@ def test_banned_phrases_absent_in_rendered_prompts() -> None:
             })
 
     assert not violations, (
-        f"Banned shame-triggering phrases found in rendered prompts:\n"
+        "Banned shame-triggering phrases found in rendered prompts:\n"
         + "\n".join(
             f"  Turn {v['turn_id']} ({v['intent']} -> {v['template']}): {v['phrases_found']}"
             for v in violations

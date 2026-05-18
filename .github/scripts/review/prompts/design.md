@@ -35,13 +35,18 @@ Focus on:
 3. **Scope check.** Compare PR title to diff. Narrow title + new abstractions or excess code = **blocking scope creep**. Always state scope check result in `summary`.
 4. **Over-engineering.** Simpler approach exist? Flag as blocking.
 5. **Docs-as-spec consistency.** Diff touches spec-critical files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `docs/ai-prompts/` per-intent files plus `shared.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`) → cross-check behavior claims against canonical sources and runtime scripts/config. Contradictions = blocking.
+6. **Python module design.** Diff touches `app/**/*.py` → evaluate:
+   - **Separation of concerns.** Tool modules (`app/tools/`) should not contain graph logic; graph nodes (`app/graph/nodes/`) should not contain Postgres queries. Cross-layer leakage = blocking.
+   - **Async correctness.** All DB and HTTP calls must be `async`/`await`. Sync DB calls in async context = blocking.
+   - **LangGraph node patterns.** Nodes must accept and return `State`; side effects must be committed via durable patterns (outbox, Postgres state machine) not in-memory. Undurable side effects = blocking.
+   - **Constrained tool surface.** `httpx.AsyncClient` allowed only in `app/tools/notion.py`, `app/tools/signal_client.py`, and `app/ingress/signal_listener.py`. `subprocess`, `os.system`, `eval`, `exec` not allowed anywhere in `app/`. Violations = blocking.
 
 **Required context — read before reviewing:**
 
 - Read `docs/architecture.md` for full system design.
-- **Agentic system.** OpenClaw runtime reads instructions, uses tools, acts beyond explicit code. Can inspect and modify own config at runtime via `openclaw config get`, `openclaw config set`, and `openclaw config schema`. No static-application reasoning.
-- **Heartbeat/janitor = self-healing pattern** (`setup/cron/heartbeat.md` and `setup/cron/janitor.md` delegate to `docs/heartbeat-checks.md`). Heartbeat runs daily for light-touch health and missing recurring cron repair. Janitor runs weekly for full cron drift correction plus deeper environment/state audits. Reminder delivery fallback also has `setup/cron/reminder-delivery-sweep.md` for narrow 2-hour handoff delivery. Gap closeable by these checks → suggest concretely as non-blocking note. Don't block with vague "add a guard."
-- Fixes: name specific mechanism (e.g., "add heartbeat check verifying X via `openclaw config get`, updating via `openclaw config set`"), not abstract requirements.
+- **Dual runtime:** The repo contains both the dormant OpenClaw agent (spec files: `AGENTS.md`, `SOUL.md`, etc.) and the new Python/LangGraph stack (`app/`, gated by `ENABLE_LANGGRAPH_PATH`). Phase C PRs add Python operational code; OpenClaw files are not modified until Phase D.
+- **Heartbeat/janitor = self-healing pattern** (`setup/cron/heartbeat.md` and `setup/cron/janitor.md` delegate to `docs/heartbeat-checks.md`). Python equivalents: `notion_health` APScheduler job, `ops_alerts_drain` job, `state_audit` job.
+- Fixes: name specific mechanism (e.g., "add `ops_alerts.enqueue()` call in the except block"), not abstract requirements.
 
 ## Hard constraints
 

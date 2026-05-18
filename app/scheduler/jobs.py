@@ -43,25 +43,101 @@ async def dispatch_due_reminders() -> None:
 
 
 async def check_notion_health() -> None:
-    """Ping Notion API and emit an ops alert on failure."""
-    from app.tools import notion
-    try:
-        # A lightweight probe: query the database with a limit-0 filter.
-        # We can't do a true zero-result query, but a small query is cheap.
-        await notion.query_all()
-        log.info("notion_health.ok")
-    except Exception as exc:
-        log.error("notion_health.failed", error=str(exc))
-        # Phase C will implement real ops alert delivery.
-        # For now, structured logging is the signal.
+    """Ping Notion API and enqueue an ops alert on failure.
+
+    Replacement for OpenClaw heartbeat Check 3 (Notion connectivity).
+    Runs every 15 minutes. Calls notion.health_check() which GETs /v1/users/me.
+    On failure, enqueues a 'notion_health_failed' ops alert; the drain job
+    delivers it to OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert storms.
+    """
+    from app.tools import notion, ops_alerts
+
+    ok = await notion.health_check()
+    if not ok:
+        try:
+            await ops_alerts.enqueue(
+                kind="notion_health_failed",
+                body="Notion API health check failed. Verify NOTION_API_KEY is valid and api.notion.com is reachable.",
+                severity="critical",
+            )
+        except Exception as exc:
+            # If DB is also down, log and continue — don't crash the job.
+            log.error("notion_health.enqueue_alert_failed", error=str(exc))
 
 
 async def send_pending_ops_alerts() -> None:
-    """Drain ops alerts queue and deliver any pending alerts.
+    """Drain ops alerts queue and deliver any pending alerts via Signal.
 
-    # Real impl in Phase C
+    Replacement for OpenClaw heartbeat alert dispatch path.
+    Runs every 5 minutes. Calls ops_alerts.drain() which:
+      - Fetches pending alerts from the ops_alerts Postgres table.
+      - Sends each via signal_client to OPS_ALERT_SIGNAL_NUMBER.
+      - Marks delivered; updates per-kind throttle.
     """
-    log.debug("ops_alerts_drain.tick")
+    from app.tools import ops_alerts
+    await ops_alerts.drain()
+
+
+async def run_state_audit() -> None:
+    """Nightly database maintenance: VACUUM + retention pruning.
+
+    Replacement for OpenClaw heartbeat Check 6 (memory/state audit).
+    Runs nightly at 3am user time (USER_TZ env var).
+
+    Operations:
+      1. VACUUM on the Postgres database (reclaims dead tuple space).
+      2. Delete recent_outbound rows older than 90 days.
+
+    Idempotent: safe to re-run. Rows already pruned are not re-deleted.
+    Only runs when ENABLE_LANGGRAPH_PATH=true; logs a dormancy message otherwise.
+    """
+    _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() in ("true", "1", "yes")
+    if not _enabled:
+        log.debug("state_audit.dormant")
+        return
+
+    from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+    from app.tools.db import get_db_conn
+
+    now = datetime.now(UTC)
+    recent_outbound_cutoff = now - timedelta(days=90)
+
+    try:
+        async with get_db_conn() as conn:
+            # VACUUM must run outside a transaction block.
+            # psycopg async connections don't support autocommit switch
+            # after connection; we use a direct execute with AUTOCOMMIT.
+            old_autocommit = conn.autocommit
+            await conn.set_autocommit(True)
+            await conn.execute("VACUUM")
+            await conn.set_autocommit(old_autocommit)
+            log.info("state_audit.vacuum.done")
+
+        async with get_db_conn() as conn:
+            result = await conn.execute(
+                "DELETE FROM recent_outbound WHERE expires_at < %s",
+                (recent_outbound_cutoff,),
+            )
+            deleted_outbound = result.rowcount
+            log.info(
+                "state_audit.recent_outbound.pruned",
+                deleted=deleted_outbound,
+                cutoff=recent_outbound_cutoff.isoformat(),
+            )
+
+    except Exception as exc:
+        log.error("state_audit.failed", error=str(exc))
+        # Enqueue ops alert so operator knows audit failed.
+        try:
+            from app.tools import ops_alerts
+            await ops_alerts.enqueue(
+                kind="state_audit_failed",
+                body=f"Nightly state audit failed: {exc}",
+                severity="warning",
+            )
+        except Exception as inner_exc:
+            log.error("state_audit.enqueue_alert_failed", error=str(inner_exc))
 
 
 async def generate_weekly_recap() -> None:
@@ -85,8 +161,6 @@ async def dispatch_check_ins() -> None:
     This job does NOT classify from user messages — it injects CHECK_IN directly
     via the graph's routing (routing.check_in_route).
     """
-    import os
-
     _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() in ("true", "1", "yes")
     if not _enabled:
         log.debug("dispatch_check_ins.dormant")
@@ -116,6 +190,15 @@ SCHEDULED_JOBS: list[JobSpec] = [
         id="ops_alerts_drain",
         trigger=IntervalTrigger(minutes=5),
         func=send_pending_ops_alerts,
+    ),
+    JobSpec(
+        id="state_audit",
+        trigger=CronTrigger(
+            hour=3,
+            minute=0,
+            timezone=_USER_TZ,
+        ),
+        func=run_state_audit,
     ),
     JobSpec(
         id="check_in_dispatcher",
