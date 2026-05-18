@@ -15,13 +15,13 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, AsyncGenerator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # PR-B5-T1: Sensitive-task suppression
@@ -218,6 +218,7 @@ class TestImageGenFallback:
     def test_generate_reward_image_returns_none_without_api_key(self) -> None:
         """generate_reward_image must return None immediately when OPENAI_API_KEY unset."""
         import asyncio
+
         from app.tools.rewards import generate_reward_image
 
         env = dict(os.environ)
@@ -440,13 +441,13 @@ class TestPrivateDataDiscipline:
         for fixture_file in fixtures_dir.glob("*.json"):
             content = json.loads(fixture_file.read_text(encoding="utf-8"))
             # Look for any task_title fields in the fixture
-            def check_values(obj: Any, path: str = "") -> list[str]:
+            def check_values(obj: Any, path: str = "", _fname: str = fixture_file.name) -> list[str]:
                 violations = []
                 if isinstance(obj, dict):
                     for k, v in obj.items():
                         if k == "task_title" and isinstance(v, str):
                             if not any(v.startswith(p) for p in safe_prefixes) and v != "":
-                                violations.append(f"{fixture_file.name}:{path}.{k}={v!r}")
+                                violations.append(f"{_fname}:{path}.{k}={v!r}")
                         violations.extend(check_values(v, f"{path}.{k}"))
                 elif isinstance(obj, list):
                     for i, item in enumerate(obj):

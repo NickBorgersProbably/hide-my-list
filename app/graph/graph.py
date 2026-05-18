@@ -67,10 +67,10 @@ def build_graph(checkpointer: Any = None) -> Any:
         from langgraph.checkpoint.memory import MemorySaver
         checkpointer = MemorySaver()
 
-    from app.graph.nodes.chat import chat_node
-    from app.graph.nodes.complete import complete_node
     from app.graph.nodes.cannot_finish import cannot_finish_node
+    from app.graph.nodes.chat import chat_node
     from app.graph.nodes.check_in import check_in_node
+    from app.graph.nodes.complete import complete_node
     from app.graph.nodes.intake import intake_node
     from app.graph.nodes.need_help import need_help_node
     from app.graph.nodes.rejection import rejection_node

@@ -9,7 +9,6 @@ differences are allowed; missing sections are failures.
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -94,7 +93,6 @@ def _render_template_with_empty_context(template_name: str) -> str:
         "inline_steps": "1. Step one\n2. Step two",
         "conversation_history": "",
         "clarification_count": 0,
-        "user_preferences_context": "",
     }
     return render(template_name, context)
 

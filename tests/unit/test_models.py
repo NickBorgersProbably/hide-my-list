@@ -36,10 +36,9 @@ def test_all_tiers_have_anthropic_model_ids() -> None:
 
 def test_langsmith_guard_fires_when_tracing_without_export_flag() -> None:
     """LangSmith guard must refuse startup when LANGSMITH_TRACING=true without export flag."""
-    from app.models import _load_model_tiers  # noqa: F401
-
     # Reset the lru_cache so the guard runs fresh
     from app import models as models_module
+    from app.models import _load_model_tiers  # noqa: F401
     models_module._load_model_tiers.cache_clear()
 
     with patch.dict(

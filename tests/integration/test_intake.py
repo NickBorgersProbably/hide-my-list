@@ -12,18 +12,14 @@ Covers:
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langgraph.checkpoint.memory import MemorySaver
 
 from app.graph.state import State
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -164,7 +160,6 @@ async def test_task_without_reminder_creates_notion_task_only() -> None:
 
     create_task_calls: list[dict] = []
     create_reminder_calls: list[dict] = []
-    enqueue_calls: list[dict] = []
 
     async def mock_create_task(**kwargs: Any) -> dict:
         create_task_calls.append(kwargs)
@@ -300,12 +295,11 @@ def test_intake_prompt_parity() -> None:
     Redundant with test_prompt_parity.py but included here as PR-B3 acceptance criterion.
     """
     from pathlib import Path
+
     from app.prompts.loader import render_with_defaults
 
     source_path = Path(__file__).parent.parent.parent / "docs" / "ai-prompts" / "intake.md"
     assert source_path.is_file()
-
-    source_text = source_path.read_text(encoding="utf-8")
 
     rendered = render_with_defaults(
         "intake.md.j2",

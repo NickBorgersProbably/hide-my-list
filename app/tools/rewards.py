@@ -22,10 +22,8 @@ Private data discipline (Codex F018):
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import random
-import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
