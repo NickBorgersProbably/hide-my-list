@@ -72,6 +72,31 @@ async def generate_weekly_recap() -> None:
     log.debug("weekly_recap.tick")
 
 
+async def dispatch_check_ins() -> None:
+    """Find peers with active tasks past their check-in window and invoke CHECK_IN.
+
+    Fires every 10 minutes. For each peer with:
+      - conversation_state = "active"
+      - active_task.check_in_due_at <= now
+
+    Invokes the graph with intent=CHECK_IN so the check_in node runs through
+    shared conversation history (per the graph's checkpointer).
+
+    This job does NOT classify from user messages — it injects CHECK_IN directly
+    via the graph's routing (routing.check_in_route).
+    """
+    import os
+
+    _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() in ("true", "1", "yes")
+    if not _enabled:
+        log.debug("dispatch_check_ins.dormant")
+        return
+
+    # Phase B implementation: stub that logs intent.
+    # Phase C wires this to query active tasks from Postgres/Notion and invoke graph.
+    log.debug("dispatch_check_ins.tick")
+
+
 # ---------------------------------------------------------------------------
 # Declarative job list — single source of truth
 # ---------------------------------------------------------------------------
@@ -91,6 +116,11 @@ SCHEDULED_JOBS: list[JobSpec] = [
         id="ops_alerts_drain",
         trigger=IntervalTrigger(minutes=5),
         func=send_pending_ops_alerts,
+    ),
+    JobSpec(
+        id="check_in_dispatcher",
+        trigger=IntervalTrigger(minutes=10),
+        func=dispatch_check_ins,
     ),
     JobSpec(
         id="weekly_recap",

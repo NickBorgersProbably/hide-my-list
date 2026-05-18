@@ -10,7 +10,7 @@ CronCreate:
   durable: true
   name: "reminder-delivery-sweep"
   sessionTarget: isolated
-  model: litellm/qwen2.5  # must match setup/model-tiers.json cheap
+  model: litellm/claude-haiku-4-5  # must match setup/model-tiers.json cheap
   payload:
     kind: agentTurn
     lightContext: true  # empty bootstrap — cron prompt is self-contained

@@ -1,7 +1,12 @@
 """LangGraph graph definition for hide-my-list.
 
-Phase A: 2-node graph (classify_intent -> echo) with PostgresSaver checkpointer.
-Each peer gets its own conversation thread via thread_id=peer.
+Phase B: full 8-intent graph replacing Phase A's echo-graph stub.
+
+Topology:
+  classify_intent -> [conditional route by intent] -> <intent node> -> send -> END
+
+When ENABLE_LANGGRAPH_PATH=false (default), intent nodes fall back to
+Phase A echo behavior so production is not affected.
 
 Checkpointer lifecycle:
   AsyncPostgresSaver is an async context manager that must be entered before the
@@ -17,23 +22,8 @@ from typing import Any
 
 from langgraph.graph import StateGraph
 
-from app.graph.routing import classify_intent, route_intent
+from app.graph.routing import build_routing_map, classify_intent, route_intent
 from app.graph.state import State
-
-
-def _echo_node(state: State) -> dict[str, Any]:
-    """Phase A echo node: echoes incoming text back as pending_outbound."""
-    peer = state.get("peer", "")
-    incoming = state.get("incoming", "")
-    return {
-        "pending_outbound": [
-            {
-                "recipient": peer,
-                "body": f"[echo] {incoming}",
-                "notion_page_id": None,
-            }
-        ]
-    }
 
 
 @asynccontextmanager
@@ -61,6 +51,9 @@ async def build_postgres_checkpointer(
 def build_graph(checkpointer: Any = None) -> Any:
     """Build and compile the LangGraph state machine.
 
+    Phase B: All 8 intents wired. When ENABLE_LANGGRAPH_PATH=false, intent nodes
+    degrade to echo behavior. When true, full behavior activated.
+
     Args:
         checkpointer: An already-entered LangGraph checkpointer instance.
             Pass a MemorySaver for unit tests. In production, pass the
@@ -74,16 +67,50 @@ def build_graph(checkpointer: Any = None) -> Any:
         from langgraph.checkpoint.memory import MemorySaver
         checkpointer = MemorySaver()
 
-    builder: StateGraph[State] = StateGraph(State)
-    builder.add_node("classify_intent", classify_intent)
-    builder.add_node("echo", _echo_node)
+    from app.graph.nodes.chat import chat_node
+    from app.graph.nodes.complete import complete_node
+    from app.graph.nodes.cannot_finish import cannot_finish_node
+    from app.graph.nodes.check_in import check_in_node
+    from app.graph.nodes.intake import intake_node
+    from app.graph.nodes.need_help import need_help_node
+    from app.graph.nodes.rejection import rejection_node
+    from app.graph.nodes.selection import selection_node
+    from app.graph.nodes.send import send_node
 
+    builder: StateGraph[State] = StateGraph(State)
+
+    # Intent classifier (entry point)
+    builder.add_node("classify_intent", classify_intent)
+
+    # Intent handler nodes
+    builder.add_node("intake", intake_node)
+    builder.add_node("selection", selection_node)
+    builder.add_node("complete", complete_node)
+    builder.add_node("rejection", rejection_node)
+    builder.add_node("cannot_finish", cannot_finish_node)
+    builder.add_node("check_in", check_in_node)
+    builder.add_node("need_help", need_help_node)
+    builder.add_node("chat", chat_node)
+
+    # Terminal send node
+    builder.add_node("send", send_node)
+
+    # Entry point
     builder.set_entry_point("classify_intent")
+
+    # Conditional routing from classifier to intent nodes
+    routing_map = build_routing_map()
     builder.add_conditional_edges(
         "classify_intent",
         route_intent,
-        {"echo": "echo"},
+        routing_map,
     )
-    builder.add_edge("echo", "__end__")
+
+    # All intent nodes flow into the terminal send node
+    for node_name in routing_map:
+        builder.add_edge(node_name, "send")
+
+    # Send node is the terminal
+    builder.add_edge("send", "__end__")
 
     return builder.compile(checkpointer=checkpointer)

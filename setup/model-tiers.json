@@ -1,5 +1,6 @@
 {
   "expensive": "claude-opus-4-6",
   "medium": "claude-sonnet-4-6",
-  "cheap": "qwen2.5"
+  "cheap": "claude-haiku-4-5",
+  "reminder": "claude-haiku-4-5"
 }
