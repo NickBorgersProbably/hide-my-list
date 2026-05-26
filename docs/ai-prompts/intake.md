@@ -144,9 +144,9 @@ Signals:
 When detected:
 - Set is_reminder = true
 - Parse the time reference and convert to ISO 8601 with timezone offset
-- Default timezone for both relative dates and unspecified clock times: the user's configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone)
+- Default timezone for both relative dates and unspecified clock times: the user's configured timezone from `USER_TZ` env var (default `America/Chicago`)
 - Common timezone mappings: PT = -08:00/-07:00, CT = -06:00/-05:00, ET = -05:00/-04:00
-- Resolve ALL relative references ("today", "tomorrow", "tonight", "this evening", day-of-week names, "next week") against the user's configured timezone in `USER.md`, never against UTC message metadata or the server date
+- Resolve ALL relative references ("today", "tomorrow", "tonight", "this evening", day-of-week names, "next week") against the user's configured timezone (`USER_TZ` env var), never against UTC message metadata or the server date
 - If the session time you see is UTC or otherwise ambiguous, run `scripts/user-time-context.sh [reference_timestamp]` (or do the equivalent conversion) before choosing the calendar date for the reminder
 - Before saving a reminder, explicitly verify in your reasoning:
   1. Current time in the user's timezone
@@ -156,50 +156,20 @@ When detected:
 - Set urgency = 90 (reminders are inherently time-critical)
 - Work type and energy level are still inferred from the reminder content
 
-REMINDER PERSISTENCE (mandatory two-step):
-After `notion-cli.sh create-reminder` returns the Notion page object, register a
-one-shot OpenClaw cron in the SAME turn so the framework reminder-guard sees a
-successful cron add and suppresses its "Note: I did not schedule a reminder..."
-post-process. The model never produces that note itself — OpenClaw's
-`agent-runner-reminder-guard` appends it when no cron was registered that
-turn, so registering the cron in the same turn suppresses the note.
-
-Use the framework-native `CronCreate` tool/API path for this registration. Do
-not use `exec` to run `openclaw cron add`, `openclaw cron create`, or any other
-CLI command for one-shot reminder registration. CLI-created crons can still
-exist and fire, but they do not increment the framework turn context's
-`successfulCronAdds` counter, so the reminder guard will append the false
-"I did not schedule a reminder" note.
-
-Call `CronCreate` with:
-- name = "reminder-<page_id>" using the page id returned by create-reminder
-- durable: true
-- deleteAfterRun: true
-- schedule: { kind: "at", at: "<remind_at ISO from above>" }
-- sessionTarget: main
-- model: litellm/claude-haiku-4-5 (read from setup/cron/reminder-delivery.md)
-- payload.kind: agentTurn
-- payload.lightContext: false
-- timeout-seconds: 300
-- payload.message: the delivery prompt template documented in
-  `setup/cron/reminder-delivery.md` (Prompt section), with <PAGE_ID>
-  substituted in.
-
-If CronCreate fails: use degraded confirmation wording that does not promise exact
-timing (e.g., "Got it — I've saved your reminder; I'll check for it and send it
-your way"). Do not tell the user the reminder will arrive at an exact time — the
-reminder guard note may appear in this path since no cron add succeeded. The
-reminder is still saved in Notion; the backstop path catches it at the next
-30-min poll.
+REMINDER PERSISTENCE:
+After `notion-cli.sh create-reminder` returns the Notion page object, the app
+automatically writes a `reminder_outbox` row to Postgres with `state=pending` and
+`due_at=remind_at`. The APScheduler `reminder_dispatcher` job claims and delivers
+due rows every 30 seconds. No additional action is required from the AI node —
+the outbox write is handled by `app/graph/nodes/intake.py`.
 
 Examples:
   "Remind me at 6pm PT to email Melanie" →
     is_reminder: true, remind_at: "2025-01-04T18:00:00-08:00", title: "Email Melanie availability"
   "Ping me at 3pm to call the dentist" →
-    is_reminder: true, remind_at: "2025-01-04T15:00:00-06:00" (offset from USER.md; example shows Central), title: "Call the dentist"
-  Message timestamp `2026-04-19T01:27:00Z`, `USER.md` timezone `America/Chicago`, user says "Tomorrow before noon remind me to clean up boxes" →
-    current user-local time: `2026-04-18T20:27:00-05:00`
-    "tomorrow" resolves to `2026-04-19` in user-local time
+    is_reminder: true, remind_at: "2025-01-04T15:00:00-06:00" (offset from USER_TZ env; example shows Central), title: "Call the dentist"
+  Message timestamp `2026-04-19T01:27:00Z`, `USER_TZ=America/Chicago`, user says "Tomorrow before noon remind me to clean up boxes" →
+    current user-local time: `2026-04-18T20:27:00-05:00`; "tomorrow" resolves to `2026-04-19`
     is_reminder: true, remind_at: "2026-04-19T09:00:00-05:00", title: "Clean up boxes"
 
 RESCHEDULE FROM RECENT OUTBOUND CONTEXT:
@@ -213,13 +183,8 @@ reminder reschedule using the matched entry's title:
 - Parse the new time reference and convert to ISO 8601 with timezone offset (same rules as above)
 - Set urgency = 90
 - After saving: the matched `recent_outbound` entry must be cleared (set `awaiting_response: false` or remove the entry)
-- Register the new one-shot cron per REMINDER PERSISTENCE above.
-- In this `recent_outbound` path, the prior reminder was already delivered, so
-  its Notion row is already `Completed` and its one-shot cron has already fired
-  and self-deleted. No `CronDelete` is needed here.
-- Rare pre-fire reschedules are a separate operational path. If the user
-  changes the time before the reminder fires, follow the pre-fire rules in
-  `setup/cron/reminder-delivery.md` instead.
+- The new `reminder_outbox` row is written by `app/graph/nodes/intake.py` — no additional scheduling step needed.
+- In this `recent_outbound` path, the prior reminder was already delivered, so its Notion row is already `Completed`. No separate cleanup of the old outbox row is needed.
 - Keep all of that bookkeeping internal. The user-facing reply for a reschedule
   must be only the new reminder confirmation, in the same brief style as any
   other reminder confirmation.
@@ -285,7 +250,7 @@ REMINDER CONFIRMATION SAFETY:
 - Do not append notes about cron jobs, polling windows, handoff files, scheduling internals, tool calls, or whether something will trigger automatically.
 - Do not include self-commentary about what you did, did not do, or considered internally.
 - This applies equally to reminder reschedules created from `recent_outbound`.
-- Do not mention `recent_outbound`, prior reminder pages, reminder replacement, CronDelete/CronCreate, or Notion status cleanup.
+- Do not mention `recent_outbound`, prior reminder pages, reminder replacement, or Notion status cleanup.
 - The visible confirmation should be a single short sentence, then stop.
 - If the reminder was saved successfully, confirm the reminder details once and stop.
 

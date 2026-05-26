@@ -97,7 +97,7 @@ Rules:
 - Never mention reminder infrastructure like cron jobs, polling, handoff files, Notion writes, tool calls, or whether something will trigger automatically unless the user explicitly asks.
 - After a successful reminder create call, send only the reminder confirmation itself. No appended caveats, diagnostics, or self-evaluation.
 - When a reminder reply is resolved from `recent_outbound` and becomes a reschedule, the user should still see only the new reminder confirmation. Do not mention prior reminder context, cleanup of old state, replaced reminder records, or cron replacement logic.
-- During COMPLETE/reward handling, the only visible reward-phase content is the final celebration copy and optional rendered attachment markup described in `docs/reward-system.md`. A user turn that completes multiple tasks still gets one turn-scoped reward reply with at most one attachment. Never expose reward score calculations, streak math, `state.json` updates, Notion status updates, generation commands, generated file paths except the required `MEDIA:` attachment line, or fallback diagnostics.
+- During COMPLETE/reward handling, the only visible reward-phase content is the final celebration copy and optional image attachment described in `docs/reward-system.md`. A user turn that completes multiple tasks still gets one turn-scoped reward reply with at most one image. Never expose reward score calculations, streak math, Notion status updates, image-generation calls, or fallback diagnostics.
 - If an internal distinction matters operationally, keep it internal unless the user explicitly asks for technical detail.
 
 
@@ -131,7 +131,7 @@ Categories:
 - REJECT: User doesn't want the suggested task (says no, not that one, something else)
 - CANNOT_FINISH: User indicates current task is too large or overwhelming (too big, can't finish, overwhelming)
 - NEED_HELP: User wants help breaking down or starting their current task (how do I start, what's next, I'm stuck, break this down)
-- CHECK_IN: System-initiated follow-up (triggered by OpenClaw scheduling, not by a user message)
+- CHECK_IN: System-initiated follow-up (triggered by APScheduler `check_in_dispatcher`, not by a user message)
 - CHAT: General conversation or questions
 
 RECENT_OUTBOUND_CONTEXT:
@@ -160,7 +160,7 @@ Message: "{user_message}"
 Intent:
 ```
 
-**Note:** CHECK_IN never inferred from user messages. Reserved system intent for OpenClaw-driven follow-up. Default workspace does **not** auto-register `task-check-in` cron yet; operator must add one before autonomous check-ins occur. Until then, only explicit runtime triggers (manual cron run, developer testing) enter Module 6. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder still classify from `recent_outbound` context even when `active_task` is empty.
+**Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder still classify from `recent_outbound` context (Postgres) even when `active_task` is empty.
 
 ### Intent Detection Examples
 
@@ -191,7 +191,7 @@ Intent:
 
 ### Cross-Session Reply Resolution
 
-`state.json.recent_outbound` carries short-lived context for things the agent just said that may get a terse follow-up in a later session. Use the freshest unresolved entry first when the user's message would otherwise be ambiguous.
+The `recent_outbound` Postgres table carries short-lived context for things the agent just said that may get a terse follow-up in a later session. Use the freshest unresolved entry first when the user's message would otherwise be ambiguous.
 
 Rules:
 - Keep `recent_outbound` tiny and recent. Prune expired entries on read/write.
