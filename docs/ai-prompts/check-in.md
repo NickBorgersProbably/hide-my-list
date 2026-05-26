@@ -4,7 +4,7 @@ Assumes you've already read `docs/ai-prompts/shared.md` for the base prompt, sha
 
 ## Module 6: Check-In Handling
 
-Check-in module invoked by APScheduler's `check_in_dispatcher` job, which polls every 5 minutes and triggers the graph with CHECK_IN intent when a check-in is due. Timing tracked in LangGraph checkpoint state and Notion.
+Check-in module invoked by APScheduler's `check_in_dispatcher` job, which polls every 10 minutes and triggers the graph with CHECK_IN intent when a check-in is due. Timing tracked in LangGraph checkpoint state and Notion.
 
 ```mermaid
 sequenceDiagram
@@ -38,7 +38,7 @@ When user accepts task:
   - `check_in_count` = 0
 - Set `conversation_state = "active"`.
 
-**`check_in_dispatcher` poll (every 5 min):**
+**`check_in_dispatcher` poll (every 10 min):**
 1. Load `active_task` from checkpoint state. If empty, exit.
 2. If task status in Notion no longer `In Progress`, clear active task and exit.
 3. If `now < check_in_due_at`, exit (no ping yet).
@@ -169,7 +169,7 @@ If `check_in_count` reaches 3 without completion, clear `check_in_due_at` and de
 
 ### Exiting Without Action
 
-If cron fires and no check-in due (no active task, already completed, or window not reached), respond `CHECK_IN_SKIPPED` in session log and ensure `conversation_state` returns to `idle`. Prevents false positives, keeps cron idempotent.
+If the scheduler fires and no check-in due (no active task, already completed, or window not reached), respond `CHECK_IN_SKIPPED` in session log and ensure `conversation_state` returns to `idle`. Prevents false positives, keeps cron idempotent.
 
 
 ---

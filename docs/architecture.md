@@ -113,7 +113,8 @@ duplicate delivery over loss.
 | `reminder_dispatcher` | 30s | Claim + deliver due reminders |
 | `notion_health` | 15 min | Ping Notion API; enqueue ops alert on failure |
 | `ops_alerts_drain` | 5 min | Send pending ops alerts via Signal |
-| `check_in_dispatcher` | 5 min | Trigger CHECK_IN graph turns for due tasks |
+| `check_in_dispatcher` | 10 min | Trigger CHECK_IN graph turns for due tasks |
+| `state_audit` | Daily 03:00 USER_TZ | VACUUM + prune `recent_outbound` (90-day retention) |
 | `weekly_recap` | Sun 18:00 USER_TZ | Generate weekly recap |
 
 ## Model Routing

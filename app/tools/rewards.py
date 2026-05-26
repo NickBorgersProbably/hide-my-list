@@ -732,7 +732,8 @@ async def maybe_reward(
     reward_kind = "emoji"
     if image_path:
         reward_kind = "emoji+image"
-        celebration_text = f"{celebration_text}\nMEDIA:{image_path}"
+        # Image stored in reward_artifacts and manifest; not sent in message body —
+        # signal_client.send_message does not support attachments yet.
     elif intensity_label in ("medium", "high", "epic") and not sensitive:
         # Image was expected but failed — add fallback
         fallback = get_fallback_reward()

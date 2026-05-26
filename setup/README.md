@@ -5,7 +5,6 @@
 - **Docker + Docker Compose** (Compose v2)
 - **Notion** database created with the schema from `docs/notion-schema.md`
 - **Signal** account with signal-cli configured (infra-provided; see below)
-- **LiteLLM proxy** for model routing (`setup/model-tiers.json` defines the tier mapping)
 
 ## Quick Start
 
@@ -51,16 +50,16 @@ signal-cli volume management or registration carry-over. The `signal-cli` servic
 |----------|----------|-------------|
 | `NOTION_API_KEY` | Yes | Notion integration API key |
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
-| `DATABASE_URL` | Yes | Postgres DSN (`postgresql+psycopg://...`) |
-| `SIGNAL_CLI_URL` | Yes | WebSocket URL of the signal-cli bridge |
-| `USER_PHONE` | Yes | E.164 phone number of the primary Signal user |
-| `USER_TZ` | Yes | IANA timezone identifier (e.g. `America/Chicago`) |
+| `SIGNAL_ACCOUNT` | Yes | E.164 phone number registered with signal-cli |
+| `ANTHROPIC_API_KEY` | Yes | Primary LLM (Claude via langchain-anthropic) |
+| `DATABASE_URL` | Compose-managed | Postgres DSN; hardcoded in `docker/compose.yaml` for the compose network. Override only for non-compose runs. |
+| `SIGNAL_CLI_URL` | Compose-managed | WebSocket URL of the signal-cli bridge; hardcoded in `docker/compose.yaml`. Override only for non-compose runs. |
+| `USER_TZ` | No | IANA timezone identifier (default `America/Chicago`) |
 | `OPENAI_API_KEY` | No | For AI-generated reward images (`app/tools/rewards.py`) |
 | `OPS_ALERT_SIGNAL_NUMBER` | No | Separate Signal recipient for ops alerts |
 | `ENABLE_LANGGRAPH_PATH` | No | Defaults to `true`; set `false` only for emergency rollback |
-| `LITELLM_BASE_URL` | No | LiteLLM proxy URL (defaults to configured proxy) |
-| `LANGCHAIN_API_KEY` | No | LangSmith tracing (skipped if unset) |
-| `LANGCHAIN_PROJECT` | No | LangSmith project name |
+| `LANGSMITH_TRACING` | No | Set `true` to enable LangSmith tracing (requires `ALLOW_PRIVATE_TRACE_EXPORT=true`) |
+| `ALLOW_PRIVATE_TRACE_EXPORT` | No | Required alongside `LANGSMITH_TRACING=true`; explicit consent for private data export |
 
 ## Scheduled Jobs
 
@@ -68,17 +67,18 @@ The app uses APScheduler v3 with PostgresJobStore for durable scheduled jobs:
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| `reminder_dispatcher` | Every 5 min | Poll `reminder_outbox` for due reminders; delivers via signal-cli |
-| `notion_health` | Every 30 min | Notion connectivity check; enqueues ops alert on failure |
-| `ops_alerts_drain` | Every 15 min | Drain `ops_alerts_throttle` table to ops alert recipient |
-| `check_in_dispatcher` | Every 5 min | Check for overdue check-in tasks; sends nudge via signal-cli |
-| `state_audit` | Daily | Audit checkpoint state for orphaned in-progress tasks |
-| `weekly_recap` | Weekly Monday 09:00 | Generate and deliver weekly task completion recap |
+| `reminder_dispatcher` | Every 30 s | Poll `reminder_outbox` for due reminders; delivers via signal-cli |
+| `notion_health` | Every 15 min | Notion connectivity check; enqueues ops alert on failure |
+| `ops_alerts_drain` | Every 5 min | Drain `ops_alerts_throttle` table to ops alert recipient |
+| `check_in_dispatcher` | Every 10 min | Check for overdue check-in tasks; sends nudge via signal-cli |
+| `state_audit` | Daily 03:00 USER_TZ | VACUUM + prune `recent_outbound` rows older than 90 days |
+| `weekly_recap` | Sunday 18:00 USER_TZ | Generate and deliver weekly task completion recap |
 
 ## Model Tiers
 
 Model assignments use a tier system defined in `setup/model-tiers.json`. Read by `app/models.py`
-at startup to validate all model references resolve against the LiteLLM proxy.
+at startup to validate all model references. Models are used directly via `langchain-anthropic`
+with `ANTHROPIC_API_KEY` — no LiteLLM proxy required.
 
 | Tier | Role |
 |------|------|
@@ -88,7 +88,7 @@ at startup to validate all model references resolve against the LiteLLM proxy.
 
 To remap tiers: edit `setup/model-tiers.json` values to point at your model IDs, then restart
 the stack. `app/models.py` validates the mapping at startup and logs an error if any tier is
-missing from the proxy.
+missing or uses a non-Anthropic model ID.
 
 ## Contributor Hooks
 

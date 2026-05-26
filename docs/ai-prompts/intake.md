@@ -163,6 +163,14 @@ automatically writes a `reminder_outbox` row to Postgres with `state=pending` an
 due rows every 30 seconds. No additional action is required from the AI node —
 the outbox write is handled by `app/graph/nodes/intake.py`.
 
+**Outbox enqueue failure:** If the outbox write fails after the Notion row is
+created (e.g., transient Postgres error), the runtime logs the exception and emits
+a `reminder_enqueue_failed` ops alert so the operator can investigate. The reminder
+exists in Notion but will not be delivered automatically until the outbox row is
+created. When enqueue fails, the AI node must not confirm exact delivery — use
+tentative wording ("I'll try to remind you around…") rather than certain wording
+("I'll remind you at…").
+
 Examples:
   "Remind me at 6pm PT to email Melanie" →
     is_reminder: true, remind_at: "2025-01-04T18:00:00-08:00", title: "Email Melanie availability"

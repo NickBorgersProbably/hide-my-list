@@ -296,11 +296,13 @@ Do not narrate reward preparation. A COMPLETE turn must not contain visible text
 like "calculating the reward", "updating Notion", "generating an image", score
 breakdowns, tool names, or progress updates before the reward.
 
-When `app/tools/rewards.py` returns a delivered image, the final user-visible
-reward content should contain only:
-
-1. Celebration text for the completion
-2. The delivered image (sent via signal-cli attachment)
+The final user-visible reward content contains celebration text for the
+completion. AI-generated images are stored in the reward manifest and
+`reward_artifacts` volume, but are not delivered in the message body —
+signal-cli attachment support is pending. If `OPENAI_API_KEY` is not set or
+image generation fails, a fallback real-life reward suggestion is included
+instead (medium, high, epic intensities only). Sensitive tasks receive
+muted emoji text only, no fallback or image.
 
 Reward delivery is scoped to the user turn, not to each internal task update.
 If one user message completes multiple tasks, complete all hidden task/state

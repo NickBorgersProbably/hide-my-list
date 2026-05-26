@@ -1,7 +1,7 @@
 name: Build and Push Docker Image
 
-# Disabled — this is an OpenClaw agent project with no application Dockerfile.
-# The devcontainer image is built by the review pipeline, not this workflow.
+# Disabled — no automated image push configured.
+# The app image is built locally via docker compose (see docker/Dockerfile).
 # Retained for potential future use.
 
 on:

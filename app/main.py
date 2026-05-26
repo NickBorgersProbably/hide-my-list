@@ -70,7 +70,7 @@ def main() -> None:
         ],
     )
 
-    enable = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() == "true"
+    enable = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() == "true"
 
     if not enable:
         log.warning(
