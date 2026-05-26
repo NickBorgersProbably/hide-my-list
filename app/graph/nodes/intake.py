@@ -29,7 +29,7 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() in (
+_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
     "true", "1", "yes"
 )
 

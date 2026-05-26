@@ -270,7 +270,7 @@ resets whenever the completion streak resets. If prior streak history is not
 available, callers must not invent descriptions or marker counts; they should
 start a fresh one-item streak list with the current completed task.
 
-Output: `app/tools/rewards.py` calls the OpenAI image API, writes the PNG to a temp path, and sends it to Signal via the signal-cli REST API attachment endpoint. Image bytes are not stored on disk after delivery.
+Output: `app/tools/rewards.py` generates a PNG and stores it in the reward artifacts volume, then writes a manifest row in Postgres. Signal-cli attachment delivery is pending — no image is included in the outbound message body yet.
 
 #### Prompt Personalization Pipeline
 

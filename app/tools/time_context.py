@@ -3,8 +3,8 @@
 Port of scripts/user-time-context.sh — resolves a reference timestamp
 (or "now") to the user's local calendar context for reminder intake.
 
-Reads the user's IANA timezone from USER.md when present. Falls back to
-the DEFAULT_TZ environment variable, then to "America/Chicago".
+Reads the user's IANA timezone from the USER_TZ environment variable first.
+Falls back to USER.md when USER_TZ is not set, then to DEFAULT_TZ or "America/Chicago".
 """
 from __future__ import annotations
 
@@ -59,10 +59,8 @@ def get_time_context(reference_input: str = "now") -> TimeContext:
         TimeContext dict with keys: user_timezone, reference_utc, reference_local,
         local_date, local_day_of_week, tomorrow_date, tomorrow_day_of_week.
     """
-    # Resolve timezone
-    user_tz_name = _extract_timezone_from_user_md() or os.environ.get(
-        "USER_TZ", _DEFAULT_TZ
-    )
+    # Resolve timezone: USER_TZ env var takes priority over USER.md legacy file.
+    user_tz_name = os.environ.get("USER_TZ") or _extract_timezone_from_user_md() or _DEFAULT_TZ
     user_tz = _resolve_tz(user_tz_name)
 
     # Parse reference timestamp

@@ -18,7 +18,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 USER_FILE="$ROOT_DIR/USER.md"
 REFERENCE_INPUT="${1:-now}"
 DEFAULT_TZ="America/Chicago"
-USER_TZ="$DEFAULT_TZ"
+USER_TZ="${USER_TZ:-$DEFAULT_TZ}"
 
 if [ -f "$USER_FILE" ]; then
     EXTRACTED_USER_TZ="$(

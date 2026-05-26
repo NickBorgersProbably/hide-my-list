@@ -91,7 +91,7 @@ async def run_state_audit() -> None:
     Idempotent: safe to re-run. Rows already pruned are not re-deleted.
     Only runs when ENABLE_LANGGRAPH_PATH=true; logs a dormancy message otherwise.
     """
-    _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() in ("true", "1", "yes")
+    _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in ("true", "1", "yes")
     if not _enabled:
         log.debug("state_audit.dormant")
         return
@@ -161,7 +161,7 @@ async def dispatch_check_ins() -> None:
     This job does NOT classify from user messages — it injects CHECK_IN directly
     via the graph's routing (routing.check_in_route).
     """
-    _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() in ("true", "1", "yes")
+    _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in ("true", "1", "yes")
     if not _enabled:
         log.debug("dispatch_check_ins.dormant")
         return

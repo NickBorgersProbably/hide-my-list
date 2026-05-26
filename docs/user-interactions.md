@@ -726,7 +726,7 @@ flowchart TD
 
 ### APScheduler Check-In Scheduling
 
-APScheduler `check_in_dispatcher` job polls every 5 minutes. On each run:
+APScheduler `check_in_dispatcher` job polls every 10 minutes. On each run:
 
 - **State read:** Loads `active_task` and `check_in_due_at` from LangGraph checkpoint state for the peer.
 - **Early exit:** If due time not reached, logs `CHECK_IN_SKIPPED` for observability.

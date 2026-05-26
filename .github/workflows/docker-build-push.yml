@@ -13,4 +13,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Skip
-        run: echo "No application Dockerfile — this is an OpenClaw agent project"
+        run: echo "Image build is manual via docker compose (see docker/Dockerfile and docker/compose.yaml)"
