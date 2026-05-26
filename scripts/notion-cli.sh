@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Notion CLI helper for hide-my-list
+# Notion CLI helper for hide-my-list — ops debugging tool.
+# Production runtime uses app/tools/notion.py; this CLI is for one-off Notion debugging.
 # Usage: ./notion-cli.sh <command> [args...]
 
 set -euo pipefail

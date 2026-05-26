@@ -35,7 +35,7 @@ When fixing Markdown files (`.md`, `.md.j2`, reviewer prompts):
 - Apply wording changes exactly as suggested. Preserve surrounding document structure.
 - Prompt parity fixes: add the missing heading from the source doc. Copy the heading text verbatim; do NOT synthesize content below it.
 
-OpenClaw runtime files (listed in `DEV-AGENTS.md` "OpenClaw Prompt & Spec Files") must NOT be modified by the fixer during Phases A–C. If a reviewer asks to edit one, skip it (`skipped[]`) and note: "OpenClaw runtime file — Phase D deletion target; not modified in Phase C per plan constraint."
+Spec & Contract Files (listed in `DEV-AGENTS.md` "Spec & Contract Files") may be modified only when a reviewer explicitly requests a concrete wording or structural fix. Do not synthesize spec content — apply the reviewer's suggested text verbatim. If a reviewer's requested spec change is ambiguous or requires judgment about system behavior, skip it (`skipped[]`) and note the ambiguity.
 
 7. **Don't include private content in fix output.** This repo is public. Fix summaries, `addressed[]` entries, `skipped[].reason` text, and any PR body edits must not name real people, real recipient data, real reminder content, real Notion page titles, or real personal events. State the technical issue; use placeholders (`<page_id>`, `<recipient>`, `"Test message"`, etc.).
 

@@ -1,10 +1,10 @@
 """Entry point for the hide-my-list Python + LangGraph app.
 
-When ENABLE_LANGGRAPH_PATH=false (default), the app prints "skeleton" and exits.
-This keeps the new code dormant while OpenClaw continues running on main.
+Production mode: ENABLE_LANGGRAPH_PATH=true (default post-cutover). The app
+starts the Signal ingress listener and APScheduler.
 
-When ENABLE_LANGGRAPH_PATH=true, the app starts the Signal ingress listener
-and APScheduler.
+Emergency fallback: set ENABLE_LANGGRAPH_PATH=false to skip startup and exit 0.
+Use only for diagnostics or while reverting to a prior deployment.
 
 LangSmith guard: refuses to boot when LANGSMITH_TRACING=true unless
 ALLOW_PRIVATE_TRACE_EXPORT=true is also set.
@@ -70,9 +70,14 @@ def main() -> None:
         ],
     )
 
-    enable = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() == "true"
+    enable = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() == "true"
 
     if not enable:
+        log.warning(
+            "app.skeleton_mode",
+            message="ENABLE_LANGGRAPH_PATH=false — emergency fallback active. "
+            "App exiting without starting. Set ENABLE_LANGGRAPH_PATH=true for production.",
+        )
         print("skeleton")  # noqa: T201
         sys.exit(0)
 

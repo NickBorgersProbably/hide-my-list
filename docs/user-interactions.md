@@ -613,14 +613,14 @@ AI: "Here's the full breakdown:
 
 ## Flow 7: Check-In Follow-Up
 
-User accepts task → agent records in Notion + stores timing metadata in `state.json`. OpenClaw's optional `task-check-in` cron re-enters conversation if task runs long. If cron not configured, proactive check-ins disabled.
+User accepts task → agent records in Notion + stores timing metadata in LangGraph checkpoint state. APScheduler `check_in_dispatcher` job re-enters the conversation graph when the check-in window is reached.
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant AI as AI Assistant
-    participant State as state.json
-    participant Cron as OpenClaw Cron<br/>(task-check-in)
+    participant State as Checkpoint State
+    participant Sched as APScheduler<br/>(check_in_dispatcher)
     participant N as Notion
 
     U->>AI: "Sure, I'll do that"
@@ -628,14 +628,14 @@ sequenceDiagram
     AI->>State: Save active_task (id, title, estimate, started_at, check_in_due_at)
     AI->>U: "Great, it's yours. Let me know when you're done!"
 
-    Note over AI,Cron: Time passes
+    Note over AI,Sched: Time passes
 
-    Cron->>AI: Trigger (if configured)
+    Sched->>AI: Trigger at check_in_due_at
     AI->>State: Load active_task + check_in_due_at
     AI->>AI: Is check-in due?
     alt Not due / no task
         AI->>State: Optional cleanup
-        AI-->>Cron: CHECK_IN_SKIPPED
+        AI-->>Sched: CHECK_IN_SKIPPED
     else Due and still in progress
         AI->>N: Confirm task still in_progress
         N-->>AI: Still active
@@ -724,69 +724,47 @@ flowchart TD
 | User needs more time | "No problem — time estimates are just guesses anyway. About how much longer?" |
 | User wants to stop | "Totally fine — I'll keep it for later. No pressure. What sounds good instead?" |
 
-### OpenClaw Scheduling
+### APScheduler Check-In Scheduling
 
-No browser timer. Use OpenClaw infrastructure:
+APScheduler `check_in_dispatcher` job polls every 10 minutes. On each run:
 
-- **Recommended cron:** `task-check-in` every 5 minutes, durable.
-- **Session payload:** Prompt instructs agent to load `state.json` and evaluate `check_in_due_at`.
-- **Early exit:** If due time not reached, reply `CHECK_IN_SKIPPED` for observability.
+- **State read:** Loads `active_task` and `check_in_due_at` from LangGraph checkpoint state for the peer.
+- **Early exit:** If due time not reached, logs `CHECK_IN_SKIPPED` for observability.
 - **State fields:** `active_task.id`, `active_task.title`, `active_task.time_estimate`, `active_task.started_at`, `active_task.check_in_due_at`, `active_task.check_in_count`.
-
-If cron not configured, agent must not attempt proactive check-ins. Rest of flow valid for future deployment.
 
 ---
 
 ## Flow 8: Scheduled Reminder Delivery
 
-Reminders = tasks with specific wall-clock delivery time. Unlike check-ins (active-task state + optional OpenClaw), reminders fire proactively even when chat idle.
+Reminders = tasks with specific wall-clock delivery time. Unlike check-ins (active-task state + APScheduler trigger), reminders fire proactively even when chat is idle.
 
 ```mermaid
 sequenceDiagram
-    participant Intake as Intake (same turn)
-    participant OneShotCron as One-shot reminder cron
-    participant Cron as Isolated Cheap-Tier Cron
-    participant Scr as check-reminders.sh
+    participant Intake as Intake turn
+    participant Outbox as reminder_outbox (Postgres)
+    participant Worker as reminder_dispatcher (APScheduler)
     participant Notion as Notion API
-    participant Signal as .reminder-signal
-    participant State as state.json
-    participant Delivery as Heartbeat / Main Session
+    participant RecentOut as recent_outbound (Postgres)
     participant User
 
-    Note over Intake,OneShotCron: Primary path — registered at intake
-    Intake->>OneShotCron: CronCreate (deleteAfterRun:true, at: remind_at)
-    OneShotCron->>Notion: get-page to check status
-    OneShotCron->>User: Send reminder via message tool
-    OneShotCron->>State: Save recent_outbound reminder context
-    OneShotCron->>Notion: complete-reminder(sent)
-    Note over OneShotCron: Self-deletes after run
+    Note over Intake,Outbox: At intake
+    Intake->>Notion: create-reminder (is_reminder=true, remind_at)
+    Intake->>Outbox: INSERT row (state=pending, due_at=remind_at)
 
-    Note over Cron,Delivery: Safety-net path (CronCreate failure, unfired jobs)
-    Cron->>Scr: Run check-reminders.sh
-    Scr->>Notion: Query due reminders (remind_at <= now, status pending)
-    Notion-->>Scr: Due reminder tasks
-    Scr->>Signal: Write reminder handoff file
-    Note over Cron: Cron exits (NO_REPLY)
-    alt User interacts (AGENTS.md step 6)
-        Delivery->>Signal: Validate handoff file
-        Delivery->>User: Send reminder via message tool
-        Delivery->>State: Save recent_outbound reminder context
-        Delivery->>Notion: complete-reminder(sent)
-        Delivery->>Signal: Delete handoff file
-    else Delivery sweep or heartbeat runs (Check 1)
-        Delivery->>Signal: Validate handoff file
-        Delivery->>User: Send reminder via message tool
-        Delivery->>State: Save recent_outbound reminder context
-        Delivery->>Notion: complete-reminder(sent)
-        Delivery->>Signal: Delete handoff file
-    end
+    Note over Worker,User: At remind_at (30s poll cycle)
+    Worker->>Outbox: SELECT FOR UPDATE SKIP LOCKED (due)
+    Outbox-->>Worker: Claimed row
+    Worker->>User: Send reminder via signal-cli
+    Worker->>RecentOut: INSERT recent_outbound row
+    Worker->>Notion: complete-reminder(sent)
+    Worker->>Outbox: UPDATE state=delivered
 ```
 
-Primary path: one-shot `reminder-<page_id>` cron registered at intake fires at exact `remind_at` and delivers directly. Safety-net path: `reminder-check` cron runs as isolated cheap-tier session — query-only, no delivery. Handoff delivery via main-session startup check (AGENTS.md step 6, on every user interaction), `reminder-delivery-sweep` (every 2 hours), and the `heartbeat` cron (Check 1 in `docs/heartbeat-checks.md`, daily). Delivery paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Wrong shape or status = malformed, file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing delivered/completed/deleted. On successful delivery, the session also appends/updates `state.json.recent_outbound` with a short-lived reminder entry so the next session can interpret terse replies like "I did it" or "tomorrow at 9" even though the handoff file is gone and the Notion reminder is already completed. Delivery failure = file stays for retry.
+Delivery contract: at-least-once with idempotency. The worker holds a row lock during delivery; if it crashes between signal-cli accept and Postgres commit, the row re-enters the delivery cycle on the next poll. Delivery failure retries with exponential backoff (1m, 5m, 30m, 2h, 8h); after 5 failures the row transitions to `dead` and an ops alert is enqueued.
 
 ### Reminder Reply Continuity
 
-If the next session starts and the user replies to the reminder in shorthand, the agent should use `state.json.recent_outbound` before asking for clarification.
+If the next graph turn starts and the user replies to the reminder in shorthand, the agent reads `recent_outbound` rows from Postgres before asking for clarification.
 
 Example:
 - Agent sends: "Hey, time to clean up boxes before noon."
@@ -824,27 +802,22 @@ AI detects reminder-style language and sets:
 - `remind_at` = full ISO 8601 timestamp with timezone
 - `reminder_status = pending`
 - `urgency = 90` (time-critical)
-- relative date phrases (`today`, `tomorrow`, `tonight`, day-of-week names) resolved from the user's timezone in `USER.md`, not the UTC message timestamp
+- relative date phrases (`today`, `tomorrow`, `tonight`, day-of-week names) resolved from the user's configured timezone (`USER_TZ` env var, default `America/Chicago`), not the UTC message timestamp
 
-**Confirmation message style (success path — `CronCreate` succeeded):**
+**Confirmation message style:**
 > "Got it — I'll remind you around 6pm PT to email Melanie."
 
-"Around" is intentional and stays even though the one-shot cron normally fires at exact `remind_at`. If the one-shot fails to fire and the safety-net polling path takes over, delivery can lag up to about 150 minutes before user interaction or `reminder-delivery-sweep` catches it. "Around 6pm" avoids overpromising exact wall-clock delivery if the safety net catches a stranded reminder.
-
-**Confirmation message style (degraded path — `CronCreate` failed at intake):**
-> "Got it — I've saved your reminder; I'll check for it and send it your way."
-
-Use this neutral wording only when the in-turn `CronCreate` call failed and the safety-net polling path is the only delivery route. Two reasons: (1) UX — don't promise a specific time when the primary scheduler already failed; (2) regex avoidance — the framework reminder-guard appends a "Note: I did not schedule a reminder..." string to any reply matching `i'll\s+remind` (and similar) when no cron was added that turn. The success-path wording above triggers that regex; this neutral wording does not. The reminder is still saved in Notion and the safety net catches it at the next 30-min poll.
+"Around" is intentional. The reminder_dispatcher polls every 30 seconds; delivery is at-least-once. "Around 6pm" avoids overpromising exact wall-clock delivery.
 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
 The same rule applies when a reminder is rescheduled from a prior reminder reply: one short confirmation sentence, no narration of internal cleanup or replacement steps.
 
-User timezone defaults to the configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. If the visible session clock is UTC, agent resolves the user's local calendar first with `scripts/user-time-context.sh` (or equivalent timezone conversion) before deciding what "tomorrow" or "tonight" means.
+User timezone is read from the `USER_TZ` environment variable (default `America/Chicago`). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. Use `scripts/user-time-context.sh` when a UTC timestamp needs conversion to the user-local calendar before deciding what "tomorrow" or "tonight" means.
 
 ### Reminder vs. Deadline
 
 Different concepts:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification firing at `remind_at` via the one-shot `reminder-<page_id>` cron registered at intake; if that fails to fire, the `reminder-check` poll + startup + `reminder-delivery-sweep` + daily heartbeat path delivers as safety net, which is why intake confirmations say "around 6pm"
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification fired by the APScheduler `reminder_dispatcher` at `remind_at`; at-least-once delivery via the Postgres outbox, which is why intake confirmations say "around 6pm"
 - **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.
@@ -969,8 +942,8 @@ sequenceDiagram
 sequenceDiagram
     participant U as User
     participant AI as AI Assistant
-    participant State as state.json
-    participant Cron as OpenClaw Cron
+    participant State as Checkpoint State
+    participant Sched as APScheduler<br/>(check_in_dispatcher)
 
     U->>AI: I have an hour, feeling focused
     AI->>U: How about working on the quarterly report? ~45 min of focus work.
@@ -978,9 +951,9 @@ sequenceDiagram
     AI->>State: Save active_task (estimate 45, due_in 56 min, count 0)
     AI->>U: Great — it's yours. Let me know when you're done!
 
-    Note over AI,Cron: 56 minutes pass
+    Note over AI,Sched: 56 minutes pass
 
-    Cron->>AI: Trigger task-check-in
+    Sched->>AI: Trigger check_in_dispatcher
     AI->>State: Load active_task + due time
     AI->>U: How's the quarterly report going? Still at it?
 
@@ -990,9 +963,9 @@ sequenceDiagram
     AI->>State: Set new due = now + 22 min
     AI->>State: Increment check_in_count
 
-    Note over AI,Cron: 22 minutes pass
+    Note over AI,Sched: 22 minutes pass
 
-    Cron->>AI: Trigger task-check-in
+    Sched->>AI: Trigger check_in_dispatcher
     AI->>State: Due again → ping
     AI->>U: Still working on the report?
 

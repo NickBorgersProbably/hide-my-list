@@ -243,25 +243,21 @@ flowchart TD
     Generate --> Delivery
 ```
 
-#### Image Generation Script
+#### Image Generation
 
-`scripts/generate-reward-image.sh` handles all image generation:
+`app/tools/rewards.py` handles all image generation. The equivalent call:
 
-```bash
-# Generate a reward image
-./scripts/generate-reward-image.sh <intensity> <streak_count> <task_description>...
-
-# Examples:
-./scripts/generate-reward-image.sh low 1 "Call dentist"
-./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
-./scripts/generate-reward-image.sh epic 5 "Draft report" "Send update" "Pay bill" "Book appointment" "Fold laundry"
-
-# Optional context from the caller:
-REWARD_WORK_TYPE=focus REWARD_ENERGY_LEVEL=low \
-  ./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
+```python
+await rewards.generate_reward_image(
+    intensity="medium",
+    streak_count=2,
+    task_descriptions=["Review proposal", "Clean desk"],
+    work_type="focus",  # optional
+    energy_level="low",  # optional
+)
 ```
 
-The script validates its reward inputs before generation:
+The function validates its reward inputs before generation:
 
 - `streak_count` must be the positive, post-completion current streak length.
 - When `streak_count` is `N`, the caller must provide exactly `N` task descriptions.
@@ -274,15 +270,7 @@ resets whenever the completion streak resets. If prior streak history is not
 available, callers must not invent descriptions or marker counts; they should
 start a fresh one-item streak list with the current completed task.
 
-Output: writes PNG to `/tmp/reward-<timestamp>.png` and prints the path.
-Before returning a PNG path, the script creates and repairs the full OpenClaw
-media staging path: traversal-only permissions (`0711`) for `~/.openclaw/` and
-`~/.openclaw/media/`, readable traversal (`0755`) for
-`~/.openclaw/media/outbound/`, and private config (`0600`) for
-`~/.openclaw/openclaw.json` when present. It also locks down non-media
-top-level children before opening traversal for attachments. OpenClaw then
-stages attachment delivery through `~/.openclaw/media/outbound/`; every
-directory in that path must stay traversable so Signal can read the staged file.
+Output: `app/tools/rewards.py` generates a PNG and stores it in the reward artifacts volume, then writes a manifest row in Postgres. Signal-cli attachment delivery is pending — no image is included in the outbound message body yet.
 
 #### Prompt Personalization Pipeline
 
@@ -290,7 +278,7 @@ Reward prompts are built from four layers:
 
 1. **Intensity theme pool** - low/medium/high/epic still control the overall celebration scale
 2. **Task motif extraction** - validated task descriptions become safe visual motifs (call, writing, setup, cleanup, etc.)
-3. **Preference modifiers** - optional `state.json.user_preferences.rewards` values bias style, palette, and subject matter
+3. **Preference modifiers** - optional `user_prefs.rewards` values (Postgres) bias style, palette, and subject matter
 4. **Feedback weighting** - prior positive/negative reactions bias future theme-family, style, and palette selection
 
 Task descriptions are not copied blindly into the image prompt. The script first validates the count against the streak, classifies the completed tasks, and builds either:
@@ -302,50 +290,35 @@ Task descriptions are not copied blindly into the image prompt. The script first
 #### Reward Delivery Contract
 
 The COMPLETE reward phase has a strict visible-output boundary. All work before
-delivery is hidden implementation detail: status updates, `state.json` writes,
-reward scoring, streak math, channel selection, script invocations, fallback
-diagnostics, and image-generation progress must not be sent to the user.
+delivery is hidden implementation detail: status updates, reward scoring, streak math, channel selection, `app/tools/rewards.py` invocations, fallback diagnostics, and image-generation progress must not be sent to the user.
 
 Do not narrate reward preparation. A COMPLETE turn must not contain visible text
 like "calculating the reward", "updating Notion", "generating an image", score
-breakdowns, shell commands, tool names, or progress updates before the reward.
+breakdowns, tool names, or progress updates before the reward.
 
-When `scripts/generate-reward-image.sh` returns a `.png`, the final
-assistant-authored reward turn passed to OpenClaw should contain only:
-
-1. Celebration text for the completion
-2. One `MEDIA:<absolute-path-to-image>` line
+The final user-visible reward content contains celebration text for the
+completion. AI-generated images are stored in the reward manifest and
+`reward_artifacts` volume, but are not delivered in the message body —
+signal-cli attachment support is pending. If `OPENAI_API_KEY` is not set or
+image generation fails, a fallback real-life reward suggestion is included
+instead (medium, high, epic intensities only). Sensitive tasks receive
+muted emoji text only, no fallback or image.
 
 Reward delivery is scoped to the user turn, not to each internal task update.
 If one user message completes multiple tasks, complete all hidden task/state
 work first, calculate the combined reward intensity, generate one representative
-image for the combined win, and send one final assistant-authored reward turn.
-That turn still contains exactly one celebration message and at most one
-`MEDIA:` line. Do not send one reward reply per task.
-
-OpenClaw consumes the `MEDIA:` line as attachment markup. End users should see
-only the celebration text plus the rendered image attachment — never the raw
-filesystem path or transport syntax.
-
-Example assistant-authored reply:
-
-```text
-CRUSHED IT! 🔥💪✨
-MEDIA:/absolute/path/to/image.png
-```
+image for the combined win, and send one final reward reply.
+That reply still contains exactly one celebration message and at most one image.
+Do not send one reward reply per task.
 
 Reward Delivery Checklist:
 
 - [ ] No interim user-visible messages were sent during reward scoring, state updates, Notion updates, or image generation
 - [ ] Visible user copy is celebration only — no orchestration notes, no "Now let me...", no tool narration
-- [ ] At most one assistant-authored reward turn per user COMPLETE turn
-- [ ] Exactly one `MEDIA:` line in that turn when image generation returns `.png`; no `MEDIA:` line when using a `.txt` fallback
-- [ ] User sees rendered attachment, not raw `MEDIA:` syntax or filesystem path
-- [ ] No inline media tags such as `<media:image>` in the same reply
-- [ ] No second send of the same image via the `message` tool in the same turn
-- [ ] If the script returns a `.txt` fallback instead of `.png`, read the suggestion and send plain text only — no `MEDIA:` line
-- [ ] If the turn also includes an outing suggestion or other follow-up, send that as a separate plain-text message after the attachment-bearing reward reply
-- [ ] If multiple completions are handled in one user turn, per-task score math and tool work remain hidden; user-visible output is one combined celebration with one representative attachment/fallback at most
+- [ ] At most one reward reply per user COMPLETE turn
+- [ ] If image generation fails, fall back to emoji/text only — no error message shown to user
+- [ ] If the turn also includes an outing suggestion or other follow-up, send that as a separate plain-text message after the reward reply
+- [ ] If multiple completions are handled in one user turn, per-task score math and tool work remain hidden; user-visible output is one combined celebration with one representative image/fallback at most
 
 #### Theme Pools by Intensity
 
@@ -369,7 +342,7 @@ When the task classifier detects a private or shame-heavy completion (therapy, m
 
 #### Reward Preference Schema
 
-Canonical reward image preferences live in `state.json.user_preferences.rewards`:
+Canonical reward image preferences live in `user_prefs.rewards` (Postgres):
 
 ```json
 {
@@ -465,15 +438,9 @@ Every generated reward image auto-archived to `rewards/` with metadata:
 
 #### Weekly Recap Video
 
-`scripts/generate-weekly-recap.sh` compiles all reward images from past week into card-flip transition video:
+The `weekly_recap` APScheduler job (Sundays at 18:00 USER_TZ) compiles all reward images from the past week into a card-flip transition video. See `app/scheduler/jobs.py` for the job definition.
 
-```bash
-# Generate recap of past 7 days (default)
-./scripts/generate-weekly-recap.sh
-
-# Custom range
-./scripts/generate-weekly-recap.sh 14  # past 2 weeks
-```
+Audio and video recap features are deferred to v1.1 — see `docs/python-rewrite/reward-deferred.md`.
 
 Features:
 - **Card-flip transitions** between images (fadegrays, circlecrop, radial, etc.)
@@ -848,7 +815,7 @@ initiation_score = min(initiation_ceiling, max(0, weighted_score - diminishing))
 
 ### Reward Delivery Settings (runtime config)
 
-Image-style preferences live in `state.json.user_preferences.rewards`. The schema below is separate: it covers delivery-channel toggles and channel-specific runtime settings, not the user's reward-image taste profile.
+Image-style preferences live in `user_prefs.rewards` (Postgres). The schema below is separate: it covers delivery-channel toggles and channel-specific runtime settings, not the user's reward-image taste profile.
 
 ```mermaid
 erDiagram
@@ -960,7 +927,7 @@ stateDiagram-v2
 
 ## Agent Commands
 
-Capabilities exposed via conversation commands, not HTTP endpoints. OpenClaw agent handles directly.
+Capabilities exposed via conversation commands. The app graph handles these directly.
 
 | Command | Purpose |
 |---------|---------|
@@ -980,7 +947,7 @@ Capabilities exposed via conversation commands, not HTTP endpoints. OpenClaw age
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `OPENAI_API_KEY` | OpenAI API for image generation | `sk-proj-xxxxxxxx` |
-| `REWARD_STATE_FILE` | Override reward preference source file | `/workspace/state.json` |
+| `DATABASE_URL` | Postgres connection string; reward prefs loaded from `user_prefs` table | `postgresql://hml:hml@postgres:5432/hml` |
 | `REWARD_WORK_TYPE` | Optional work type hint for reward imagery | `focus` |
 | `REWARD_ENERGY_LEVEL` | Optional energy hint for reward imagery | `low` |
 | `TWILIO_ACCOUNT_SID` | Twilio authentication | `ACxxxxxxxx` |

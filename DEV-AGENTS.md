@@ -1,31 +1,22 @@
 # DEV-AGENTS.md — hide-my-list
 
-Dev agent context for Claude Code, Codex, human contributors. OpenClaw runtime instructions in `AGENTS.md` — edits there change app behavior.
+Dev agent context for Claude Code, Codex, human contributors.
 
 ## Architecture
 
-- **Runtime**: OpenClaw agent (no standalone server)
-- **Storage**: Notion database via API
-- **Scripts**: `scripts/` — Notion CLI helpers + infra tooling
-- **Docs**: `docs/` — runtime behavior specs, contributor/CI guidance where noted
+- **Runtime**: Python + LangGraph app in Docker Compose
+- **Storage**: Postgres (LangGraph checkpointer + reminder outbox + scheduler + private metadata) + Notion DB (tasks)
+- **Messaging**: Signal via signal-cli bridge (infra-provided)
+- **Scripts**: `scripts/` — Python migration helpers + ops CLIs
+- **Docs**: `docs/` — spec contracts + contributor/CI guidance
 - **Design**: `design/` — ADHD-informed design priorities
-- **OpenClaw integration**: See `docs/openclaw-integration.md`
 
 ## Key Files
 
-### OpenClaw Prompt & Spec Files
+### Spec & Contract Files
 
-Define OpenClaw agent behavior — *are* the application. Change one = change agent.
+These are the authoritative behavioral contracts. The Python implementation in `app/` conforms to them. Change one = change system behavior. Psych reviewer validates user-facing changes against ADHD research.
 
-- `AGENTS.md` — OpenClaw runtime agent instructions (bootstrap, auto-loaded)
-- `SOUL.md` — Agent personality + core identity
-- `IDENTITY.md` — Agent identity metadata
-- `TOOLS.md` — Available tools + property references
-- `HEARTBEAT.md` — Legacy built-in heartbeat redirect; production health checks run through `setup/cron/heartbeat.md`
-- `docs/heartbeat-checks.md` — Authoritative heartbeat check list (stranded reminders, cron health, drift, Notion connectivity, dirty-pull recovery)
-- `setup/cron/heartbeat.md` — Daily light-touch heartbeat cron spec
-- `setup/cron/reminder-delivery-sweep.md` — Narrow idle-session reminder handoff delivery cron spec
-- `setup/cron/janitor.md` — Weekly deep audit and cron drift correction cron spec
 - `docs/ai-prompts/shared.md` — Base system prompt, intent dispatch, user preferences context, output/error/state handling (entry point for per-intent prompts)
 - `docs/ai-prompts/intake.md` — Task Intake module (ADD_TASK): inference rules, sub-task generation, reminder detection
 - `docs/ai-prompts/selection.md` — Task Selection module (GET_TASK): scoring weights, mood mapping
@@ -33,27 +24,26 @@ Define OpenClaw agent behavior — *are* the application. Change one = change ag
 - `docs/ai-prompts/cannot-finish.md` — Cannot Finish module (CANNOT_FINISH): progress gathering, sub-task creation
 - `docs/ai-prompts/check-in.md` — Check-In Handling module (CHECK_IN): timing, shame-safe templates
 - `docs/ai-prompts/breakdown.md` — Breakdown Assistance module (NEED_HELP): confidence detection, response levels
-- `docs/architecture.md` — System design + data flow spec
-- `docs/openclaw-integration.md` — OpenClaw runtime mapping, model routing, cron registration contract
-- `docs/agent-capabilities.md` — Session roles + runtime tool-boundary source of truth
-- `docs/task-lifecycle.md` — Task states: Pending → In Progress → Completed (with rejection/breakdown flows)
-- `docs/notion-schema.md` — Notion database schema
-- `docs/user-interactions.md` — Conversation patterns + intent detection rules
-- `docs/user-preferences.md` — Personalization behavior spec
-- `docs/reward-system.md` — Multi-channel reward behavior spec
-- `design/adhd-priorities.md` — Core design principles grounded in ADHD research
-- `scripts/notion-cli.sh` — Notion API helper for task CRUD
-- `scripts/user-time-context.sh` — Timezone helper: resolves a reference timestamp to user-local date/time for reminder intake
+- `docs/architecture.md` — System architecture: container topology, LangGraph graph, reminder outbox, scheduled jobs
+- `docs/task-lifecycle.md` — Task states: Pending → In Progress → Completed (with rejection/breakdown/reminder flows)
+- `docs/notion-schema.md` — Notion database schema; `app/tools/notion.py` reads/writes against this
+- `docs/user-interactions.md` — Conversation patterns + intent detection rules; `app/graph/routing.py` implements
+- `docs/user-preferences.md` — Personalization behavior spec; user prefs stored in Postgres `user_prefs` table
+- `docs/reward-system.md` — Multi-channel reward behavior spec; `app/tools/rewards.py` implements (v1: emoji + image)
+- `design/adhd-priorities.md` — Core design principles grounded in ADHD research. **Critical: do not modify.**
+- `setup/model-tiers.json` — Model tier source; `app/models.py` reads and validates at startup
+- `scripts/notion-cli.sh` — Ops CLI: one-off Notion debugging. Production uses `app/tools/notion.py`.
+- `scripts/user-time-context.sh` — Ops CLI: timezone helper for reminder parsing. Production uses `app/tools/time_context.py`.
 
 ### Python Runtime Files
 
-The Python/LangGraph application, gated by `ENABLE_LANGGRAPH_PATH` (default false). Safe to edit via PRs. Phase D flips the flag and removes OpenClaw files.
+The Python/LangGraph application. Safe to edit via PRs.
 
 - `app/tools/notion.py` — Notion API client (9 verbs + health_check)
 - `app/tools/signal_client.py` — Signal bridge async client
 - `app/tools/reminders.py` — Reminder outbox CRUD
 - `app/tools/rewards.py` — Reward delivery (emoji + image; v1 scope)
-- `app/tools/ops_alerts.py` — Ops alert enqueue + drain (Phase C)
+- `app/tools/ops_alerts.py` — Ops alert enqueue + drain
 - `app/tools/time_context.py` — Timezone helper
 - `app/tools/db.py` — Postgres connection + migration runner
 - `app/graph/state.py` — LangGraph State TypedDict
@@ -73,22 +63,26 @@ The Python/LangGraph application, gated by `ENABLE_LANGGRAPH_PATH` (default fals
 - `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker
 - `app/ingress/signal_listener.py` — WebSocket consumer routing to graph
 - `app/prompts/` — Jinja2 prompt templates (`*.md.j2`) for each intent
+- `app/models.py` — Model tier validation at startup; reads `setup/model-tiers.json`
+- `app/main.py` — Entry point; LangSmith guard; production default `ENABLE_LANGGRAPH_PATH=true`
 - `migrations/0001_initial.sql` — Initial schema: outbox, recent_outbound, ops_alerts_throttle
 - `migrations/0002_reward_manifests.sql` — Reward manifests table
-- `migrations/0003_ops_alerts.sql` — Ops alerts table (Phase C)
-- `migrations/0004_user_prefs.sql` — User preferences table (Phase C)
+- `migrations/0003_ops_alerts.sql` — Ops alerts table
+- `migrations/0004_user_prefs.sql` — User preferences table
 - `tests/unit/` — Unit tests (no DATABASE_URL required)
 - `tests/integration/` — Integration tests (require DATABASE_URL)
 - `tests/spike/` — Durability spike tests
 - `docs/python-rewrite/` — Python stack contributor docs and runbooks
-- `docs/python-rewrite/rollback.md` — Cutover rollback runbook (Phase C)
+- `docs/python-rewrite/rollback.md` — Cutover rollback runbook + forward cutover procedure
 - `docs/python-rewrite/langgraph-semantics.md` — LangGraph durability spike findings
-- `scripts/migrate_state_json.py` — One-shot OpenClaw → Postgres state migration (Phase C); requires `--peer <E.164>` (the inbound user peer, NOT `SIGNAL_ACCOUNT`; use `SIGNAL_PEER` env var as fallback)
-- `docker/backup.sh` — Postgres pg_dump wrapper with retention policy (Phase C)
+- `scripts/migrate_state_json.py` — One-shot OpenClaw → Postgres state migration; requires `--peer <E.164>`
+- `docker/backup.sh` — Postgres pg_dump wrapper with retention policy
+- `docker/Dockerfile` — Multi-stage Python 3.12-slim image for the app service
+- `docker/compose.yaml` — Compose spec: `app` + `signal-cli` + `postgres:16-alpine`; `ENABLE_LANGGRAPH_PATH=true` default
 
 ### Infrastructure & CI Files
 
-Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contributor or agent (Claude Code, Codex, etc.).
+Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude Code, Codex, etc.).
 
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
@@ -108,21 +102,14 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - `scripts/check-doc-links.sh` — Internal doc link validator for local hooks + CI doc checks
 - `scripts/ci-session-store.sh` — Path-naming, pack/unpack, and trailer-parse helper for the per-(agent, issue, run-id) author-session store (job-local under `${RUNNER_TEMP}/ci-sessions/<agent>/<issue>/<run-id>/`); used by both `resolve-issue` (pack + upload) and v2 review-fixer (download + unpack)
 - `scripts/test-ci-session-store.sh` — Self-contained unit tests for `ci-session-store.sh`; invoked by `review-fixer-resume-smoke.yml`
-- `scripts/pull-main.sh` — Branch sync helper
-- `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, workflow, and OpenClaw config smoke validations
+- `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, and workflow validations (no OpenClaw config mode)
 - `scripts/security-update.sh` — Security update automation
 - `scripts/validate-gh-cli-usage.sh` — GitHub CLI workflow usage validation
 - `scripts/validate-pr-tests-workflow.sh` — PR Tests workflow actionlint/setup-order validation
 - `scripts/validate-workflow-refs.sh` — Workflow reference validation
 - `scripts/validate-mermaid.sh`, `scripts/lint-mermaid-rendering.sh` — Diagram validation
-- `scripts/validate-model-refs.sh` — Enforces model tier consistency: every `litellm/<id>` resolves in template, `setup/model-tiers.json` matches agent config, cron specs use cheap tier
-- `scripts/validate-openclaw-config.sh` — OpenClaw config smoke validator used by PR Tests to render, validate, read, write, and schema-check the template config
-- `scripts/validate-spec-catalog.sh` — Enforces that every `docs/*.md` spec file registered in the classifier's `is_spec_md()` is also listed in `docs/index.md` and this file's Key Files section
-- `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers for validation and cron-spec alignment
-- `setup/` — Cron + setup docs
+- `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers; read by `app/models.py` at startup
 - `pyproject.toml` — Python 3.12 dependency manifest for the LangGraph stack; runtime and dev deps pinned by version
-- `docker/Dockerfile` — Multi-stage Python 3.12-slim image for the LangGraph app service
-- `docker/compose.yaml` — Compose spec: `app` + `signal-cli` + `postgres:16-alpine`; production path dormant while `ENABLE_LANGGRAPH_PATH=false`
 - `.github/workflows/python-validation.yml` — Required CI gate: ruff + mypy + pytest-unit on every PR touching Python source files
 
 ## Safety
@@ -132,33 +119,27 @@ Support dev pipeline. Not OpenClaw prompt. Edit directly via PRs — any contrib
 - **Don't leak private examples in GitHub issues, PRs, commits, or review-pipeline artifacts.** This is a public repo. Do not name real people, real recipient phone numbers, real reminder content, real Notion page titles, or real personal events in issues, PR descriptions, commit messages, code comments, or review-pipeline artifacts (review comments, fix-attempt summaries). State the technical problem and desired fix; use placeholder content (`<page_id>`, `<recipient>`, `"Test message"`, etc.). If a specific date/time is load-bearing, keep the date but omit the personal context.
 - `trash` > `rm`.
 
-### Code & Prompt Changes — Scope
-
-"Code & Prompt Changes" restriction in `AGENTS.md` applies **only to OpenClaw runtime agent**. Not Claude Code, Codex CI, or human contributors. Dev agents edit any file via normal PR flow.
-
-Treat OpenClaw prompt + spec file edits with care — change live app behavior. Psych reviewer validates user-facing changes against ADHD research.
-
 ### Prompt & Spec Files — Present Tense Only
 
-The "OpenClaw Prompt & Spec Files" listed above are loaded into the runtime agent's session context every turn. They **are** the spec the agent operates from — not documentation of how the spec evolved. Write them like a system prompt, not a changelog.
+The spec and contract files listed in "Spec & Contract Files" above define system behavior. Write them like a system prompt, not a changelog.
 
 Rules:
 
-- **Present tense only.** Describe how the system behaves *right now*. No "now does X", "previously Y", "used to Z", "still [uses old approach]" (historical comparisons), "instead of being purely random", "previous architecture", "former bash daemons", "What changed:", "replaced old…", "before X shipped". Present-state uses of "still" ("while still running", "agents still control") are fine.
-- **No `(Issue #N)` / `(PR #N)` / `(#N)` suffixes** on section headers, list items, or callouts. Issue and PR numbers go in the commit message, the PR body, the linked issue itself — not in the runtime prompt. They rot, and they pull the agent's attention onto historical scaffolding instead of the current rule.
+- **Present tense only.** Describe how the system behaves *right now*. No "now does X", "previously Y", "used to Z", "still [uses old approach]" (historical comparisons). Present-state uses of "still" ("while still running", "agents still control") are fine.
+- **No `(Issue #N)` / `(PR #N)` / `(#N)` suffixes** on section headers, list items, or callouts. Issue and PR numbers go in the commit message, the PR body, the linked issue itself — not in the runtime prompt.
 - **Replace, don't diff.** When behavior changes, rewrite the section. Don't keep before/after framing or "Why we changed this:" notes in the spec — that belongs in the commit message.
-- **No roadmaps in spec files.** Gantt charts, "future enhancements" lists, `:done` markers, and similar in-flight tracking belong in GitHub issues/projects or a clearly-labeled non-spec roadmap doc, not in runtime prompts.
-- **Rationale belongs in present tense.** "Why this design:" framing is fine — explain the constraint that *currently* governs the choice. Avoid framing rationale as a post-mortem of an alternative that was tried and rejected.
+- **No roadmaps in spec files.** In-flight tracking belongs in GitHub issues/projects.
+- **Rationale belongs in present tense.** "Why this design:" framing is fine — explain the constraint that *currently* governs the choice.
 
-This rule applies to every file in the "OpenClaw Prompt & Spec Files" list above (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, all `docs/ai-prompts/*.md`, `docs/architecture.md`, `docs/openclaw-integration.md`, `docs/agent-capabilities.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/user-interactions.md`, `docs/user-preferences.md`, `docs/reward-system.md`, `design/adhd-priorities.md`).
+This rule applies to: `docs/ai-prompts/*.md`, `docs/architecture.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/user-interactions.md`, `docs/user-preferences.md`, `docs/reward-system.md`, `design/adhd-priorities.md`.
 
-It does **not** apply to `docs/agentic-pipeline-learnings.md` or other contributor/CI-only guidance, which legitimately carry historical context about how the dev pipeline got to its current shape.
+It does **not** apply to `docs/agentic-pipeline-learnings.md` or other contributor/CI-only guidance, which legitimately carry historical context.
 
 ## Review Pipeline
 
 PRs reviewed by multi-agent review pipeline (Codex reviewers + fixer in v2). Roles same in both versions; orchestration differs.
 
-Reviewers handle both Markdown spec changes (OpenClaw runtime files) and Python source changes (`app/`, `migrations/`, `tests/`). The classifier (`review-classify` action) detects which file classes are present and routes accordingly. Python source files (`app/**/*.py`, `migrations/*.sql`, `tests/**/*.py`) always trigger security review; `app/prompts/*.md.j2` triggers prompt + psych review.
+Reviewers handle Markdown spec changes and Python source changes (`app/`, `migrations/`, `tests/`). The classifier (`review-classify` action) detects which file classes are present and routes accordingly. Python source files (`app/**/*.py`, `migrations/*.sql`, `tests/**/*.py`) always trigger security review; `app/prompts/*.md.j2` triggers prompt + psych review.
 
 **Reviewer roles**:
 1. Design Review — validates intent + design quality; runs docs-as-spec consistency check on spec-critical changes; evaluates Python module design, async correctness, LangGraph node patterns, constrained-tool-surface invariant
@@ -189,11 +170,11 @@ Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,pr
 
 Constraint applies to all reviewers → add to each prompt file individually. Use identical wording across files unless structure requires different phrasing (e.g., inline JSON placeholder vs. prose). Same applies to `fixer.md` — loaded independently.
 
-"Sibling files with shared contract, loaded independently" pattern recurs throughout repo (e.g., OpenClaw spec files). Editing one file in group → check if siblings need same change.
+"Sibling files with shared contract, loaded independently" pattern recurs throughout repo (e.g., spec files). Editing one file in group → check if siblings need same change.
 
 ## When Making Changes
 
-- Runtime/spec docs define agent behavior — changing those docs changes system; contributor/CI guidance still reviewed as infra changes
+- Spec docs define agent behavior — changing those docs changes system behavior; reviewed as behavioral changes
 - Psych reviewer validates user-facing changes against ADHD research
 - `config_only` infra/CI changes skip psych review automatically; prompt-bearing reviewer/config markdown follows specialist review path
 - All changes go through PR with full review pipeline

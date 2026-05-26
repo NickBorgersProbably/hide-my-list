@@ -143,9 +143,9 @@ Preferences that shape celebration imagery after completions.
 
 ## Preference Schema
 
-### state.json `user_preferences` Schema
+### `user_preferences` Schema
 
-Canonical source of truth = `state.json.user_preferences`. Notion task rows can reference outcomes influenced by preferences, but preference storage itself lives in session state.
+Canonical source of truth = Postgres `user_prefs` table (migrated from `state.json.user_preferences` by Phase C migration script). Notion task rows can reference outcomes influenced by preferences, but preference storage itself lives in Postgres.
 
 ```mermaid
 erDiagram
@@ -233,7 +233,7 @@ erDiagram
 }
 ```
 
-This subtree maps directly to `state.json.user_preferences.rewards` and is the same reward-image preference object referenced by `docs/reward-system.md`.
+This subtree maps directly to `user_prefs.rewards` in Postgres and is the same reward-image preference object referenced by `docs/reward-system.md`.
 
 ---
 

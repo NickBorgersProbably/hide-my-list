@@ -173,13 +173,20 @@ class TestImageGenFallback:
 
     @pytest.mark.asyncio
     async def test_image_gen_success_no_fallback(self) -> None:
-        """When image gen succeeds, no fallback suggestion is appended."""
+        """When image gen succeeds, no fallback suggestion is appended.
+
+        The image path is recorded in the manifest, not embedded in the
+        message body (signal_client.send_message does not support
+        attachments yet). The absence of a newline-separated fallback
+        signals image gen succeeded.
+        """
         from app.tools import rewards as rewards_module
 
         fake_path = "/tmp/reward_artifacts/test-image.png"
+        manifest_mock = AsyncMock(return_value=uuid.uuid4())
         with (
             patch.object(rewards_module, "generate_reward_image", new=AsyncMock(return_value=fake_path)),
-            patch.object(rewards_module, "write_reward_manifest", new=AsyncMock(return_value=uuid.uuid4())),
+            patch.object(rewards_module, "write_reward_manifest", new=manifest_mock),
             patch.object(rewards_module, "compute_intensity", return_value=("high", 70)),
         ):
             result = await rewards_module.maybe_reward(
@@ -191,7 +198,11 @@ class TestImageGenFallback:
                 time_estimate=60,
             )
 
-        assert f"MEDIA:{fake_path}" in result
+        assert "\n" not in result.strip()
+        manifest_mock.assert_awaited_once()
+        manifest_kwargs = manifest_mock.await_args.kwargs
+        assert manifest_kwargs["artifact_path"] == fake_path
+        assert manifest_kwargs["reward_kind"] == "emoji+image"
 
     @pytest.mark.asyncio
     async def test_lightest_never_attempts_image(self) -> None:

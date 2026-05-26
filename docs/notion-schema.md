@@ -435,7 +435,7 @@ See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)
 
 ### IsReminder (checkbox)
 
-Flags task as time-specific reminder, not normal work item. Not surfaced in normal task selection. At intake, agent registers one-shot `reminder-<page_id>` cron (`deleteAfterRun: true`) that fires at exact `Remind At` for primary delivery. `reminder-check` poll + startup check + heartbeat (Check 1) are safety-net paths only — see `docs/architecture.md` §Reminders.
+Flags task as time-specific reminder, not normal work item. Not surfaced in normal task selection. At intake, the agent creates the Notion reminder row and writes a `reminder_outbox` row for delivery by the APScheduler reminder worker at `remind_at`.
 
 | Value | Description |
 |-------|-------------|
@@ -454,9 +454,9 @@ Wall-clock time reminder becomes due. Full ISO 8601 with timezone for comparison
 Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 ```
 
-**Set when:** Task created with `is_reminder = true`. AI parses time reference (including timezone like "6pm PT") and converts to full ISO 8601. Relative phrases such as "tomorrow", "tonight", and day-of-week names must be resolved against the user's timezone from `USER.md`, not UTC message metadata; use `scripts/user-time-context.sh` when a UTC timestamp needs conversion first.
+**Set when:** Task created with `is_reminder = true`. AI parses time reference (including timezone like "6pm PT") and converts to full ISO 8601. Relative phrases such as "tomorrow", "tonight", and day-of-week names must be resolved against the user's configured timezone, not UTC message metadata; use `scripts/user-time-context.sh` when a UTC timestamp needs conversion first.
 
-**Used by:** One-shot `reminder-<page_id>` cron (primary, registered at intake) which fires at exact `remind_at`. Also `check-reminders.sh`, run by isolated `reminder-check` cron every 30 min as safety net: due reminders found → script writes repo-root handoff file (default: `.reminder-signal`) for delivery by `reminder-delivery-sweep`, the `heartbeat` cron (Check 1 in `docs/heartbeat-checks.md`), or main-session startup (AGENTS.md step 6). Delivery paths validate handoff is JSON with `reminders` array where each entry has string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Malformed handoffs stay in place, resolve `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient, send ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), and do not deliver, complete, or delete anything. Delivery failures also leave the handoff in place until retry succeeds. On successful delivery, the delivering session appends/updates `state.json.recent_outbound` with a short-lived reminder entry (`type: "reminder"`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at` about 24h later), pruning expired entries, then calls `scripts/notion-cli.sh complete-reminder PAGE_ID sent`, then deletes the handoff file.
+**Used by:** `app/scheduler/reminder_worker.py` — the Postgres outbox worker claims rows with `state='pending'` and `due_at <= now()`, delivers via signal-cli, then calls `scripts/notion-cli.sh complete-reminder PAGE_ID sent` on success. Delivery failures retry with exponential backoff (states: `pending` → `scheduled` → `delivering` → `delivered`/`failed`/`dead`). At-least-once contract: prefer duplicate delivery over loss; duplicates are detectable via `signal_timestamp`.
 
 ---
 
@@ -473,7 +473,7 @@ Tracks reminder delivery.
 
 **Legacy compatibility:** Older deployments may still have a `missed` select option or historical rows using it. Runtime behavior no longer produces that value; if a legacy handoff or record is touched during delivery, normalize it to `sent`.
 
-**Design constraint:** Isolated `reminder-check` cron does not set `Reminder Status` directly. OpenClaw exposes no post-announce delivery hook — pre-delivery mutation would drop reminder from `pending` query before confirmed delivery.
+**Design constraint:** The reminder worker does not set `Reminder Status` to `sent` until after the Signal delivery succeeds. Pre-delivery mutation would cause the row to drop from the `pending` query before confirmed delivery, which could result in silent loss.
 
 ---
 
@@ -711,7 +711,7 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant Agent as OpenClaw Agent
+    participant Agent as App
     participant Notion as Notion API
 
     Agent->>Notion: POST /v1/pages
@@ -734,7 +734,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Agent as OpenClaw Agent
+    participant Agent as App
     participant Notion as Notion API
 
     Agent->>Notion: POST /v1/databases/{id}/query
@@ -761,7 +761,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Agent as OpenClaw Agent
+    participant Agent as App
     participant Notion as Notion API
 
     Agent->>Notion: PATCH /v1/pages/{id}

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# user-time-context.sh — Print user-local calendar context for reminder parsing
+# user-time-context.sh — Ops CLI: print user-local calendar context for reminder parsing.
+# Production runtime uses app/tools/time_context.py; this script is for one-off debugging.
 #
 # Usage:
 #   scripts/user-time-context.sh
 #   scripts/user-time-context.sh 2026-04-19T01:27:00Z
 #
-# Reads the user's IANA timezone identifier from USER.md and converts the
-# provided reference timestamp (or "now") into both UTC and user-local
+# Reads the user's IANA timezone identifier from USER_TZ env var (default America/Chicago)
+# and converts the provided reference timestamp (or "now") into both UTC and user-local
 # calendar context. This gives reminder intake a concrete source of truth for
 # relative phrases like "today", "tomorrow", and "tonight".
 
@@ -17,7 +18,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 USER_FILE="$ROOT_DIR/USER.md"
 REFERENCE_INPUT="${1:-now}"
 DEFAULT_TZ="America/Chicago"
-USER_TZ="$DEFAULT_TZ"
+USER_TZ="${USER_TZ:-$DEFAULT_TZ}"
 
 if [ -f "$USER_FILE" ]; then
     EXTRACTED_USER_TZ="$(

@@ -15,7 +15,7 @@ WORKFLOW:
 8. Post a summary comment: gh pr comment ${ISSUE_NUMBER} --body 'YOUR_SUMMARY'
 
 IMPORTANT RULES FOR THIS REPOSITORY:
-- This is an OpenClaw agent project, not a compiled application
+- This is a Python + LangGraph app (`app/`, `migrations/`, `tests/`, `docker/`, `pyproject.toml`)
 - Use `shellcheck scripts/*.sh` for shell script linting
 - Use `yamllint .github/workflows/*.yml` for workflow validation
 - Check documentation links are not broken

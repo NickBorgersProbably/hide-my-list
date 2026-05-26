@@ -19,47 +19,33 @@ The core insight: **for people with ADHD, seeing a long task list isn't motivati
 
 ## Architecture
 
-This is an **OpenClaw agent** backed by a **Notion database**. There is no standalone server — the AI conversation layer *is* the application.
+This is a **Python + LangGraph application** backed by **Notion** (task storage) and **Postgres** (conversation state, reminder outbox, scheduled jobs). It runs as a Docker Compose stack.
 
-This repository is designed to be deployed directly as an OpenClaw workspace (`~/.openclaw/workspace/`). The markdown files at the root (`SOUL.md`, `AGENTS.md`, `HEARTBEAT.md`, etc.) are the bootstrap files that OpenClaw can load at session start — they define the agent's personality and operations. Production health checks run through the durable cron job in `setup/cron/heartbeat.md`.
-
-- **Agent**: OpenClaw-managed conversational AI (Claude via LiteLLM proxy)
-- **Storage**: Notion database via API
-- **Scheduling**: OpenClaw durable cron jobs (reminders, workspace sync)
-- **Messaging**: Signal (via OpenClaw channel routing)
+- **App**: Python 3.12, LangGraph, APScheduler
+- **Storage**: Postgres (checkpointer, reminder outbox, scheduler) + Notion database
+- **Messaging**: Signal via signal-cli bridge (infra-provided)
 - **Review Pipeline**: GitHub Actions with multi-agent Codex review
 
-See [docs/openclaw-integration.md](docs/openclaw-integration.md) for how the system maps to OpenClaw's architecture.
+See [docs/architecture.md](docs/architecture.md) for the full system design.
 
 ## Quick start
 
 ```bash
-# Clone as OpenClaw workspace
-git clone https://github.com/NickBorgersProbably/hide-my-list.git ~/.openclaw/workspace
+git clone https://github.com/NickBorgersProbably/hide-my-list.git
+cd hide-my-list
 
 # Install the repo-managed git hooks for this worktree
-cd ~/.openclaw/workspace && bash .githooks/install-hooks.sh
+bash .githooks/install-hooks.sh
 
 # Create .env from .env.template and fill in the values you need
-cp ~/.openclaw/workspace/.env.template ~/.openclaw/workspace/.env
+cp .env.template .env
 
-# Run the bootstrap script
-cd ~/.openclaw/workspace && bash setup/bootstrap.sh
+# Start the stack
+docker compose up -d
+docker compose logs -f app
 ```
 
-When you create `~/.openclaw/openclaw.json`, set
-`agents.defaults.envelopeTimezone` to the same IANA timezone identifier used in
-`USER.md` (for example, `America/Chicago`). This keeps OpenClaw's injected
-`Current time:` line in the user's local time. If it is unset, reminder
-correctness still comes from `USER.md` plus `scripts/user-time-context.sh` when
-the visible session timestamp is UTC, but prompt context is less direct.
-
-`setup/bootstrap.sh` also provisions OpenClaw's media staging directories under
-`~/.openclaw/media/outbound` and repairs the full `~/.openclaw` staging path
-with traversal-only parent permissions so Signal can read staged attachments
-such as reward images without exposing config contents.
-
-See [setup/README.md](setup/README.md) for full setup instructions.
+See [docs/python-rewrite/rollback.md](docs/python-rewrite/rollback.md) for the full cutover and rollback procedure.
 
 ## Git hooks
 
@@ -70,10 +56,9 @@ bash .githooks/install-hooks.sh
 ```
 
 `core.hooksPath` is stored per worktree, so re-run that after each `git worktree add`.
-`pre-commit` handles the fast staged-file checks, and `pre-push` reruns the
-deterministic CI-equivalent checks for changed scripts, docs, workflow-related
-paths, and OpenClaw config/bootstrap paths, so those failures are caught
-locally before GitHub is the first place they fail.
+`pre-commit` handles fast staged-file checks, and `pre-push` reruns the
+deterministic CI-equivalent checks for changed scripts, docs, and workflow-related
+paths so those failures are caught locally before GitHub is the first place they fail.
 
 ## Research-informed design
 
@@ -88,7 +73,6 @@ The CI pipeline includes a **psychological research evidence reviewer** that val
 
 ## Documentation
 
-- [OpenClaw Integration](docs/openclaw-integration.md)
 - [Architecture](docs/architecture.md)
 - [AI Prompts](docs/ai-prompts/shared.md) (entry point; per-intent prompts live in `docs/ai-prompts/`)
 - [Task Lifecycle](docs/task-lifecycle.md)
@@ -98,7 +82,7 @@ The CI pipeline includes a **psychological research evidence reviewer** that val
 - [Reward System](docs/reward-system.md)
 - [ADHD Design Priorities](design/adhd-priorities.md)
 - [Security Architecture](SECURITY.md)
-- [Setup & Operations](setup/README.md)
+- [Rollback Runbook](docs/python-rewrite/rollback.md)
 
 ## License
 

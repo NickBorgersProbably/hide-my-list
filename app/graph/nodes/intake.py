@@ -29,7 +29,7 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "false").lower() in (
+_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
     "true", "1", "yes"
 )
 
@@ -222,8 +222,17 @@ async def _create_reminder(
                 )
         except Exception:
             log.exception("intake_node.enqueue_failed", page_id=page_id)
-            # Don't raise — the Notion row is the source of truth.
-            # The reminder worker will pick it up on the next poll.
+            # Notion row exists but outbox write failed — reminder won't be delivered
+            # automatically. Emit ops alert so the operator can investigate.
+            try:
+                from app.tools import ops_alerts
+                await ops_alerts.enqueue(
+                    kind="reminder_enqueue_failed",
+                    body=f"Reminder outbox enqueue failed for page {page_id!r}. Reminder exists in Notion but will not be delivered until the outbox row is created.",
+                    severity="warning",
+                )
+            except Exception:
+                log.exception("intake_node.ops_alert_failed", page_id=page_id)
 
     return notion_page or {}
 

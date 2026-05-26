@@ -29,15 +29,11 @@ description: >
   See agentic-pipeline-learnings.md §1.9 and §1.12: spec-critical
   and reviewer-prompt .md files must NOT be classified as inert docs
   or config just because they end in .md. The classifier carves out
-  AGENTS.md, SOUL.md, TOOLS.md, HEARTBEAT.md, IDENTITY.md,
-  setup/cron/*, design/adhd-priorities.md,
+  AGENTS.md, design/adhd-priorities.md,
   docs/ai-prompts/{shared,intake,selection,rejection,cannot-finish,check-in,breakdown}.md,
-  docs/heartbeat-checks.md, docs/task-lifecycle.md,
-  docs/notion-schema.md, docs/architecture.md,
-  docs/agent-capabilities.md, docs/user-interactions.md,
-  docs/user-preferences.md, docs/reward-system.md,
-  docs/openclaw-integration.md, and
-  .github/scripts/review/prompts/*.md.
+  docs/task-lifecycle.md, docs/notion-schema.md, docs/architecture.md,
+  docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md,
+  and .github/scripts/review/prompts/*.md.
 
   Python source file classes (added in Phase C):
     - python_runtime:        app/**/*.py, migrations/*.sql, tests/**/*.py
@@ -108,10 +104,9 @@ runs:
         # Files that, despite being .md, are runtime spec (rule §1.9).
         is_spec_md() {
           case "$1" in
-            AGENTS.md|SOUL.md|TOOLS.md|HEARTBEAT.md|IDENTITY.md) return 0 ;;
-            setup/cron/*) return 0 ;;
+            AGENTS.md) return 0 ;;
             design/adhd-priorities.md) return 0 ;;
-            docs/ai-prompts/intake.md|docs/ai-prompts/selection.md|docs/ai-prompts/rejection.md|docs/ai-prompts/cannot-finish.md|docs/ai-prompts/check-in.md|docs/ai-prompts/breakdown.md|docs/ai-prompts/shared.md|docs/heartbeat-checks.md|docs/task-lifecycle.md|docs/notion-schema.md|docs/architecture.md|docs/agent-capabilities.md|docs/user-interactions.md|docs/user-preferences.md|docs/reward-system.md|docs/openclaw-integration.md) return 0 ;;
+            docs/ai-prompts/intake.md|docs/ai-prompts/selection.md|docs/ai-prompts/rejection.md|docs/ai-prompts/cannot-finish.md|docs/ai-prompts/check-in.md|docs/ai-prompts/breakdown.md|docs/ai-prompts/shared.md|docs/task-lifecycle.md|docs/notion-schema.md|docs/architecture.md|docs/user-interactions.md|docs/user-preferences.md|docs/reward-system.md) return 0 ;;
             *) return 1 ;;
           esac
         }

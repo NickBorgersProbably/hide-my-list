@@ -11,7 +11,7 @@ WORKFLOW:
 6. Create a branch, commit your changes, and open a PR
 
 IMPORTANT RULES FOR THIS REPOSITORY:
-- This is an OpenClaw agent project, not a compiled application
+- This is a Python + LangGraph app (`app/`, `migrations/`, `tests/`, `docker/`, `pyproject.toml`)
 - Use `shellcheck scripts/*.sh` for shell script linting
 - Use `yamllint .github/workflows/*.yml` for workflow validation
 - Check documentation links are not broken

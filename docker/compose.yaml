@@ -28,7 +28,7 @@ services:
       # SIGNAL_ACCOUNT: E.164 phone number registered with signal-cli (required when
       # ENABLE_LANGGRAPH_PATH=true; set in the operator's .env file).
       - SIGNAL_ACCOUNT=${SIGNAL_ACCOUNT:-}
-      - ENABLE_LANGGRAPH_PATH=${ENABLE_LANGGRAPH_PATH:-false}
+      - ENABLE_LANGGRAPH_PATH=${ENABLE_LANGGRAPH_PATH:-true}
       # LangSmith guard: requires explicit opt-in with ALLOW_PRIVATE_TRACE_EXPORT=true
       - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
       - ALLOW_PRIVATE_TRACE_EXPORT=${ALLOW_PRIVATE_TRACE_EXPORT:-false}

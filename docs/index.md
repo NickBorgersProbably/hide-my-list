@@ -9,14 +9,10 @@ An AI-powered task manager where users never directly view their task list. The 
 
 ## Documentation
 
-- [Agent Capabilities](agent-capabilities.md) - Session roles, tool boundaries, and operational ownership across main agent, heartbeat, janitor, and isolated cron
-- [Heartbeat Checks](heartbeat-checks.md) - Authoritative daily heartbeat, delivery sweep, and weekly janitor check list (stranded reminders, cron health/drift, Notion connectivity, dirty-pull recovery)
-- [Architecture](architecture.md) - System architecture, components, and data flow
+- [Architecture](architecture.md) - System architecture: Python + LangGraph container topology, reminder outbox, scheduled jobs
 - [Agentic Pipeline Learnings](agentic-pipeline-learnings.md) - Prescriptive lessons from the agentic review and CI pipeline
-- [OpenClaw Integration](openclaw-integration.md) - How the repo maps onto the OpenClaw runtime
 - Setup/config specs:
-  - [Model Tiers](../setup/model-tiers.json) - Repo metadata mapping expensive, medium, and cheap model tiers used by validation and cron specs
-  - [OpenClaw Config Template](../setup/openclaw.json.template) - Runtime config template rendered into `openclaw.json`
+  - [Model Tiers](../setup/model-tiers.json) - Repo metadata mapping expensive, medium, and cheap model tiers used by validation and app startup
 - AI Prompts (per-intent):
   - [Shared](ai-prompts/shared.md) - Base prompt, intent dispatch, user preferences context, output handling (entry point)
   - [Intake](ai-prompts/intake.md) - Task intake: inference rules, sub-task generation, reminder detection
@@ -35,7 +31,7 @@ An AI-powered task manager where users never directly view their task list. The 
 
 - [LangGraph Semantics](python-rewrite/langgraph-semantics.md) - Durability spike findings: per-peer isolation, restart semantics, worker-to-graph state pattern, schema migration behavior
 - [Reward Deferred Features](python-rewrite/reward-deferred.md) - Features deferred from v1 reward subsystem (audio rewards, outing suggestions, video compilation)
-- [Rollback Runbook](python-rewrite/rollback.md) - Pre-cutover snapshot, restore drill, and revert procedure
+- [Rollback Runbook](python-rewrite/rollback.md) - Pre-cutover snapshot, forward cutover procedure, and revert procedure
 
 ## Design
 

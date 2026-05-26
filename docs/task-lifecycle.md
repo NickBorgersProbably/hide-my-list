@@ -469,14 +469,14 @@ When user accepts task, system provides brief **initiation reward** acknowledgin
 
 ## Phase 5: Check-In Follow-Up
 
-After acceptance, agent records timing metadata and (optionally) relies on OpenClaw cron to prompt follow-ups. No browser timer exists.
+After acceptance, agent records timing metadata in the LangGraph checkpoint state and APScheduler triggers check-in follow-ups via the `check_in_dispatcher` job.
 
 ```mermaid
 flowchart TD
     Accept([User accepts task]) --> InitReward["Initiation reward:<br/>#quot;You're in. That's the hardest part.#quot;"]
     InitReward --> SetStarted[Set Notion `Started At`]
     SetStarted --> InitSteps[Initialize `steps_completed = 0`]
-    InitSteps --> RecordState[Write to state.json:<br/>active_task + check_in_due_at]
+    InitSteps --> RecordState[Write to checkpoint state:<br/>active_task + check_in_due_at]
     RecordState --> Wait[Await cron trigger / user updates]
 
     Wait --> TimerFires{check_in_due_at reached?}
@@ -490,14 +490,14 @@ flowchart TD
     FirstReward --> Wait
     Brief --> Wait
 
-    UserDone --> ClearState[Clear active_task from state.json]
+    UserDone --> ClearState[Clear active_task from checkpoint state]
     ClearState --> Complete([Mark completed])
 
     TimerFires --> CheckConfigured{Check-in cron configured?}
     CheckConfigured -->|No| Skip[Log CHECK_IN_SKIPPED, keep waiting]
     CheckConfigured -->|Yes| ConfirmStatus{Task still `in_progress`?}
 
-    ConfirmStatus -->|No| Cleanup[Clear state.json, exit]
+    ConfirmStatus -->|No| Cleanup[Clear checkpoint state, exit]
     ConfirmStatus -->|Yes| AskUser["How's [task] going?"]
 
     AskUser --> Response{User response}
@@ -528,7 +528,7 @@ flowchart TD
 
 ### Check-In Timing Examples
 
-| Time Estimate | First Check-In (state.json) | Second Check-In | Third Check-In |
+| Time Estimate | First Check-In | Second Check-In | Third Check-In |
 |---------------|-----------------------------|-----------------|----------------|
 | 15 min | Started At + 18.75 min | +7.5 min | +3.75 min |
 | 30 min | Started At + 37.5 min | +15 min | +7.5 min |
@@ -554,7 +554,7 @@ System limits check-ins to 3 per task session to avoid nagging:
 2. **2nd check-in**: Brief follow-up
 3. **3rd check-in**: Suggest break, stop checking in
 
-If user returns and re-accepts same task, check-in count resets when `state.json.active_task` recreated.
+If user returns and re-accepts same task, check-in count resets when `active_task` is recreated in checkpoint state.
 
 ## Phase 6: Rejection Handling
 
@@ -912,27 +912,23 @@ flowchart TD
 
 ## Phase 7: Scheduled Reminder Delivery
 
-Reminder tasks follow separate lifecycle from normal tasks. Not surfaced through task selection. Primary delivery is a per-reminder one-shot OpenClaw cron registered at intake; the recurring `reminder-check` cron + handoff file is a safety net for missed fires.
+Reminder tasks follow a separate lifecycle from normal tasks. Not surfaced through task selection. At intake, the app creates the Notion reminder row and writes a `reminder_outbox` row in Postgres. The APScheduler `reminder_dispatcher` job claims due rows every 30 seconds using `SELECT FOR UPDATE SKIP LOCKED` and delivers via signal-cli.
 
 ```mermaid
 flowchart TD
     Intake([User: Remind me at 6pm PT to email Melanie]) --> Detect[AI detects reminder intent]
     Detect --> Parse[Parse time + timezone]
     Parse --> Save[Save to Notion with is_reminder=true]
-    Save --> RegisterCron[Same intake turn:<br/>CronCreate reminder-page_id<br/>kind=at, deleteAfterRun=true]
-    RegisterCron --> Wait[Task waits until remind_at]
+    Save --> WriteOutbox[Write reminder_outbox row:<br/>state=pending, due_at=remind_at]
+    WriteOutbox --> Wait[Task waits until remind_at]
 
-    Wait --> OneShot{One-shot fires<br/>at remind_at?}
-    OneShot -->|Yes| OneShotRun[One-shot agent turn:<br/>get-page → message → state → complete-reminder]
-    OneShot -->|No fire<br/>CronCreate failed,<br/>gateway down,<br/>etc.| SafetyNet[reminder-check 30-min poll<br/>finds row still Pending]
-    SafetyNet --> Handoff[check-reminders.sh writes<br/>.reminder-signal handoff]
-    Handoff --> SafetyDeliver{Delivery path}
-    SafetyDeliver -->|User interacts:<br/>AGENTS.md step 6| Send
-    SafetyDeliver -->|Delivery sweep / Heartbeat: Check 1| Send
+    Wait --> Worker{reminder_dispatcher<br/>claims row at remind_at?}
+    Worker -->|Claimed| Deliver[Worker: signal-cli send →<br/>write recent_outbound →<br/>complete-reminder]
+    Worker -->|Delivery fails| Retry[Exponential backoff retry:<br/>1m, 5m, 30m, 2h, 8h]
+    Retry --> Dead[Dead after 5 attempts]
+    Dead --> Alert[ops alert via ops_alerts table]
 
-    OneShotRun --> Send[Deliver reminder]
-
-    Send --> Context[Write recent_outbound context]
+    Deliver --> Context[Insert recent_outbound row]
     Context --> Complete[Mark Completed +<br/>reminder_status=sent]
 
     Complete --> Done([Done])
@@ -942,26 +938,24 @@ flowchart TD
 
 | Property | Normal Task | Reminder Task |
 |----------|-------------|---------------|
-| Selection | User requests → AI suggests | Per-reminder one-shot cron (`reminder-<page_id>`, `kind: at`) fires at exact `remind_at`; recurring `reminder-check` poll + heartbeat / main-session startup check is the safety net for unfired one-shots |
+| Selection | User requests → AI suggests | APScheduler `reminder_dispatcher` claims `reminder_outbox` rows where `due_at <= now()`; no user interaction required |
 | Lifecycle | Pending → In Progress → Completed | Pending → Completed (`Reminder Status` becomes `sent`) |
 | Check-ins | Timer-based follow-ups | None (single delivery) |
 | Rejection | User can reject suggestion | N/A (delivered once) |
 
-Primary path: at intake, the agent calls `notion-cli.sh create-reminder` then `CronCreate` for a one-shot job named `reminder-<page_id>` with `schedule.kind: "at"`, `at: remind_at`, `deleteAfterRun: true`, `sessionTarget: main`. Registering the cron in the same turn also suppresses OpenClaw's `agent-runner-reminder-guard` post-process note. See `setup/cron/reminder-delivery.md` for the full contract. When the one-shot fires, its agent turn delivers via the `message` tool, atomically updates `state.json.recent_outbound`, calls `complete-reminder`, and the job self-deletes.
+Delivery contract: at-least-once with idempotency. The `reminder_worker` holds a `SELECT FOR UPDATE SKIP LOCKED` lock during delivery; if the worker crashes between signal-cli accept and Postgres commit, the row re-enters delivery on next claim cycle. Duplicates are detectable via `signal_timestamp`. Valid reminders always use the same shame-safe copy: `Hey, time to [task]`.
 
-Safety net: isolated `reminder-check` cron writes handoff file and exits. Delivery through `reminder-delivery-sweep` (every 2 hours), the `heartbeat` cron (Check 1 in `docs/heartbeat-checks.md`, daily), or main-session startup check (AGENTS.md step 6, on every user interaction). Delivery paths first validate handoff is JSON with `reminders` array where each entry is object with string `page_id`, non-empty string `title`, and string `status`. New handoff writers emit only `sent`; legacy `missed` entries should still be delivered and normalized to `sent`. Any other shape or status = malformed handoff — file stays, delivering session resolves `OPS_ALERT_SIGNAL_NUMBER` from `.env` to concrete Signal recipient and sends ops alert via OpenClaw `message` tool (`action: send`, `channel: signal`, `target: "<resolved OPS_ALERT_SIGNAL_NUMBER>"`), nothing else delivered or completed. Valid reminders always use the same shame-safe copy: `Hey, time to [task]`. If delivery fails, handoff file left in place for retry.
-
-After successful reminder delivery, the delivering session must also append/update `state.json.recent_outbound` with a short-lived entry describing what it just sent (`type: reminder`, `page_id`, `title`, `status: "sent"`, `sent_at`, `awaiting_response: true`, `expires_at`). That entry bridges the gap between sessions: if the user replies "I did it" or "tomorrow at 9" in a fresh session, the agent can resolve the reply against the reminder it just sent instead of asking what they mean. Clear the matched entry once the reply is resolved.
+After successful reminder delivery, the worker inserts a `recent_outbound` row in Postgres (`notion_page_id`, `peer`, `signal_timestamp`, `awaiting_reply=true`, `expires_at`). That row bridges the gap between sessions: if the user replies "I did it" or "tomorrow at 9" in a fresh session, the agent can resolve the reply against the reminder it just sent instead of asking what they mean. The `recent_outbound` row is cleared or marked resolved once the reply is processed.
 
 ### Timezone Handling
 
 AI converts user-specified times to full ISO 8601 timestamps at intake:
-- Default timezone for both relative dates and unspecified clock times: the user's configured timezone in `USER.md` (fall back to US Central / America/Chicago only when `USER.md` is missing or has no timezone)
+- Default timezone for both relative dates and unspecified clock times: `USER_TZ` env var (default `America/Chicago`)
 - "6pm PT" → `2025-01-04T18:00:00-08:00`
-- "3pm" (no TZ) → `2025-01-04T15:00:00-06:00` (offset from USER.md; example shows Central)
+- "3pm" (no TZ) → `2025-01-04T15:00:00-06:00` (example shows Central)
 - "tomorrow 9am ET" → `2025-01-05T09:00:00-05:00`
 
-Relative references use the user's local calendar, not UTC session metadata. If message metadata says `2026-04-19T01:27:00Z` but `USER.md` timezone is `America/Chicago`, the user-local reference time is `2026-04-18T20:27:00-05:00`, so "tomorrow" resolves to `2026-04-19`, not `2026-04-20`. Use `scripts/user-time-context.sh` when the current timestamp needs conversion before reminder creation.
+Relative references use the user's local calendar, not UTC session metadata. The user's configured timezone comes from the `USER_TZ` environment variable (default `America/Chicago`). Use `scripts/user-time-context.sh` when the current timestamp needs conversion before reminder creation.
 
 ## Complete Task Journey Example
 

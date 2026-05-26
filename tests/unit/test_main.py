@@ -28,21 +28,6 @@ def test_skeleton_mode_prints_skeleton() -> None:
     assert "skeleton" in result.stdout
 
 
-def test_default_is_skeleton_mode() -> None:
-    """Without ENABLE_LANGGRAPH_PATH set, default is false (skeleton mode)."""
-    import os
-    env = {k: v for k, v in os.environ.items() if k != "ENABLE_LANGGRAPH_PATH"}
-    result = subprocess.run(
-        [sys.executable, "-m", "app.main"],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(__import__("pathlib").Path(__file__).parent.parent.parent),
-    )
-    assert result.returncode == 0
-    assert "skeleton" in result.stdout
-
-
 def test_langsmith_guard_blocks_boot() -> None:
     """LANGSMITH_TRACING=true without ALLOW_PRIVATE_TRACE_EXPORT=true must exit 1."""
     result = _run_main({

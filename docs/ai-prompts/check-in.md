@@ -4,22 +4,22 @@ Assumes you've already read `docs/ai-prompts/shared.md` for the base prompt, sha
 
 ## Module 6: Check-In Handling
 
-Check-in module designed for OpenClaw's durable cron job `task-check-in`, which wakes agent to confirm progress on active task. No frontend timer. Timing tracked in `state.json` and Notion. If cron not configured, skip module.
+Check-in module invoked by APScheduler's `check_in_dispatcher` job, which polls every 10 minutes and triggers the graph with CHECK_IN intent when a check-in is due. Timing tracked in LangGraph checkpoint state and Notion.
 
 ```mermaid
 sequenceDiagram
-    participant Cron as OpenClaw Cron<br/>(task-check-in)
+    participant Sched as APScheduler<br/>(check_in_dispatcher)
     participant Agent as AI Assistant
-    participant State as state.json
+    participant State as Checkpoint State
     participant Notion as Notion API
 
-    Cron->>Agent: Trigger task-check-in session (when configured)
+    Sched->>Agent: Trigger CHECK_IN graph invocation (when due)
     Agent->>State: Load active_task, check_in_due_at, check_in_count
     Agent->>Notion: Fetch active task (status, time estimate) if due
     Agent->>Agent: Determine if check-in should fire
     alt No active task or not due
         Agent->>State: Clear stale check-in fields if needed
-        Agent-->>Cron: Reply CHECK_IN_SKIPPED
+        Agent-->>Sched: Log CHECK_IN_SKIPPED
     else Due for check-in
         Agent->>Agent: Generate check-in message (this module)
         Agent->>User: Send check-in
@@ -31,18 +31,18 @@ sequenceDiagram
 
 When user accepts task:
 - Update Notion `Started At` to current timestamp.
-- Write to `state.json.active_task`:
+- Write `active_task` to checkpoint state:
   - `id`, `title`, `time_estimate`, `energy`
   - `started_at` (ISO 8601, UTC)
   - `check_in_due_at` = `started_at + time_estimate × 1.25`
   - `check_in_count` = 0
 - Set `conversation_state = "active"`.
 
-**When configured:** run `task-check-in` cron every 5 minutes. Each invocation:
-1. Load `state.json.active_task`. If empty, exit.
+**`check_in_dispatcher` poll (every 10 min):**
+1. Load `active_task` from checkpoint state. If empty, exit.
 2. If task status in Notion no longer `In Progress`, clear active task and exit.
 3. If `now < check_in_due_at`, exit (no ping yet).
-4. Otherwise, set `conversation_state = "checking_in"` and call this module.
+4. Otherwise, set `conversation_state = "checking_in"` and invoke this module.
 
 ### Check-In Prompt
 
@@ -117,7 +117,7 @@ Store all timings in UTC:
 
 | Event | How to calculate | Where stored |
 |-------|------------------|--------------|
-| First check-in | `started_at + (time_estimate_minutes × 1.25)` | `state.json.active_task.check_in_due_at` |
+| First check-in | `started_at + (time_estimate_minutes × 1.25)` | checkpoint state `active_task.check_in_due_at` |
 | Second check-in | `now + (time_estimate_minutes × 0.5)` | overwrite `check_in_due_at` |
 | Third check-in | `now + (time_estimate_minutes × 0.25)` | overwrite `check_in_due_at` |
 
@@ -128,7 +128,7 @@ Examples (45 min estimate):
 
 ### Repeated Check-Ins
 
-Use `state.json.active_task.check_in_count` to control intensity:
+Use `active_task.check_in_count` from checkpoint state to control intensity:
 
 ```mermaid
 flowchart TD
@@ -160,7 +160,7 @@ If `check_in_count` reaches 3 without completion, clear `check_in_due_at` and de
 
 | Scenario | Required updates |
 |----------|------------------|
-| Task completed | Update Notion status → `completed`; clear `active_task` from `state.json`; reset `conversation_state = "idle"` |
+| Task completed | Update Notion status → `completed`; clear `active_task` from checkpoint state; reset `conversation_state = "idle"` |
 | Still working | Increment `check_in_count`; set new `check_in_due_at`; keep `conversation_state = "active"` |
 | Needs more time | Same as still working but use user-specified duration |
 | Distracted but recommits | Increment `check_in_count`; set new due at 0.5× |
@@ -169,7 +169,7 @@ If `check_in_count` reaches 3 without completion, clear `check_in_due_at` and de
 
 ### Exiting Without Action
 
-If cron fires and no check-in due (no active task, already completed, or window not reached), respond `CHECK_IN_SKIPPED` in session log and ensure `conversation_state` returns to `idle`. Prevents false positives, keeps cron idempotent.
+If the scheduler fires and no check-in due (no active task, already completed, or window not reached), respond `CHECK_IN_SKIPPED` in session log and ensure `conversation_state` returns to `idle`. Prevents false positives, keeps cron idempotent.
 
 
 ---
