@@ -34,7 +34,7 @@ Focus on:
    - Always state `Alignment check: PASS|FAIL` in `summary`.
 3. **Scope check.** Compare PR title to diff. Narrow title + new abstractions or excess code = **blocking scope creep**. Always state scope check result in `summary`.
 4. **Over-engineering.** Simpler approach exist? Flag as blocking.
-5. **Docs-as-spec consistency.** Diff touches spec-critical files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `docs/heartbeat-checks.md`, `docs/ai-prompts/` per-intent files plus `shared.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `setup/cron/*`) → cross-check behavior claims against canonical sources and runtime scripts/config. Contradictions = blocking.
+5. **Docs-as-spec consistency.** Diff touches spec-critical files (`AGENTS.md`, `docs/ai-prompts/` per-intent files plus `shared.md`, `docs/task-lifecycle.md`, `docs/notion-schema.md`, `docs/architecture.md`, `docs/user-interactions.md`, `docs/user-preferences.md`, `docs/reward-system.md`, `design/adhd-priorities.md`) → cross-check behavior claims against canonical sources and Python runtime code. Contradictions = blocking.
 6. **Python module design.** Diff touches `app/**/*.py` → evaluate:
    - **Separation of concerns.** Tool modules (`app/tools/`) should not contain graph logic; graph nodes (`app/graph/nodes/`) should not contain Postgres queries. Cross-layer leakage = blocking.
    - **Async correctness.** All DB and HTTP calls must be `async`/`await`. Sync DB calls in async context = blocking.
@@ -44,8 +44,7 @@ Focus on:
 **Required context — read before reviewing:**
 
 - Read `docs/architecture.md` for full system design.
-- **Dual runtime:** The repo contains both the dormant OpenClaw agent (spec files: `AGENTS.md`, `SOUL.md`, etc.) and the new Python/LangGraph stack (`app/`, gated by `ENABLE_LANGGRAPH_PATH`). Phase C PRs add Python operational code; OpenClaw files are not modified until Phase D.
-- **Heartbeat/janitor = self-healing pattern** (`setup/cron/heartbeat.md` and `setup/cron/janitor.md` delegate to `docs/heartbeat-checks.md`). Python equivalents: `notion_health` APScheduler job, `ops_alerts_drain` job, `state_audit` job.
+- **Python/LangGraph runtime:** The app runs as `app/` + Docker Compose. APScheduler jobs: `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `reminder_dispatcher`, `weekly_recap`.
 - Fixes: name specific mechanism (e.g., "add `ops_alerts.enqueue()` call in the except block"), not abstract requirements.
 
 ## Hard constraints

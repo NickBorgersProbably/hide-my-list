@@ -13,12 +13,10 @@ YOUR TASK:
 
 ## Project structure
 
-This repo contains TWO runtimes living side-by-side until the Phase D cutover:
-- **OpenClaw runtime** (spec files: `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`,
-  `docs/ai-prompts/`, `setup/cron/`, `docs/heartbeat-checks.md`, etc.). These files ARE the
-  application — editing one changes live app behavior. Do NOT edit them during Phases A–C.
-- **Python/LangGraph stack** (`app/`, `migrations/`, `tests/`, `docker/`, `pyproject.toml`).
-  Gated by `ENABLE_LANGGRAPH_PATH` (default false). Safe to edit.
+This repo runs as a **Python + LangGraph app** (`app/`, `migrations/`, `tests/`, `docker/`, `pyproject.toml`).
+Behavioral contracts live in spec docs (`docs/ai-prompts/`, `docs/architecture.md`, `docs/task-lifecycle.md`,
+`docs/notion-schema.md`, `docs/user-interactions.md`, `docs/user-preferences.md`, `docs/reward-system.md`,
+`design/adhd-priorities.md`). Editing a spec doc changes system behavior.
 
 Read `DEV-AGENTS.md` for the full file list and safety rules before touching any file.
 
@@ -42,12 +40,10 @@ Read `DEV-AGENTS.md` for the full file list and safety rules before touching any
 
 ## IMPORTANT RULES
 
-- Do NOT touch OpenClaw runtime files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`,
-  `docs/ai-prompts/`, `setup/cron/`, `docs/heartbeat-checks.md`, `docs/openclaw-integration.md`,
-  `docs/agent-capabilities.md`, `docs/architecture.md`, `docs/task-lifecycle.md`,
+- Treat spec doc changes (`docs/ai-prompts/`, `docs/architecture.md`, `docs/task-lifecycle.md`,
   `docs/notion-schema.md`, `docs/user-interactions.md`, `docs/user-preferences.md`,
-  `docs/reward-system.md`, `design/adhd-priorities.md`) unless the issue explicitly targets
-  OpenClaw behavior. These are Phase D deletion targets.
+  `docs/reward-system.md`, `design/adhd-priorities.md`) as behavioral changes — touch only if
+  the issue explicitly targets that behavior.
 - No general HTTP fetch tools in `app/` — `httpx.AsyncClient` only in the three authorized
   modules (`app/tools/notion.py`, `app/tools/signal_client.py`, `app/ingress/signal_listener.py`).
 - No subprocess, os.system, eval, exec in `app/`.

@@ -243,25 +243,21 @@ flowchart TD
     Generate --> Delivery
 ```
 
-#### Image Generation Script
+#### Image Generation
 
-`scripts/generate-reward-image.sh` handles all image generation:
+`app/tools/rewards.py` handles all image generation. The equivalent call:
 
-```bash
-# Generate a reward image
-./scripts/generate-reward-image.sh <intensity> <streak_count> <task_description>...
-
-# Examples:
-./scripts/generate-reward-image.sh low 1 "Call dentist"
-./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
-./scripts/generate-reward-image.sh epic 5 "Draft report" "Send update" "Pay bill" "Book appointment" "Fold laundry"
-
-# Optional context from the caller:
-REWARD_WORK_TYPE=focus REWARD_ENERGY_LEVEL=low \
-  ./scripts/generate-reward-image.sh medium 2 "Review proposal" "Clean desk"
+```python
+await rewards.generate_reward_image(
+    intensity="medium",
+    streak_count=2,
+    task_descriptions=["Review proposal", "Clean desk"],
+    work_type="focus",  # optional
+    energy_level="low",  # optional
+)
 ```
 
-The script validates its reward inputs before generation:
+The function validates its reward inputs before generation:
 
 - `streak_count` must be the positive, post-completion current streak length.
 - When `streak_count` is `N`, the caller must provide exactly `N` task descriptions.
@@ -440,15 +436,9 @@ Every generated reward image auto-archived to `rewards/` with metadata:
 
 #### Weekly Recap Video
 
-`scripts/generate-weekly-recap.sh` compiles all reward images from past week into card-flip transition video:
+The `weekly_recap` APScheduler job (Sundays at 18:00 USER_TZ) compiles all reward images from the past week into a card-flip transition video. See `app/scheduler/jobs.py` for the job definition.
 
-```bash
-# Generate recap of past 7 days (default)
-./scripts/generate-weekly-recap.sh
-
-# Custom range
-./scripts/generate-weekly-recap.sh 14  # past 2 weeks
-```
+Audio and video recap features are deferred to v1.1 — see `docs/python-rewrite/reward-deferred.md`.
 
 Features:
 - **Card-flip transitions** between images (fadegrays, circlecrop, radial, etc.)

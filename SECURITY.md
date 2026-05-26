@@ -30,7 +30,7 @@ GitHub chosen to facilitate this. Means OpenClaw needs access to open PRs and pu
 
 ### Cron-driven reminder flow — [BC] configuration
 
-Reminder flow ([`scripts/check-reminders.sh`](scripts/check-reminders.sh) plus OpenClaw `reminder-check` durable cron job) keeps shell narrow, lets `scripts/notion-cli.sh` load just Notion credentials **[B]**, writes reminder handoff file in repo root (default: `.reminder-signal`) **[C]**. Processes no untrusted input **[A]** — reads only structured Notion data created by agent itself. Safe **[BC]** configuration.
+Reminder flow (`app/scheduler/reminder_worker.py` + Postgres `reminder_outbox`) keeps the code surface narrow, loads only Notion credentials **[B]** for `complete-reminder` calls and Signal credentials **[C]** for delivery. Processes no untrusted input **[A]** — reads only structured Notion data and Postgres rows created by the agent itself. Safe **[BC]** configuration.
 
 
 ### CI/CD review agents — [AC] configuration
