@@ -54,7 +54,7 @@ Same `.git/`-touch prohibition applies: edit files only, do not run `git add`/`m
    ```bash
    find "${REVIEWER_ARTIFACTS_DIR}" -name '*-result.json'
    ```
-2. No reviewer result files, or artifact unparseable → no edits. Write no-op fix result to `$OUTPUT_PATH` and stop.
+2. No reviewer result files, or artifact unparseable → no edits. Write a no-op result to `$OUTPUT_PATH` and stop.
 3. **Scan + group.** Read ALL blockers from ALL reviewer artifacts first. Group blockers that share one conceptual fix — same root cause, same type of change needed across files (e.g., multiple reviewers flagging "docs say X but code says Y" in different files). Ungrouped blockers stay individual.
 4. **Safety gate.** Per group or individual blocker:
 
@@ -78,7 +78,7 @@ Same `.git/`-touch prohibition applies: edit files only, do not run `git add`/`m
 
 ## Output contract
 
-Write fix-result JSON to `$OUTPUT_PATH`, conforming to `.github/scripts/review/schema/fix-result-v1.json`:
+Write the result as JSON to `$OUTPUT_PATH`, conforming to `.github/scripts/review/schema/fix-result-v1.json`:
 
 ```json
 {
