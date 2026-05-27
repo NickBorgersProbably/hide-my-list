@@ -198,13 +198,23 @@ meaning every reward image was silently discarded.
 ## LLM Swap: How It Works
 
 The eval runner rewrites `setup/model-tiers.json` for the test session and
-points `MODEL_TIERS_PATH` env at the modified copy. `app.models.llm(tier)` is
-unchanged — it reads the env-pointed JSON. `ChatAnthropic` talks to LiteLLM
-at `ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. Swapping
-`cheap: claude-haiku-4-5` to `cheap: gemma4-small` is a one-line change in
-`setup/model-tiers.json`.
+points `MODEL_TIERS_PATH` env at the modified copy. `app.models.llm(tier)`
+reads the env-pointed JSON. `ChatAnthropic` talks to LiteLLM at
+`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias.
 
-No Python adapter branching. All LLM routing stays through `app/models.py:llm(tier)`.
+**Prerequisite for non-Claude swap:** `app/models.py` currently validates
+that every tier value starts with `claude-` (a Phase B leftover that was
+appropriate when only Claude models were in play). Before a `gemma4-small`
+swap can be tested, that validation must be relaxed — either drop the
+prefix check or extend it to accept LiteLLM-routed aliases. The eval runner
+will surface this gap on first run by failing to instantiate the model.
+Tracked separately from this rig PR; the rig itself does not modify
+`app/models.py`.
+
+Once that prerequisite is met: swapping `cheap: claude-haiku-4-5` to
+`cheap: gemma4-small` is a one-line change in `setup/model-tiers.json`.
+No Python adapter branching. All LLM routing stays through
+`app/models.py:llm(tier)`.
 
 Three cost gates for eval runs:
 - `ENABLE_LIVE_LLM_EVALS=true` — required for any real LLM call; absent = `pytest.skip`

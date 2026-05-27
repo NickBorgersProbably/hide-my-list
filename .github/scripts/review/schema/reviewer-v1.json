@@ -21,7 +21,7 @@
     "schema_version": { "const": "1" },
     "role": {
       "type": "string",
-      "enum": ["design", "security", "psych", "docs", "prompt"]
+      "enum": ["design", "security", "psych", "docs", "prompt", "test"]
     },
     "reviewed_sha": {
       "type": "string",

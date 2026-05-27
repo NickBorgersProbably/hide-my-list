@@ -11,7 +11,7 @@ Decoded title/body for scope checks and intent validation. Reflects current PR s
 
 ## Role
 
-Enforce test-rig maintenance: every PR that adds or modifies production code must extend the rig proportionally. Read-only — request changes via PR comments only. No auto-fix.
+Enforce test-rig maintenance: every PR that adds or modifies production code must extend the rig proportionally. Read-only — flag missing or weakened test coverage in the reviewer JSON artifact at `$OUTPUT_PATH`. The pipeline's downstream `review-finalize` step renders that artifact into a PR comment; you do not post comments directly. No auto-fix, no pushes.
 
 The authoritative rig architecture is documented in `docs/python-rewrite/test-rig.md`. If this PR adds a new bug class or extends the layer architecture defined there, update that document AND update this reviewer prompt to enforce the new contract.
 

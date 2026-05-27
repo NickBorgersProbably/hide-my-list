@@ -150,7 +150,8 @@ Reviewers handle Markdown spec changes and Python source changes (`app/`, `migra
 3. Psych Research Review — validates against ADHD clinical research; evaluates `app/prompts/*.md.j2` for banned-phrase regex + shame-safety contract
 4. Prompt Engineering Review — validates prompt clarity, constraints, cross-prompt consistency; evaluates `app/prompts/*.md.j2` for prompt-parity contract (section headings from `docs/ai-prompts/` source present in template)
 5. Documentation Consistency Review — contradictions, stale refs, cross-doc consistency; includes `docs/python-rewrite/*.md` and Python Runtime Files listed in this file
-6. Judge / Merge Decision — synthesizes all reviews into verdict
+6. Test Coverage Review — enforces test-rig maintenance per `docs/python-rewrite/test-rig.md`. Fires on the test-rig surface (app/, migrations/, setup/model-tiers.json, app/prompts/, docs/ai-prompts/, tests/, the test reviewer prompt itself, test-rig.md, and the review schemas). Blocks PRs that add public functions without integration tests, modify prompts without updating eval fixtures, add migrations without next-prefix discipline, add env vars/services without smoke-test assertions, or fix production bugs without a `tests/regressions/bug_<NNNN>_<slug>/` entry. Read-only — emits JSON verdict only; no auto-fix.
+7. Judge / Merge Decision — synthesizes all reviews into verdict
 
 Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. Judge = deterministic Node script (`.github/scripts/review/aggregate.mjs`) with `permissions: contents: read` — cannot push by construction. Fixer runs after reviewers, before judge; pushes new commit first, then claims that SHA on `review/pipeline` immediately after push (GitHub rejects status for unpublished commit); only stage with write permission. The fixer also attempts `git merge --no-commit --no-ff origin/main` before invoking the agent so AI-authored PRs stay mergeable without a human in the loop — clean merges seal on the host, conflicts go through the agent for marker resolution, unresolved conflicts abort the merge and label `needs-human-review`. Verdicts binary **GO** / **NO-GO**; NO-GO labels PR `needs-human-review`, stops without closing or auto-creating issues. Reviewer prompts = standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 + §1.5 for design decisions.
 
@@ -169,7 +170,7 @@ Symmetric two-agent support means the fixer must understand both `codex exec res
 
 ### Review prompt file architecture
 
-Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,prompt}.md`) **self-contained** — each reviewer loads only its own `${role}.md` at runtime. Codex CLI doesn't support markdown includes.
+Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,prompt,test}.md`) **self-contained** — each reviewer loads only its own `${role}.md` at runtime. Codex CLI doesn't support markdown includes.
 
 Constraint applies to all reviewers → add to each prompt file individually. Use identical wording across files unless structure requires different phrasing (e.g., inline JSON placeholder vs. prose). Same applies to `fixer.md` — loaded independently.
 

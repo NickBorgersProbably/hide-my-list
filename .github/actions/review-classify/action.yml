@@ -20,6 +20,12 @@ description: >
     - prompt:    unless config_only (pure CI/infrastructure config);
                  also triggered by python_prompt_template files (app/prompts/*.md.j2)
                  for prompt-parity contract evaluation
+    - test:      fires for any file in the test-rig surface (see
+                 is_test_rig_surface() below): app/**, migrations/**,
+                 setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**,
+                 tests/** (including dropped/weakened tests),
+                 the test reviewer prompt itself, docs/python-rewrite/test-rig.md,
+                 and the review schema JSONs. Enforces test-rig maintenance.
 
   These mirror the conditions enforced by the current review pipeline's
   reviewer routing. Centralizing them here means adding a new role is
@@ -160,6 +166,8 @@ runs:
 
         # Test-rig coverage surface: files where missing tests are a blocker.
         # Fires the test reviewer role.
+        # Includes tests/** so PRs that delete or weaken tests are also routed
+        # to the reviewer (clause 6 of test.md: dropped tests need justification).
         is_test_rig_surface() {
           case "$1" in
             app/*.py|app/**/*.py) return 0 ;;
@@ -167,7 +175,11 @@ runs:
             setup/model-tiers.json) return 0 ;;
             app/prompts/*.md.j2) return 0 ;;
             docs/ai-prompts/*.md) return 0 ;;
+            tests/*.py|tests/**/*.py) return 0 ;;
+            tests/regressions/*|tests/regressions/**) return 0 ;;
             .github/scripts/review/prompts/test.md) return 0 ;;
+            docs/python-rewrite/test-rig.md) return 0 ;;
+            .github/scripts/review/schema/*.json) return 0 ;;
             *) return 1 ;;
           esac
         }
