@@ -219,10 +219,14 @@ boots the full stack and makes no LLM calls (no real API keys are required —
 compose smoke uses placeholder env values).
 The production app runtime uses the same proxy configuration.
 
-Swapping `cheap: claude-haiku-4-5` to
-`cheap: gemma4-small` is a one-line change in `setup/model-tiers.json`.
-No Python adapter branching. All LLM routing stays through
-`app/models.py:llm(tier)`.
+Model IDs are validated against a known-prefix allowlist (`claude-`, `gemma`,
+`gpt-`) at startup. Swapping a tier to any supported alias is a one-line
+change in `setup/model-tiers.json`; no Python adapter changes are required.
+All LLM routing stays through `app/models.py:llm(tier)`.
+
+Unit tests for provider-boundary behavior must assert the exact `ChatOpenAI`
+constructor payload (model id, temperature, max_tokens, base_url, api_key) to
+catch routing regressions that would still pass a class-assertion-only check.
 
 Three cost gates for eval runs:
 - `ENABLE_LIVE_LLM_EVALS=true` — required for any real LLM call; absent = `pytest.skip`

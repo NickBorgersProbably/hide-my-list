@@ -46,6 +46,23 @@ timeout 30m claude -p \
   < /dev/null 2>&1 \
   | tee "$OUTPUT_LOG_PATH"
 
+# Salvage block: if the prompt wrote a near-miss filename instead of
+# $OUTPUT_PATH (e.g. fix-result.json because the schema is named
+# fix-result-v1.json), rename it into place with a loud warning.
+# Bounded allow-list — silently masking arbitrary filenames would
+# hide real bugs. The warning is the canary; the real cure is to
+# tighten the prompt so the agent uses $OUTPUT_PATH unambiguously.
+if [ ! -s "$OUTPUT_PATH" ]; then
+  OUTPUT_DIR=$(dirname "$OUTPUT_PATH")
+  for candidate in "$OUTPUT_DIR/fix-result.json" "$OUTPUT_DIR/result.json"; do
+    if [ -s "$candidate" ] && [ "$candidate" != "$OUTPUT_PATH" ]; then
+      echo "::warning::review-claude-resume: prompt wrote $(basename "$candidate") instead of $(basename "$OUTPUT_PATH"); normalizing. Tighten the prompt to remove the ambiguity."
+      mv "$candidate" "$OUTPUT_PATH"
+      break
+    fi
+  done
+fi
+
 if [ ! -s "$OUTPUT_PATH" ]; then
   echo "::error::review-claude-resume: prompt did not produce $OUTPUT_PATH"
   exit 1

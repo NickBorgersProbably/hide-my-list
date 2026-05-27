@@ -26,8 +26,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 log = logging.getLogger(__name__)
@@ -120,19 +120,18 @@ def _call_judge_llm(
     api_key: str,
     timeout_seconds: float = 60.0,
 ) -> str:
-    """Single-shot LLM call via langchain-anthropic.
+    """Single-shot LLM call via langchain-openai.
 
     Points at the same LiteLLM proxy (`LLM_PROXY_BASE_URL`) as the production
     app. Keeping judge outbound HTTP inside LangChain preserves the
     constrained-tool-surface invariant from `docs/python-rewrite/test-rig.md`.
     """
-    chat = ChatAnthropic(
-        model_name=model,
+    chat = ChatOpenAI(
+        model=model,
         api_key=api_key,
         base_url=base_url,
         max_tokens=256,
         timeout=timeout_seconds,
-        stop=None,
     )
     response = chat.invoke([HumanMessage(content=prompt)])
     # AIMessage.content is a string (or list of blocks for tool-calling models).

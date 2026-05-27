@@ -33,6 +33,12 @@ dev = [
     "ruff==0.15.13",
     "mypy==2.1.0",
     "types-psycopg2==2.9.21.20260509",
+    # Drives the reviewer-v1.json schema tests in
+    # tests/unit/test_reviewer_schema.py. The reviewer schema is the
+    # enforceable contract between reviewer roles and the read-only
+    # judge stage, and the two-lens security orchestrator (§1.18)
+    # widened it.
+    "jsonschema==4.25.1",
 ]
 
 [tool.setuptools.packages.find]

@@ -130,6 +130,76 @@ def test_valid_tier_returns_llm_instance() -> None:
     models_module._load_model_tiers.cache_clear()
 
 
+def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
+    """llm() must pass tier model id, temperature, max_tokens, base_url, and api_key to ChatOpenAI."""
+    import json
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from app import models as models_module
+    models_module._load_model_tiers.cache_clear()
+
+    tiers_path = Path(__file__).parent.parent.parent / "setup" / "model-tiers.json"
+    expected_model = json.loads(tiers_path.read_text(encoding="utf-8"))["medium"]
+
+    fake_instance = MagicMock()
+    fake_instance.with_config.return_value = fake_instance
+
+    env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH_TRACING",)}
+    env["LLM_PROXY_BASE_URL"] = "https://proxy.test/v1"
+    env["LLM_PROXY_API_KEY"] = "test-key"
+
+    with patch.dict(os.environ, env, clear=True):
+        with patch("app.models.ChatOpenAI", return_value=fake_instance) as mock_cls:
+            models_module.llm("medium", temperature=0.0, caller="test")
+            call_kwargs = mock_cls.call_args.kwargs
+            assert call_kwargs["model"] == expected_model
+            assert call_kwargs["temperature"] == 0.0
+            assert call_kwargs["max_tokens"] == 1024
+            assert call_kwargs["base_url"] == "https://proxy.test/v1"
+            assert call_kwargs["api_key"] == "test-key"
+
+    models_module._load_model_tiers.cache_clear()
+
+
+def test_llm_raises_when_llm_proxy_base_url_missing() -> None:
+    """llm() must raise RuntimeError when LLM_PROXY_BASE_URL is unset."""
+    from app import models as models_module
+    models_module._load_model_tiers.cache_clear()
+
+    env = {
+        k: v for k, v in os.environ.items()
+        if k not in ("LANGSMITH_TRACING", "LLM_PROXY_BASE_URL")
+    }
+    env.pop("LLM_PROXY_BASE_URL", None)
+    env["LLM_PROXY_API_KEY"] = "test-key"
+
+    with patch.dict(os.environ, env, clear=True):
+        with pytest.raises(RuntimeError, match="LLM_PROXY_BASE_URL"):
+            models_module.llm("medium")
+
+    models_module._load_model_tiers.cache_clear()
+
+
+def test_llm_raises_when_llm_proxy_api_key_missing() -> None:
+    """llm() must raise RuntimeError when LLM_PROXY_API_KEY is unset."""
+    from app import models as models_module
+    models_module._load_model_tiers.cache_clear()
+
+    env = {
+        k: v for k, v in os.environ.items()
+        if k not in ("LANGSMITH_TRACING", "LLM_PROXY_API_KEY")
+    }
+    env.pop("LLM_PROXY_API_KEY", None)
+    env["LLM_PROXY_BASE_URL"] = "https://proxy.test/v1"
+
+    with patch.dict(os.environ, env, clear=True):
+        with pytest.raises(RuntimeError, match="LLM_PROXY_API_KEY"):
+            models_module.llm("medium")
+
+    models_module._load_model_tiers.cache_clear()
+
+
 def test_invalid_tier_raises_value_error() -> None:
     """llm() with unknown tier must raise ValueError."""
     from app import models as models_module

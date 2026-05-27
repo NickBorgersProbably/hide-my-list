@@ -9,11 +9,18 @@ description: >
   Today the rules are:
     - design:    always
     - docs:      always
-    - security:  unless docs_only (all changed files are inert docs),
-                 OR always for review-orchestration / routing files,
+    - security:  emitted as TWO roles, `security-breadth` and `security-narrow`,
+                 which are collapsed by `review-security-merge` into a single
+                 `role=security` verdict before the judge sees it. Both fire under
+                 the same conditions: unless docs_only (all changed files are
+                 inert docs), OR always for review-orchestration / routing files,
                  OR always for python_runtime files (app/**/*.py, migrations/*.sql,
-                 tests/**/*.py) — security review owns SQL injection, secrets,
-                 and constrained-tool-surface invariants for Python code
+                 tests/**/*.py). The breadth lens covers generic vulnerability
+                 categories (vendored from anthropics/claude-code-security-review);
+                 the narrow lens covers repo-specific invariants (constrained tool
+                 surface, no shell-out in app/, private-data placeholders, workflow
+                 permissions, CI runtime, reviewer-routing). See
+                 docs/agentic-pipeline-learnings.md §1.18.
     - psych:     unless config_only (pure CI/infrastructure config);
                  also triggered by python_prompt_template files (app/prompts/*.md.j2)
                  for banned-phrase and shame-safety contract evaluation
@@ -237,7 +244,11 @@ runs:
 
         ROLES='["design","docs"]'
         if [ "$DOCS_ONLY" != "true" ] || [ "$FORCE_SECURITY" = "true" ]; then
-          ROLES=$(echo "$ROLES" | jq -c '. + ["security"]')
+          # Security is a two-lens orchestrator. Both lenses are routed
+          # together; the merger job (review-security-merge) collapses
+          # their artifacts into a single role=security verdict for the
+          # judge. See docs/agentic-pipeline-learnings.md §1.18.
+          ROLES=$(echo "$ROLES" | jq -c '. + ["security-breadth","security-narrow"]')
         fi
         if [ "$CONFIG_ONLY" != "true" ] || [ "$HAS_PYTHON_PROMPT_TEMPLATE" = "true" ]; then
           ROLES=$(echo "$ROLES" | jq -c '. + ["psych","prompt"]')

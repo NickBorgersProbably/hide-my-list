@@ -80,7 +80,7 @@ resolve them all.
    ```bash
    find "${REVIEWER_ARTIFACTS_DIR}" -name '*-result.json'
    ```
-2. No reviewer files or unparseable → no edits. Write a no-op fix result
+2. No reviewer files or unparseable → no edits. Write a no-op result
    to `$OUTPUT_PATH` and stop.
 3. Read every blocker. Categorize each as real / misread / out-of-scope.
 4. Apply real-blocker fixes at the level you originally decided. If a
@@ -100,7 +100,7 @@ resolve them all.
    - The `Author-Session: <agent>/<run-id>` trailer — the next cycle
      reads it to resume you again.
 6. Leave file changes unstaged. Host step commits.
-7. Write fix-result JSON to `$OUTPUT_PATH`.
+7. Write the result as JSON to `$OUTPUT_PATH`.
 
 ## Output contract
 

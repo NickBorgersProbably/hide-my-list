@@ -134,9 +134,8 @@ with 3 runs per prompt across 13 synthetic prompts (39 calls per tier).
 To compare `gemma4-small` against the current medium tier:
 
 1. Update `setup/model-tiers.json` to point `medium` at the target model ID.
-   Note: `app/models.py` hardcodes `setup/model-tiers.json` with no `MODEL_TIERS_PATH`
-   override. Non-`claude-` model IDs require relaxing the prefix check in
-   `app/models.py` validation first (see follow-up note in PR description).
+   `app/models.py` accepts model IDs starting with `claude-`, `gemma`, or `gpt-`;
+   no code change is required for aliases in the allowlist.
 2. Run:
    ```bash
    ENABLE_LLM_PERF=true PERF_MODELS=medium PERF_RUNS_N=5 \

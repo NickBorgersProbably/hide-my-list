@@ -10,7 +10,7 @@ An AI-powered task manager where users never directly view their task list. The 
 ## Documentation
 
 - [Architecture](architecture.md) - System architecture: Python + LangGraph container topology, reminder outbox, scheduled jobs
-- [Agentic Pipeline Learnings](agentic-pipeline-learnings.md) - Prescriptive lessons from the agentic review and CI pipeline
+- [Agentic Pipeline Learnings](agentic-pipeline-learnings.md) - Prescriptive lessons from the agentic review and CI pipeline (§1.18 documents the two-lens security reviewer orchestrator: vendored breadth prompt + repo-specific narrow prompt + deterministic merger that caps + dedupes findings)
 - Setup/config specs:
   - [Model Tiers](../setup/model-tiers.json) - Repo metadata mapping expensive, medium, and cheap model tiers used by validation and app startup
 - AI Prompts (per-intent):

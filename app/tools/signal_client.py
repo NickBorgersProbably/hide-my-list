@@ -1,7 +1,8 @@
 """Signal CLI REST API client.
 
 Async HTTP + WebSocket client wrapping bbernhard/signal-cli-rest-api.
-Provides message send and inbound message streaming via WebSocket.
+Provides outbound message sends, read receipts, typing indicators, and
+inbound message streaming via WebSocket.
 
 This module is one of three authorised sites for httpx.AsyncClient usage
 (alongside app/tools/notion.py and app/ingress/signal_listener.py).
@@ -23,7 +24,7 @@ import asyncio
 import base64
 import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +51,7 @@ def _account() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Send
+# Send / UX signals
 # ---------------------------------------------------------------------------
 
 
@@ -195,6 +196,99 @@ async def send_message(
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60.0)
         raise RuntimeError(f"send_message failed after {_MAX_RETRIES} attempts") from last_exc
+
+
+async def _best_effort_signal_request(
+    request: Callable[[], Awaitable[httpx.Response]],
+    *,
+    event: str,
+) -> None:
+    """Run a signal-cli request with send_message retry timing, never raising."""
+    delay = _RETRY_BASE_DELAY
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = await request()
+            resp.raise_for_status()
+            log.info(f"{event}.ok")
+            return
+        except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+            retryable = not (
+                isinstance(exc, httpx.HTTPStatusError)
+                and exc.response.status_code < 500
+            )
+            log.warning(
+                f"{event}.failed" if not retryable else f"{event}.retry",
+                attempt=attempt + 1,
+                error_type=type(exc).__name__,
+            )
+            if not retryable or attempt == _MAX_RETRIES - 1:
+                return
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
+        except Exception as exc:
+            log.warning(f"{event}.failed", error_type=type(exc).__name__)
+            return
+
+
+async def send_read_receipt(
+    peer: str,
+    timestamp: int,
+    *,
+    base_url: str | None = None,
+    account: str | None = None,
+) -> None:
+    """Best-effort Signal read receipt for a received peer message."""
+    try:
+        url_base = base_url or _signal_base_url()
+        acct = account or _account()
+    except Exception as exc:
+        log.warning("signal_client.receipt.failed", error_type=type(exc).__name__)
+        return
+
+    payload = {
+        "recipient": peer,
+        "receipt_type": "read",
+        "timestamp": timestamp,
+    }
+
+    async with httpx.AsyncClient(
+        base_url=url_base,
+        timeout=httpx.Timeout(connect=_CONNECT_TIMEOUT, read=_READ_TIMEOUT, write=30.0, pool=10.0),
+    ) as client:
+        await _best_effort_signal_request(
+            lambda: client.post(f"/v1/receipts/{acct}", json=payload),
+            event="signal_client.receipt",
+        )
+
+
+async def send_typing_indicator(
+    peer: str,
+    *,
+    started: bool = True,
+    base_url: str | None = None,
+    account: str | None = None,
+) -> None:
+    """Best-effort Signal typing indicator start/stop for a peer."""
+    try:
+        url_base = base_url or _signal_base_url()
+        acct = account or _account()
+    except Exception as exc:
+        log.warning("signal_client.typing.failed", error_type=type(exc).__name__)
+        return
+
+    payload = {"recipient": peer}
+    async with httpx.AsyncClient(
+        base_url=url_base,
+        timeout=httpx.Timeout(connect=_CONNECT_TIMEOUT, read=_READ_TIMEOUT, write=30.0, pool=10.0),
+    ) as client:
+        await _best_effort_signal_request(
+            lambda: client.request(
+                "PUT" if started else "DELETE",
+                f"/v1/typing-indicator/{acct}",
+                json=payload,
+            ),
+            event="signal_client.typing.start" if started else "signal_client.typing.stop",
+        )
 
 
 # ---------------------------------------------------------------------------
