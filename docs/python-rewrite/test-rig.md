@@ -60,7 +60,18 @@ Each bug class leaves a permanent test. Fix -> regression test ->
 ## Structural Lints (unit speed, always runs)
 
 Four lints in `tests/unit/` that catch four of the eight bug classes without
-LLM or Postgres:
+LLM or Postgres.
+
+The pre-commit hook (`scripts/run-required-checks.sh pre-commit`) enforces a
+Python gate whenever `.py` files are staged: it runs `ruff check` on the staged
+paths and then `pytest tests/unit/ -x -q` against the full unit suite. Both
+must pass before the commit proceeds. No auto-fix. This gate complements the
+CI-only Python Validation workflow by catching lint and unit-test failures
+locally before they reach CI. The structural test
+`tests/unit/test_precommit_python_gate.py` asserts the gate is wired correctly
+on every PR, so the hook cannot silently regress (the bug class that motivated
+this gate: PR #579 shipped with ruff failures and a broken pytest mock because
+the pre-commit dispatcher had no Python branch).
 
 ### `test_migration_filenames.py`
 
