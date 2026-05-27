@@ -59,7 +59,7 @@ Per-row state is post-fixer: each row cross-references the reviewer's `blocking_
 **Before:** Post-merge follow-ups failed with "could not fetch ref".
 **Evidence:** #308, #351, #353, #354
 
-**Manual regression playbook:** Open PR, let `review-entry.yml` freeze `reviewed_sha`, push another commit before `review-fixer.yml` reaches push step. Fixer should log that `origin/<head_ref>` moved, rewrite `fix-result.json` so `new_sha == input_sha == reviewed_sha`, add `skipped[]` reason, exit without pushing. Judge/finalize should evaluate unchanged reviewed tree instead of overwriting newer commit.
+**Manual regression playbook:** Open PR, let `review-entry.yml` freeze `reviewed_sha`, push another commit before `review-fixer.yml` reaches push step. Fixer should log that `origin/<head_ref>` moved, rewrite `fixer-result.json` so `new_sha == input_sha == reviewed_sha`, add `skipped[]` reason, exit without pushing. Judge/finalize should evaluate unchanged reviewed tree instead of overwriting newer commit.
 
 ### 1.8 Dedupe workflow-failure issues by fingerprint
 **Why:** Helper script fingerprints failures by (workflow, branch, commit) and reuses existing open issue.
