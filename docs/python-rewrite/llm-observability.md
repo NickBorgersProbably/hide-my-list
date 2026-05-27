@@ -82,7 +82,7 @@ processor in `app/main.py` is a safety net; the callback does not rely on it.
 
 `app/models.py:llm(tier, *, caller=None)` constructs one
 `LLMObservabilityCallback` per call and attaches it via
-`ChatAnthropic(...).with_config(callbacks=[handler])`. The callback captures
+`ChatOpenAI(...).with_config(callbacks=[handler])`. The callback captures
 tier + model + caller at construction time so each log event is self-describing.
 
 Every graph node passes `caller=` to `llm()`:
@@ -112,7 +112,8 @@ without running the full behavioral eval rig.
 
 ```bash
 ENABLE_LLM_PERF=true \
-ANTHROPIC_API_KEY=<key> \
+ANTHROPIC_BASE_URL=<proxy-url>/v1 \
+ANTHROPIC_API_KEY=<key-or-placeholder> \
 pytest tests/perf/test_llm_perf.py -v
 ```
 
@@ -133,9 +134,8 @@ with 3 runs per prompt across 13 synthetic prompts (39 calls per tier).
 To compare `gemma4-small` against the current medium tier:
 
 1. Update `setup/model-tiers.json` to point `medium` at the target model ID.
-   Note: `app/models.py` hardcodes `setup/model-tiers.json` with no `MODEL_TIERS_PATH`
-   override. Non-`claude-` model IDs require relaxing the prefix check in
-   `app/models.py` validation first (see follow-up note in PR description).
+   `app/models.py` accepts model IDs starting with `claude-`, `gemma`, or `gpt-`;
+   no code change is required for aliases in the allowlist.
 2. Run:
    ```bash
    ENABLE_LLM_PERF=true PERF_MODELS=medium PERF_RUNS_N=5 \
