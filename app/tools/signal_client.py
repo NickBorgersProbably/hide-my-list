@@ -5,13 +5,26 @@ Provides message send and inbound message streaming via WebSocket.
 
 This module is one of three authorised sites for httpx.AsyncClient usage
 (alongside app/tools/notion.py and app/ingress/signal_listener.py).
+
+Attachment policy (PNG only):
+- Only .png files are accepted (case-insensitive). Any other extension raises
+  ValueError immediately. This enforces the user's content-type allowlist policy
+  and keeps the narrow-tool-surface invariant.
+- Paths must be absolute and must not contain '..'.
+- Paths must resolve under the reward_artifacts root (REWARD_ARTIFACTS_DIR env,
+  defaulting to /tmp/reward_artifacts). Any path outside that root raises ValueError.
+- File bytes are base64-encoded and passed as base64_attachments in the /v2/send
+  JSON body per the bbernhard/signal-cli-rest-api spec (raw base64 strings, not
+  data-URL form — the v2 API expects plain base64).
 """
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -41,10 +54,66 @@ def _account() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _reward_artifacts_root() -> Path:
+    """Return the canonical reward artifacts root as a resolved absolute Path."""
+    raw = os.environ.get("REWARD_ARTIFACTS_DIR", "/tmp/reward_artifacts")
+    return Path(raw).resolve()
+
+
+def _validate_attachment_path(path_str: str) -> Path:
+    """Validate and return a resolved Path for a PNG attachment.
+
+    Enforces:
+    - Path must be absolute.
+    - Path must not contain '..'.
+    - Extension must be .png (case-insensitive). PNG-only allowlist per
+      user's content-type policy.
+    - Resolved path must exist.
+    - Resolved path must be under the reward_artifacts root.
+
+    Args:
+        path_str: Filesystem path string supplied by the caller.
+
+    Returns:
+        Resolved absolute Path to the PNG file.
+
+    Raises:
+        ValueError: For any policy violation (non-absolute, traversal, non-PNG,
+            missing file, or outside reward_artifacts root).
+    """
+    # Reject relative paths and traversal sequences before resolving.
+    if not os.path.isabs(path_str):
+        raise ValueError("Attachment path must be absolute")
+    if ".." in Path(path_str).parts:
+        raise ValueError("Attachment path must not contain '..'")
+
+    resolved = Path(path_str).resolve()
+
+    # PNG-only content-type allowlist.
+    if resolved.suffix.lower() != ".png":
+        raise ValueError("Attachment must be a .png file")
+
+    # File must exist.
+    if not resolved.exists():
+        raise ValueError("Attachment path does not exist")
+
+    # Resolved path must be under the reward_artifacts root.
+    artifacts_root = _reward_artifacts_root()
+    try:
+        resolved.relative_to(artifacts_root)
+    except ValueError:
+        raise ValueError(
+            "Attachment path is outside the reward_artifacts root"
+        ) from None
+
+    return resolved
+
+
 async def send_message(
     recipient: str,
     message: str,
     *,
+    attachment_paths: list[str] | None = None,
     idempotency_key: str | None = None,
     base_url: str | None = None,
     account: str | None = None,
@@ -54,15 +123,22 @@ async def send_message(
     Args:
         recipient: E.164 phone number of the recipient.
         message: Text body to send.
-        idempotency_key: Unique string passed as the mentions/sticker field
-            placeholder for deduplication where signal-cli supports it.
-            Signal-cli does not natively deduplicate sends by key, but storing
-            and logging the key enables operator-level duplicate detection.
+        attachment_paths: Optional list of absolute paths to PNG files to attach.
+            Each path is validated (must be absolute, no '..', .png only, must
+            exist, must be under the reward_artifacts root). Bytes are base64-
+            encoded and sent as base64_attachments in the /v2/send JSON body.
+            Raises ValueError on any path violation — fail-fast before HTTP.
+        idempotency_key: Unique string for operator-level duplicate detection.
+            Signal-cli REST API does not natively deduplicate sends by key, but
+            storing and logging the key enables tracing when duplicates occur.
         base_url: Override for SIGNAL_CLI_URL (used in tests).
         account: Override for SIGNAL_ACCOUNT (used in tests).
 
     Returns:
         Parsed JSON response from signal-cli.
+
+    Raises:
+        ValueError: If any attachment path fails validation.
     """
     url_base = base_url or _signal_base_url()
     acct = account or _account()
@@ -72,11 +148,25 @@ async def send_message(
         "number": acct,
         "recipients": [recipient],
     }
+
+    # Validate and encode attachments — fail fast before any HTTP call.
+    if attachment_paths:
+        encoded: list[str] = []
+        for path_str in attachment_paths:
+            resolved = _validate_attachment_path(path_str)
+            b64 = base64.b64encode(resolved.read_bytes()).decode("ascii")
+            encoded.append(b64)
+        payload["base64_attachments"] = encoded
+
     # Log idempotency_key for operator-level duplicate detection.
     # Signal-cli REST API does not support client-side deduplication;
     # the key enables tracing and reconciliation when duplicates occur.
     if idempotency_key:
-        log.debug("signal_client.send", idempotency_key=idempotency_key)
+        log.debug(
+            "signal_client.send",
+            idempotency_key=idempotency_key,
+            attachment_count=len(attachment_paths) if attachment_paths else 0,
+        )
 
     async with httpx.AsyncClient(
         base_url=url_base,

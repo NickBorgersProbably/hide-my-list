@@ -270,7 +270,7 @@ resets whenever the completion streak resets. If prior streak history is not
 available, callers must not invent descriptions or marker counts; they should
 start a fresh one-item streak list with the current completed task.
 
-Output: `app/tools/rewards.py` generates a PNG and stores it in the reward artifacts volume, then writes a manifest row in Postgres. Signal-cli attachment delivery is pending — no image is included in the outbound message body yet.
+Output: `app/tools/rewards.py` generates a PNG, stores it in the reward artifacts volume, writes a manifest row in Postgres, and surfaces the path in `RewardResult.attachment_path`. The COMPLETE node populates `OutboundDraft.attachment_path`, and the send node delivers the image as a Signal attachment via `signal_client.send_message(attachment_paths=[...])`. Only PNG files under the `REWARD_ARTIFACTS_DIR` root are accepted (PNG-only content-type policy).
 
 #### Prompt Personalization Pipeline
 
@@ -296,13 +296,12 @@ Do not narrate reward preparation. A COMPLETE turn must not contain visible text
 like "calculating the reward", "updating Notion", "generating an image", score
 breakdowns, tool names, or progress updates before the reward.
 
-The final user-visible reward content contains celebration text for the
-completion. AI-generated images are stored in the reward manifest and
-`reward_artifacts` volume, but are not delivered in the message body —
-signal-cli attachment support is pending. If `OPENAI_API_KEY` is not set or
-image generation fails, a fallback real-life reward suggestion is included
-instead (medium, high, epic intensities only). Sensitive tasks receive
-muted emoji text only, no fallback or image.
+The final user-visible reward content contains celebration text and, when
+image generation succeeds, a PNG attachment delivered via Signal. If
+`OPENAI_API_KEY` is not set or image generation fails, a fallback real-life
+reward suggestion is appended to the celebration text instead (medium, high,
+epic intensities only). Sensitive tasks receive muted emoji text only, no
+fallback or image.
 
 Reward delivery is scoped to the user turn, not to each internal task update.
 If one user message completes multiple tasks, complete all hidden task/state
@@ -377,22 +376,29 @@ Streak count modifies generated image:
 
 #### Feedback Loop
 
-Generated rewards leave two metadata trails:
+Each reward delivery writes a row to the `reward_manifests` Postgres table. `app/tools/rewards.record_reward_feedback` is the direct Postgres write handler for recording emoji reactions against reward manifest rows.
 
-- `rewards/manifest.log` - stable tab-delimited recap manifest (`timestamp`, `intensity`, `task_title`, `file_path`)
-- `rewards/manifest.jsonl` - feedback metadata only (`reward_id`, `prompt_version`, `generated_at`, `timestamp`, `intensity`, `task_mode`, `task_profile`, `task_profiles`, `task_tags`, `theme_id`, `theme_family`, `theme_tags`, `style`, `palette`, `archive_file`)
+**Emoji-to-score mapping** (`_FEEDBACK_EMOJI_SCORES`):
 
-The companion script `scripts/log-reward-feedback.sh` records lightweight reactions:
+| Emoji | Score | Signal |
+|-------|-------|--------|
+| 👍 ❤️ 🎉 🔥 😍 💯 | +1 | Positive |
+| 👎 😞 😕 💔 | -1 | Negative |
+| Any other emoji | 0 | Neutral acknowledgment |
 
-```bash
-# Record feedback for the most recent reward
-./scripts/log-reward-feedback.sh latest positive "Loved the space vibe"
+Unknown emojis are recorded with score 0 — the reaction is stored as a "received" signal but carries no positive or negative weight.
 
-# Record feedback for a specific reward
-./scripts/log-reward-feedback.sh 2026-04-30_091530_medium_21422 negative "Too busy"
-```
+**Lookup window:** `record_reward_feedback` matches the most recent unrated `reward_manifests` row for the peer where `delivered_at` falls within 60 minutes of the reaction's target message timestamp. The window is configurable per call.
 
-Those reactions append to `rewards/feedback.jsonl` and are used to bias future style/theme/palette selection. Feedback is intentionally bounded: recent reactions decay over time, aggregate weights are capped, and the result is only a nudge so novelty still matters.
+**Storage:** Three columns on `reward_manifests`:
+
+- `feedback_score` (INT) — -1, 0, or +1
+- `feedback_emoji` (TEXT) — the raw emoji character(s), stored verbatim
+- `feedback_at` (TIMESTAMPTZ) — when the reaction was recorded
+
+**Idempotency:** `feedback_at IS NULL` prevents double-counting. If a user reacts twice, only the first reaction for a given reward row is recorded. A later reaction may still match an older, unrated reward within the window.
+
+**Weighting:** `apply_feedback_weight` (in `app/tools/rewards`) applies time-decaying scores from feedback history when selecting themes for new rewards. Feedback is intentionally bounded: aggregate weights are capped at ±0.5 so the result is a nudge, not a dictate, and novelty still matters.
 
 #### Novelty Mechanics
 
@@ -428,13 +434,11 @@ Fallback writes suggestion to `.txt` file (instead of `.png`) and exits successf
 
 #### Image Archive & Collection
 
-Every generated reward image auto-archived to `rewards/` with metadata:
+Every generated reward image is stored under the `reward_artifacts` Docker volume:
 
 - **File naming**: `YYYY-MM-DD_HHMMSS_<intensity>.png`
-- **Recap manifest**: `rewards/manifest.log` tracks timestamp, intensity, task title, file path
-- **Metadata manifest**: `rewards/manifest.jsonl` tracks only feedback-loop selection fields plus archive path; raw task title, task motif, sensitive reason, and full prompt text are intentionally excluded
-- **Feedback log**: `rewards/feedback.jsonl` stores positive/neutral/negative reactions for future weighting
-- **Persistent**: Images survive across sessions — celebration history preserved
+- **Manifest record**: `reward_manifests` Postgres table tracks peer, intensity, streak, delivered_at, artifact_path, and feedback columns per delivery. task_title is stored as a private column — never logged.
+- **Persistent**: Images survive across sessions on the `reward_artifacts` volume — celebration history preserved
 
 #### Weekly Recap Video
 

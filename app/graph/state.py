@@ -6,7 +6,7 @@ table, written by the reminder worker, read by graph nodes at turn start.
 """
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NotRequired
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
@@ -42,11 +42,18 @@ class ActiveTask(TypedDict, total=False):
     rejection_count: int
 
 
-class OutboundDraft(TypedDict):
-    """Queued outbound message drained by the terminal send node."""
+class OutboundDraft(TypedDict, total=True):
+    """Queued outbound message drained by the terminal send node.
+
+    recipient, body, and notion_page_id are always present.
+    attachment_path is optional — set only for reward drafts that carry an image.
+    The path is private (references the user's task via the manifest table);
+    log attachment_count only, never the path itself.
+    """
     recipient: str
     body: str
     notion_page_id: str | None
+    attachment_path: NotRequired[str]
 
 
 class UserPrefs(TypedDict, total=False):

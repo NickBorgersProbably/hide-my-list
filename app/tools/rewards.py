@@ -30,8 +30,25 @@ from pathlib import Path
 from typing import Any, Literal
 
 import structlog
+from typing_extensions import TypedDict
 
 log = structlog.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# RewardResult — returned by maybe_reward()
+# ---------------------------------------------------------------------------
+
+class RewardResult(TypedDict):
+    """Result of a reward delivery attempt.
+
+    text: Celebration message string (emoji text, possibly with fallback line).
+    attachment_path: Absolute path to generated PNG, or None when no image.
+        This value is private — it traces back to the user's task via the
+        manifest table. Never log it; log attachment_count only.
+    """
+    text: str
+    attachment_path: str | None
 
 _ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
     "true", "1", "yes"
@@ -590,6 +607,94 @@ def apply_feedback_weight(
 
 
 # ---------------------------------------------------------------------------
+# Signal-reaction feedback: emoji-to-score mapping + record_reward_feedback()
+# docs/reward-system.md: Feedback Loop section
+# ---------------------------------------------------------------------------
+
+_FEEDBACK_EMOJI_SCORES: dict[str, int] = {
+    "👍": +1, "❤️": +1, "🎉": +1, "🔥": +1, "😍": +1, "💯": +1,
+    "👎": -1, "😞": -1, "😕": -1, "💔": -1,
+    # Unknown emojis map to 0 — neutral acknowledgment; no positive/negative signal.
+}
+
+
+async def record_reward_feedback(
+    *,
+    peer: str,
+    emoji: str,
+    target_sent_timestamp: int,
+    window_minutes: int = 60,
+) -> bool:
+    """Record user feedback on a recent reward via Signal reaction.
+
+    Looks up the most recent reward_manifests row for this peer where
+    delivered_at is within `window_minutes` of the reaction's target
+    timestamp. Updates feedback_score, feedback_emoji, and feedback_at.
+
+    Returns True if a matching reward was found and updated, False if no
+    match (e.g., reaction on a non-reward message, or outside the window).
+
+    Idempotency: the `feedback_at IS NULL` filter prevents double-counting.
+    If the user reacts twice to the same reward, only the first reaction
+    counts. A later reaction can still match a different (older) reward
+    within the window.
+
+    Unknown emojis receive score 0 — still recorded as an acknowledgment
+    but carry no positive/negative training signal.
+
+    Privacy: peer is used only as a DB filter key. Emoji recipient, task
+    title, and message body are never logged.
+    """
+    from app.tools.db import get_db_conn
+
+    # signal-cli timestamps are milliseconds-since-epoch; convert to datetime.
+    target_dt = datetime.fromtimestamp(target_sent_timestamp / 1000.0, tz=UTC)
+    score = _FEEDBACK_EMOJI_SCORES.get(emoji, 0)
+
+    try:
+        async with get_db_conn() as conn:
+            # Find the most recent unrated reward for this peer within the window.
+            # Uses reward_manifests_peer_delivered_idx for efficiency.
+            cur = await conn.execute(
+                """
+                SELECT id
+                FROM reward_manifests
+                WHERE peer = %s
+                  AND delivered_at <= %s
+                  AND delivered_at >= %s - (%s * interval '1 minute')
+                  AND feedback_at IS NULL
+                ORDER BY delivered_at DESC
+                LIMIT 1
+                """,
+                (peer, target_dt, target_dt, window_minutes),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                log.debug("record_reward_feedback.no_match")
+                return False
+
+            manifest_id = row["id"]
+            await conn.execute(
+                """
+                UPDATE reward_manifests
+                SET feedback_score = %s,
+                    feedback_emoji = %s,
+                    feedback_at    = now()
+                WHERE id = %s
+                """,
+                (score, emoji, manifest_id),
+            )
+
+        # Log only the score (integer), never the emoji text or any task data.
+        log.info("record_reward_feedback.ok", feedback_score=score)
+        return True
+
+    except Exception:
+        log.exception("record_reward_feedback.failed")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Manifest writing
 # docs/reward-system.md: Feedback Loop section
 # ---------------------------------------------------------------------------
@@ -676,7 +781,7 @@ async def maybe_reward(
     is_all_cleared: bool = False,
     rewards_in_last_hour: int = 0,
     user_prefs: dict[str, Any] | None = None,
-) -> str:
+) -> RewardResult:
     """Generate and deliver a complete reward for a task completion.
 
     Implements docs/reward-system.md: Completion Flow Enhancement.
@@ -696,7 +801,8 @@ async def maybe_reward(
         user_prefs: Optional user reward preferences.
 
     Returns:
-        Celebration message string (emoji text ± image path as MEDIA: line).
+        RewardResult with text (celebration message) and attachment_path (PNG
+        path or None). attachment_path is private — never log it.
     """
     # Classify sensitive task
     sensitive = is_sensitive_task(task_title)
@@ -716,12 +822,12 @@ async def maybe_reward(
     celebration_text = get_celebration_emoji(intensity_label, sensitive_task=sensitive)
 
     # Attempt image generation
-    image_path = None
+    image_path: str | None = None
     if intensity_label != "lightest" and not sensitive:
         prefs = (user_prefs or {}).get("rewards") if user_prefs else None
         image_path = await generate_reward_image(
             intensity=intensity_label,
-            streak_count=streak,
+            streak_count=1,  # Only current task available; intensity score still uses full streak
             task_descriptions=[task_title],  # Private — classified, not embedded in prompt
             work_type=work_type,
             energy_level=energy_required.lower(),
@@ -736,8 +842,6 @@ async def maybe_reward(
     reward_kind = "emoji"
     if image_path:
         reward_kind = "emoji+image"
-        # Image stored in reward_artifacts and manifest; not sent in message body —
-        # signal_client.send_message does not support attachments yet.
     elif intensity_label in ("medium", "high", "epic") and not sensitive:
         # Image was expected but failed — add fallback
         fallback = get_fallback_reward()
@@ -775,6 +879,7 @@ async def maybe_reward(
         reward_kind=reward_kind,
         sensitive=sensitive,
         # task_title intentionally omitted — private data
+        # image_path intentionally omitted — private data
     )
 
-    return celebration_text
+    return RewardResult(text=celebration_text, attachment_path=image_path)

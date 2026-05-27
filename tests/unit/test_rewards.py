@@ -107,8 +107,9 @@ class TestSensitiveTaskSuppression:
 
         # Image generation must not have been called
         mock_gen.assert_not_called()
-        # Result must not contain MEDIA: line
-        assert "MEDIA:" not in result
+        # Result must not contain MEDIA: line; attachment_path must be None
+        assert "MEDIA:" not in result["text"]
+        assert result["attachment_path"] is None
 
     @pytest.mark.asyncio
     async def test_maybe_reward_sensitive_manifest_marks_sensitive(self) -> None:
@@ -166,19 +167,20 @@ class TestImageGenFallback:
                 time_estimate=30,
             )
 
-        # Must contain a fallback suggestion (plain text, no MEDIA:)
-        assert "MEDIA:" not in result
-        lines = result.strip().split("\n")
+        # Must contain a fallback suggestion (plain text, no MEDIA:); no image path
+        assert "MEDIA:" not in result["text"]
+        lines = result["text"].strip().split("\n")
         assert len(lines) >= 2, "Expected celebration + fallback on separate lines"
+        assert result["attachment_path"] is None
 
     @pytest.mark.asyncio
     async def test_image_gen_success_no_fallback(self) -> None:
         """When image gen succeeds, no fallback suggestion is appended.
 
-        The image path is recorded in the manifest, not embedded in the
-        message body (signal_client.send_message does not support
-        attachments yet). The absence of a newline-separated fallback
-        signals image gen succeeded.
+        The image path is surfaced via RewardResult.attachment_path, not
+        embedded in the text body. The absence of a newline-separated
+        fallback line in result.text signals image gen succeeded.
+        attachment_path must equal the path returned by generate_reward_image.
         """
         from app.tools import rewards as rewards_module
 
@@ -198,7 +200,10 @@ class TestImageGenFallback:
                 time_estimate=60,
             )
 
-        assert "\n" not in result.strip()
+        # No fallback appended to text (image succeeded)
+        assert "\n" not in result["text"].strip()
+        # Image path surfaced via RewardResult, not embedded in text
+        assert result["attachment_path"] == fake_path
         manifest_mock.assert_awaited_once()
         manifest_kwargs = manifest_mock.await_args.kwargs
         assert manifest_kwargs["artifact_path"] == fake_path
@@ -224,7 +229,8 @@ class TestImageGenFallback:
             )
 
         mock_gen.assert_not_called()
-        assert "MEDIA:" not in result
+        assert "MEDIA:" not in result["text"]
+        assert result["attachment_path"] is None
 
     def test_generate_reward_image_returns_none_without_api_key(self) -> None:
         """generate_reward_image must return None immediately when OPENAI_API_KEY unset."""
@@ -374,9 +380,9 @@ class TestManifestWriting:
                 time_estimate=10,
             )
 
-        # Must still return a celebration string
-        assert isinstance(result, str)
-        assert len(result) > 0
+        # Must still return a RewardResult with celebration text
+        assert isinstance(result["text"], str)
+        assert len(result["text"]) > 0
 
 
 # ---------------------------------------------------------------------------

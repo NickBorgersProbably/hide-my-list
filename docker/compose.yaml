@@ -40,6 +40,11 @@ services:
       - ALLOW_PRIVATE_TRACE_EXPORT=${ALLOW_PRIVATE_TRACE_EXPORT:-false}
       - USER_TZ=${USER_TZ:-America/Chicago}
       - OPS_ALERT_SIGNAL_NUMBER=${OPS_ALERT_SIGNAL_NUMBER:-}
+      # REWARD_ARTIFACTS_DIR: mount path for generated PNG reward images.
+      # Must match the volume mount below so images persist across container restarts.
+      - REWARD_ARTIFACTS_DIR=/data/reward_artifacts
+    volumes:
+      - reward-artifacts:/data/reward_artifacts
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -90,3 +95,4 @@ services:
 volumes:
   postgres-data:
   signal-cli-data:
+  reward-artifacts:
