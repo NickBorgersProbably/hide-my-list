@@ -13,6 +13,9 @@ from typing import Any
 
 import psycopg
 import psycopg.rows
+import structlog
+
+log = structlog.get_logger(__name__)
 
 
 class ReminderRow(psycopg.rows.DictRow):
@@ -55,6 +58,11 @@ async def enqueue(
         VALUES (%s, %s, %s, %s, %s, 'pending', %s)
         """,
         (str(rid), notion_page_id, peer, body, due_at, idempotency_key),
+    )
+    log.info(
+        "reminders.enqueued",
+        reminder_id=str(rid),
+        due_at=due_at.isoformat(),
     )
     return rid
 

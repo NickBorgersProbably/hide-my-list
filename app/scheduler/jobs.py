@@ -38,6 +38,7 @@ class JobSpec:
 
 async def dispatch_due_reminders() -> None:
     """Invoke reminder_worker to deliver all due outbox items."""
+    log.debug("dispatch_due_reminders.tick")
     from app.scheduler.reminder_worker import run_worker_once
     await run_worker_once()
 
