@@ -16,6 +16,7 @@ import os
 from typing import Any
 
 import structlog
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from app.graph.state import State
 
@@ -39,8 +40,21 @@ async def send_node(state: State) -> dict[str, Any]:
     """
     pending = state.get("pending_outbound", [])
 
+    # Build the conversation-history delta for this turn so future turns retain
+    # context. The State `messages` channel uses the `add_messages` reducer,
+    # so returning a list here appends; bounding lives in the consumers (each
+    # node windows to the last few messages when prompting the LLM).
+    incoming = state.get("incoming", "")
+    new_messages: list[BaseMessage] = []
+    if incoming:
+        new_messages.append(HumanMessage(content=incoming))
+    for draft in pending:
+        body = draft.get("body", "")
+        if body:
+            new_messages.append(AIMessage(content=body))
+
     if not pending:
-        return {}
+        return {"messages": new_messages} if new_messages else {}
 
     if not _ENABLE_LANGGRAPH_PATH:
         for draft in pending:
@@ -52,7 +66,7 @@ async def send_node(state: State) -> dict[str, Any]:
             if draft.get("attachment_path") is not None:
                 log_kwargs["attachment_count"] = 1
             log.debug("send_node.dormant", **log_kwargs)
-        return {}
+        return {"messages": new_messages} if new_messages else {}
 
     from app.tools import signal_client
 
@@ -108,4 +122,4 @@ async def send_node(state: State) -> dict[str, Any]:
             # For reminders, the outbox handles delivery. For conversation replies,
             # logging is the signal for operator visibility.
 
-    return {}
+    return {"messages": new_messages} if new_messages else {}
