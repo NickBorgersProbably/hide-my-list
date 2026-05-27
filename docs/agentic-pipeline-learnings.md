@@ -141,6 +141,26 @@ Required properties:
 
 `scripts/ci-session-store.sh` is the single source of path conventions and trailer parsing — workflows call its subcommands rather than recomputing paths inline. `scripts/test-ci-session-store.sh` covers the helper logic and is run by `review-fixer-resume-smoke.yml` on PRs that touch the resume code paths. Full cross-container resume round-trip is empirically validated by the first multi-cycle review on a `resolve-issue` PR — that requires real LiteLLM calls, too expensive for every PR's smoke.
 
+### 1.18 Security reviewer is a two-lens orchestrator
+**Why:** A single security prompt has to be both broad enough to catch generic web/agent vulns (injection, deserialization, weak crypto, JWT, IDOR, supply chain) and specific enough to enforce this repo's own invariants (constrained `httpx` tool surface, no-shell-out from `app/`, private-data placeholder rule, workflow `permissions:` hygiene, reviewer-routing regressions). Cramming both into one prompt produced shallow checks on either side and gave the LLM no built-in budget for confidence filtering, exclusion handling, or finding caps — large diffs trended toward naggy output.
+
+**How:** The `security` role is dispatched as two sub-lenses:
+- `security-breadth` (`.github/scripts/review/prompts/security-breadth.md`) — vendored verbatim (subject to MIT attribution) from [anthropics/claude-code-security-review](https://github.com/anthropics/claude-code-security-review), `claudecode/prompts.py` → `get_security_audit_prompt`. Pin in `.github/ci/vendored-prompts.env`; refreshed weekly by `update-ai-clis.yml` via `.github/scripts/vendor-security-prompt.py`. Carries Anthropic's confidence ladder (`<0.7` → don't report) and exclusion list (DoS, rate-limit, resource leaks, open-redirect, regex injection, memory safety in non-C/C++, SSRF in HTML, findings on `.md` files).
+- `security-narrow` (`.github/scripts/review/prompts/security-narrow.md`) — repo-specific invariants only. Explicit instruction not to duplicate breadth's catalog so the merger sees minimal overlap.
+
+Both lenses run as ordinary reviewers via `review-reviewer.yml`, but pass `artifact_prefix: lens`, `publish: false`, and `write_status: false` so they upload as `lens-security-{breadth,narrow}-<sha>` (outside the judge's `reviewer-*-<sha>` glob), don't post separate PR comments, and don't write separate per-role commit statuses.
+
+`review-security-merge` (inline job in `review-pipeline.yml`) collapses the lens artifacts into the canonical `reviewer-security-<sha>` artifact the judge consumes. It runs `.github/scripts/review/security-merge.mjs`, which:
+1. Drops findings matching Anthropic's exclusion list (port of `claudecode/findings_filter.py`) as a backstop.
+2. Demotes blocking issues with paired `fix_suggestion[].confidence < 0.7` to `non_blocking_notes[]`.
+3. Dedupes by `(normalized_file, floor(line/5))`. Category is intentionally **not** in the key because breadth (catalog categories) and narrow (repo-categories) use disjoint vocabularies; cross-category collisions in the same 5-line bucket collapse with narrow winning.
+4. Caps at 5 blocking + 5 non-blocking per cycle, with severity-then-confidence sort. Overflow surfaces in `summary_metadata.truncated_*_count`.
+5. Always emits `role: "security"` so the judge contract is unchanged.
+
+The merger writes its merged artifact to `reviewer-security-<sha>`, publishes the single PR Review comment, and stamps `review/reviewer-security` on the SHA. The judge sees one security verdict, exactly as before; only the orchestration knows about lenses.
+
+`reviewer-v1.json` adds an optional `summary_metadata` block (counts of dropped / demoted / truncated findings, plus `merged_from: ["security-breadth", "security-narrow"]`) for diagnostics. The block is opt-in and ignored by other reviewer roles. Roles `security-breadth` and `security-narrow` are added to the schema enum; the existing bootstrap shim in `review-reviewer.yml` accepts them on the PR that introduces them.
+
 ---
 
 ## 2. CI Runtime Infrastructure

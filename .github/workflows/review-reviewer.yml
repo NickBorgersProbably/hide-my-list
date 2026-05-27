@@ -33,6 +33,31 @@ on:
       devcontainer_image:
         type: string
         required: true
+      artifact_prefix:
+        # Artifact-name prefix for the uploaded reviewer JSON. The judge
+        # downloads artifacts matching `reviewer-*-<sha>` — set this to
+        # `lens` (or any non-`reviewer` value) when running a sub-lens
+        # whose output is consumed by a merger rather than fed directly
+        # to the judge. The security orchestrator uses this to dispatch
+        # `security-breadth` and `security-narrow` as `lens-*` artifacts
+        # without polluting the judge's input set.
+        type: string
+        required: false
+        default: reviewer
+      publish:
+        # When 'false', skip the human-facing PR Review publish step.
+        # Sub-lens roles set this to keep the PR comment thread quiet;
+        # the merger publishes the single merged review.
+        type: string
+        required: false
+        default: 'true'
+      write_status:
+        # When 'false', skip the per-role commit status write. Sub-lens
+        # roles skip individual statuses; the orchestrator-owning role
+        # (e.g. `security` after merge) carries the canonical status.
+        type: string
+        required: false
+        default: 'true'
     secrets:
       WORKFLOW_PAT:
         required: true
@@ -142,6 +167,7 @@ jobs:
           fi
 
       - name: Publish as GitHub PR Review
+        if: inputs.publish == 'true'
         uses: ./.github/actions/review-publish
         with:
           artifact_path: ${{ steps.run.outputs.result_json }}
@@ -149,6 +175,7 @@ jobs:
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Write per-role commit status
+        if: inputs.write_status == 'true'
         uses: ./.github/actions/review-state
         with:
           op: write-status
@@ -163,7 +190,7 @@ jobs:
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
-          name: reviewer-${{ inputs.role }}-${{ inputs.reviewed_sha }}
+          name: ${{ inputs.artifact_prefix }}-${{ inputs.role }}-${{ inputs.reviewed_sha }}
           path: |
             ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-result.json
             ${{ env.PR_WORKSPACE_PATH }}/.review-output/${{ inputs.role }}-output.jsonl
