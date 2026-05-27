@@ -27,7 +27,7 @@ import random
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 
@@ -274,7 +274,7 @@ def _build_image_prompt(
     task_descriptions: list[str],
     user_prefs: dict[str, Any] | None = None,
     sensitive_task: bool = False,
-    feedback_history: list[dict] | None = None,
+    feedback_history: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build a personalized OpenAI image generation prompt.
 
@@ -354,7 +354,7 @@ async def generate_reward_image(
     energy_level: str = "",
     sensitive_task: bool = False,
     user_prefs: dict[str, Any] | None = None,
-    feedback_history: list[dict] | None = None,
+    feedback_history: list[dict[str, Any]] | None = None,
 ) -> str | None:
     """Generate an AI celebration image via OpenAI gpt-image-1.
 
@@ -419,7 +419,7 @@ async def generate_reward_image(
             feedback_history=feedback_history,
         )
 
-        quality = "high" if intensity == "epic" else "auto"
+        quality: Literal["high", "auto"] = "high" if intensity == "epic" else "auto"
 
         response = await client.images.generate(
             model="gpt-image-1",
@@ -429,6 +429,10 @@ async def generate_reward_image(
             response_format="b64_json",
             n=1,
         )
+
+        if not response.data:
+            log.warning("generate_reward_image.empty_response")
+            return None
 
         image_data = response.data[0].b64_json
         if not image_data:

@@ -19,7 +19,7 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_anthropic import ChatAnthropic
 
@@ -60,7 +60,13 @@ def _load_model_tiers() -> dict[str, str]:
     if not _MODEL_TIERS_PATH.is_file():
         raise RuntimeError(f"model-tiers.json not found at {_MODEL_TIERS_PATH}")
 
-    data = json.loads(_MODEL_TIERS_PATH.read_text(encoding="utf-8"))
+    raw_data = json.loads(_MODEL_TIERS_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw_data, dict):
+        raise RuntimeError("setup/model-tiers.json must contain a JSON object")
+    data: dict[str, str] = {}
+    for key, value in raw_data.items():
+        if isinstance(key, str) and isinstance(value, str):
+            data[key] = value
 
     missing = _VALID_TIERS - set(data.keys())
     if missing:
@@ -108,11 +114,12 @@ def llm(tier: Tier, *, temperature: float = 0.0) -> ChatAnthropic:
     tiers = _load_model_tiers()
     model_id = tiers[tier]
 
-    return ChatAnthropic(
-        model=model_id,
-        temperature=temperature,
-        max_tokens=1024,
-    )
+    kwargs: dict[str, Any] = {
+        "model_name": model_id,
+        "temperature": temperature,
+        "max_tokens_to_sample": 1024,
+    }
+    return ChatAnthropic(**kwargs)
 
 
 def validate_startup() -> None:

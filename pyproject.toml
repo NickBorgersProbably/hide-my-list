@@ -56,21 +56,6 @@ python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 
-# Pre-existing Phase B type errors: suppressed until Phase D cleanup.
-# Phase C files (app/tools/ops_alerts.py, app/scheduler/jobs.py) are clean.
-[[tool.mypy.overrides]]
-module = [
-    "app.tools.rewards",
-    "app.models",
-    "app.graph.routing",
-    "app.graph.nodes.selection",
-    "app.graph.nodes.rejection",
-    "app.graph.nodes.intake",
-    "app.graph.nodes.check_in",
-    "app.graph.graph",
-]
-ignore_errors = true
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
