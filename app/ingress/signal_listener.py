@@ -1,13 +1,17 @@
 """Signal inbound message listener.
 
 Consumes the signal-cli-rest-api WebSocket stream and routes each
-(peer, text) pair through the LangGraph pipeline.
+(peer, text) pair through the LangGraph pipeline, and each reaction
+to the reward-feedback handler.
 
 Authorization: AUTHORIZED_PEERS is a comma-separated env var of allowed
 E.164 numbers. Messages from any other peer are silently dropped — no
 reply is sent so the channel reveals no signal-cli liveness to an
 attacker who happened to discover the bot's number. An empty or unset
 AUTHORIZED_PEERS refuses startup; the fail-safe default is closed.
+
+Authorization is enforced BEFORE dispatch to either the text or reaction
+path. Reactions from unauthorized peers are dropped without DB writes.
 
 This module is one of three authorised sites for httpx.AsyncClient usage.
 """
@@ -62,6 +66,47 @@ def _extract_peer_and_text(envelope: dict[str, Any]) -> tuple[str, str] | None:
     return source, text
 
 
+def _extract_reaction(envelope: dict[str, Any]) -> tuple[str, str, int] | None:
+    """Extract (peer, emoji, target_sent_timestamp) from a signal-cli reaction envelope.
+
+    Returns None if the envelope is not a reaction, or if the reaction is a
+    removal (isRemove: true). Removals are not recorded — only the first
+    reaction for a given reward counts.
+
+    signal-cli reaction envelope shape:
+        envelope.source                           — sender E.164
+        envelope.dataMessage.reaction.emoji       — reaction emoji character(s)
+        envelope.dataMessage.reaction.isRemove    — true when user un-reacted
+        envelope.dataMessage.reaction.targetSentTimestamp — ms-since-epoch
+    """
+    envelope_data = envelope.get("envelope", {})
+    source = envelope_data.get("source", "")
+    if not source:
+        return None
+
+    data_message = envelope_data.get("dataMessage", {})
+    if data_message is None:
+        return None
+
+    reaction = data_message.get("reaction")
+    if not reaction:
+        return None
+
+    # Skip un-react events — only the initial reaction counts.
+    if reaction.get("isRemove", False):
+        return None
+
+    emoji = reaction.get("emoji", "")
+    if not emoji:
+        return None
+
+    target_sent_timestamp = reaction.get("targetSentTimestamp")
+    if target_sent_timestamp is None:
+        return None
+
+    return source, emoji, int(target_sent_timestamp)
+
+
 class SignalListener:
     """Asyncio task that consumes signal-cli WebSocket and drives the graph."""
 
@@ -90,8 +135,41 @@ class SignalListener:
         from app.graph.graph import build_graph
         return build_graph()
 
+    async def _handle_reaction(
+        self,
+        peer: str,
+        emoji: str,
+        target_sent_timestamp: int,
+    ) -> None:
+        """Route a Signal reaction to the reward feedback handler.
+
+        This is NOT a graph invocation. Reactions are administrative events
+        that write directly to the reward_manifests Postgres table.
+        """
+        from app.tools.rewards import record_reward_feedback
+
+        try:
+            matched = await record_reward_feedback(
+                peer=peer,
+                emoji=emoji,
+                target_sent_timestamp=target_sent_timestamp,
+            )
+            if matched:
+                log.info("signal_listener.reaction_feedback_recorded")
+            else:
+                log.debug("signal_listener.reaction_no_matching_reward")
+        except Exception:
+            log.exception("signal_listener.reaction_feedback_error")
+
     async def run(self) -> None:
-        """Main loop: consume WebSocket, route each message to the graph."""
+        """Main loop: consume WebSocket, route each envelope to the appropriate handler.
+
+        Dispatch order:
+        1. Try to extract a reaction. If found, route to _handle_reaction.
+        2. Otherwise, try to extract a text message. If found, invoke the graph.
+        3. Authorization is checked BEFORE either dispatch path — unauthorized
+           peers are dropped here with no DB writes and no graph invocations.
+        """
         graph = self._get_graph()
         log.info(
             "signal_listener.started",
@@ -102,11 +180,22 @@ class SignalListener:
             base_url=self._base_url,
             account=self._account,
         ):
-            result = _extract_peer_and_text(envelope)
-            if result is None:
+            # --- Reaction path ---
+            reaction_result = _extract_reaction(envelope)
+            if reaction_result is not None:
+                peer, emoji, target_sent_timestamp = reaction_result
+                if peer not in self._authorized_peers:
+                    log.warning("signal_listener.unauthorized_peer_dropped")
+                    continue
+                await self._handle_reaction(peer, emoji, target_sent_timestamp)
                 continue
 
-            peer, text = result
+            # --- Text message path ---
+            text_result = _extract_peer_and_text(envelope)
+            if text_result is None:
+                continue
+
+            peer, text = text_result
 
             if peer not in self._authorized_peers:
                 log.warning("signal_listener.unauthorized_peer_dropped")
