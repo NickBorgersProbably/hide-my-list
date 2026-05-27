@@ -1,0 +1,27 @@
+---
+# Bug-class 5 surface: when a user says "remind me in 10 minutes", the
+# intake LLM must return is_reminder=true with a parseable ISO 8601
+# remind_at timestamp. A cheaper model (gemma4-small) may produce
+# malformed JSON or wrong field names — this fixture catches that.
+id: intake-remind-relative-001
+node: intake
+tier: medium
+peer: "<test-peer-3>"
+inbound: "remind me to take the trash out in 10 minutes"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: json_schema
+    schema_ref: intake_v1
+  - kind: regex_require
+    pattern: "(?i)(remind|reminder).*(\\d+\\s*(min|minute)|10:?\\d{2})"
+  - kind: judge
+    rubric: |
+      The user-visible response confirms a reminder was set for ~10
+      minutes from now AND names what the reminder is for (taking the
+      trash out). It does NOT mention internal infrastructure (cron,
+      worker, queue). Score 1.0 for both, 0.5 for one, 0.0 for neither.
+    threshold: 0.7

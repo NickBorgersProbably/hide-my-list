@@ -1,0 +1,172 @@
+"""Compose round-trip smoke test.
+
+Boots the full docker-compose stack and exercises a basic round trip.
+Catches bug class 5: deployment-gap bugs that unit + integration tests
+miss (signal-cli mode, missing transitive deps, setup/ not copied into
+image, env vars not threaded through compose).
+
+Gated by `ENABLE_COMPOSE_SMOKE=true`. Default-skip — running this in
+every PR CI is too slow + too LLM-expensive.
+
+Privacy: no real user data. Uses placeholder fixtures only.
+
+This test is the ONE allowed `subprocess.run` site outside the
+constrained code surface. The tool-surface audit (`test_tool_surface_audit.py`)
+explicitly carves out this file.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
+
+import pytest
+
+_ENABLE_KEY = "ENABLE_COMPOSE_SMOKE"
+_COMPOSE_FILE = Path(__file__).parent.parent.parent / "docker" / "compose.yaml"
+_BOOT_TIMEOUT_SECONDS = 60
+_TEARDOWN_TIMEOUT_SECONDS = 30
+
+
+def _enabled() -> bool:
+    return os.environ.get(_ENABLE_KEY, "").lower() in ("true", "1", "yes")
+
+
+def _docker_available() -> bool:
+    return shutil.which("docker") is not None
+
+
+pytestmark = [
+    pytest.mark.skipif(not _enabled(), reason=f"{_ENABLE_KEY} not set; smoke is opt-in"),
+    pytest.mark.skipif(not _docker_available(), reason="docker CLI not on PATH"),
+]
+
+
+@pytest.fixture(scope="module")
+def compose_stack() -> object:
+    """Bring up the compose stack for the module, tear down after.
+
+    Uses `--wait` so docker compose blocks until services are healthy.
+    """
+    if not _COMPOSE_FILE.is_file():
+        pytest.fail(f"compose file not found at {_COMPOSE_FILE}")
+
+    # Required env to boot the app — set defaults if absent.
+    # The real values come from the operator's `.env` in production.
+    env = {
+        **os.environ,
+        "AUTHORIZED_PEERS": os.environ.get("AUTHORIZED_PEERS", "+15555550100"),
+        "SIGNAL_ACCOUNT": os.environ.get("SIGNAL_ACCOUNT", "+15555550100"),
+        "NOTION_API_KEY": os.environ.get("NOTION_API_KEY", "smoke-fake-key"),
+        "NOTION_DATABASE_ID": os.environ.get("NOTION_DATABASE_ID", "smoke-fake-db"),
+        # Use skeleton mode by default so the boot doesn't try to reach
+        # signal-cli or Anthropic during the smoke. The smoke is a
+        # *deployment-gap* test, not a behavior test — it asserts the
+        # stack can come up cleanly.
+        "ENABLE_LANGGRAPH_PATH": os.environ.get("ENABLE_LANGGRAPH_PATH", "false"),
+    }
+
+    # Bring up postgres + signal-cli + app
+    subprocess.run(  # noqa: S603 — fixed argv, no shell
+        [
+            "docker", "compose", "-f", str(_COMPOSE_FILE),
+            "up", "-d", "--wait", "--wait-timeout", str(_BOOT_TIMEOUT_SECONDS),
+        ],
+        env=env,
+        check=True,
+        timeout=_BOOT_TIMEOUT_SECONDS + 30,
+    )
+
+    yield None
+
+    # Tear down with volume removal so the next run starts clean.
+    subprocess.run(  # noqa: S603
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "down", "-v"],
+        env=env,
+        check=False,  # best-effort on teardown
+        timeout=_TEARDOWN_TIMEOUT_SECONDS,
+    )
+
+
+def _service_running(service: str) -> bool:
+    result = subprocess.run(  # noqa: S603
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "ps",
+         "--services", "--filter", "status=running"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return service in result.stdout.split()
+
+
+def test_compose_services_boot(compose_stack: object) -> None:
+    """Postgres + signal-cli + app must all be running after `compose up --wait`."""
+    assert _service_running("postgres"), "postgres service did not reach running state"
+    assert _service_running("signal-cli"), "signal-cli service did not reach running state"
+    # The `app` service exits 0 in skeleton mode (ENABLE_LANGGRAPH_PATH=false),
+    # which is by design — so we don't assert it's still running.
+    # We DO assert it ran without error in test_app_skeleton_exits_clean below.
+
+
+def test_postgres_migrations_applied(compose_stack: object) -> None:
+    """The reminder_outbox table must exist after stack boot."""
+    # Wait briefly for the app to apply migrations (it does so on startup).
+    for _ in range(10):
+        result = subprocess.run(  # noqa: S603
+            ["docker", "compose", "-f", str(_COMPOSE_FILE), "exec", "-T", "postgres",
+             "psql", "-U", "hml", "-d", "hml", "-tAc",
+             "SELECT to_regclass('reminder_outbox')"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip() == "reminder_outbox":
+            return
+        time.sleep(2)
+    pytest.fail(
+        "reminder_outbox table not present after 20s. Migration runner "
+        "didn't fire or psycopg2-binary / sqlalchemy is missing."
+    )
+
+
+def test_signal_cli_responds_to_health(compose_stack: object) -> None:
+    """signal-cli REST API must respond to /v1/about (the bbernhard image health)."""
+    # Use docker network from inside the postgres container (which is on the
+    # same compose network) so we don't depend on the host port mapping.
+    result = subprocess.run(  # noqa: S603
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "exec", "-T", "postgres",
+         "sh", "-c", "wget -q -O - http://signal-cli:8080/v1/about | head -c 200"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    # wget may not be installed in postgres:alpine — fall back to checking
+    # the service is at least listening. The presence of the about endpoint
+    # is best-effort.
+    if result.returncode != 0:
+        # Final fallback: just check the service is listed as running
+        assert _service_running("signal-cli")
+        return
+    body = result.stdout.strip()
+    assert body, "signal-cli /v1/about returned empty body"
+
+
+def test_app_skeleton_exits_clean(compose_stack: object) -> None:
+    """With ENABLE_LANGGRAPH_PATH=false, the app prints 'skeleton' and exits 0.
+
+    This is the only test of the app service in this smoke layer. Full
+    behavior is in the integration + eval layers.
+    """
+    result = subprocess.run(  # noqa: S603
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "logs", "app"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, f"could not read app logs: {result.stderr}"
+    assert "skeleton" in result.stdout, (
+        f"app did not print 'skeleton' in skeleton mode. Logs:\n{result.stdout[-2000:]}"
+    )

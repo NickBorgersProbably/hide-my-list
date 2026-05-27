@@ -1,0 +1,111 @@
+name: Model Swap Eval
+
+# Runs the eval layer against a CANDIDATE model alongside the current
+# baseline. Posts a markdown comparison report. Use this before
+# swapping a tier in setup/model-tiers.json to a cheaper / different
+# model (e.g., gemma4-small).
+#
+# Manual only (workflow_dispatch). Real LLM calls. Gated by
+# EVAL_BUDGET_USD soft cap (default $15). Typical cost $5-10 per run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_model:
+        description: 'LiteLLM model alias to evaluate (e.g., gemma4-small)'
+        required: true
+        type: string
+      candidate_tier:
+        description: 'Tier slot the candidate would fill (expensive|medium|cheap|reminder)'
+        required: true
+        default: 'cheap'
+        type: choice
+        options:
+          - expensive
+          - medium
+          - cheap
+          - reminder
+      budget_usd:
+        description: 'Soft cost cap in USD (default 15)'
+        required: false
+        default: '15'
+        type: string
+
+concurrency:
+  group: model-swap-${{ inputs.candidate_model }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write  # to comment on a linked PR if `pr_number` provided
+
+jobs:
+  swap:
+    name: Eval candidate ${{ inputs.candidate_model }} at tier ${{ inputs.candidate_tier }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --quiet -e ".[dev]"
+
+      - name: Compute baseline + candidate model lists
+        id: models
+        env:
+          CANDIDATE: ${{ inputs.candidate_model }}
+          TIER: ${{ inputs.candidate_tier }}
+        run: |
+          set -euo pipefail
+          # Baseline = current production tier values (unique).
+          BASELINE=$(python -c 'import json; t=json.load(open("setup/model-tiers.json")); print(",".join(sorted(set(t.values()))))')
+          # Eval models = baseline (for regression check) + candidate (for comparison).
+          MODELS="${BASELINE},${CANDIDATE}"
+          echo "baseline=$BASELINE" >> "$GITHUB_OUTPUT"
+          echo "models=$MODELS" >> "$GITHUB_OUTPUT"
+          echo "candidate_tier=$TIER" >> "$GITHUB_OUTPUT"
+
+      - name: Run eval suite (baseline + candidate)
+        env:
+          ENABLE_LIVE_LLM_EVALS: 'true'
+          EVAL_MODELS: ${{ steps.models.outputs.models }}
+          # Baseline must keep passing; candidate failures are informational.
+          EVAL_BASELINE_MODELS: ${{ steps.models.outputs.baseline }}
+          EVAL_CANDIDATE_TIER: ${{ steps.models.outputs.candidate_tier }}
+          EVAL_BUDGET_USD: ${{ inputs.budget_usd }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          echo "Baseline: ${{ steps.models.outputs.baseline }}"
+          echo "Candidate: ${{ inputs.candidate_model }} at tier ${{ inputs.candidate_tier }}"
+          echo "Budget cap: \$$EVAL_BUDGET_USD"
+          python -m tests.evals.runner
+
+      - name: Upload model-swap report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-swap-${{ inputs.candidate_model }}-${{ github.run_id }}
+          path: tests/evals/runs/
+          retention-days: 90
+
+      - name: Surface report.md in job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          LATEST=$(ls -1d tests/evals/runs/*/ 2>/dev/null | tail -1 || true)
+          if [ -n "$LATEST" ] && [ -f "$LATEST/report.md" ]; then
+            echo "## Model-Swap Report: ${{ inputs.candidate_model }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat "$LATEST/report.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report.md produced." >> "$GITHUB_STEP_SUMMARY"
+          fi

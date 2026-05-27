@@ -1,0 +1,24 @@
+---
+# Discriminator fixture: a bare task with NO reminder request must
+# produce is_reminder=false. Phase B's mocked intake tests passed
+# strings that look right; a cheaper model may default is_reminder=true
+# on any time-adjacent word. This catches that drift.
+id: intake-bare-task-no-reminder-001
+node: intake
+tier: medium
+peer: "<test-peer-4>"
+inbound: "I need to do laundry this weekend"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)(remind|reminder|notify|notification|set\\s+a\\s+(notification|reminder|alert))"
+  - kind: judge
+    rubric: |
+      The response confirms a task was added but does NOT mention
+      setting a reminder, alert, or notification. Score 1.0 if
+      task-only confirmation; 0.0 if a reminder was set or mentioned.
+    threshold: 0.7

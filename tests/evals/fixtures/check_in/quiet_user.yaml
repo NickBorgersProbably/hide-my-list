@@ -1,0 +1,27 @@
+---
+# Check-in scenario: system-initiated follow-up after silence on the
+# active task. Tone must be open, no pressure, validate any answer.
+# CHECK_IN is never inferred from user messages — this fixture simulates
+# the scheduler-driven invocation.
+id: check-in-quiet-user-001
+node: check_in
+tier: medium
+peer: "<test-peer-9>"
+inbound: "__CHECK_IN__"  # sentinel for scheduler-initiated
+prior_state:
+  active_task:
+    notion_page_id: "<placeholder-page-id>"
+    title: "<placeholder-task>"
+  conversation_state: checking_in
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: regex_forbid
+    pattern: "(?i)(why\\s+(haven't|didn't)\\s+you|are\\s+you\\s+procrastinating)"
+  - kind: judge
+    rubric: |
+      The check-in opens with low pressure (no demands, no guilt).
+      It offers at least one graceful exit ramp (e.g., "want to take
+      a break?"). It does NOT count time elapsed or shame inactivity.
+      Score 1.0 for both, 0.0 if any pressure framing.
+    threshold: 0.8

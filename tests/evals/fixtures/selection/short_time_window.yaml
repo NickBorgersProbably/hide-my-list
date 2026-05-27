@@ -1,0 +1,26 @@
+---
+# Selection scenario: user reports a small time window. The selection
+# node must suggest a task that's plausibly doable in that window and
+# articulate a reason. Catches Phase B regressions where the cheaper
+# model picks any task without scoring.
+id: selection-short-window-001
+node: selection
+tier: expensive
+peer: "<test-peer-5>"
+inbound: "I have 15 minutes — what should I do?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: 15
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The response offers exactly one task suggestion that plausibly
+      fits a 15-minute window. It does NOT dump a list of options.
+      It includes a brief why (e.g., energy fit, time fit, mood).
+      Score 1.0 for all three, 0.5 for two, 0.0 for one or none.
+    threshold: 0.7
