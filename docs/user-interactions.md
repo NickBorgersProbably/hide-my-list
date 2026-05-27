@@ -779,7 +779,7 @@ Reschedule replay:
       "type": "reminder",
       "title": "Set up your video call software for therapy",
       "status": "missed",
-      "awaiting_response": true
+      "awaiting_reply": true
     }
   ]
   ```

@@ -184,17 +184,6 @@ DB-backed `recent_outbound` resolution remains the planned path for reminder fol
 | "I did it" after a just-sent reminder | COMPLETE |
 | "Tomorrow at 9am" after a just-sent reminder | ADD_TASK |
 
-### Cross-Session Reply Resolution
-
-The `recent_outbound` Postgres table carries short-lived context for things the agent just said that may get a terse follow-up in a later session. Use the freshest unresolved entry first when the user's message would otherwise be ambiguous.
-
-Rules:
-- Keep `recent_outbound` tiny and recent. Prune expired entries on read/write.
-- Prefer the newest `awaiting_response=true` entry whose wording plausibly matches the user's reply.
-- When a reminder entry explains the reply, respond as if the conversation never broke across sessions. Do not ask "what did you do?" if the reminder title already answers that.
-- After using an entry to resolve the user's reply, clear it or mark `awaiting_response=false`.
-
-**Reminder follow-up COMPLETE (special case):** When `COMPLETE` is triggered by a reply that resolves a `recent_outbound` reminder entry and `active_task` is empty, the reminder Notion page is already `Completed` at delivery time — do not call `complete-reminder` or update Notion status again. Instead: deliver completion acknowledgment and reward (same celebration as a normal task completion), then clear the matched `recent_outbound` entry.
 
 ---
 
