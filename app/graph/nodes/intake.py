@@ -121,6 +121,16 @@ async def intake_node(state: State) -> dict[str, Any]:
         sub_tasks = parsed.get("sub_tasks", [])
         confirmation_message = parsed.get("confirmation_message", f"Got it — {work_type}, ~{time_estimate} min.")
 
+        log.info(
+            "intake_node.parsed",
+            peer=peer[:4] + "***",
+            is_reminder=is_reminder,
+            has_remind_at=bool(remind_at_str),
+            remind_at=remind_at_str,  # ISO timestamp; not PII
+            urgency=urgency,
+            time_estimate=time_estimate,
+        )
+
         if is_reminder and remind_at_str:
             notion_page = await _create_reminder(
                 peer=peer,
@@ -130,6 +140,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 remind_at_str=remind_at_str,
             )
         else:
+            log.info("intake_node.no_reminder", peer=peer[:4] + "***", has_remind_at=bool(remind_at_str), is_reminder=is_reminder)
             notion_page = await notion.create_task(
                 title=task_title,
                 work_type=work_type,
@@ -221,6 +232,12 @@ async def _create_reminder(
                     due_at=remind_at,
                     idempotency_key=idempotency_key,
                 )
+            log.info(
+                "intake_node.outbox_enqueued",
+                page_id=page_id,
+                due_at=remind_at.isoformat() if remind_at else None,
+                idempotency_key=idempotency_key,
+            )
         except Exception:
             log.exception("intake_node.enqueue_failed", page_id=page_id)
             # Notion row exists but outbox write failed — reminder won't be delivered
