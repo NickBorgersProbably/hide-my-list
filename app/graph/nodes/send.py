@@ -44,12 +44,15 @@ async def send_node(state: State) -> dict[str, Any]:
 
     if not _ENABLE_LANGGRAPH_PATH:
         for draft in pending:
-            # Log recipient only — body is private conversation content
-            log.debug(
-                "send_node.dormant",
-                recipient=draft.get("recipient"),
-                has_body=bool(draft.get("body")),
-            )
+            # Log recipient and attachment_count only.
+            # Body and attachment_path are private — never log their values.
+            log_kwargs: dict[str, Any] = {
+                "recipient": draft.get("recipient"),
+                "has_body": bool(draft.get("body")),
+            }
+            if draft.get("attachment_path") is not None:
+                log_kwargs["attachment_count"] = 1
+            log.debug("send_node.dormant", **log_kwargs)
         return {}
 
     from app.tools import signal_client
@@ -58,6 +61,7 @@ async def send_node(state: State) -> dict[str, Any]:
         recipient = draft.get("recipient", "")
         body = draft.get("body", "")
         notion_page_id = draft.get("notion_page_id")
+        attachment_path: str | None = draft.get("attachment_path")
 
         if not recipient or not body:
             # Log booleans only — no body content (private data discipline)
@@ -72,23 +76,34 @@ async def send_node(state: State) -> dict[str, Any]:
         key_source = f"{recipient}:{body}"
         idempotency_key = hashlib.sha256(key_source.encode()).hexdigest()[:32]
 
+        # Build attachment list for signal_client — attachment_path is private;
+        # log attachment_count only, never the path.
+        send_kwargs: dict[str, Any] = {
+            "idempotency_key": idempotency_key,
+        }
+        if attachment_path:
+            send_kwargs["attachment_paths"] = [attachment_path]
+
         try:
             result = await signal_client.send_message(
                 recipient=recipient,
                 message=body,
-                idempotency_key=idempotency_key,
+                **send_kwargs,
             )
             log.info(
                 "send_node.sent",
                 recipient=recipient,
                 notion_page_id=notion_page_id,
                 timestamp=result.get("timestamp"),
+                attachment_count=1 if attachment_path else 0,
             )
         except Exception:
             log.exception(
                 "send_node.send_failed",
                 recipient=recipient,
                 notion_page_id=notion_page_id,
+                attachment_count=1 if attachment_path else 0,
+                # attachment_path intentionally omitted — private data
             )
             # Do not re-raise — terminal node must not block graph completion.
             # For reminders, the outbox handles delivery. For conversation replies,
