@@ -102,11 +102,12 @@ async def classify_intent(state: State) -> dict:
     return {"intent": intent}
 ```
 
-The Phase B implementation in `app/graph/routing.py` passes `RECENT_OUTBOUND_CONTEXT`
-as a placeholder in the classifier prompt but does not yet query the `recent_outbound`
-table. The Phase B prompt template references the variable, and the node must supply it.
-Full DB-backed recent_outbound read is targeted for Phase C once the worker populates
-the table during live operation.
+The Phase B implementation in `app/graph/routing.py` reads a window of prior turns from
+`state["messages"]` — the checkpointed LangGraph channel populated by `send_node` — and
+includes them as a `Prior conversation:` block in the classifier prompt. This lets short
+follow-ups resolve against the active discussion without querying the `recent_outbound`
+table. DB-backed `recent_outbound` context remains the planned path for cross-session reply
+resolution (reminder follow-up via `awaiting_response`) and is not yet wired in Phase B.
 
 **Worker writes:**
 

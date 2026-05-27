@@ -127,7 +127,7 @@ class TestClassifyIntentUsesHistory:
             return _FakeModel()
 
         prior = [
-            HumanMessage(content="I need to call Liberty Mutual"),
+            HumanMessage(content="I need to call Test Vendor"),
             AIMessage(content="Got it — independent task, ~20 min."),
         ]
         state = _base_state(incoming="I need to do it by Friday", messages=prior)
@@ -142,7 +142,7 @@ class TestClassifyIntentUsesHistory:
         msgs = captured["msgs"]
         # Second message is the HumanMessage carrying the prompt body.
         human_content = msgs[1].content
-        assert "Liberty Mutual" in human_content
+        assert "Test Vendor" in human_content
         assert "I need to do it by Friday" in human_content
         assert "Prior conversation:" in human_content
 

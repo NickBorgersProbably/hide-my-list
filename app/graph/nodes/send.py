@@ -36,7 +36,9 @@ async def send_node(state: State) -> dict[str, Any]:
     Ordering: drafts are sent in list order (preserved from upstream nodes).
     Failures: logged, not raised. Graph completion is not blocked by send failures.
 
-    Returns an empty dict — no state mutation after the terminal node.
+    Returns a messages delta — HumanMessage for the incoming turn and AIMessage per
+    non-empty outbound draft — for the add_messages reducer, or an empty dict if
+    nothing to record. Send failures are logged and non-blocking.
     """
     pending = state.get("pending_outbound", [])
 
