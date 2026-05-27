@@ -15,7 +15,6 @@ import pytest
 
 from tests.perf.test_llm_perf import aggregate_latencies, aggregate_tokens
 
-
 # ---------------------------------------------------------------------------
 # aggregate_latencies
 # ---------------------------------------------------------------------------
