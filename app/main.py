@@ -15,10 +15,31 @@ import asyncio
 import logging
 import os
 import sys
+from typing import Any
 
 import structlog
 
 log = structlog.get_logger()
+
+_RECIPIENT_LOG_FIELDS = frozenset({"peer", "recipient", "phone_number", "signal_account"})
+_PRIVATE_TEXT_LOG_FIELDS = frozenset(
+    {"message", "body", "task_title", "title", "notion_page_title", "reminder_content"}
+)
+
+
+def _redact_private_log_fields(
+    _logger: Any,
+    _method_name: str,
+    event_dict: dict[str, Any],
+) -> dict[str, Any]:
+    """Redact private field values before logs reach stdout or file sinks."""
+    for key in _RECIPIENT_LOG_FIELDS:
+        if key in event_dict:
+            event_dict[key] = "<recipient>"
+    for key in _PRIVATE_TEXT_LOG_FIELDS:
+        if key in event_dict:
+            event_dict[key] = "<private>"
+    return event_dict
 
 
 def _check_langsmith_guard() -> None:
@@ -59,9 +80,7 @@ async def _run_app() -> None:
         await listener.run()
 
 
-def main() -> None:
-    _check_langsmith_guard()
-
+def _configure_logging() -> None:
     log_file = os.environ.get("LOG_FILE", "")
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
     if log_file:
@@ -77,11 +96,17 @@ def main() -> None:
             structlog.stdlib.add_log_level,
             structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.processors.TimeStamper(fmt="iso"),
+            _redact_private_log_fields,
             structlog.processors.JSONRenderer(),
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
     )
+
+
+def main() -> None:
+    _check_langsmith_guard()
+    _configure_logging()
 
     enable = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() == "true"
 
