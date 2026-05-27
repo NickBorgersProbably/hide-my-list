@@ -403,7 +403,11 @@ async def test_complete_node_marks_task_done_and_rewards() -> None:
     with (
         patch("app.graph.nodes.complete._ENABLE_LANGGRAPH_PATH", True),
         patch("app.tools.notion.update_status", new_callable=AsyncMock),
-        patch("app.tools.rewards.maybe_reward", new_callable=AsyncMock, return_value="Nice work! ✨"),
+        patch(
+            "app.tools.rewards.maybe_reward",
+            new_callable=AsyncMock,
+            return_value={"text": "Nice work! ✨", "attachment_path": None},
+        ),
     ):
         from app.graph.nodes.complete import complete_node
 
