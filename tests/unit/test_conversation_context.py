@@ -123,7 +123,7 @@ class TestClassifyIntentUsesHistory:
                 captured["msgs"] = msgs
                 return _FakeResp()
 
-        def _fake_llm(_tier: str) -> Any:
+        def _fake_llm(_tier: str, **_kwargs: Any) -> Any:
             return _FakeModel()
 
         prior = [
@@ -160,7 +160,7 @@ class TestClassifyIntentUsesHistory:
                 captured["msgs"] = msgs
                 return _FakeResp()
 
-        def _fake_llm(_tier: str) -> Any:
+        def _fake_llm(_tier: str, **_kwargs: Any) -> Any:
             return _FakeModel()
 
         state = _base_state(incoming="Hello", messages=[])
