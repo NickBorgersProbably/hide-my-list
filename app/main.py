@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import sys
+from collections.abc import MutableMapping
 from typing import Any
 
 import structlog
@@ -30,8 +31,8 @@ _PRIVATE_TEXT_LOG_FIELDS = frozenset(
 def _redact_private_log_fields(
     _logger: Any,
     _method_name: str,
-    event_dict: dict[str, Any],
-) -> dict[str, Any]:
+    event_dict: MutableMapping[str, Any],
+) -> MutableMapping[str, Any]:
     """Redact private field values before logs reach stdout or file sinks."""
     for key in _RECIPIENT_LOG_FIELDS:
         if key in event_dict:
