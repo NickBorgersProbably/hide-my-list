@@ -76,8 +76,8 @@ home-automation refactor:
   runner's Tailscale connection to LiteLLM at
   `https://llm.featherback-mermaid.ts.net/v1`.
 - **Claude-over-LiteLLM uses the Anthropic-compatible path**.
-  `review-claude-run` forwards `ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`
-  and `ANTHROPIC_API_KEY=fake-key`; reviewer jobs keep using the
+  `review-claude-run` forwards `LLM_PROXY_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`
+  and `LLM_PROXY_API_KEY=fake-key`; reviewer jobs keep using the
   OpenAI-compatible path via `.devcontainer/configure-codex.sh`.
 
 ## Issue Resolution Agent issue-resolution entry points

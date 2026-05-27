@@ -82,7 +82,7 @@ processor in `app/main.py` is a safety net; the callback does not rely on it.
 
 `app/models.py:llm(tier, *, caller=None)` constructs one
 `LLMObservabilityCallback` per call and attaches it via
-`ChatAnthropic(...).with_config(callbacks=[handler])`. The callback captures
+`ChatOpenAI(...).with_config(callbacks=[handler])`. The callback captures
 tier + model + caller at construction time so each log event is self-describing.
 
 Every graph node passes `caller=` to `llm()`:
@@ -112,7 +112,8 @@ without running the full behavioral eval rig.
 
 ```bash
 ENABLE_LLM_PERF=true \
-ANTHROPIC_API_KEY=<key> \
+LLM_PROXY_BASE_URL=<openai-compatible-proxy-url> \
+LLM_PROXY_API_KEY=<key> \
 pytest tests/perf/test_llm_perf.py -v
 ```
 

@@ -122,12 +122,9 @@ def _call_judge_llm(
 ) -> str:
     """Single-shot LLM call via langchain-anthropic.
 
-    Uses the same client class as the production app, pointed at the same
-    LiteLLM proxy (`ANTHROPIC_BASE_URL`). Sharing the client class avoids
-    introducing a new outbound HTTP surface — the constrained-tool-surface
-    invariant from `docs/python-rewrite/test-rig.md` and
-    `app/observability/llm-observability` keep judge outbound HTTP on the
-    same approved langchain transport.
+    Points at the same LiteLLM proxy (`LLM_PROXY_BASE_URL`) as the production
+    app. Keeping judge outbound HTTP inside LangChain preserves the
+    constrained-tool-surface invariant from `docs/python-rewrite/test-rig.md`.
     """
     chat = ChatAnthropic(
         model_name=model,
@@ -168,9 +165,9 @@ def score(
         response: The model-under-test's output to score.
         model: Judge model alias (must resolve via LiteLLM proxy).
             Default `claude-sonnet-4-6`.
-        base_url: LiteLLM proxy URL. Defaults to env `ANTHROPIC_BASE_URL`.
+        base_url: LiteLLM proxy URL. Defaults to env `LLM_PROXY_BASE_URL`.
             If neither is set, raises RuntimeError.
-        api_key: LiteLLM proxy API key. Defaults to env `ANTHROPIC_API_KEY`.
+        api_key: LiteLLM proxy API key. Defaults to env `LLM_PROXY_API_KEY`.
             If neither is set, raises RuntimeError.
 
     Returns:
@@ -188,16 +185,16 @@ def score(
         log.debug("judge.cache_hit", extra={"key": key[:12]})
         return cached
 
-    effective_base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL")
-    effective_api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    effective_base_url = base_url or os.environ.get("LLM_PROXY_BASE_URL")
+    effective_api_key = api_key or os.environ.get("LLM_PROXY_API_KEY")
     if not effective_base_url:
         raise RuntimeError(
-            "Judge requires ANTHROPIC_BASE_URL (LiteLLM proxy endpoint) — "
+            "Judge requires LLM_PROXY_BASE_URL (LiteLLM proxy endpoint) — "
             "pass base_url= or set the env var."
         )
     if not effective_api_key:
         raise RuntimeError(
-            "Judge requires ANTHROPIC_API_KEY — "
+            "Judge requires LLM_PROXY_API_KEY — "
             "pass api_key= or set the env var."
         )
 

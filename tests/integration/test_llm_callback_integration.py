@@ -4,11 +4,11 @@ Tests that:
 1. llm(tier, caller=...) returns a model with the callback attached.
 2. The callback is an LLMObservabilityCallback instance.
 3. Calling .ainvoke() on the returned model triggers on_chat_model_start
-   + on_llm_end (verified via mock ChatAnthropic).
+   + on_llm_end (verified via callback hook simulation).
 4. The callback's completed_calls is populated with the correct tier/caller.
 5. Existing callers with no caller= kwarg still work (caller=None).
 
-No real LLM calls are made — ChatAnthropic is patched.
+No real LLM calls are made.
 """
 from __future__ import annotations
 
@@ -47,7 +47,8 @@ def test_llm_factory_attaches_callback() -> None:
     import os
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         from app.models import llm
@@ -76,7 +77,8 @@ def test_llm_factory_caller_none_is_valid() -> None:
     import os
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         from app.models import llm
@@ -98,7 +100,8 @@ def test_llm_factory_different_tiers_produce_different_handlers() -> None:
     import os
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         from app.models import llm
@@ -131,15 +134,16 @@ def test_llm_factory_different_tiers_produce_different_handlers() -> None:
 def test_ainvoke_triggers_callback_events() -> None:
     """Calling model.ainvoke() triggers on_chat_model_start + on_llm_end.
 
-    ChatAnthropic is mocked so no real API call is made. We verify that the
-    callback's completed_calls is populated after the call.
+    No real API call is made. We verify that the callback's completed_calls is
+    populated after the simulated call.
     """
     _clear_model_cache()
 
     import os
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         from app.models import llm
@@ -205,7 +209,8 @@ def test_start_event_kwargs_shape() -> None:
     import os
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with _patch.dict(os.environ, env, clear=True):
         from app.models import llm

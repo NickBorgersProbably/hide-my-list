@@ -9,7 +9,7 @@ Design notes:
 - The model swap mechanism rewrites `setup/model-tiers.json` per session.
   The app reads model tiers from `app.models.llm(tier)` which reads that
   file at import time. Pytest fixtures clear the lru_cache between runs.
-- Real LLM calls go through the LiteLLM proxy at `ANTHROPIC_BASE_URL`.
+- Real LLM calls go through the LiteLLM proxy at `LLM_PROXY_BASE_URL`.
   Same proxy production uses; what we validate matches what users see.
 - The judge LLM is always Claude Sonnet 4.6 (per the rig spec), never
   the model under test. Judge cache is in `tests/evals/.cache/`.

@@ -116,8 +116,8 @@ def test_valid_tier_returns_llm_instance() -> None:
 
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
-    env.setdefault("ANTHROPIC_BASE_URL", "https://proxy.test/v1")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         from langchain_core.runnables import RunnableBinding
@@ -137,8 +137,8 @@ def test_invalid_tier_raises_value_error() -> None:
 
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
-    env.setdefault("ANTHROPIC_BASE_URL", "https://proxy.test/v1")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         with pytest.raises(ValueError, match="Unknown model tier"):

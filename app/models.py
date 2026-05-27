@@ -14,10 +14,8 @@ can only hold one Gemma model in RAM at a time; reintroducing distinct
 tiers is a one-line edit per tier in setup/model-tiers.json.
 
 Model IDs are sent as OpenAI-format chat-completion requests to the
-LiteLLM proxy at ANTHROPIC_BASE_URL (the env var name is retained for
-compose/devcontainer continuity even though the wire protocol is now
-OpenAI, not Anthropic). Adding a new provider family is just adding
-its prefix to _VALID_MODEL_PREFIXES.
+LiteLLM proxy at LLM_PROXY_BASE_URL. Adding a new provider family is
+just adding its prefix to _VALID_MODEL_PREFIXES.
 
 LangSmith guard: refuses boot when LANGSMITH_TRACING=true unless
 ALLOW_PRIVATE_TRACE_EXPORT=true is also set. Private user data (task titles,
@@ -115,8 +113,8 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     """Return a LangChain ChatOpenAI instance pointing at the LiteLLM proxy.
 
     Model IDs are resolved from setup/model-tiers.json, validated at first call.
-    ANTHROPIC_BASE_URL must point at the proxy (OpenAI-compatible endpoint, i.e.
-    include the /v1 suffix); ANTHROPIC_API_KEY is forwarded as the bearer token
+    LLM_PROXY_BASE_URL must point at the proxy (OpenAI-compatible endpoint, i.e.
+    include the /v1 suffix); LLM_PROXY_API_KEY is forwarded as the bearer token
     when present and falls back to a placeholder when the proxy doesn't require
     auth.
 
@@ -154,8 +152,8 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
         "model": model_id,
         "temperature": temperature,
         "max_tokens": 1024,
-        "base_url": os.environ.get("ANTHROPIC_BASE_URL"),
-        "api_key": os.environ.get("ANTHROPIC_API_KEY") or "placeholder",
+        "base_url": os.environ.get("LLM_PROXY_BASE_URL"),
+        "api_key": os.environ.get("LLM_PROXY_API_KEY") or "placeholder",
     }
     base_model = ChatOpenAI(**kwargs)
 

@@ -150,7 +150,7 @@ Required properties:
 **Evidence:** #77, #78
 
 ### 2.2 Pass only the active tool's minimal auth env into CI containers
-**Why:** Stable pattern = run review jobs through baked container config, pass only the runtime env the selected CLI actually reads. Current split: Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}`; Claude fixer jobs forward `ANTHROPIC_API_KEY=fake-key`, `ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`, and `GH_TOKEN=${WORKFLOW_PAT}`. Neither path should depend on OAuth/keychain passthrough.
+**Why:** Stable pattern = run review jobs through baked container config, pass only the runtime env the selected CLI actually reads. Current split: Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}`; Claude fixer jobs forward `LLM_PROXY_API_KEY=fake-key`, `LLM_PROXY_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`, and `GH_TOKEN=${WORKFLOW_PAT}`. Neither path should depend on OAuth/keychain passthrough.
 **Before:** Earlier iterations tried to forward unused or mismatched LLM auth env vars directly, failed in confusing ways when container runtime forwarding differed from expectations.
 **Evidence:** #90, #100, #475
 
