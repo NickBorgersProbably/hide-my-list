@@ -130,7 +130,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
             },
         )
 
-        model = llm("medium")
+        model = llm("medium", caller="rejection")
         messages = [
             SystemMessage(content=prompt_text),
             HumanMessage(content=f"The user said: {incoming!r}"),

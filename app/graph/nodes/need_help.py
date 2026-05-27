@@ -118,7 +118,7 @@ async def need_help_node(state: State) -> dict[str, Any]:
             },
         )
 
-        model = llm("medium")
+        model = llm("medium", caller="need_help")
         messages = [
             SystemMessage(content=prompt_text),
             HumanMessage(content=incoming),

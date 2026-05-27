@@ -88,7 +88,7 @@ async def intake_node(state: State) -> dict[str, Any]:
         }
         prompt_text = render_with_defaults("intake.md.j2", prompt_context)
 
-        model = llm("medium")
+        model = llm("medium", caller="intake")
         messages = [
             SystemMessage(content=prompt_text),
             HumanMessage(content=f"The user said: {incoming!r}"),

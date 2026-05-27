@@ -76,7 +76,7 @@ async def classify_intent(state: State) -> dict[str, Intent | None]:
 
         from app.models import llm
 
-        model = llm("medium")
+        model = llm("medium", caller="classify")
 
         messages = [
             SystemMessage(content=_INTENT_SYSTEM_PROMPT),

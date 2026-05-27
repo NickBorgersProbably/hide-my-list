@@ -58,7 +58,7 @@ async def chat_node(state: State) -> dict[str, Any]:
             },
         )
 
-        model = llm("medium")
+        model = llm("medium", caller="chat")
         messages = [
             SystemMessage(content=prompt_text),
             HumanMessage(content=incoming),
