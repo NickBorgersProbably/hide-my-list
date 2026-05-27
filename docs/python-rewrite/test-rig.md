@@ -213,25 +213,22 @@ meaning every reward image was silently discarded.
 hardcoded relative to the repo root. No `MODEL_TIERS_PATH` env override exists
 in the current runtime. The eval runner swaps model tiers by writing a modified
 `setup/model-tiers.json` into the test working tree before invoking the graph
-under test. In the eval harness, `ChatAnthropic` routes through a LiteLLM proxy at
-`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. The smoke harness boots the full stack and makes no LLM calls (no real API
-keys are required — compose smoke uses placeholder env values).
-The production app runtime connects directly to the Anthropic API without a
-LiteLLM proxy.
+under test.
 
-**Prerequisite for non-Claude swap:** `app/models.py` currently validates
-that every tier value starts with `claude-` (a Phase B leftover that was
-appropriate when only Claude models were in play). Before a `gemma4-small`
-swap can be tested, that validation must be relaxed — either drop the
-prefix check or extend it to accept LiteLLM-routed aliases. The eval runner
-will surface this gap on first run by failing to instantiate the model.
-Tracked separately from this rig PR; the rig itself does not modify
-`app/models.py`.
+The app runtime uses `ChatOpenAI` routed through a LiteLLM proxy at
+`ANTHROPIC_BASE_URL` (OpenAI-compatible `/v1` endpoint); LiteLLM dispatches
+by model alias. `ANTHROPIC_API_KEY` is forwarded as the bearer token. The
+smoke harness boots the full stack and makes no LLM calls — compose smoke
+uses placeholder values for both env vars.
 
-Once that prerequisite is met: swapping `cheap: claude-haiku-4-5` to
-`cheap: gemma4-small` is a one-line change in `setup/model-tiers.json`.
-No Python adapter branching. All LLM routing stays through
-`app/models.py:llm(tier)`.
+Model IDs are validated against a known-prefix allowlist (`claude-`, `gemma`,
+`gpt-`) at startup. Swapping a tier to any supported alias is a one-line
+change in `setup/model-tiers.json`; no Python adapter changes are required.
+All LLM routing stays through `app/models.py:llm(tier)`.
+
+Unit tests for provider-boundary behavior must assert the exact `ChatOpenAI`
+constructor payload (model id, temperature, max_tokens, base_url, api_key) to
+catch routing regressions that would still pass a class-assertion-only check.
 
 Three cost gates for eval runs:
 - `ENABLE_LIVE_LLM_EVALS=true` — required for any real LLM call; absent = `pytest.skip`
