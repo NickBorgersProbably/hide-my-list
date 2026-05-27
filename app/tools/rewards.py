@@ -823,7 +823,7 @@ async def maybe_reward(
         prefs = (user_prefs or {}).get("rewards") if user_prefs else None
         image_path = await generate_reward_image(
             intensity=intensity_label,
-            streak_count=streak,
+            streak_count=1,  # Only current task available; intensity score still uses full streak
             task_descriptions=[task_title],  # Private — classified, not embedded in prompt
             work_type=work_type,
             energy_level=energy_required.lower(),

@@ -376,9 +376,7 @@ Streak count modifies generated image:
 
 #### Feedback Loop
 
-Each reward delivery writes a row to the `reward_manifests` Postgres table. Users provide feedback by reacting to a reward message in Signal — no separate command needed.
-
-**Collection mechanism:** When the Signal listener receives a reaction envelope, `app/ingress/signal_listener._extract_reaction` parses the reaction and routes it to `app/tools/rewards.record_reward_feedback`. This is a direct Postgres write, not a graph invocation.
+Each reward delivery writes a row to the `reward_manifests` Postgres table. `app/tools/rewards.record_reward_feedback` is the direct Postgres write handler for recording emoji reactions against reward manifest rows.
 
 **Emoji-to-score mapping** (`_FEEDBACK_EMOJI_SCORES`):
 

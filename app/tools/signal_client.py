@@ -83,21 +83,19 @@ def _validate_attachment_path(path_str: str) -> Path:
     """
     # Reject relative paths and traversal sequences before resolving.
     if not os.path.isabs(path_str):
-        raise ValueError(f"Attachment path must be absolute: {path_str!r}")
+        raise ValueError("Attachment path must be absolute")
     if ".." in Path(path_str).parts:
-        raise ValueError(f"Attachment path must not contain '..': {path_str!r}")
+        raise ValueError("Attachment path must not contain '..'")
 
     resolved = Path(path_str).resolve()
 
     # PNG-only content-type allowlist.
     if resolved.suffix.lower() != ".png":
-        raise ValueError(
-            f"Attachment must be a .png file (got {resolved.suffix!r}): {path_str!r}"
-        )
+        raise ValueError("Attachment must be a .png file")
 
     # File must exist.
     if not resolved.exists():
-        raise ValueError(f"Attachment path does not exist: {path_str!r}")
+        raise ValueError("Attachment path does not exist")
 
     # Resolved path must be under the reward_artifacts root.
     artifacts_root = _reward_artifacts_root()
@@ -105,8 +103,7 @@ def _validate_attachment_path(path_str: str) -> Path:
         resolved.relative_to(artifacts_root)
     except ValueError:
         raise ValueError(
-            f"Attachment path {path_str!r} is outside the reward_artifacts root "
-            f"({artifacts_root!s})"
+            "Attachment path is outside the reward_artifacts root"
         ) from None
 
     return resolved

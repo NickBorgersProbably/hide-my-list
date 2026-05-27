@@ -44,10 +44,9 @@ async def send_node(state: State) -> dict[str, Any]:
 
     if not _ENABLE_LANGGRAPH_PATH:
         for draft in pending:
-            # Log recipient and attachment_count only.
-            # Body and attachment_path are private — never log their values.
+            # Log booleans and counts only — no private values.
             log_kwargs: dict[str, Any] = {
-                "recipient": draft.get("recipient"),
+                "has_recipient": bool(draft.get("recipient")),
                 "has_body": bool(draft.get("body")),
             }
             if draft.get("attachment_path") is not None:
@@ -92,7 +91,7 @@ async def send_node(state: State) -> dict[str, Any]:
             )
             log.info(
                 "send_node.sent",
-                recipient=recipient,
+                has_recipient=bool(recipient),
                 notion_page_id=notion_page_id,
                 timestamp=result.get("timestamp"),
                 attachment_count=1 if attachment_path else 0,
@@ -100,7 +99,7 @@ async def send_node(state: State) -> dict[str, Any]:
         except Exception:
             log.exception(
                 "send_node.send_failed",
-                recipient=recipient,
+                has_recipient=bool(recipient),
                 notion_page_id=notion_page_id,
                 attachment_count=1 if attachment_path else 0,
                 # attachment_path intentionally omitted — private data
