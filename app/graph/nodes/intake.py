@@ -123,7 +123,6 @@ async def intake_node(state: State) -> dict[str, Any]:
 
         log.info(
             "intake_node.parsed",
-            peer=peer[:4] + "***",
             is_reminder=is_reminder,
             has_remind_at=bool(remind_at_str),
             remind_at=remind_at_str,  # ISO timestamp; not PII
@@ -140,7 +139,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 remind_at_str=remind_at_str,
             )
         else:
-            log.info("intake_node.no_reminder", peer=peer[:4] + "***", has_remind_at=bool(remind_at_str), is_reminder=is_reminder)
+            log.info("intake_node.no_reminder", has_remind_at=bool(remind_at_str), is_reminder=is_reminder)
             notion_page = await notion.create_task(
                 title=task_title,
                 work_type=work_type,

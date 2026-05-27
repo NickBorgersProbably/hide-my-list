@@ -163,7 +163,6 @@ async def send_message(
     # the key enables tracing and reconciliation when duplicates occur.
     log.info(
         "signal_client.send",
-        recipient_prefix=recipient[:4] + "***",
         idempotency_key=idempotency_key,
         attachment_count=len(attachment_paths) if attachment_paths else 0,
     )
@@ -181,7 +180,6 @@ async def send_message(
                 result = resp.json()
                 log.info(
                     "signal_client.send.ok",
-                    recipient_prefix=recipient[:4] + "***",
                     signal_timestamp=result.get("timestamp"),
                 )
                 return result  # type: ignore[no-any-return]

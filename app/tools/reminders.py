@@ -63,7 +63,6 @@ async def enqueue(
         "reminders.enqueued",
         reminder_id=str(rid),
         due_at=due_at.isoformat(),
-        peer_prefix=peer[:4] + "***",
     )
     return rid
 
