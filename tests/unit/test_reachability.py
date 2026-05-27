@@ -33,8 +33,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
-
 _REPO_ROOT = Path(__file__).parent.parent.parent
 _APP_ROOT = _REPO_ROOT / "app"
 
@@ -146,9 +144,9 @@ def test_no_unreachable_public_functions() -> None:
                 dead.append(f"{filepath.relative_to(_REPO_ROOT)}:{fn} (occurrences={count})")
 
     assert not dead, (
-        f"The following public functions have no call sites anywhere in app/. "
-        f"Either add a caller, add an integration test asserting end-to-end "
-        f"reachability, or add to _ENTRY_POINTS if this is a legitimate entry "
-        f"point. Bug class 6 (dead-code wiring):\n"
+        "The following public functions have no call sites anywhere in app/. "
+        "Either add a caller, add an integration test asserting end-to-end "
+        "reachability, or add to _ENTRY_POINTS if this is a legitimate entry "
+        "point. Bug class 6 (dead-code wiring):\n"
         + "\n".join(f"  - {d}" for d in sorted(dead))
     )
