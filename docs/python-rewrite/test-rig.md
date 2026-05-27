@@ -250,6 +250,11 @@ These are the six contract clauses the test reviewer enforces (see
 4. **New env var or compose service** must have:
    - Assertion in `tests/smoke/test_compose_round_trip.py` that it's threaded through.
    - Documentation in `docker/compose.yaml` comments.
+   - **Exception — CI-only / perf-harness env vars**: `ENABLE_LLM_PERF`, `PERF_MODELS`,
+     `PERF_RUNS_N`, and `PERF_RUNS_DIR` are perf-harness-only and are never threaded
+     through `docker/compose.yaml`. They are documented in
+     `docs/python-rewrite/llm-observability.md` and do not require
+     `test_compose_round_trip.py` coverage.
 
 5. **PR fixing a production bug** must add:
    - `tests/regressions/bug_<NNNN>_<slug>/` directory with README citing issue/PR.

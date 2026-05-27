@@ -16,10 +16,7 @@ import uuid
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.observability.llm_callback import (
-    CallMetrics,
     LLMObservabilityCallback,
     _elapsed_ms,
     _safe_int,
