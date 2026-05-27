@@ -113,7 +113,7 @@ Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude
 - `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers; read by `app/models.py` at startup
 - `pyproject.toml` — Python 3.12 dependency manifest for the LangGraph stack; runtime and dev deps pinned by version
 - `.github/workflows/python-validation.yml` — Required CI gate: ruff + mypy + pytest-unit on every PR touching Python source files
-- `.github/scripts/review/prompts/test.md` — Test coverage reviewer: enforces 6 test-rig contract clauses on PRs touching app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**
+- `.github/scripts/review/prompts/test.md` — Test coverage reviewer: enforces 6 test-rig contract clauses on PRs touching app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**, tests/**, the test reviewer prompt, review schemas, docs/python-rewrite/test-rig.md, and docker/compose.yaml
 
 ## Safety
 

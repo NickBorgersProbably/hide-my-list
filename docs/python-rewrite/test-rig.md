@@ -6,7 +6,9 @@ Python + LangGraph stack.
 
 The rig review enforcer lives at `.github/scripts/review/prompts/test.md` and
 fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.json`,
-`app/prompts/**`, or `docs/ai-prompts/**`.
+`app/prompts/**`, `docs/ai-prompts/**`, `tests/**`, the test reviewer prompt,
+`.github/scripts/review/schema/*.json`, `docs/python-rewrite/test-rig.md`, or
+`docker/compose.yaml`.
 
 ---
 
@@ -67,8 +69,8 @@ Globs `migrations/*.sql`, parses the `^\d+_` prefix, asserts:
 - Prefixes are monotonic starting at 1 with no gaps.
 - Filenames match `^\d{4}_[a-z][a-z0-9_]*\.sql$`.
 
-Currently `test_prefixes_are_unique` is `xfail` because main has two
-`0005_*.sql` files (known collision; cleanup is a follow-up).
+Currently the known `0005_*.sql` collision is whitelisted in
+`test_prefixes_are_unique`; any new duplicate prefix fails immediately.
 
 ### `test_reachability.py`
 
@@ -126,7 +128,6 @@ Standalone run: `pytest tests/regressions/bug_0570_reminder_uuid_coercion -v`
 Seeded entries (from PR-1):
 - `bug_0570_reminder_uuid_coercion/` — full integration test (skips without `DATABASE_URL`)
 - `bug_0567_capability_denial/` — README + pointer; test in eval layer (PR-2)
-- `bug_0563_reward_image_orphan/` — README + pointer; test in integration layer (follow-up)
 
 ---
 
@@ -201,8 +202,9 @@ meaning every reward image was silently discarded.
 hardcoded relative to the repo root. No `MODEL_TIERS_PATH` env override exists
 in the current runtime. The eval runner swaps model tiers by writing a modified
 `setup/model-tiers.json` into the test working tree before invoking the graph
-under test. `ChatAnthropic` talks to LiteLLM at `ANTHROPIC_BASE_URL`; LiteLLM
-dispatches by model alias.
+under test. In eval and smoke harnesses, `ChatAnthropic` routes through a LiteLLM proxy at
+`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. The production app
+runtime connects directly to the Anthropic API without a LiteLLM proxy.
 
 **Prerequisite for non-Claude swap:** `app/models.py` currently validates
 that every tier value starts with `claude-` (a Phase B leftover that was

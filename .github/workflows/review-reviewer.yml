@@ -132,8 +132,13 @@ jobs:
                 exit 1
               fi
             done
-            echo "Role '$ROLE_VALUE' not in main's enum; bootstrap shim validating against PR-head superset schema."
-            npx -y ajv-cli@5 validate --spec=draft2020 -s "$PR_SCHEMA" -d "$ARTIFACT"
+            UNION_ENUM=$(jq -s '[ .[0].properties.role.enum[], .[1].properties.role.enum[] ] | unique' \
+              "$MAIN_SCHEMA" "$PR_SCHEMA")
+            TEMP_SCHEMA=$(mktemp /tmp/bootstrap-reviewer-XXXXXX.json)
+            jq --argjson u "$UNION_ENUM" '.properties.role.enum = $u' "$MAIN_SCHEMA" > "$TEMP_SCHEMA"
+            echo "Role '$ROLE_VALUE' not in main's enum; bootstrap shim validating against derived temp schema."
+            npx -y ajv-cli@5 validate --spec=draft2020 -s "$TEMP_SCHEMA" -d "$ARTIFACT"
+            rm -f "$TEMP_SCHEMA"
           fi
 
       - name: Publish as GitHub PR Review

@@ -85,8 +85,14 @@ def test_regression_directory_is_well_formed(bug_dir: Path) -> None:
         f'"test lives in tests/evals/..." to the README.'
     )
 
-    # If README names a specific path, that path must exist now.
+    # If README says test lives elsewhere, require a concrete backtick path pointer.
     referenced = _referenced_paths(readme_text)
+    if not has_test and has_elsewhere:
+        assert referenced, (
+            f"{bug_dir.name}/README.md says the test lives elsewhere but names no "
+            f"backtick path. Use 'test lives in `tests/path/to/test.py`' format; "
+            f"bare phrases like 'test lives in PR-2' are not sufficient."
+        )
     missing = [p for p in referenced if not (_REPO_ROOT / p).exists()]
     assert not missing, (
         f"{bug_dir.name}/README.md references test paths that do not exist: {missing}. "

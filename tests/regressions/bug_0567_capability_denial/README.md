@@ -16,9 +16,9 @@ language to the chat prompt template forbidding denial of reminder capability.
 
 ## Regression Tests
 
-**Structural (unit layer, CI gate):** `tests/unit/test_no_capability_denial.py`
-checks prompt template contents for absence of denial-enabling phrases. This
-runs on every PR without LLM calls.
+**Structural (unit layer, CI gate):** test lives in
+`tests/unit/test_no_capability_denial.py`. Checks prompt template contents for
+absence of denial-enabling phrases. Runs on every PR without LLM calls.
 
 **Behavioral (eval layer, PR-2):** `tests/evals/test_chat_capability_contract.py`
 runs the chat node against a real LLM with the fixture
