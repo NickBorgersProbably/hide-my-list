@@ -34,6 +34,7 @@ services:
       - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
       - ALLOW_PRIVATE_TRACE_EXPORT=${ALLOW_PRIVATE_TRACE_EXPORT:-false}
       - USER_TZ=${USER_TZ:-America/Chicago}
+      - OPS_ALERT_SIGNAL_NUMBER=${OPS_ALERT_SIGNAL_NUMBER:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
