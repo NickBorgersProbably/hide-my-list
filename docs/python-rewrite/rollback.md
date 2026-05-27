@@ -124,6 +124,15 @@ into Postgres.
 
 ### 2.3 Start the Python stack
 
+Before starting, ensure `AUTHORIZED_PEERS` is set in `.env`:
+
+```bash
+# In .env — set to the E.164 number(s) allowed to send inbound messages
+AUTHORIZED_PEERS=<E.164_peer>
+```
+
+The app refuses to start if `AUTHORIZED_PEERS` is empty or unset.
+
 ```bash
 cd <repo_root>
 docker compose -f docker/compose.yaml up -d
@@ -154,9 +163,11 @@ stack's behavior.
 Run after `docker compose up -d` in Section 2.3. Operator executes manually.
 Not a CI step.
 
-1. **Signal round-trip:** Send "I have 30 minutes" via Signal. Expect a
-   GET_TASK task suggestion within 5 seconds. Check `docker compose logs -f app`
-   for the graph invocation.
+1. **Signal round-trip:** Send "I have 30 minutes" via Signal **from the peer
+   listed in `AUTHORIZED_PEERS`**. Expect a GET_TASK task suggestion within
+   5 seconds. Check `docker compose logs -f app` for the graph invocation.
+   Messages from peers not in `AUTHORIZED_PEERS` are silently dropped (no
+   reply); check logs for `signal_listener.unauthorized_peer_dropped`.
 
 2. **Reminder outbox:** Send "remind me to test in 2 minutes". Query
    `reminder_outbox` for a `pending` row:

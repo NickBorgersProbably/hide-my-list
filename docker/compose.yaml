@@ -29,6 +29,10 @@ services:
       # SIGNAL_ACCOUNT: E.164 phone number registered with signal-cli (required when
       # ENABLE_LANGGRAPH_PATH=true; set in the operator's .env file).
       - SIGNAL_ACCOUNT=${SIGNAL_ACCOUNT:-}
+      # AUTHORIZED_PEERS: comma-separated E.164 numbers permitted to message the
+      # bot. Notion is single-tenant; any inbound peer can read all tasks unless
+      # gated here. Empty/unset = refuse to start (fail-safe closed default).
+      - AUTHORIZED_PEERS=${AUTHORIZED_PEERS:-}
       - ENABLE_LANGGRAPH_PATH=${ENABLE_LANGGRAPH_PATH:-true}
       # LangSmith guard: requires explicit opt-in with ALLOW_PRIVATE_TRACE_EXPORT=true
       - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
