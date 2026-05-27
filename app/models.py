@@ -116,9 +116,10 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
 
     Model IDs are resolved from setup/model-tiers.json, validated at first call.
     ANTHROPIC_BASE_URL must point at the proxy (OpenAI-compatible endpoint, i.e.
-    include the /v1 suffix); ANTHROPIC_API_KEY is forwarded as the bearer token
-    when present and falls back to a placeholder when the proxy doesn't require
-    auth.
+    include the /v1 suffix); ANTHROPIC_API_KEY is forwarded as the bearer token.
+    Both env vars are required — startup fails if either is unset or empty. If the
+    proxy does not require auth, set ANTHROPIC_API_KEY to any non-empty placeholder
+    value in the runtime environment.
 
     An LLMObservabilityCallback is attached automatically, emitting
     llm.call.start / llm.call.end / llm.call.error events to structlog with
@@ -138,8 +139,9 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
         callback attached.
 
     Raises:
-        RuntimeError: If model-tiers.json is missing or malformed, or if
-            LANGSMITH_TRACING=true without ALLOW_PRIVATE_TRACE_EXPORT.
+        RuntimeError: If model-tiers.json is missing or malformed, if
+            LANGSMITH_TRACING=true without ALLOW_PRIVATE_TRACE_EXPORT, or if
+            ANTHROPIC_BASE_URL is unset or empty.
         ValueError: If tier is not a valid tier name.
     """
     if tier not in _VALID_TIERS:
@@ -150,12 +152,18 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     tiers = _load_model_tiers()
     model_id = tiers[tier]
 
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    if not base_url:
+        raise RuntimeError(
+            "ANTHROPIC_BASE_URL must point at the OpenAI-compatible LiteLLM /v1 endpoint"
+        )
+
     kwargs: dict[str, Any] = {
         "model": model_id,
         "temperature": temperature,
         "max_tokens": 1024,
-        "base_url": os.environ.get("ANTHROPIC_BASE_URL"),
-        "api_key": os.environ.get("ANTHROPIC_API_KEY") or "placeholder",
+        "base_url": base_url,
+        "api_key": os.environ["ANTHROPIC_API_KEY"],
     }
     base_model = ChatOpenAI(**kwargs)
 
