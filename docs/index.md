@@ -32,6 +32,7 @@ An AI-powered task manager where users never directly view their task list. The 
 - [LangGraph Semantics](python-rewrite/langgraph-semantics.md) - Durability spike findings: per-peer isolation, restart semantics, worker-to-graph state pattern, schema migration behavior
 - [Reward Deferred Features](python-rewrite/reward-deferred.md) - Features deferred from v1 reward subsystem (audio rewards, outing suggestions, video compilation)
 - [Test Rig Architecture](python-rewrite/test-rig.md) - Authoritative spec for the behavior + LLM-swap test rig: layer architecture, bug-class catalog, fixture format, discipline rules
+- [LLM Observability](python-rewrite/llm-observability.md) - Token + latency logging event schema (structlog → Gravwell), perf harness usage, model comparison recipe
 
 ## Design
 

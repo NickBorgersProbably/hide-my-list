@@ -100,7 +100,7 @@ async def cannot_finish_node(state: State) -> dict[str, Any]:
             },
         )
 
-        model = llm("medium")
+        model = llm("medium", caller="cannot_finish")
         messages = [
             SystemMessage(content=prompt_text),
             HumanMessage(content=incoming),

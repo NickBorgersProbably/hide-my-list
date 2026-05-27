@@ -105,7 +105,7 @@ async def check_in_node(state: State) -> dict[str, Any]:
             },
         )
 
-        model = llm("medium")
+        model = llm("medium", caller="check_in")
         messages = [
             SystemMessage(content=prompt_text),
             HumanMessage(content="Generate a check-in message."),
