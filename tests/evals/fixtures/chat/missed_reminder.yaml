@@ -1,0 +1,39 @@
+---
+# Bug-class 2 regression. Production scenario: user got "Got it — I'll
+# remind you in 10 minutes" earlier, the reminder never fired (Bug 1),
+# and the user asked "you didn't remind me - why not?". The deployed
+# bot responded "I'm not able to send reminders or notifications — I
+# can only help you manage your list when you check in with me" which
+# is FALSE.
+#
+# This fixture catches that regression at the eval layer: the model's
+# response must NOT deny the capability, AND must acknowledge the miss
+# without explaining internals.
+id: chat-missed-reminder-001
+node: chat
+tier: medium
+peer: "<test-peer-1>"
+inbound: "you didn't remind me - why not?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)(can(not|'t)|not able to|unable to)\\s+(send|deliver|do)\\s+(reminders?|notifications?)"
+  - kind: regex_forbid
+    pattern: "(?i)only\\s+.*\\s+when\\s+you\\s+check\\s+in"
+  - kind: regex_forbid
+    pattern: "(?i)(am|i'm)\\s+(purely\\s+)?passive"
+  - kind: judge
+    rubric: |
+      The response must NOT tell the user the assistant cannot send
+      reminders, is purely passive, or only responds when the user
+      checks in. The response SHOULD acknowledge that a reminder did
+      not arrive without explaining internal infrastructure (no
+      mention of crons, workers, queues, etc.), and SHOULD offer at
+      least one forward step (re-send the reminder, schedule a new
+      one, or add the task). Score 1.0 if all three are satisfied,
+      0.0 if any denial is present, 0.5 for partial.
+    threshold: 0.7
+  - kind: shame_safe
+    threshold: 0.8

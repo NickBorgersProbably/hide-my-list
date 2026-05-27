@@ -31,6 +31,17 @@ _BANNED_PATTERNS = [
     (re.compile(r"\beval\s*\("), "eval"),
     (re.compile(r"\bexec\s*\("), "exec"),
     (re.compile(r"subprocess\.[^(]+\(.*shell\s*=\s*True"), "subprocess shell=True"),
+    # Bug-class 5 (deployment-gap) defense: app/ must not shell out at all.
+    # Any subprocess invocation expands the constrained-tool-surface.
+    # The compose-smoke test in tests/smoke/ legitimately uses subprocess
+    # to drive docker compose; the audit only scans app/, so that test
+    # is unaffected.
+    (re.compile(r"\bsubprocess\.(run|Popen|call|check_output|check_call)\s*\("), "subprocess (any form)"),
+    (re.compile(r"\bos\.popen\s*\("), "os.popen"),
+    (re.compile(r"\bpty\.spawn\s*\("), "pty.spawn"),
+    # Sync httpx.Client is also constrained — the async surface is the
+    # only HTTP egress path. Same allowlist applies as for AsyncClient.
+    (re.compile(r"\bhttpx\.Client\s*\("), "httpx.Client (sync)"),
 ]
 
 
