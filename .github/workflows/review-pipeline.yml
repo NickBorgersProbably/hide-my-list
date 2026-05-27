@@ -328,13 +328,12 @@ jobs:
   # anthropics/claude-code-security-review) and a narrow lens (this
   # repo's invariants — constrained tool surface, no-shell-out, private-
   # data placeholders, workflow permissions, reviewer-routing). Both
-  # lenses run as ordinary reviewers but upload under the `lens-*`
-  # artifact prefix so the judge's `reviewer-*-<sha>` glob ignores them.
-  # The `review-security-merge` job then collapses the two lens
-  # artifacts into a single canonical `reviewer-security-<sha>` artifact
-  # that the judge consumes. See docs/agentic-pipeline-learnings.md
-  # §1.18 for the full design and `.github/scripts/review/security-merge.mjs`
-  # for the merge contract.
+  # lenses run as ordinary reviewers. The JUDGE collapses them into a
+  # synthesized `role=security` verdict using `.github/scripts/review/
+  # security-merge.mjs`, which runs from main's checkout with no PR
+  # involvement — closing the script-trust attack vector where a PR
+  # could otherwise modify the merger to suppress its own findings.
+  # See docs/agentic-pipeline-learnings.md §1.18 for the design.
   review-security-breadth:
     name: Reviewer (security-breadth)
     needs: gather
@@ -352,10 +351,6 @@ jobs:
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
       devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
-      # Sub-lens artifacts are picked up by the merger, not the judge.
-      artifact_prefix: lens
-      publish: false
-      write_status: false
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
@@ -376,128 +371,8 @@ jobs:
       head_repo: ${{ inputs.head_repo }}
       cycle: ${{ needs.gather.outputs.cycle }}
       devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
-      artifact_prefix: lens
-      publish: false
-      write_status: false
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
-  review-security-merge:
-    name: Reviewer (security) — merge lenses
-    needs: [gather, review-security-breadth, review-security-narrow]
-    # Always-runs after the two lens reviewers. Allowed to proceed even
-    # if one lens was skipped (the merger handles missing inputs by
-    # passing through the present one), but not if either lens failed
-    # or was cancelled — the pipeline shouldn't paper over a failed
-    # reviewer with a half-merged verdict.
-    if: |
-      always() &&
-      needs.gather.outputs.capped != 'true' &&
-      needs.gather.outputs.inherited != 'true' &&
-      needs.gather.result == 'success' &&
-      needs.review-security-breadth.result != 'failure' &&
-      needs.review-security-breadth.result != 'cancelled' &&
-      needs.review-security-narrow.result != 'failure' &&
-      needs.review-security-narrow.result != 'cancelled' &&
-      (
-        needs.review-security-breadth.result == 'success' ||
-        needs.review-security-narrow.result == 'success'
-      )
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-      pull-requests: read
-      statuses: read
-      actions: read
-    steps:
-      - name: Checkout main (for composite actions)
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Checkout PR branch (for merger script + schema)
-        # The merger script and the schema's optional summary_metadata
-        # block are PR-side surface. We trust the PR's version of both
-        # for the same reason reviewers read the PR's version of their
-        # own prompt files: a malicious PR modifying the merger would
-        # also have to suppress its own reviewer blockers, which is
-        # visible in the human-reviewed diff.
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.reviewed_sha }}
-          repository: ${{ inputs.head_repo }}
-          path: pr-head
-          fetch-depth: 1
-
-      - name: Download lens artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ${{ runner.temp }}/lens-artifacts
-          pattern: lens-security-*-${{ inputs.reviewed_sha }}
-
-      - name: Run merger
-        id: merge
-        env:
-          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
-          REVIEW_CYCLE: ${{ needs.gather.outputs.cycle }}
-        run: |
-          set -euo pipefail
-          LENS_DIR="${RUNNER_TEMP}/lens-artifacts"
-          BREADTH_FILE="${LENS_DIR}/lens-security-breadth-${REVIEWED_SHA}/security-breadth-result.json"
-          NARROW_FILE="${LENS_DIR}/lens-security-narrow-${REVIEWED_SHA}/security-narrow-result.json"
-          [ -f "$BREADTH_FILE" ] || BREADTH_FILE=""
-          [ -f "$NARROW_FILE" ]  || NARROW_FILE=""
-          mkdir -p "${RUNNER_TEMP}/merged"
-          OUTPUT="${RUNNER_TEMP}/merged/security-result.json"
-          BREADTH_PATH="$BREADTH_FILE" \
-          NARROW_PATH="$NARROW_FILE" \
-          OUTPUT_PATH="$OUTPUT" \
-          REVIEWED_SHA="$REVIEWED_SHA" \
-          REVIEW_CYCLE="$REVIEW_CYCLE" \
-            node pr-head/.github/scripts/review/security-merge.mjs
-          echo "result_json=$OUTPUT" >> "$GITHUB_OUTPUT"
-
-      - name: Validate merged artifact against schema
-        env:
-          ARTIFACT: ${{ steps.merge.outputs.result_json }}
-        run: |
-          set -euo pipefail
-          # Merged artifact has role="security" which is in main's enum,
-          # so the main schema is authoritative — no bootstrap shim
-          # needed here for the role field. We still validate against
-          # the PR-head schema because the optional summary_metadata
-          # block is PR-side. The same trust model applies as for the
-          # merger script: a malicious PR would have to suppress its
-          # own blockers via reviewer prompts, visible in human diff.
-          npx -y ajv-cli@5 validate --spec=draft2020 \
-            -s pr-head/.github/scripts/review/schema/reviewer-v1.json \
-            -d "$ARTIFACT"
-
-      - name: Publish merged review as PR comment
-        uses: ./.github/actions/review-publish
-        with:
-          artifact_path: ${{ steps.merge.outputs.result_json }}
-          pr_number: ${{ inputs.pr_number }}
-          github_token: ${{ secrets.WORKFLOW_PAT }}
-
-      - name: Write per-role commit status
-        uses: ./.github/actions/review-state
-        with:
-          op: write-status
-          sha: ${{ inputs.reviewed_sha }}
-          context: review/reviewer-security
-          state: success
-          description: 'cycle=${{ needs.gather.outputs.cycle }} (merged)'
-          github_token: ${{ secrets.WORKFLOW_PAT }}
-
-      - name: Upload merged reviewer artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: reviewer-security-${{ inputs.reviewed_sha }}
-          path: ${{ steps.merge.outputs.result_json }}
 
   review-psych:
     name: Reviewer (psych)
@@ -581,7 +456,7 @@ jobs:
 
   fix:
     name: Apply reviewer-requested fixes
-    needs: [gather, review-design, review-security-breadth, review-security-narrow, review-security-merge, review-psych, review-docs, review-prompt, review-test]
+    needs: [gather, review-design, review-security-breadth, review-security-narrow, review-psych, review-docs, review-prompt, review-test]
     # GHA defaults dependent jobs to skipped if any `needs:` job is
     # skipped — but per-role gating means several reviewers WILL be
     # skipped on every run (psych/prompt for config-only diffs,
@@ -607,7 +482,7 @@ jobs:
 
   judge:
     name: Judge (read-only aggregator)
-    needs: [gather, review-design, review-security-breadth, review-security-narrow, review-security-merge, review-psych, review-docs, review-prompt, review-test, fix]
+    needs: [gather, review-design, review-security-breadth, review-security-narrow, review-psych, review-docs, review-prompt, review-test, fix]
     if: |
       always() &&
       needs.gather.outputs.capped != 'true' &&
@@ -663,7 +538,6 @@ jobs:
       - review-design
       - review-security-breadth
       - review-security-narrow
-      - review-security-merge
       - review-psych
       - review-docs
       - review-prompt

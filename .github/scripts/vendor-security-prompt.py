@@ -77,7 +77,17 @@ def fetch_upstream(repo: str, sha: str, path: str) -> str:
 
 
 def render_prompt(prompts_py_src: str) -> str:
-    """Import upstream prompts.py from source text and call its template fn."""
+    """Import upstream prompts.py from source text and call its template fn,
+    then strip upstream's output-schema section.
+
+    Upstream's `get_security_audit_prompt` ends with a "Required Output Schema"
+    section instructing the LLM to emit `{findings: [...]}` — a different
+    contract from our `reviewer-v1.json`. Our wrapping prompt in
+    security-breadth.md (outside the BEGIN/END VENDORED PROMPT markers)
+    already tells the LLM to use our schema, so we must not import upstream's
+    conflicting schema instructions or the LLM gets two contradicting output
+    contracts. Truncate at the first occurrence of any of UPSTREAM_TAIL_MARKERS.
+    """
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td) / "prompts.py"
         tmp.write_text(prompts_py_src)
@@ -92,7 +102,45 @@ def render_prompt(prompts_py_src: str) -> str:
                 "upstream prompts.py no longer defines get_security_audit_prompt — "
                 "the vendor script needs a manual update"
             )
-        return fn(SENTINEL_PR_DATA, pr_diff=None, include_diff=False)
+        full = fn(SENTINEL_PR_DATA, pr_diff=None, include_diff=False)
+        return _strip_upstream_output_schema(full)
+
+
+# Section headers/marks that delimit the start of upstream's output-schema
+# instructions. The earliest match wins. If upstream introduces a new wording,
+# the script fails loudly via the missing-marker check below instead of
+# silently emitting an unstripped (conflicting-schema) prompt.
+UPSTREAM_TAIL_MARKERS = (
+    "Required Output Schema",
+    "Output Format",
+    "Output Schema",
+    "OUTPUT SCHEMA",
+    "Required JSON Output",
+    "Return your findings",
+    "Respond with JSON",
+)
+
+
+def _strip_upstream_output_schema(rendered: str) -> str:
+    earliest = None
+    for marker in UPSTREAM_TAIL_MARKERS:
+        idx = rendered.find(marker)
+        if idx != -1 and (earliest is None or idx < earliest):
+            earliest = idx
+    if earliest is None:
+        raise RuntimeError(
+            "upstream rendered prompt does not contain any of the known output-schema "
+            f"markers ({list(UPSTREAM_TAIL_MARKERS)}); refusing to vendor a prompt that "
+            "might inject a conflicting output contract. Update UPSTREAM_TAIL_MARKERS."
+        )
+    trimmed = rendered[:earliest].rstrip()
+    # Trim a trailing markdown header line that was about to introduce the
+    # stripped schema (e.g. "## ", "### ") so the rendered block doesn't end
+    # mid-section.
+    lines = trimmed.splitlines()
+    while lines and lines[-1].lstrip().startswith("#") and not lines[-1].lstrip().lstrip("#").strip():
+        lines.pop()
+    return "\n".join(lines).rstrip()
 
 
 def replace_block(md_text: str, rendered: str) -> str:
