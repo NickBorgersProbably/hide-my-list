@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import random
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -446,6 +447,9 @@ async def generate_reward_image(
         log.warning("generate_reward_image.empty_descriptions")
         return None
 
+    _img_gen_start = time.monotonic()
+    log.info("image_gen.start", intensity=intensity, streak_count=streak_count)
+
     try:
         from openai import AsyncOpenAI
 
@@ -493,15 +497,22 @@ async def generate_reward_image(
         import base64
         output_path.write_bytes(base64.b64decode(image_data))
 
+        _img_gen_duration_ms = (time.monotonic() - _img_gen_start) * 1000.0
         log.info(
-            "generate_reward_image.success",
+            "image_gen.end",
             intensity=intensity,
-            # task_descriptions intentionally not logged — private data
+            duration_ms=_img_gen_duration_ms,
+            # task_descriptions / prompt intentionally not logged — private data
         )
         return str(output_path)
 
     except Exception:
-        log.exception("generate_reward_image.failed", intensity=intensity)
+        _img_gen_duration_ms = (time.monotonic() - _img_gen_start) * 1000.0
+        log.exception(
+            "generate_reward_image.failed",
+            intensity=intensity,
+            duration_ms=_img_gen_duration_ms,
+        )
         return None
 
 

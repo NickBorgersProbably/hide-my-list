@@ -78,7 +78,7 @@ async def classify_intent(state: State) -> dict[str, Intent | None]:
 
         from app.models import llm
 
-        model = llm("medium")
+        model = llm("medium", caller="classify")
 
         # Pull a small window of prior turns so short follow-ups can resolve
         # against the active discussion (e.g. "by Friday" after an ADD_TASK turn).

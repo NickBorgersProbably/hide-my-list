@@ -290,7 +290,7 @@ class TestImageGenFallback:
         env = dict(os.environ)
         env.pop("OPENAI_API_KEY", None)
         with patch.dict(os.environ, env, clear=True):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 generate_reward_image(
                     intensity="medium",
                     streak_count=2,
@@ -298,6 +298,59 @@ class TestImageGenFallback:
                 )
             )
         assert result is None
+
+
+    def test_generate_reward_image_logs_start_and_end_events(self) -> None:
+        """image_gen.start and image_gen.end must be logged with correct payload shape."""
+        import asyncio
+        import base64
+        import tempfile
+        from unittest.mock import AsyncMock as _AsyncMock
+        from unittest.mock import MagicMock as _MagicMock
+
+        from app.tools.rewards import generate_reward_image
+
+        fake_b64 = base64.b64encode(b"fake-image-bytes").decode()
+        fake_image = _MagicMock()
+        fake_image.b64_json = fake_b64
+        fake_response = _MagicMock()
+        fake_response.data = [fake_image]
+
+        mock_client = _MagicMock()
+        mock_client.images = _MagicMock()
+        mock_client.images.generate = _AsyncMock(return_value=fake_response)
+        mock_openai_cls = _MagicMock(return_value=mock_client)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key", "REWARD_ARTIFACTS_DIR": tmpdir}):
+                with patch("app.tools.rewards.log") as mock_log:
+                    with patch("openai.AsyncOpenAI", mock_openai_cls):
+                        result = asyncio.run(
+                            generate_reward_image(
+                                intensity="medium",
+                                streak_count=1,
+                                task_descriptions=["Placeholder task"],
+                            )
+                        )
+
+        assert result is not None
+
+        call_events = [c.args[0] for c in mock_log.info.call_args_list if c.args]
+        assert "image_gen.start" in call_events
+        assert "image_gen.end" in call_events
+
+        start_call = next(c for c in mock_log.info.call_args_list if c.args and c.args[0] == "image_gen.start")
+        assert start_call.kwargs.get("intensity") == "medium"
+        assert isinstance(start_call.kwargs.get("streak_count"), int)
+
+        end_call = next(c for c in mock_log.info.call_args_list if c.args and c.args[0] == "image_gen.end")
+        assert end_call.kwargs.get("intensity") == "medium"
+        assert isinstance(end_call.kwargs.get("duration_ms"), float)
+
+        for c in mock_log.info.call_args_list:
+            for v in c.kwargs.values():
+                assert not isinstance(v, str) or "Placeholder" not in v, \
+                    "task content must not appear in log fields"
 
     def test_fallback_reward_pool_has_min_size(self) -> None:
         """Fallback reward pool must have at least 12 entries."""

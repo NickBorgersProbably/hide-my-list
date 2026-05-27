@@ -226,6 +226,11 @@ Three cost gates for eval runs:
 - `EVAL_MODELS` — explicit comma-separated model alias allowlist; empty = no evals
 - `EVAL_BUDGET_USD` — soft cap; runner halts with `pytest.fail("budget exceeded")`
 
+Before running the full eval rig for a model swap, use the **perf harness**
+(`tests/perf/`, gated by `ENABLE_LLM_PERF=true`) for a cheap latency + token
+comparison. The perf harness measures only speed and token counts — not
+behavioral correctness. See `docs/python-rewrite/llm-observability.md`.
+
 ---
 
 ## Test Discipline Rules (Developer-Facing)
@@ -249,6 +254,11 @@ These are the six contract clauses the test reviewer enforces (see
 4. **New env var or compose service** must have:
    - Assertion in `tests/smoke/test_compose_round_trip.py` that it's threaded through.
    - Documentation in `docker/compose.yaml` comments.
+   - **Exception — CI-only / perf-harness env vars**: `ENABLE_LLM_PERF`, `PERF_MODELS`,
+     `PERF_RUNS_N`, and `PERF_RUNS_DIR` are perf-harness-only and are never threaded
+     through `docker/compose.yaml`. They are documented in
+     `docs/python-rewrite/llm-observability.md` and do not require
+     `test_compose_round_trip.py` coverage.
 
 5. **PR fixing a production bug** must add:
    - `tests/regressions/bug_<NNNN>_<slug>/` directory with README citing issue/PR.
