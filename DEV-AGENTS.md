@@ -94,6 +94,7 @@ Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude
 
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
+- `.github/pull_request_template.md` — Default PR body template, including the `/review` fallback hint for missing initial review checks
 - `.github/actions/review-claude-run/` — Direct-`docker run` composite invoking Claude Code against the LiteLLM Anthropic endpoint; v2 pipeline single-writer fixer (fresh-Claude fallback path for human-authored PRs)
 - `.github/actions/review-codex-resume/` — Composite that resumes the original `resolve-issue` Codex author session as the v2 fixer; bind-mounts the persisted session into `/home/ci/.codex` and runs `codex exec resume --last`
 - `.github/actions/review-claude-resume/` — Composite that resumes the original `resolve-issue` Claude Code author session as the v2 fixer; bind-mounts the persisted session into `/home/ci/.claude` and runs `claude --continue`
