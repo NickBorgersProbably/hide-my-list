@@ -2,6 +2,9 @@
 USER.md
 MEMORY.md
 
+# Secrets / credentials
+gravwell.token
+
 # Runtime state
 state.json
 .env
