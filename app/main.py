@@ -102,6 +102,9 @@ def main() -> None:
     _check_langsmith_guard()
     _configure_logging()
 
+    from app.models import validate_startup
+
+    validate_startup()
     asyncio.run(_run_app())
 
 

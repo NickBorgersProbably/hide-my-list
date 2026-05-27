@@ -112,8 +112,8 @@ without running the full behavioral eval rig.
 
 ```bash
 ENABLE_LLM_PERF=true \
-ANTHROPIC_BASE_URL=<proxy-url>/v1 \
-ANTHROPIC_API_KEY=<key-or-placeholder> \
+LLM_PROXY_BASE_URL=<openai-compatible-proxy-url> \
+LLM_PROXY_API_KEY=<key> \
 pytest tests/perf/test_llm_perf.py -v
 ```
 

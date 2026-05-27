@@ -34,8 +34,8 @@ fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.jso
 | Model-swap report | 15-30 min | ~$5-10 | `.github/workflows/model-swap.yml` — `workflow_dispatch` only |
 
 CI never sets `ENABLE_LIVE_LLM_EVALS=true` for PRs. The nightly eval workflow
-and model-swap workflow use repo secrets (`ANTHROPIC_API_KEY`,
-`ANTHROPIC_BASE_URL`) and are off by default for PR runs. The compose smoke
+and model-swap workflow use repo secrets (`LLM_PROXY_API_KEY`,
+`LLM_PROXY_BASE_URL`) and are off by default for PR runs. The compose smoke
 is manually gated by `ENABLE_COMPOSE_SMOKE` — there's no scheduled trigger
 (it boots the full stack and is too slow for PR CI).
 
@@ -213,13 +213,11 @@ meaning every reward image was silently discarded.
 hardcoded relative to the repo root. No `MODEL_TIERS_PATH` env override exists
 in the current runtime. The eval runner swaps model tiers by writing a modified
 `setup/model-tiers.json` into the test working tree before invoking the graph
-under test.
-
-The app runtime uses `ChatOpenAI` routed through a LiteLLM proxy at
-`ANTHROPIC_BASE_URL` (OpenAI-compatible `/v1` endpoint); LiteLLM dispatches
-by model alias. `ANTHROPIC_API_KEY` is forwarded as the bearer token. The
-smoke harness boots the full stack and makes no LLM calls — compose smoke
-uses placeholder values for both env vars.
+under test. In the eval harness, LangChain routes through a LiteLLM proxy at
+`LLM_PROXY_BASE_URL`; LiteLLM dispatches by model alias. The smoke harness
+boots the full stack and makes no LLM calls (no real API keys are required —
+compose smoke uses placeholder env values).
+The production app runtime uses the same proxy configuration.
 
 Model IDs are validated against a known-prefix allowlist (`claude-`, `gemma`,
 `gpt-`) at startup. Swapping a tier to any supported alias is a one-line

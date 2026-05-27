@@ -18,10 +18,8 @@ hold one Gemma model in RAM at a time. Differentiation lives entirely
 in the think flag for now.
 
 Model IDs are sent as OpenAI-format chat-completion requests to the
-LiteLLM proxy at ANTHROPIC_BASE_URL (the env var name is retained for
-compose/devcontainer continuity even though the wire protocol is now
-OpenAI, not Anthropic). Adding a new provider family is just adding
-its prefix to _VALID_MODEL_PREFIXES.
+LiteLLM proxy at LLM_PROXY_BASE_URL. Adding a new provider family is
+just adding its prefix to _VALID_MODEL_PREFIXES.
 
 LangSmith guard: refuses boot when LANGSMITH_TRACING=true unless
 ALLOW_PRIVATE_TRACE_EXPORT=true is also set. Private user data (task titles,
@@ -64,6 +62,19 @@ _VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
 _TIER_EXTRA_BODY: dict[str, dict[str, Any]] = {
     "cheap": {"think": False},
 }
+
+
+def _require_llm_proxy_config() -> tuple[str, str]:
+    """Return required LiteLLM proxy config, failing fast when absent."""
+    base_url = os.environ.get("LLM_PROXY_BASE_URL")
+    api_key = os.environ.get("LLM_PROXY_API_KEY")
+    if not base_url:
+        raise RuntimeError(
+            "LLM_PROXY_BASE_URL must point at the OpenAI-compatible LiteLLM /v1 endpoint"
+        )
+    if not api_key:
+        raise RuntimeError("LLM_PROXY_API_KEY must be set for the LiteLLM proxy")
+    return base_url, api_key
 
 
 def _check_langsmith_guard() -> None:
@@ -128,10 +139,10 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     """Return a LangChain ChatOpenAI instance pointing at the LiteLLM proxy.
 
     Model IDs are resolved from setup/model-tiers.json, validated at first call.
-    ANTHROPIC_BASE_URL must point at the proxy (OpenAI-compatible endpoint, i.e.
-    include the /v1 suffix); ANTHROPIC_API_KEY is forwarded as the bearer token.
+    LLM_PROXY_BASE_URL must point at the proxy (OpenAI-compatible endpoint, i.e.
+    include the /v1 suffix); LLM_PROXY_API_KEY is forwarded as the bearer token.
     Both env vars are required — startup fails if either is unset or empty. If the
-    proxy does not require auth, set ANTHROPIC_API_KEY to any non-empty placeholder
+    proxy does not require auth, set LLM_PROXY_API_KEY to any non-empty placeholder
     value in the runtime environment.
 
     An LLMObservabilityCallback is attached automatically, emitting
@@ -154,7 +165,7 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     Raises:
         RuntimeError: If model-tiers.json is missing or malformed, if
             LANGSMITH_TRACING=true without ALLOW_PRIVATE_TRACE_EXPORT, or if
-            ANTHROPIC_BASE_URL is unset or empty.
+            LLM_PROXY_BASE_URL or LLM_PROXY_API_KEY is unset or empty.
         ValueError: If tier is not a valid tier name.
     """
     if tier not in _VALID_TIERS:
@@ -165,18 +176,14 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     tiers = _load_model_tiers()
     model_id = tiers[tier]
 
-    base_url = os.environ.get("ANTHROPIC_BASE_URL")
-    if not base_url:
-        raise RuntimeError(
-            "ANTHROPIC_BASE_URL must point at the OpenAI-compatible LiteLLM /v1 endpoint"
-        )
+    base_url, api_key = _require_llm_proxy_config()
 
     kwargs: dict[str, Any] = {
         "model": model_id,
         "temperature": temperature,
         "max_tokens": 1024,
         "base_url": base_url,
-        "api_key": os.environ["ANTHROPIC_API_KEY"],
+        "api_key": api_key,
     }
     extra_body = _TIER_EXTRA_BODY.get(tier)
     if extra_body:
@@ -196,3 +203,4 @@ def validate_startup() -> None:
     contains invalid model IDs, or if LangSmith guard fires.
     """
     _load_model_tiers()
+    _require_llm_proxy_config()

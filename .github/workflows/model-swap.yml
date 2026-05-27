@@ -102,8 +102,8 @@ jobs:
           EVAL_BASELINE_MODELS: ${{ steps.models.outputs.baseline }}
           EVAL_CANDIDATE_TIER: ${{ steps.models.outputs.candidate_tier }}
           EVAL_BUDGET_USD: ${{ inputs.budget_usd }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          LLM_PROXY_API_KEY: ${{ secrets.LLM_PROXY_API_KEY }}
+          LLM_PROXY_BASE_URL: ${{ secrets.LLM_PROXY_BASE_URL }}
           CANDIDATE: ${{ inputs.candidate_model }}
           TIER: ${{ inputs.candidate_tier }}
         run: |

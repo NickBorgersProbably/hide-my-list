@@ -47,7 +47,7 @@ flowchart TB
     end
 
     subgraph External["External Services"]
-        LiteLLM[LiteLLM Proxy<br/>LLM]
+        LLMProxy[LiteLLM Proxy<br/>Primary LLM]
         OpenAI[OpenAI API<br/>Image Generation]
     end
 
@@ -62,7 +62,7 @@ flowchart TB
     Worker --> Signal
     Worker --> Notion
 
-    Graph --> LiteLLM
+    Graph --> LLMProxy
     Graph --> OpenAI
 ```
 
@@ -124,11 +124,11 @@ duplicate delivery over loss.
 ## Model Routing
 
 `app/models.py` reads `setup/model-tiers.json` at startup and validates all
-model IDs. All LLM calls go through a LiteLLM proxy via `ChatOpenAI` with
-`ANTHROPIC_BASE_URL` as the OpenAI-compatible `/v1` endpoint. LiteLLM
-dispatches by model alias; the app has no direct connection to any provider
-API. `ANTHROPIC_API_KEY` is forwarded as the bearer token (set to any
-non-empty placeholder when the proxy does not require auth).
+model IDs. LangChain sends OpenAI-format chat-completion requests to the
+LiteLLM proxy configured by `LLM_PROXY_BASE_URL`. LiteLLM dispatches by model
+alias; the app has no direct connection to any provider API.
+`LLM_PROXY_API_KEY` is forwarded as the bearer token. If the proxy does not
+require auth, set it to any non-empty placeholder in the runtime environment.
 
 ## Security
 
@@ -146,8 +146,8 @@ non-empty placeholder when the proxy does not require auth).
 |----------|---------|
 | `NOTION_API_KEY` | Notion integration token |
 | `NOTION_DATABASE_ID` | Tasks database identifier |
-| `ANTHROPIC_BASE_URL` | LiteLLM proxy OpenAI-compatible `/v1` endpoint (required) |
-| `ANTHROPIC_API_KEY` | Bearer token for LiteLLM proxy (required; use placeholder if proxy needs no auth) |
+| `LLM_PROXY_BASE_URL` | OpenAI-compatible LiteLLM proxy endpoint for the primary LLM |
+| `LLM_PROXY_API_KEY` | LiteLLM proxy bearer token for the primary LLM |
 | `OPENAI_API_KEY` | Reward image generation |
 | `DATABASE_URL` | Postgres connection string |
 | `SIGNAL_CLI_URL` | signal-cli REST API base URL |
@@ -160,7 +160,7 @@ non-empty placeholder when the proxy does not require auth).
 For the infra operator / VM-isolation configuration:
 
 - `api.notion.com` — Notion CRUD
-- LiteLLM proxy (`ANTHROPIC_BASE_URL`) — all LLM calls; proxy handles provider dispatch
+- LiteLLM proxy endpoint — primary LLM, configured by `LLM_PROXY_BASE_URL`
 - `api.openai.com` — reward image generation
 - Signal infrastructure — managed by the `signal-cli` container
 

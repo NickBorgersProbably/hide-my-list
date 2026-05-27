@@ -116,8 +116,8 @@ def test_valid_tier_returns_llm_instance() -> None:
 
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
-    env.setdefault("ANTHROPIC_BASE_URL", "https://proxy.test/v1")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         from langchain_core.runnables import RunnableBinding
@@ -146,8 +146,8 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
     fake_instance.with_config.return_value = fake_instance
 
     env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH_TRACING",)}
-    env["ANTHROPIC_BASE_URL"] = "https://proxy.test/v1"
-    env["ANTHROPIC_API_KEY"] = "test-key"
+    env["LLM_PROXY_BASE_URL"] = "https://proxy.test/v1"
+    env["LLM_PROXY_API_KEY"] = "test-key"
 
     with patch.dict(os.environ, env, clear=True):
         with patch("app.models.ChatOpenAI", return_value=fake_instance) as mock_cls:
@@ -162,33 +162,39 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
     models_module._load_model_tiers.cache_clear()
 
 
-def test_llm_raises_when_anthropic_base_url_missing() -> None:
-    """llm() must raise RuntimeError when ANTHROPIC_BASE_URL is unset."""
+def test_llm_raises_when_llm_proxy_base_url_missing() -> None:
+    """llm() must raise RuntimeError when LLM_PROXY_BASE_URL is unset."""
     from app import models as models_module
     models_module._load_model_tiers.cache_clear()
 
-    env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH_TRACING", "ANTHROPIC_BASE_URL")}
-    env.pop("ANTHROPIC_BASE_URL", None)
-    env["ANTHROPIC_API_KEY"] = "test-key"
+    env = {
+        k: v for k, v in os.environ.items()
+        if k not in ("LANGSMITH_TRACING", "LLM_PROXY_BASE_URL")
+    }
+    env.pop("LLM_PROXY_BASE_URL", None)
+    env["LLM_PROXY_API_KEY"] = "test-key"
 
     with patch.dict(os.environ, env, clear=True):
-        with pytest.raises(RuntimeError, match="ANTHROPIC_BASE_URL"):
+        with pytest.raises(RuntimeError, match="LLM_PROXY_BASE_URL"):
             models_module.llm("medium")
 
     models_module._load_model_tiers.cache_clear()
 
 
-def test_llm_raises_when_anthropic_api_key_missing() -> None:
-    """llm() must raise KeyError when ANTHROPIC_API_KEY is unset."""
+def test_llm_raises_when_llm_proxy_api_key_missing() -> None:
+    """llm() must raise RuntimeError when LLM_PROXY_API_KEY is unset."""
     from app import models as models_module
     models_module._load_model_tiers.cache_clear()
 
-    env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH_TRACING", "ANTHROPIC_API_KEY")}
-    env.pop("ANTHROPIC_API_KEY", None)
-    env["ANTHROPIC_BASE_URL"] = "https://proxy.test/v1"
+    env = {
+        k: v for k, v in os.environ.items()
+        if k not in ("LANGSMITH_TRACING", "LLM_PROXY_API_KEY")
+    }
+    env.pop("LLM_PROXY_API_KEY", None)
+    env["LLM_PROXY_BASE_URL"] = "https://proxy.test/v1"
 
     with patch.dict(os.environ, env, clear=True):
-        with pytest.raises(KeyError):
+        with pytest.raises(RuntimeError, match="LLM_PROXY_API_KEY"):
             models_module.llm("medium")
 
     models_module._load_model_tiers.cache_clear()
@@ -235,8 +241,8 @@ def test_invalid_tier_raises_value_error() -> None:
 
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
-    env.setdefault("ANTHROPIC_BASE_URL", "https://proxy.test/v1")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         with pytest.raises(ValueError, match="Unknown model tier"):
