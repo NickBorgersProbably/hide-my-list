@@ -9,8 +9,8 @@ behavior is set here):
   medium    -> gemma4-small, think=on  (user-facing replies; shame-safety
                                         contract depends on careful phrasing)
   cheap     -> gemma4-small, think=off (label-only classification; reasoning
-                                        is wasted overhead — ~29x fewer
-                                        output tokens at equivalent accuracy)
+                                        is wasted overhead — significant token
+                                        reduction at equivalent accuracy)
   reminder  -> gemma4-small, think=on  (reminder cron; currently no caller)
 
 All tiers point at the same model alias because the LLM host can only
@@ -59,7 +59,7 @@ _VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
 # Per-tier extra request body forwarded to the LiteLLM proxy. The proxy
 # passes `think` straight through to the Ollama backend. Cheap tier turns
 # reasoning off because its sole caller (intent classifier) only needs a
-# label — measured 29x token reduction with no accuracy loss on the
+# label — significant token reduction with no accuracy loss on the
 # classify prompt.
 _TIER_EXTRA_BODY: dict[str, dict[str, Any]] = {
     "cheap": {"think": False},

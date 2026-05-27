@@ -198,8 +198,8 @@ def test_cheap_tier_sets_think_false_extra_body() -> None:
     """llm('cheap') must construct ChatOpenAI with extra_body={'think': False}.
 
     The proxy forwards `think` to Ollama; cheap is the label-only classifier
-    path where reasoning is wasted overhead (~29x output-token reduction
-    measured). Other tiers must NOT set think=false because their callers
+    path where reasoning is wasted overhead (significant output-token
+    reduction measured). Other tiers must NOT set think=false because their callers
     (chat, rejection, breakdown coaching, selection) rely on reasoning for
     shame-safe phrasing and scoring nuance.
     """
