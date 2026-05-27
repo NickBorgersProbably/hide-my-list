@@ -160,6 +160,7 @@ async def selection_node(state: State) -> dict[str, Any]:
                 energy_required=(
                     selected_simplified["energy_required"] if selected_simplified else "Medium"
                 ),
+                rejection_count=selected_simplified["rejection_count"] if selected_simplified else 0,
             )
 
         log.info("selection_node.suggestion", peer=peer, notion_page_id=selected_page_id)
