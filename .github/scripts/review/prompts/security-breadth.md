@@ -126,7 +126,7 @@ Write verdict as JSON to `$OUTPUT_PATH` (the runner sets this to `.review-output
 }
 ```
 
-`summary` ≤500 chars. Each `blocking_issues[]` entry needs a stable `id` prefixed `secb-` (e.g. `secb-001`) so the merger can distinguish breadth from narrow findings. Set `category` to one of the five category labels above (`input_validation`, `auth`, `crypto_secrets`, `injection_code_exec`, `data_exposure`); the merger uses `category` as part of the dedup key against narrow findings.
+`summary` ≤500 chars. Each `blocking_issues[]` entry needs a stable `id` prefixed `secb-` (e.g. `secb-001`) so the merger can distinguish breadth from narrow findings. Set `category` to one of the five category labels above (`input_validation`, `auth`, `crypto_secrets`, `injection_code_exec`, `data_exposure`); `category` is metadata only — the merger deduplicates by normalized file path and five-line bucket, with narrow-lens phrasing winning on collision.
 
 Each high-confidence blocker needs a matching `fix_suggestions[]` entry with the same `id`, `applicable` of `"manual"` or `"mechanical"`, `patch_hint`, and `confidence` in `[0, 1]`.
 

@@ -20,10 +20,11 @@
 //      reports confidence below CONFIDENCE_FLOOR are demoted to
 //      non_blocking_notes. Missing fix_suggestions are treated as
 //      "confidence unknown" and not demoted.
-//   3. Dedup. Findings keyed by (normalized_file, floor(line/5),
-//      category). On collision, the narrow finding wins (repo-specific
-//      phrasing is preferred) and inherits breadth's category if narrow
-//      didn't set one.
+//   3. Dedup. Findings keyed by (normalized_file, floor(line/5)).
+//      Category excluded from key: breadth and narrow use different
+//      vocabularies, so category equality would prevent cross-lens dedup.
+//      On collision, narrow wins (repo-specific phrasing preferred) and
+//      inherits breadth's category if narrow didn't set one.
 //   4. Per-cycle cap. After dedup, sort blockers by severity
 //      (critical > high > medium) then confidence desc, keep the top
 //      BLOCKING_CAP. Sort non_blocking_notes (no severity to sort on)
@@ -116,7 +117,7 @@ export function dropReason(finding) {
   const file = finding.file ?? "";
   const msg = finding.message ?? "";
 
-  if (isMarkdownFile(file)) return "finding in markdown documentation file";
+  if (isMarkdownFile(file) && finding.__source_role !== "security-narrow") return "finding in markdown documentation file";
   if (matchesAny(msg, DOS_PATTERNS)) return "generic DoS / resource-exhaustion (low signal)";
   if (matchesAny(msg, RATE_LIMIT_PATTERNS)) return "generic rate-limiting recommendation";
   if (matchesAny(msg, RESOURCE_LEAK_PATTERNS)) return "resource management (not a security vulnerability)";

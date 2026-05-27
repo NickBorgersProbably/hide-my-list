@@ -170,6 +170,21 @@ test("exclusion: markdown-file finding dropped", () => {
   assert.equal(m.blocking_issues.length, 0);
 });
 
+test("exclusion: narrow markdown-file finding survives, breadth dropped", () => {
+  const m = merge(
+    lens("security-breadth",
+      [block("secb-1", { file: "docs/README.md", message: "Outdated security note" })],
+      [fix("secb-1", 0.9)]),
+    lens("security-narrow",
+      [block("secn-1", { file: ".github/scripts/review/prompts/security-narrow.md", message: "Reviewer-routing regression" })],
+      [fix("secn-1", 0.95)]),
+    CTX
+  );
+  // Breadth markdown finding dropped; narrow markdown finding survives.
+  assert.equal(m.blocking_issues.length, 1);
+  assert.equal(m.blocking_issues[0].id, "secn-1");
+});
+
 test("dropReason: open-redirect dropped, but real vuln kept", () => {
   assert.equal(dropReason({ message: "Open redirect vulnerability" }), "open redirect (not high impact)");
   assert.equal(dropReason({ message: "SQL injection" }), null);
