@@ -13,6 +13,7 @@ dependencies = [
     "langchain-openai==1.2.1",
     "langchain-core==1.4.0",
     "apscheduler==3.10.4",
+    "sqlalchemy>=2.0",
     "psycopg[binary]==3.3.4",
     "httpx==0.28.1",
     "websockets==16.0",
