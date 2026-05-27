@@ -166,6 +166,7 @@ async def test_authorized_reaction_records_feedback_without_graph() -> None:
     graph = AsyncMock()
     listener = SignalListener(
         graph=graph,
+        account="+15559876543",  # must match default target_author in _reaction_envelope
         authorized_peers=frozenset({"+15551234567"}),
     )
 

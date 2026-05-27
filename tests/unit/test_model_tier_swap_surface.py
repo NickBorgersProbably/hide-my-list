@@ -134,8 +134,8 @@ def test_no_hardcoded_model_identifiers_outside_models_py() -> None:
                 )
 
     assert not violations, (
-        f"New hardcoded model identifiers found outside app/models.py. "
-        f"Use app.models.llm(tier) instead. Pre-existing violations are listed "
-        f"in _KNOWN_VIOLATIONS in this file; new ones are not allowed:\n"
+        "New hardcoded model identifiers found outside app/models.py. "
+        "Use app.models.llm(tier) instead. Pre-existing violations are listed "
+        "in _KNOWN_VIOLATIONS in this file; new ones are not allowed:\n"
         + "\n".join(f"  {v}" for v in violations)
     )
