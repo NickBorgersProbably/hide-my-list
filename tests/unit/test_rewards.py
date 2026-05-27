@@ -17,11 +17,60 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+class _FakeCursor:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = rows
+
+    async def fetchone(self) -> dict[str, Any] | None:
+        return self._rows[0] if self._rows else None
+
+    async def fetchall(self) -> list[dict[str, Any]]:
+        return self._rows
+
+
+class _RewardFeedbackConn:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self.rows = rows
+        self.updated_ids: list[str] = []
+        self.updated_scores: list[int] = []
+
+    async def execute(self, query: str, params: tuple[Any, ...] | None = None) -> _FakeCursor:
+        if "SELECT id" in query:
+            assert params is not None
+            peer, target_dt, lower_seconds, upper_target_dt, upper_seconds, order_dt = params
+            assert target_dt == upper_target_dt == order_dt
+            candidates = [
+                row for row in self.rows
+                if row["peer"] == peer
+                and row["feedback_at"] is None
+                and target_dt - timedelta(seconds=lower_seconds)
+                <= row["delivered_at"]
+                <= target_dt + timedelta(seconds=upper_seconds)
+            ]
+            candidates.sort(key=lambda row: abs((row["delivered_at"] - order_dt).total_seconds()))
+            return _FakeCursor(candidates[:1])
+
+        if "UPDATE reward_manifests" in query:
+            assert params is not None
+            score, emoji, manifest_id = params
+            self.updated_ids.append(manifest_id)
+            self.updated_scores.append(score)
+            for row in self.rows:
+                if row["id"] == manifest_id:
+                    row["feedback_score"] = score
+                    row["feedback_emoji"] = emoji
+                    row["feedback_at"] = datetime.now(UTC)
+            return _FakeCursor([])
+
+        raise AssertionError(f"Unexpected query: {query}")
+
 
 # ---------------------------------------------------------------------------
 # PR-B5-T1: Sensitive-task suppression
@@ -254,6 +303,228 @@ class TestImageGenFallback:
         """Fallback reward pool must have at least 12 entries."""
         from app.tools.rewards import _FALLBACK_REWARDS
         assert len(_FALLBACK_REWARDS) >= 12
+
+
+# ---------------------------------------------------------------------------
+# Reward feedback reactions
+# ---------------------------------------------------------------------------
+
+class TestRewardFeedback:
+    """Signal reaction feedback must attribute only to the reacted-to reward."""
+
+    def test_emoji_score_mapping(self) -> None:
+        """Known feedback emojis map to positive, negative, or neutral scores."""
+        from app.tools.rewards import _FEEDBACK_EMOJI_SCORES
+
+        assert _FEEDBACK_EMOJI_SCORES["👍"] == 1
+        assert _FEEDBACK_EMOJI_SCORES["👎"] == -1
+        assert _FEEDBACK_EMOJI_SCORES.get("🤷", 0) == 0
+
+    @pytest.mark.asyncio
+    async def test_record_reward_feedback_matches_within_thirty_seconds(self) -> None:
+        """A reaction timestamp within the ±30s window updates that reward."""
+        from app.tools import rewards as rewards_module
+
+        target_dt = datetime(2026, 5, 27, 12, 0, 0, tzinfo=UTC)
+        conn = _RewardFeedbackConn([
+            {
+                "id": "manifest-1",
+                "peer": "<test-peer-10>",
+                "delivered_at": target_dt + timedelta(seconds=12),
+                "feedback_at": None,
+            }
+        ])
+
+        @asynccontextmanager
+        async def fake_get_db_conn() -> AsyncGenerator[_RewardFeedbackConn, None]:
+            yield conn
+
+        with patch("app.tools.db.get_db_conn", fake_get_db_conn):
+            result = await rewards_module.record_reward_feedback(
+                peer="<test-peer-10>",
+                emoji="👍",
+                target_sent_timestamp=int(target_dt.timestamp() * 1000),
+            )
+
+        assert result is True
+        assert conn.updated_ids == ["manifest-1"]
+        assert conn.updated_scores == [1]
+
+    @pytest.mark.asyncio
+    async def test_record_reward_feedback_outside_window_returns_false(self) -> None:
+        """A reaction outside ±30s must not update a reward."""
+        from app.tools import rewards as rewards_module
+
+        target_dt = datetime(2026, 5, 27, 12, 0, 0, tzinfo=UTC)
+        conn = _RewardFeedbackConn([
+            {
+                "id": "manifest-1",
+                "peer": "<test-peer-11>",
+                "delivered_at": target_dt - timedelta(seconds=31),
+                "feedback_at": None,
+            }
+        ])
+
+        @asynccontextmanager
+        async def fake_get_db_conn() -> AsyncGenerator[_RewardFeedbackConn, None]:
+            yield conn
+
+        with patch("app.tools.db.get_db_conn", fake_get_db_conn):
+            result = await rewards_module.record_reward_feedback(
+                peer="<test-peer-11>",
+                emoji="👍",
+                target_sent_timestamp=int(target_dt.timestamp() * 1000),
+            )
+
+        assert result is False
+        assert conn.updated_ids == []
+
+    @pytest.mark.asyncio
+    async def test_record_reward_feedback_chooses_closest_reward(self) -> None:
+        """When two rewards are near the timestamp, only the closest one is updated."""
+        from app.tools import rewards as rewards_module
+
+        target_dt = datetime(2026, 5, 27, 12, 0, 0, tzinfo=UTC)
+        conn = _RewardFeedbackConn([
+            {
+                "id": "manifest-older",
+                "peer": "<test-peer-12>",
+                "delivered_at": target_dt - timedelta(seconds=25),
+                "feedback_at": None,
+            },
+            {
+                "id": "manifest-closest",
+                "peer": "<test-peer-12>",
+                "delivered_at": target_dt + timedelta(seconds=2),
+                "feedback_at": None,
+            },
+        ])
+
+        @asynccontextmanager
+        async def fake_get_db_conn() -> AsyncGenerator[_RewardFeedbackConn, None]:
+            yield conn
+
+        with patch("app.tools.db.get_db_conn", fake_get_db_conn):
+            result = await rewards_module.record_reward_feedback(
+                peer="<test-peer-12>",
+                emoji="👎",
+                target_sent_timestamp=int(target_dt.timestamp() * 1000),
+            )
+
+        assert result is True
+        assert conn.updated_ids == ["manifest-closest"]
+        assert conn.updated_scores == [-1]
+
+    @pytest.mark.asyncio
+    async def test_load_feedback_history_returns_recent_feedback(self) -> None:
+        """Feedback history is normalized into prompt-friendly dictionaries."""
+        from app.tools import rewards as rewards_module
+
+        feedback_at = datetime(2026, 5, 27, 12, 5, 0, tzinfo=UTC)
+        rows = [
+            {
+                "feedback_score": 1,
+                "feedback_emoji": "👍",
+                "feedback_at": feedback_at,
+                "intensity": "high",
+                "reward_kind": "emoji+image",
+            }
+        ]
+        mock_conn = MagicMock()
+        mock_conn.execute = AsyncMock(return_value=_FakeCursor(rows))
+
+        @asynccontextmanager
+        async def fake_get_db_conn() -> AsyncGenerator[MagicMock, None]:
+            yield mock_conn
+
+        with patch("app.tools.db.get_db_conn", fake_get_db_conn):
+            result = await rewards_module.load_feedback_history("<test-peer-13>")
+
+        assert result == [
+            {
+                "score": 1,
+                "emoji": "👍",
+                "timestamp": feedback_at.isoformat(),
+                "intensity": "high",
+                "reward_kind": "emoji+image",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_maybe_reward_passes_feedback_history_to_image_generation(self) -> None:
+        """maybe_reward loads peer feedback and forwards it into image generation."""
+        from app.tools import rewards as rewards_module
+
+        history = [
+            {"score": 1, "timestamp": "2026-05-27T12:00:00+00:00"},
+            {"score": 1, "timestamp": "2026-05-26T12:00:00+00:00"},
+            {"score": 1, "timestamp": "2026-05-25T12:00:00+00:00"},
+        ]
+        image_mock = AsyncMock(return_value="/tmp/reward_artifacts/test-image.png")
+
+        with (
+            patch.object(rewards_module, "load_feedback_history", new=AsyncMock(return_value=history)) as load_mock,
+            patch.object(rewards_module, "generate_reward_image", new=image_mock),
+            patch.object(rewards_module, "write_reward_manifest", new=AsyncMock(return_value=uuid.uuid4())),
+            patch.object(rewards_module, "compute_intensity", return_value=("high", 70)),
+        ):
+            await rewards_module.maybe_reward(
+                peer="<test-peer-14>",
+                task_title="Placeholder task title",
+                notion_page_id="<page-id-014>",
+                streak=3,
+                energy_required="High",
+                time_estimate=45,
+            )
+
+        load_mock.assert_awaited_once_with("<test-peer-14>")
+        assert image_mock.await_args.kwargs["feedback_history"] == history
+
+    @pytest.mark.asyncio
+    async def test_maybe_reward_continues_if_feedback_history_raises(self) -> None:
+        """A feedback history failure must not block reward delivery."""
+        from app.tools import rewards as rewards_module
+
+        async def crashing_history(_peer: str) -> list[dict[str, Any]]:
+            raise RuntimeError("DB unavailable")
+
+        image_mock = AsyncMock(return_value="/tmp/reward_artifacts/test-image.png")
+
+        with (
+            patch.object(rewards_module, "load_feedback_history", new=crashing_history),
+            patch.object(rewards_module, "generate_reward_image", new=image_mock),
+            patch.object(rewards_module, "write_reward_manifest", new=AsyncMock(return_value=uuid.uuid4())),
+            patch.object(rewards_module, "compute_intensity", return_value=("high", 70)),
+        ):
+            result = await rewards_module.maybe_reward(
+                peer="<test-peer-15>",
+                task_title="Placeholder task title",
+                notion_page_id="<page-id-015>",
+                streak=3,
+                energy_required="High",
+                time_estimate=45,
+            )
+
+        assert result["attachment_path"] == "/tmp/reward_artifacts/test-image.png"
+        assert image_mock.await_args.kwargs["feedback_history"] == []
+
+    def test_build_image_prompt_includes_positive_feedback_guidance(self) -> None:
+        """Three or more positive ratings add prompt guidance for future images."""
+        from app.tools.rewards import _build_image_prompt
+
+        prompt = _build_image_prompt(
+            intensity="high",
+            streak_count=3,
+            task_descriptions=["Placeholder task title"],
+            feedback_history=[
+                {"score": 1},
+                {"score": 1},
+                {"score": 1},
+            ],
+        )
+
+        assert "User has positively responded to recent rewards" in prompt
+        assert "lean energetic and celebratory" in prompt
 
 
 # ---------------------------------------------------------------------------
