@@ -8,7 +8,6 @@ Implements docs/ai-prompts/cannot-finish.md behavior.
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
 
@@ -17,10 +16,6 @@ import structlog
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
-
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
 
 _CANNOT_FINISH_SYSTEM_PROMPT = """\
 The user indicates they cannot finish the current task. Gather progress and break down remaining work.
@@ -77,14 +72,6 @@ Or after progress described:
 async def cannot_finish_node(state: State) -> dict[str, Any]:
     """CANNOT_FINISH handler: gather progress and break down remaining work."""
     peer = state.get("peer", "")
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        draft: OutboundDraft = {
-            "recipient": peer,
-            "body": "[stub] CANNOT_FINISH not yet active (ENABLE_LANGGRAPH_PATH=false)",
-            "notion_page_id": None,
-        }
-        return {"pending_outbound": [draft]}
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage

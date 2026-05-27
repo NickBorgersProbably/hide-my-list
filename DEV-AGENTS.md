@@ -66,7 +66,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/observability/__init__.py` — Package marker for the observability module
 - `app/observability/llm_callback.py` — `LLMObservabilityCallback` (LangChain AsyncCallbackHandler); emits `llm.call.start` / `llm.call.end` / `llm.call.error` events via structlog with tier + caller + token counts + duration. Always on in production. See `docs/python-rewrite/llm-observability.md`.
 - `app/models.py` — Model tier validation at startup; reads `setup/model-tiers.json`
-- `app/main.py` — Entry point; LangSmith guard; production default `ENABLE_LANGGRAPH_PATH=true`
+- `app/main.py` — Entry point; LangSmith guard
 - `migrations/0001_initial.sql` — Initial schema: outbox, recent_outbound, ops_alerts_throttle
 - `migrations/0002_reward_manifests.sql` — Reward manifests table
 - `migrations/0003_ops_alerts.sql` — Ops alerts table
@@ -80,13 +80,11 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `tests/evals/` — LLM behavior eval fixtures + multi-model runner; gated by `ENABLE_LIVE_LLM_EVALS=true`
 - `tests/smoke/` — Full compose stack smoke test; gated by `ENABLE_COMPOSE_SMOKE=true`
 - `docs/python-rewrite/` — Python stack contributor docs and runbooks
-- `docs/python-rewrite/rollback.md` — Cutover rollback runbook + forward cutover procedure
 - `docs/python-rewrite/langgraph-semantics.md` — LangGraph durability spike findings
 - `docs/python-rewrite/test-rig.md` — Authoritative test rig architecture spec: layer table, 8 bug classes, regression catalog convention, eval fixture format, integration mock discipline, LLM swap mechanism
-- `scripts/migrate_state_json.py` — One-shot OpenClaw → Postgres state migration; requires `--peer <E.164>`
 - `docker/backup.sh` — Postgres pg_dump wrapper with retention policy
 - `docker/Dockerfile` — Multi-stage Python 3.12-slim image for the app service
-- `docker/compose.yaml` — Compose spec: `app` + `signal-cli` + `postgres:16-alpine`; `ENABLE_LANGGRAPH_PATH=true` default
+- `docker/compose.yaml` — Compose spec: `app` + `signal-cli` + `postgres:16-alpine`
 
 ### Infrastructure & CI Files
 

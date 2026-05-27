@@ -185,7 +185,7 @@ async def dispatch_due_reminders(
             # can classify terse replies (e.g. "I did it") without re-asking the user.
             # expires_at uses 24h for reminders to minimise stale-context misclassification.
             if signal_ts:
-                reminder_title = row.get("body", "")[:200]  # use body as title proxy in Phase A
+                reminder_title = row.get("body", "")[:200]  # truncate body to 200 chars for title proxy
                 await conn.execute(
                     """
                     INSERT INTO recent_outbound

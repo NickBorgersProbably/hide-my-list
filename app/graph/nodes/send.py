@@ -12,7 +12,6 @@ This send node is for conversation replies only.
 from __future__ import annotations
 
 import hashlib
-import os
 from typing import Any
 
 import structlog
@@ -22,16 +21,8 @@ from app.graph.state import State
 
 log = structlog.get_logger(__name__)
 
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
-
-
 async def send_node(state: State) -> dict[str, Any]:
     """Terminal node: drain pending_outbound and send via Signal.
-
-    When ENABLE_LANGGRAPH_PATH=false, logs but does not actually send.
-    When true, calls signal_client.send_message() for each draft.
 
     Ordering: drafts are sent in list order (preserved from upstream nodes).
     Failures: logged, not raised. Graph completion is not blocked by send failures.
@@ -52,22 +43,6 @@ async def send_node(state: State) -> dict[str, Any]:
         new_messages.append(HumanMessage(content=incoming))
 
     if not pending:
-        return {"messages": new_messages} if new_messages else {}
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        for draft in pending:
-            recipient = draft.get("recipient", "")
-            body = draft.get("body", "")
-            # Log booleans and counts only — no private values.
-            log_kwargs: dict[str, Any] = {
-                "has_recipient": bool(recipient),
-                "has_body": bool(body),
-            }
-            if draft.get("attachment_path") is not None:
-                log_kwargs["attachment_count"] = 1
-            log.debug("send_node.dormant", **log_kwargs)
-            if recipient and body:
-                new_messages.append(AIMessage(content=body))
         return {"messages": new_messages} if new_messages else {}
 
     from app.tools import signal_client

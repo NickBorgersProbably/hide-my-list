@@ -1,7 +1,5 @@
 """Intent classification and routing for the LangGraph pipeline.
 
-Phase B: real LLM-based classifier replacing the Phase A stub.
-
 Security note: low-confidence classifications default to CHAT rather than
 escalating to a potentially wrong intent. This is a prompt-injection mitigation —
 if a malicious message tries to force ADD_TASK or COMPLETE via injection, the
@@ -9,7 +7,6 @@ classifier errs toward the safer CHAT fallback.
 """
 from __future__ import annotations
 
-import os
 from collections.abc import Hashable
 from typing import Any
 
@@ -18,10 +15,6 @@ import structlog
 from app.graph.state import Intent, State
 
 log = structlog.get_logger(__name__)
-
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
 
 _INTENT_SYSTEM_PROMPT = """\
 You are an intent classifier for a task management assistant called hide-my-list.
@@ -60,15 +53,9 @@ Examples:
 async def classify_intent(state: State) -> dict[str, Intent | None]:
     """Classify the incoming message intent using an LLM.
 
-    When ENABLE_LANGGRAPH_PATH=false (default/production), returns CHAT as before
-    so the dormant path has zero LLM cost.
-
-    When ENABLE_LANGGRAPH_PATH=true, uses the medium-tier model to classify intent.
+    Uses the medium-tier model to classify intent.
     Defaults low-confidence to CHAT as a prompt-injection mitigation.
     """
-    if not _ENABLE_LANGGRAPH_PATH:
-        return {"intent": "CHAT"}
-
     incoming = state.get("incoming", "").strip()
     if not incoming:
         return {"intent": "CHAT"}

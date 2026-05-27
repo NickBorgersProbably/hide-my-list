@@ -145,7 +145,6 @@ model IDs. No LiteLLM proxy — LangChain provider adapters directly.
 | `SIGNAL_ACCOUNT` | E.164 Signal account number |
 | `AUTHORIZED_PEERS` | Comma-separated E.164 allowed inbound peers; empty or unset refuses startup |
 | `USER_TZ` | User's IANA timezone (default `America/Chicago`) |
-| `ENABLE_LANGGRAPH_PATH` | Activates the Python path (default `true` post-cutover) |
 
 ## Outbound Dependencies
 

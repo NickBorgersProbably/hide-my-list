@@ -1,12 +1,11 @@
--- Phase C: user_prefs table for persisted user preferences.
--- Migrated from OpenClaw state.json.user_preferences at cutover.
+-- Stores per-peer user preferences as JSON.
 -- Keyed by peer (E.164 Signal number — the user identifier).
 
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS user_prefs (
   peer                   TEXT PRIMARY KEY,
-  -- raw JSON blob of all user_preferences from state.json / LangGraph state.
+  -- raw JSON blob of all user preferences.
   -- Using jsonb for flexible schema as preferences evolve.
   prefs_json             JSONB NOT NULL DEFAULT '{}',
   -- reward_prefs: subset of prefs_json promoted for fast access.
@@ -21,6 +20,6 @@ CREATE TABLE IF NOT EXISTS user_prefs (
 );
 
 COMMENT ON TABLE user_prefs IS
-  'User preferences migrated from OpenClaw state.json. Private — never log prefs_json contents.';
+  'Per-peer user preferences. Private — never log prefs_json contents.';
 
 COMMIT;

@@ -244,8 +244,7 @@ async def test_state_audit_prunes_expired_recent_outbound(db_conn: Any) -> None:
         (now, expired, now, fresh),
     )
 
-    with patch.dict(os.environ, {"ENABLE_LANGGRAPH_PATH": "true"}):
-        await run_state_audit()
+    await run_state_audit()
 
     # Expired row should be gone.
     row = await db_conn.execute(
@@ -262,35 +261,8 @@ async def test_state_audit_idempotent(db_conn: Any) -> None:
     """Running state_audit twice does not raise or produce errors."""
     from app.scheduler.jobs import run_state_audit
 
-    with patch.dict(os.environ, {"ENABLE_LANGGRAPH_PATH": "true"}):
-        await run_state_audit()
-        # Second run — should be a no-op.
-        await run_state_audit()
+    await run_state_audit()
+    # Second run — should be a no-op.
+    await run_state_audit()
 
 
-@pytest.mark.asyncio
-async def test_state_audit_dormant_when_flag_off(db_conn: Any) -> None:
-    """state_audit does nothing when ENABLE_LANGGRAPH_PATH is false."""
-    from app.scheduler.jobs import run_state_audit
-
-    now = _now()
-    expired = now - timedelta(days=91)
-
-    await db_conn.execute(
-        """
-        INSERT INTO recent_outbound
-          (peer, signal_timestamp, notion_page_id, sent_at, awaiting_reply, expires_at)
-        VALUES ('+10000000001', 9999, 'page-should-stay', %s, true, %s)
-        """,
-        (now, expired),
-    )
-
-    with patch.dict(os.environ, {"ENABLE_LANGGRAPH_PATH": "false"}):
-        await run_state_audit()
-
-    # Row should still be there — audit was dormant.
-    row = await db_conn.execute(
-        "SELECT notion_page_id FROM recent_outbound WHERE notion_page_id = 'page-should-stay'"
-    )
-    result = await row.fetchone()
-    assert result is not None

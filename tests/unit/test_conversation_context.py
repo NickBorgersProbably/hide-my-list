@@ -61,10 +61,7 @@ class TestSendNodeAppendsMessages:
         }
         state = _base_state(incoming="I need to call the dentist", pending_outbound=[draft])
 
-        with (
-            patch.object(send_module, "_ENABLE_LANGGRAPH_PATH", True),
-            patch("app.tools.signal_client.send_message", new=fake_send_message),
-        ):
+        with patch("app.tools.signal_client.send_message", new=fake_send_message):
             result = await send_module.send_node(state)
 
         assert "messages" in result
@@ -76,33 +73,12 @@ class TestSendNodeAppendsMessages:
         assert appended[1].content == "Got it — added."
 
     @pytest.mark.asyncio
-    async def test_appends_in_dormant_path_too(self) -> None:
-        """Dormant path must also record messages so a future cutover has history."""
-        from app.graph.nodes import send as send_module
-
-        draft: Any = {
-            "recipient": "<test-recipient>",
-            "body": "[echo] hello",
-            "notion_page_id": None,
-        }
-        state = _base_state(incoming="hello", pending_outbound=[draft])
-
-        with patch.object(send_module, "_ENABLE_LANGGRAPH_PATH", False):
-            result = await send_module.send_node(state)
-
-        appended = result.get("messages", [])
-        assert len(appended) == 2
-        assert isinstance(appended[0], HumanMessage)
-        assert isinstance(appended[1], AIMessage)
-
-    @pytest.mark.asyncio
     async def test_no_messages_when_nothing_to_record(self) -> None:
         """Empty incoming and empty pending must keep the return dict empty."""
         from app.graph.nodes import send as send_module
 
         state = _base_state(incoming="", pending_outbound=[])
-        with patch.object(send_module, "_ENABLE_LANGGRAPH_PATH", True):
-            result = await send_module.send_node(state)
+        result = await send_module.send_node(state)
         assert result == {}
 
 
@@ -132,10 +108,7 @@ class TestClassifyIntentUsesHistory:
         ]
         state = _base_state(incoming="I need to do it by Friday", messages=prior)
 
-        with (
-            patch.object(routing, "_ENABLE_LANGGRAPH_PATH", True),
-            patch("app.models.llm", new=_fake_llm),
-        ):
+        with patch("app.models.llm", new=_fake_llm):
             result = await routing.classify_intent(state)
 
         assert result == {"intent": "ADD_TASK"}
@@ -165,10 +138,7 @@ class TestClassifyIntentUsesHistory:
 
         state = _base_state(incoming="Hello", messages=[])
 
-        with (
-            patch.object(routing, "_ENABLE_LANGGRAPH_PATH", True),
-            patch("app.models.llm", new=_fake_llm),
-        ):
+        with patch("app.models.llm", new=_fake_llm):
             await routing.classify_intent(state)
 
         human_content = captured["msgs"][1].content

@@ -8,7 +8,6 @@ Implements docs/ai-prompts/breakdown.md behavior.
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
 
@@ -17,10 +16,6 @@ import structlog
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
-
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
 
 _NEED_HELP_SYSTEM_PROMPT = """\
 The user needs help with their current task. Provide specific, actionable guidance.
@@ -73,14 +68,6 @@ OUTPUT (JSON):
 async def need_help_node(state: State) -> dict[str, Any]:
     """NEED_HELP handler: provide actionable breakdown guidance."""
     peer = state.get("peer", "")
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        draft: OutboundDraft = {
-            "recipient": peer,
-            "body": "[stub] NEED_HELP not yet active (ENABLE_LANGGRAPH_PATH=false)",
-            "notion_page_id": None,
-        }
-        return {"pending_outbound": [draft]}
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage

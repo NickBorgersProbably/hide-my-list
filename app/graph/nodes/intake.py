@@ -12,13 +12,11 @@ When a reminder is detected:
 - Enqueues outbox row via app/tools/reminders.enqueue()
 - Uses app/tools/time_context to resolve user-local time
 
-REMINDER PERSISTENCE in the Python rewrite uses the outbox state machine, not
-OpenClaw CronCreate. The reminder worker (APScheduler) handles delivery.
+REMINDER PERSISTENCE uses the outbox state machine; the reminder worker (APScheduler) handles delivery.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -30,22 +28,9 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
-
-
 async def intake_node(state: State) -> dict[str, Any]:
     """ADD_TASK handler: infer labels, generate sub-tasks, detect reminders."""
     peer = state.get("peer", "")
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        draft: OutboundDraft = {
-            "recipient": peer,
-            "body": "[stub] ADD_TASK not yet active (ENABLE_LANGGRAPH_PATH=false)",
-            "notion_page_id": None,
-        }
-        return {"pending_outbound": [draft]}
 
     try:
         from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage

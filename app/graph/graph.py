@@ -1,12 +1,7 @@
 """LangGraph graph definition for hide-my-list.
 
-Phase B: full 8-intent graph replacing Phase A's echo-graph stub.
-
 Topology:
   classify_intent -> [conditional route by intent] -> <intent node> -> send -> END
-
-When ENABLE_LANGGRAPH_PATH=false (default), intent nodes fall back to
-Phase A echo behavior so production is not affected.
 
 Checkpointer lifecycle:
   AsyncPostgresSaver is an async context manager that must be entered before the
@@ -50,9 +45,6 @@ async def build_postgres_checkpointer(
 
 def build_graph(checkpointer: Any = None) -> Any:
     """Build and compile the LangGraph state machine.
-
-    Phase B: All 8 intents wired. When ENABLE_LANGGRAPH_PATH=false, intent nodes
-    degrade to echo behavior. When true, full behavior activated.
 
     Args:
         checkpointer: An already-entered LangGraph checkpointer instance.

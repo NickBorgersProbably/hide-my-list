@@ -22,7 +22,7 @@ Lens:
 2. **Stale references.** Renamed files, dead links, removed scripts, outdated property names, gone function signatures. Blocking.
 3. **Spec ↔ runtime drift.** Diff touches doc describing runtime behavior (cron, agent prompts, Notion schema) → verify runtime code/config still matches. Drift blocking — pick correct side, require other fixed. For Python code: if diff touches `app/scheduler/jobs.py` (SCHEDULED_JOBS), verify the `app/scheduler/jobs.py` entry in `DEV-AGENTS.md` "Python Runtime Files" lists all current SCHEDULED_JOBS ids. If diff adds a new `migrations/*.sql`, verify it is mentioned in `DEV-AGENTS.md`.
 4. **Index and TOC freshness.** `docs/index.md` and `DEV-AGENTS.md` ("Spec & Contract Files", "Python Runtime Files", "Infrastructure & CI Files") must mention new spec-bearing, infra, or Python runtime files. Missing entries non-blocking unless file added by this PR.
-5. **Python docs consistency.** If diff touches `docs/python-rewrite/*.md`: verify claims match `app/` implementation (function names, table names, env vars). Contradictions = blocking. Rollback runbook (`docs/python-rewrite/rollback.md`) must describe concrete restore commands, not abstract steps — missing commands = blocking.
+5. **Python docs consistency.** If diff touches `docs/python-rewrite/*.md`: verify claims match `app/` implementation (function names, table names, env vars). Contradictions = blocking.
 
 ## Hard constraints
 

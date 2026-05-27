@@ -51,10 +51,6 @@ class RewardResult(TypedDict):
     text: str
     attachment_path: str | None
 
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
-
 # ---------------------------------------------------------------------------
 # Sensitive task classification
 # docs/reward-system.md:302-348
