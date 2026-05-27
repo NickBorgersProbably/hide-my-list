@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -146,8 +146,15 @@ async def rejection_node(state: State) -> dict[str, Any]:
             try:
                 await notion.update_property(
                     rejected_page_id,
-                    "Rejection Count",
-                    {"number": (active_task.get("urgency", 0) if active_task else 0)},
+                    {
+                        "properties": {
+                            "Rejection Count": {
+                                "number": active_task.get("rejection_count", 0) + 1
+                                if active_task
+                                else 1
+                            }
+                        }
+                    },
                 )
             except Exception:
                 log.exception("rejection_node.notion_update_failed", page_id=rejected_page_id)
@@ -180,23 +187,51 @@ def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
         try:
-            data = json.loads(json_match.group())
-            return data.get("user_message", response_text[:300]), data.get("alternative_task_id")
+            loaded = json.loads(json_match.group())
+            if not isinstance(loaded, dict):
+                return response_text[:300], None
+            data = cast(dict[str, Any], loaded)
+            user_message = data.get("user_message", response_text[:300])
+            alternative_id = data.get("alternative_task_id")
+            return (
+                user_message if isinstance(user_message, str) else response_text[:300],
+                alternative_id if isinstance(alternative_id, str) else None,
+            )
         except json.JSONDecodeError:
             pass
     return response_text[:300] if response_text else "No problem. Want something different?", None
 
 
 def _extract_title(props: dict[str, Any]) -> str:
-    items = props.get("Title", {}).get("title", [])
-    return "".join(item.get("plain_text", "") for item in items)
+    title_prop = props.get("Title", {})
+    if not isinstance(title_prop, dict):
+        return ""
+    items = title_prop.get("title", [])
+    if not isinstance(items, list):
+        return ""
+    parts: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            plain_text = item.get("plain_text", "")
+            if isinstance(plain_text, str):
+                parts.append(plain_text)
+    return "".join(parts)
 
 
 def _extract_select(props: dict[str, Any], key: str) -> str:
-    sel = props.get(key, {}).get("select") or {}
-    return sel.get("name", "")
+    prop = props.get(key, {})
+    if not isinstance(prop, dict):
+        return ""
+    sel = prop.get("select") or {}
+    if not isinstance(sel, dict):
+        return ""
+    name = sel.get("name", "")
+    return name if isinstance(name, str) else ""
 
 
 def _extract_number(props: dict[str, Any], key: str, default: int = 0) -> int:
-    num = props.get(key, {}).get("number")
+    prop = props.get(key, {})
+    if not isinstance(prop, dict):
+        return default
+    num = prop.get("number")
     return int(num) if num is not None else default

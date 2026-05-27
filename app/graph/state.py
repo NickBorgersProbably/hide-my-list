@@ -37,6 +37,9 @@ class ActiveTask(TypedDict, total=False):
     urgency: int
     time_estimate: int
     energy_required: str
+    started_at: str
+    check_in_count: int
+    rejection_count: int
 
 
 class OutboundDraft(TypedDict):

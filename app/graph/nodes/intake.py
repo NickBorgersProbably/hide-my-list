@@ -20,8 +20,9 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -255,7 +256,9 @@ def _parse_intake_response(response_text: str) -> dict[str, Any]:
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
         try:
-            return json.loads(json_match.group())
+            loaded = json.loads(json_match.group())
+            if isinstance(loaded, dict):
+                return cast(dict[str, Any], loaded)
         except json.JSONDecodeError:
             pass
 
@@ -276,7 +279,7 @@ def _parse_intake_response(response_text: str) -> dict[str, Any]:
     }
 
 
-def _build_prefs_context(user_prefs: dict[str, Any]) -> str:
+def _build_prefs_context(user_prefs: Mapping[str, object]) -> str:
     """Build user preferences context string for the prompt."""
     if not user_prefs:
         return "No user preferences configured."
@@ -284,7 +287,8 @@ def _build_prefs_context(user_prefs: dict[str, Any]) -> str:
     lines = ["This user has the following preferences:"]
     if tz := user_prefs.get("timezone"):
         lines.append(f"- Timezone: {tz}")
-    if wt := user_prefs.get("preferred_work_types"):
+    wt = user_prefs.get("preferred_work_types")
+    if isinstance(wt, list) and all(isinstance(item, str) for item in wt):
         lines.append(f"- Preferred work types: {', '.join(wt)}")
     if energy := user_prefs.get("default_energy"):
         lines.append(f"- Default energy level: {energy}")
