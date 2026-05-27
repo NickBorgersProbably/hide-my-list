@@ -45,19 +45,19 @@ on:
         required: false
         default: reviewer
       publish:
-        # When 'false', skip the human-facing PR Review publish step.
+        # When false, skip the human-facing PR Review publish step.
         # Sub-lens roles set this to keep the PR comment thread quiet;
         # the merger publishes the single merged review.
-        type: string
+        type: boolean
         required: false
-        default: 'true'
+        default: true
       write_status:
-        # When 'false', skip the per-role commit status write. Sub-lens
+        # When false, skip the per-role commit status write. Sub-lens
         # roles skip individual statuses; the orchestrator-owning role
         # (e.g. `security` after merge) carries the canonical status.
-        type: string
+        type: boolean
         required: false
-        default: 'true'
+        default: true
     secrets:
       WORKFLOW_PAT:
         required: true
@@ -167,7 +167,7 @@ jobs:
           fi
 
       - name: Publish as GitHub PR Review
-        if: inputs.publish == 'true'
+        if: inputs.publish
         uses: ./.github/actions/review-publish
         with:
           artifact_path: ${{ steps.run.outputs.result_json }}
@@ -175,7 +175,7 @@ jobs:
           github_token: ${{ secrets.WORKFLOW_PAT }}
 
       - name: Write per-role commit status
-        if: inputs.write_status == 'true'
+        if: inputs.write_status
         uses: ./.github/actions/review-state
         with:
           op: write-status

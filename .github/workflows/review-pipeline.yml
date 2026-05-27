@@ -354,8 +354,8 @@ jobs:
       devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
       # Sub-lens artifacts are picked up by the merger, not the judge.
       artifact_prefix: lens
-      publish: 'false'
-      write_status: 'false'
+      publish: false
+      write_status: false
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
@@ -377,8 +377,8 @@ jobs:
       cycle: ${{ needs.gather.outputs.cycle }}
       devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
       artifact_prefix: lens
-      publish: 'false'
-      write_status: 'false'
+      publish: false
+      write_status: false
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
