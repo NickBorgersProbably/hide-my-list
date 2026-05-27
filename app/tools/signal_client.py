@@ -1,7 +1,8 @@
 """Signal CLI REST API client.
 
 Async HTTP + WebSocket client wrapping bbernhard/signal-cli-rest-api.
-Provides message send and inbound message streaming via WebSocket.
+Provides outbound message sends, read receipts, typing indicators, and
+inbound message streaming via WebSocket.
 
 This module is one of three authorised sites for httpx.AsyncClient usage
 (alongside app/tools/notion.py and app/ingress/signal_listener.py).

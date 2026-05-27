@@ -61,7 +61,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/scheduler/scheduler.py` — APScheduler v3 wiring with PostgresJobStore
 - `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `weekly_recap`
 - `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker
-- `app/ingress/signal_listener.py` — WebSocket consumer routing to graph
+- `app/ingress/signal_listener.py` — Authorized Signal WebSocket consumer; routes reactions to reward feedback, schedules read receipts, maintains typing indicators around graph execution, and invokes the graph for text messages
 - `app/prompts/` — Jinja2 prompt templates (`*.md.j2`) for each intent
 - `app/observability/__init__.py` — Package marker for the observability module
 - `app/observability/llm_callback.py` — `LLMObservabilityCallback` (LangChain AsyncCallbackHandler); emits `llm.call.start` / `llm.call.end` / `llm.call.error` events via structlog with tier + caller + token counts + duration. Always on in production. See `docs/python-rewrite/llm-observability.md`.
