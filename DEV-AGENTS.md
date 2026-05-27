@@ -69,6 +69,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `migrations/0002_reward_manifests.sql` — Reward manifests table
 - `migrations/0003_ops_alerts.sql` — Ops alerts table
 - `migrations/0004_user_prefs.sql` — User preferences table
+- `migrations/0005_reward_feedback.sql` — Adds `feedback_at`, `feedback_emoji` columns and delivery index to `reward_manifests`
 - `tests/unit/` — Unit tests (no DATABASE_URL required)
 - `tests/integration/` — Integration tests (require DATABASE_URL)
 - `tests/spike/` — Durability spike tests

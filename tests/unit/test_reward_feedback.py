@@ -151,6 +151,25 @@ class TestExtractReaction:
         _, _, ts = result
         assert isinstance(ts, int)
 
+    def test_nonnumeric_timestamp_returns_none(self) -> None:
+        """Non-numeric targetSentTimestamp returns None (no ValueError raised)."""
+        from app.ingress.signal_listener import _extract_reaction
+
+        env = {
+            "envelope": {
+                "source": "<peer>",
+                "dataMessage": {
+                    "reaction": {
+                        "emoji": "👍",
+                        "targetSentTimestamp": "not-a-number",
+                        "isRemove": False,
+                    }
+                },
+            }
+        }
+        result = _extract_reaction(env)
+        assert result is None
+
 
 # ---------------------------------------------------------------------------
 # Emoji-to-score mapping tests

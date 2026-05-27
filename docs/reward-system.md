@@ -401,13 +401,13 @@ Unknown emojis are recorded with score 0 — the reaction is stored as a "receiv
 
 **Idempotency:** `feedback_at IS NULL` prevents double-counting. If a user reacts twice, only the first reaction for a given reward row is recorded. A later reaction may still match an older, unrated reward within the window.
 
-**Weighting:** `apply_feedback_weight` (in `app/tools/rewards`) applies time-decaying scores from feedback history when selecting themes for new rewards. Feedback is intentionally bounded: aggregate weights are capped at ±0.5 so the result is a nudge, not a dictate, and novelty still matters.
+**Weighting:** Stored feedback scores are collected for future use. `apply_feedback_weight` (in `app/tools/rewards`) provides the intended weighting function — time-decaying, bounded at ±0.5 — but reward generation does not yet load feedback history from `reward_manifests` or pass it into theme selection.
 
 #### Novelty Mechanics
 
 Image generation system inherently addresses novelty:
 
-1. **Weighted theme selection** - each intensity has 5+ themes, with preferences and bounded feedback nudging rather than dictating the outcome
+1. **Weighted theme selection** - each intensity has 5+ themes; user preference settings influence selection (feedback-based nudging is not yet wired into theme selection)
 2. **Task motifs** - the same theme can feel different because the accomplished task changes the scene details
 3. **AI variation** - same prompt produces different images each time
 4. **Streak-responsive** - visual elements change as streaks grow

@@ -104,7 +104,12 @@ def _extract_reaction(envelope: dict[str, Any]) -> tuple[str, str, int] | None:
     if target_sent_timestamp is None:
         return None
 
-    return source, emoji, int(target_sent_timestamp)
+    try:
+        ts_int = int(target_sent_timestamp)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+    return source, emoji, ts_int
 
 
 class SignalListener:
