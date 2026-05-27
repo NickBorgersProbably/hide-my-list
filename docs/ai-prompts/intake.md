@@ -181,7 +181,7 @@ Examples:
     is_reminder: true, remind_at: "2026-04-19T09:00:00-05:00", title: "Clean up boxes"
 
 RESCHEDULE FROM RECENT OUTBOUND CONTEXT:
-When `recent_outbound_context` contains an entry with `awaiting_response: true` and
+When `recent_outbound_context` contains an entry with `awaiting_reply: true` and
 `type: "reminder"`, and the user message is a bare time reference or explicit reschedule
 phrase ("tomorrow at 9", "next week", "push it to 3pm", "later today"), treat as a
 reminder reschedule using the matched entry's title:
@@ -190,7 +190,7 @@ reminder reschedule using the matched entry's title:
 - Use the matched `recent_outbound` entry's `title` as the task title (do not re-ask)
 - Parse the new time reference and convert to ISO 8601 with timezone offset (same rules as above)
 - Set urgency = 90
-- After saving: the matched `recent_outbound` entry must be cleared (set `awaiting_response: false` or remove the entry)
+- After saving: the matched `recent_outbound` entry must be cleared (set `awaiting_reply: false` or remove the entry)
 - The new `reminder_outbox` row is written by `app/graph/nodes/intake.py` — no additional scheduling step needed.
 - In this `recent_outbound` path, the prior reminder was already delivered, so its Notion row is already `Completed`. No separate cleanup of the old outbox row is needed.
 - Keep all of that bookkeeping internal. The user-facing reply for a reschedule
@@ -198,14 +198,14 @@ reminder reschedule using the matched entry's title:
   other reminder confirmation.
 
 Example:
-  recent_outbound entry: title "Call the dentist", awaiting_response: true
+  recent_outbound entry: title "Call the dentist", awaiting_reply: true
   user says: "tomorrow at 9" →
     is_reminder: true, title: "Call the dentist", remind_at: "<tomorrow 09:00 ISO>",
     confirmation_message: "Got it — I'll remind you around 9 tomorrow to call the dentist.",
     then clear matched recent_outbound entry
 
 Example:
-  recent_outbound entry: title "Set up your video call software for therapy", awaiting_response: true
+  recent_outbound entry: title "Set up your video call software for therapy", awaiting_reply: true
   user says: "remind me in an hour" →
     is_reminder: true, title: "Set up your video call software for therapy",
     remind_at: "<now+1h ISO>",

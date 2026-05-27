@@ -1,0 +1,20 @@
+id: classify-intent-follow-up-context-001
+node: classify_intent
+peer: "<test-peer-1>"
+inbound: "I need to do it by Friday"
+prior_state:
+  messages:
+    - role: user
+      content: "I have to deal with the insurance paperwork"
+    - role: assistant
+      content: "Got it — added. Want me to set a reminder?"
+tier: cheap
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)CHAT"
+  - kind: judge
+    rubric: >
+      Given prior context where the user described a task, a follow-up message
+      "I need to do it by Friday" must be classified as ADD_TASK, not CHAT.
+      The classifier should resolve the pronoun "it" from the prior turn.
+    threshold: 0.85

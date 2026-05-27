@@ -36,8 +36,10 @@ Classify the user's message into EXACTLY ONE of these intents:
 - CHECK_IN: System-initiated follow-up — NEVER classify user messages as this
 - CHAT: General conversation or questions — USE THIS when unsure
 
-If RECENT_OUTBOUND_CONTEXT shows a recent awaiting_reply entry, use it to resolve
-short replies before defaulting to CHAT.
+If the prior conversation shows an in-progress task discussion, treat short
+follow-ups (deadlines, clarifications, pronouns like "it") as continuations of
+that intent. For example, if the previous turn was the user describing a task
+and the current message is "I need to do it by Friday", classify as ADD_TASK.
 
 Rules:
 - If unsure or confidence is low, output CHAT (never guess at a wrong intent)
@@ -72,15 +74,32 @@ async def classify_intent(state: State) -> dict[str, Intent | None]:
         return {"intent": "CHAT"}
 
     try:
-        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 
         from app.models import llm
 
         model = llm("medium")
 
+        # Pull a small window of prior turns so short follow-ups can resolve
+        # against the active discussion (e.g. "by Friday" after an ADD_TASK turn).
+        # State.messages is populated by the terminal send node.
+        messages_history: list[AnyMessage] = state.get("messages", [])
+        context_lines = [
+            f"{getattr(m, 'type', 'message')}: {str(getattr(m, 'content', ''))[:200]}"
+            for m in messages_history[-5:]
+        ]
+        prior_context = (
+            "\n".join(context_lines) if context_lines else "No prior context."
+        )
+
         messages = [
             SystemMessage(content=_INTENT_SYSTEM_PROMPT),
-            HumanMessage(content=f"Message: {incoming!r}"),
+            HumanMessage(
+                content=(
+                    f"Prior conversation:\n{prior_context}\n\n"
+                    f"Current message: {incoming!r}"
+                )
+            ),
         ]
 
         response = await model.ainvoke(messages)
