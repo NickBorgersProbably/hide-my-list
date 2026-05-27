@@ -21,16 +21,24 @@ def test_model_tiers_json_exists() -> None:
     assert not missing, f"model-tiers.json missing tiers: {sorted(missing)}"
 
 
-def test_all_tiers_have_anthropic_model_ids() -> None:
-    """All model IDs in model-tiers.json must start with 'claude-'."""
+def test_all_tiers_have_known_model_id_prefix() -> None:
+    """All model IDs in model-tiers.json must use a known provider prefix.
+
+    The allowlist mirrors app.models._VALID_MODEL_PREFIXES — the proxy is the
+    source of truth for which aliases actually resolve; this check only catches
+    typos at startup. Importing the constant keeps the two in lockstep.
+    """
     import json
+
+    from app.models import _VALID_MODEL_PREFIXES
     tiers_path = Path(__file__).parent.parent.parent / "setup" / "model-tiers.json"
     data = json.loads(tiers_path.read_text(encoding="utf-8"))
 
     for tier, model_id in data.items():
         if tier in {"expensive", "medium", "cheap", "reminder"}:
-            assert model_id.startswith("claude-"), (
-                f"Tier '{tier}' model '{model_id}' must start with 'claude-'"
+            assert any(model_id.startswith(p) for p in _VALID_MODEL_PREFIXES), (
+                f"Tier '{tier}' model '{model_id}' must start with one of "
+                f"{_VALID_MODEL_PREFIXES}"
             )
 
 
@@ -97,11 +105,11 @@ def test_langsmith_guard_passes_when_tracing_disabled() -> None:
 
 
 def test_valid_tier_returns_llm_instance() -> None:
-    """llm(tier) must return a runnable wrapping ChatAnthropic for valid tiers.
+    """llm(tier) must return a runnable wrapping ChatOpenAI for valid tiers.
 
     The returned object is a RunnableBinding (from with_config) that wraps a
-    ChatAnthropic instance with the observability callback attached. We verify
-    that the inner bound model is a ChatAnthropic.
+    ChatOpenAI instance with the observability callback attached. We verify
+    that the inner bound model is a ChatOpenAI.
     """
     from app import models as models_module
     models_module._load_model_tiers.cache_clear()
@@ -109,14 +117,15 @@ def test_valid_tier_returns_llm_instance() -> None:
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
     env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+    env.setdefault("ANTHROPIC_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
-        from langchain_anthropic import ChatAnthropic
         from langchain_core.runnables import RunnableBinding
+        from langchain_openai import ChatOpenAI
         result = models_module.llm("medium")
         # with_config wraps the model in a RunnableBinding
         assert isinstance(result, RunnableBinding)
-        assert isinstance(result.bound, ChatAnthropic)
+        assert isinstance(result.bound, ChatOpenAI)
 
     models_module._load_model_tiers.cache_clear()
 
@@ -129,6 +138,7 @@ def test_invalid_tier_raises_value_error() -> None:
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
     env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+    env.setdefault("ANTHROPIC_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         with pytest.raises(ValueError, match="Unknown model tier"):

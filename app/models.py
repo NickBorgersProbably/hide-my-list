@@ -4,10 +4,20 @@ Reads model tier assignments from setup/model-tiers.json and exposes
 a single llm(tier) factory function. Validates model IDs at startup.
 
 Tiers:
-  expensive -> claude-opus-4-6 (complex reasoning: GET_TASK scoring)
-  medium    -> claude-sonnet-4-6 (intent classification, most nodes)
-  cheap     -> claude-haiku-4-5 (lightweight tasks)
-  reminder  -> claude-haiku-4-5 (reminder delivery cron)
+  expensive -> gemma4-small (complex reasoning: GET_TASK scoring)
+  medium    -> gemma4-small (intent classification, most nodes)
+  cheap     -> gemma4-small (lightweight tasks)
+  reminder  -> gemma4-small (reminder delivery cron)
+
+All tiers currently collapse onto a single alias because the LLM host
+can only hold one Gemma model in RAM at a time; reintroducing distinct
+tiers is a one-line edit per tier in setup/model-tiers.json.
+
+Model IDs are sent as OpenAI-format chat-completion requests to the
+LiteLLM proxy at ANTHROPIC_BASE_URL (the env var name is retained for
+compose/devcontainer continuity even though the wire protocol is now
+OpenAI, not Anthropic). Adding a new provider family is just adding
+its prefix to _VALID_MODEL_PREFIXES.
 
 LangSmith guard: refuses boot when LANGSMITH_TRACING=true unless
 ALLOW_PRIVATE_TRACE_EXPORT=true is also set. Private user data (task titles,
@@ -27,7 +37,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 
 from app.observability.llm_callback import LLMObservabilityCallback
 
@@ -38,8 +48,9 @@ Tier = Literal["expensive", "medium", "cheap", "reminder"]
 
 _VALID_TIERS: frozenset[str] = frozenset(["expensive", "medium", "cheap", "reminder"])
 
-# Anthropic model prefix for validation
-_ANTHROPIC_PREFIX = "claude-"
+# Known model-ID prefixes accepted by the LiteLLM proxy. A startup-time
+# allowlist catches typos in setup/model-tiers.json before the first call.
+_VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
 
 
 def _check_langsmith_guard() -> None:
@@ -83,24 +94,31 @@ def _load_model_tiers() -> dict[str, str]:
             f"Expected tiers: {sorted(_VALID_TIERS)}"
         )
 
-    # Validate model IDs — must be Anthropic models for langchain-anthropic
+    # Validate model IDs against the known-prefix allowlist. The proxy is the
+    # source of truth for which aliases actually resolve; this check only
+    # catches obvious typos at startup.
     for tier, model_id in data.items():
         if tier not in _VALID_TIERS:
             continue  # Extra keys are ignored
-        if not isinstance(model_id, str) or not model_id.startswith(_ANTHROPIC_PREFIX):
+        if not isinstance(model_id, str) or not any(
+            model_id.startswith(p) for p in _VALID_MODEL_PREFIXES
+        ):
             raise RuntimeError(
                 f"setup/model-tiers.json tier '{tier}' has invalid model ID '{model_id}'. "
-                f"Anthropic models must start with '{_ANTHROPIC_PREFIX}'."
+                f"Model IDs must start with one of: {_VALID_MODEL_PREFIXES}."
             )
 
     return data
 
 
-def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> ChatAnthropic:
-    """Return a LangChain ChatAnthropic instance for the given tier.
+def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> ChatOpenAI:
+    """Return a LangChain ChatOpenAI instance pointing at the LiteLLM proxy.
 
     Model IDs are resolved from setup/model-tiers.json, validated at first call.
-    The ANTHROPIC_API_KEY environment variable must be set.
+    ANTHROPIC_BASE_URL must point at the proxy (OpenAI-compatible endpoint, i.e.
+    include the /v1 suffix); ANTHROPIC_API_KEY is forwarded as the bearer token
+    when present and falls back to a placeholder when the proxy doesn't require
+    auth.
 
     An LLMObservabilityCallback is attached automatically, emitting
     llm.call.start / llm.call.end / llm.call.error events to structlog with
@@ -116,7 +134,7 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
             None is valid for callsites that don't pass a caller.
 
     Returns:
-        ChatAnthropic configured for the specified tier, with observability
+        ChatOpenAI configured for the specified tier, with observability
         callback attached.
 
     Raises:
@@ -133,11 +151,13 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     model_id = tiers[tier]
 
     kwargs: dict[str, Any] = {
-        "model_name": model_id,
+        "model": model_id,
         "temperature": temperature,
-        "max_tokens_to_sample": 1024,
+        "max_tokens": 1024,
+        "base_url": os.environ.get("ANTHROPIC_BASE_URL"),
+        "api_key": os.environ.get("ANTHROPIC_API_KEY") or "placeholder",
     }
-    base_model = ChatAnthropic(**kwargs)
+    base_model = ChatOpenAI(**kwargs)
 
     # Attach observability callback (one instance per llm() call so tier + caller
     # are baked into the handler and appear as fields on every log event).
