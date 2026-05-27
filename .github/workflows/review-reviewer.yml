@@ -103,9 +103,15 @@ jobs:
           # explicit --spec=draft2020 flag to register the meta-schema;
           # without it the schema parse fails with "no schema with key
           # or ref https://json-schema.org/draft/2020-12/schema".
+          #
+          # Schema is read from the PR head checkout, not main. A PR that
+          # adds a new reviewer role updates the schema enum in the same
+          # PR; reading from main would create a chicken-and-egg validation
+          # failure where the new role can't be merged until its schema
+          # ships, but its schema can't ship until the role passes review.
           npx -y ajv-cli@5 validate \
             --spec=draft2020 \
-            -s .github/scripts/review/schema/reviewer-v1.json \
+            -s "${PR_WORKSPACE_PATH}/.github/scripts/review/schema/reviewer-v1.json" \
             -d "$ARTIFACT"
 
       - name: Publish as GitHub PR Review

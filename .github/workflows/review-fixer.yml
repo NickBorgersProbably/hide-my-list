@@ -333,9 +333,14 @@ jobs:
           # explicit --spec=draft2020 flag to register the meta-schema;
           # without it the schema parse fails with "no schema with key
           # or ref https://json-schema.org/draft/2020-12/schema".
+          #
+          # Schema is read from the PR head checkout, not main. Matches
+          # review-reviewer.yml so a PR that extends the namespace
+          # vocabulary (e.g. adding a new reviewer role) can have its
+          # fixer output validated against the same PR's updated schema.
           npx -y ajv-cli@5 validate \
             --spec=draft2020 \
-            -s .github/scripts/review/schema/fix-result-v1.json \
+            -s "${PR_WORKSPACE_PATH}/.github/scripts/review/schema/fix-result-v1.json" \
             -d "$ARTIFACT"
 
       # Commit the fixer's working-tree changes from the host runner
