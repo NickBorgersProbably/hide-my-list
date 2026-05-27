@@ -388,7 +388,9 @@ Each reward delivery writes a row to the `reward_manifests` Postgres table. `app
 
 Unknown emojis are recorded with score 0 — the reaction is stored as a "received" signal but carries no positive or negative weight.
 
-**Lookup window:** `record_reward_feedback` matches the most recent unrated `reward_manifests` row for the peer where `delivered_at` falls within 60 minutes of the reaction's target message timestamp. The window is configurable per call.
+**Reaction routing:** Signal reaction envelopes are administrative events. The listener records feedback only when the sender is in `AUTHORIZED_PEERS` and the reaction target author matches the bot Signal account. Reactions do not invoke the LangGraph conversation path.
+
+**Lookup window:** `record_reward_feedback` converts Signal's target message timestamp from milliseconds to UTC and matches the closest unrated `reward_manifests` row for the peer where `delivered_at` falls within ±30 seconds of that target timestamp. The `match_window_seconds` value is configurable per call. This tight window accounts for local manifest-write time, send latency, and clock skew without attributing reactions on unrelated nearby messages to older rewards.
 
 **Storage:** Three columns on `reward_manifests`:
 
@@ -396,9 +398,15 @@ Unknown emojis are recorded with score 0 — the reaction is stored as a "receiv
 - `feedback_emoji` (TEXT) — the raw emoji character(s), stored verbatim
 - `feedback_at` (TIMESTAMPTZ) — when the reaction was recorded
 
-**Idempotency:** `feedback_at IS NULL` prevents double-counting. If a user reacts twice, only the first reaction for a given reward row is recorded. A later reaction may still match an older, unrated reward within the window.
+**Idempotency:** `feedback_at IS NULL` prevents double-counting. If a user reacts twice, only the first reaction for a given reward row is recorded. A later reaction may still match another unrated reward inside the tight timestamp window.
 
-**Weighting:** `apply_feedback_weight` (in `app/tools/rewards`) applies time-decaying scores from feedback history when selecting themes for new rewards. Feedback is intentionally bounded: aggregate weights are capped at ±0.5 so the result is a nudge, not a dictate, and novelty still matters.
+**Prompt personalization:** `load_feedback_history` loads recent rated rewards for the peer from the last 90 days. Image generation summarizes feedback only after at least three ratings:
+
+- More positive than negative ratings adds guidance to lean energetic and celebratory.
+- More negative than positive ratings adds guidance to be a bit more subdued.
+- Small or balanced samples add no feedback guidance.
+
+The prompt guidance is intentionally short and coarse so feedback nudges future rewards without turning one reaction into a hard preference.
 
 #### Novelty Mechanics
 

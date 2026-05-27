@@ -62,8 +62,8 @@ def _extract_peer_and_text(envelope: dict[str, Any]) -> tuple[str, str] | None:
     return source, text
 
 
-def _extract_reaction(envelope: dict[str, Any]) -> tuple[str, str, int] | None:
-    """Extract (sender_e164, emoji, target_sent_timestamp) from a reaction.
+def _extract_reaction(envelope: dict[str, Any]) -> tuple[str, str, int, str] | None:
+    """Extract reaction feedback fields from a signal-cli envelope.
 
     Returns None for non-reaction envelopes, removed reactions, or malformed
     reaction payloads.
@@ -79,11 +79,23 @@ def _extract_reaction(envelope: dict[str, Any]) -> tuple[str, str, int] | None:
 
     source = outer.get("source", "")
     emoji = reaction.get("emoji", "")
+    target_author = reaction.get("targetAuthor", "")
     target_sent_timestamp = reaction.get("targetSentTimestamp")
-    if not source or not emoji or not isinstance(target_sent_timestamp, int):
+    if (
+        not source
+        or not emoji
+        or not target_author
+        or not isinstance(target_sent_timestamp, int)
+    ):
         return None
 
-    return source, emoji, target_sent_timestamp
+    return source, emoji, target_sent_timestamp, target_author
+
+
+def _target_author_matches_account(target_author: str, account: str | None) -> bool:
+    """Return whether a reaction targeted a bot-authored message."""
+    expected_account = account or os.environ.get("SIGNAL_ACCOUNT", "")
+    return bool(expected_account) and target_author == expected_account
 
 
 class SignalListener:
@@ -128,9 +140,13 @@ class SignalListener:
         ):
             reaction = _extract_reaction(envelope)
             if reaction is not None:
-                peer, emoji, target_sent_timestamp = reaction
+                peer, emoji, target_sent_timestamp, target_author = reaction
                 if peer not in self._authorized_peers:
                     log.warning("signal_listener.unauthorized_peer_dropped")
+                    continue
+
+                if not _target_author_matches_account(target_author, self._account):
+                    log.info("signal_listener.reaction_non_bot_target_dropped")
                     continue
 
                 from app.tools.rewards import record_reward_feedback
@@ -140,7 +156,7 @@ class SignalListener:
                     emoji=emoji,
                     target_sent_timestamp=target_sent_timestamp,
                 )
-                log.info("signal_listener.reaction_recorded", peer=peer[:4] + "***")
+                log.info("signal_listener.reaction_recorded")
                 continue
 
             result = _extract_peer_and_text(envelope)

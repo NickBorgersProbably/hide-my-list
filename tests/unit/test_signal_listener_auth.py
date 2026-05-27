@@ -27,6 +27,7 @@ def _reaction_envelope(
     source: str,
     emoji: str = "👍",
     target_sent_timestamp: int = 1_716_800_000_000,
+    target_author: str = "+15559876543",
     *,
     is_remove: bool = False,
 ) -> dict[str, Any]:
@@ -37,7 +38,7 @@ def _reaction_envelope(
             "dataMessage": {
                 "reaction": {
                     "emoji": emoji,
-                    "targetAuthor": "+15559876543",
+                    "targetAuthor": target_author,
                     "targetSentTimestamp": target_sent_timestamp,
                     "isRemove": is_remove,
                 }
@@ -84,7 +85,7 @@ def test_extract_reaction_parses_signal_payload() -> None:
 
     result = _extract_reaction(_reaction_envelope("+15551234567"))
 
-    assert result == ("+15551234567", "👍", 1_716_800_000_000)
+    assert result == ("+15551234567", "👍", 1_716_800_000_000, "+15559876543")
 
 
 def test_extract_reaction_skips_removed_reaction() -> None:
@@ -181,6 +182,36 @@ async def test_authorized_reaction_records_feedback_without_graph() -> None:
         emoji="👍",
         target_sent_timestamp=1_716_800_000_000,
     )
+    graph.ainvoke.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorized_reaction_to_non_bot_message_dropped() -> None:
+    """Reactions to messages not authored by the bot must not record feedback."""
+    from app.ingress.signal_listener import SignalListener
+
+    graph = AsyncMock()
+    listener = SignalListener(
+        graph=graph,
+        account="+15559876543",
+        authorized_peers=frozenset({"+15551234567"}),
+    )
+
+    record_feedback = AsyncMock(return_value=True)
+    envelopes = [
+        _reaction_envelope(
+            "+15551234567",
+            emoji="👍",
+            target_author="+15550000000",
+        )
+    ]
+    with (
+        patch("app.ingress.signal_listener.receive_messages", return_value=_async_gen(envelopes)),
+        patch("app.tools.rewards.record_reward_feedback", new=record_feedback),
+    ):
+        await listener.run()
+
+    record_feedback.assert_not_awaited()
     graph.ainvoke.assert_not_awaited()
 
 
