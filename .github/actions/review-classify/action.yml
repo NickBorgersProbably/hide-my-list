@@ -25,7 +25,8 @@ description: >
                  setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**,
                  tests/** (including dropped/weakened tests),
                  the test reviewer prompt itself, docs/python-rewrite/test-rig.md,
-                 and the review schema JSONs. Enforces test-rig maintenance.
+                 the review schema JSONs, and
+                 scripts/run-required-checks.sh. Enforces test-rig maintenance.
 
   These mirror the conditions enforced by the current review pipeline's
   reviewer routing. Centralizing them here means adding a new role is
@@ -71,7 +72,7 @@ outputs:
     description: '"true" if diff includes app/prompts/*.md.j2'
     value: ${{ steps.classify.outputs.python_prompt_template }}
   test_rig_surface:
-    description: '"true" if diff touches test-rig coverage surface (app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**, or test.md)'
+    description: '"true" if diff touches test-rig coverage surface (app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**, tests/**, test.md, or scripts/run-required-checks.sh)'
     value: ${{ steps.classify.outputs.test_rig_surface }}
 
 runs:
@@ -181,6 +182,7 @@ runs:
             docs/python-rewrite/test-rig.md) return 0 ;;
             .github/scripts/review/schema/*.json) return 0 ;;
             docker/compose.yaml) return 0 ;;
+            scripts/run-required-checks.sh) return 0 ;;
             *) return 1 ;;
           esac
         }
