@@ -63,6 +63,8 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker
 - `app/ingress/signal_listener.py` — WebSocket consumer routing to graph
 - `app/prompts/` — Jinja2 prompt templates (`*.md.j2`) for each intent
+- `app/observability/__init__.py` — Package marker for the observability module
+- `app/observability/llm_callback.py` — `LLMObservabilityCallback` (LangChain AsyncCallbackHandler); emits `llm.call.start` / `llm.call.end` / `llm.call.error` events via structlog with tier + caller + token counts + duration. Always on in production. See `docs/python-rewrite/llm-observability.md`.
 - `app/models.py` — Model tier validation at startup; reads `setup/model-tiers.json`
 - `app/main.py` — Entry point; LangSmith guard; production default `ENABLE_LANGGRAPH_PATH=true`
 - `migrations/0001_initial.sql` — Initial schema: outbox, recent_outbound, ops_alerts_throttle
@@ -73,6 +75,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `migrations/0006_reward_feedback_columns.sql` — Adds `feedback_emoji` and `feedback_at` columns to `reward_manifests`
 - `tests/unit/` — Unit tests (no DATABASE_URL required)
 - `tests/integration/` — Integration tests (require DATABASE_URL)
+- `tests/perf/` — Perf harness: latency + token stats per model, gated by `ENABLE_LLM_PERF=true`. See `docs/python-rewrite/llm-observability.md` for usage.
 - `tests/spike/` — Durability spike tests
 - `docs/python-rewrite/` — Python stack contributor docs and runbooks
 - `docs/python-rewrite/rollback.md` — Cutover rollback runbook + forward cutover procedure

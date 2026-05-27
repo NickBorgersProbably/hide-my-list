@@ -119,7 +119,7 @@ async def selection_node(state: State) -> dict[str, Any]:
         }
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 
-        model = llm("expensive")
+        model = llm("expensive", caller="selection")
         messages = [
             SystemMessage(content=prompt_text),
             HumanMessage(content="Select the best task for me right now."),

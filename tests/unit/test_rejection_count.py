@@ -53,7 +53,7 @@ async def test_selection_node_preserves_rejection_count(monkeypatch: pytest.Monk
     monkeypatch.setattr(
         models_module,
         "llm",
-        lambda tier: _FakeModel(
+        lambda tier, **kwargs: _FakeModel(
             '{"user_message": "Try this placeholder task.", '
             f'"selected_task_id": "{page_id}"}}'
         ),
@@ -104,7 +104,7 @@ async def test_rejection_node_increments_preserved_rejection_count(
     monkeypatch.setattr(
         models_module,
         "llm",
-        lambda tier: _FakeModel(
+        lambda tier, **kwargs: _FakeModel(
             '{"user_message": "No problem, want something different?", '
             '"alternative_task_id": null}'
         ),

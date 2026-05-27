@@ -97,7 +97,12 @@ def test_langsmith_guard_passes_when_tracing_disabled() -> None:
 
 
 def test_valid_tier_returns_llm_instance() -> None:
-    """llm(tier) must return a ChatAnthropic instance for valid tiers."""
+    """llm(tier) must return a runnable wrapping ChatAnthropic for valid tiers.
+
+    The returned object is a RunnableBinding (from with_config) that wraps a
+    ChatAnthropic instance with the observability callback attached. We verify
+    that the inner bound model is a ChatAnthropic.
+    """
     from app import models as models_module
     models_module._load_model_tiers.cache_clear()
 
@@ -107,8 +112,11 @@ def test_valid_tier_returns_llm_instance() -> None:
 
     with patch.dict(os.environ, env, clear=True):
         from langchain_anthropic import ChatAnthropic
+        from langchain_core.runnables import RunnableBinding
         result = models_module.llm("medium")
-        assert isinstance(result, ChatAnthropic)
+        # with_config wraps the model in a RunnableBinding
+        assert isinstance(result, RunnableBinding)
+        assert isinstance(result.bound, ChatAnthropic)
 
     models_module._load_model_tiers.cache_clear()
 
