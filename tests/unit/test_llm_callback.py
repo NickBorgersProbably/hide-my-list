@@ -22,7 +22,6 @@ from app.observability.llm_callback import (
     _safe_int,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -112,7 +111,7 @@ def test_on_chat_model_start_records_start_time() -> None:
         log_events.append(dict(event_dict))
         return event_dict
 
-    with patch("app.observability.llm_callback.log") as mock_log:
+    with patch("app.observability.llm_callback.log"):
         asyncio.run(handler.on_chat_model_start(
             serialized={},
             messages=[[MagicMock(), MagicMock()]],
