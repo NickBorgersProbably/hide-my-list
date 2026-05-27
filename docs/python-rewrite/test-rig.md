@@ -69,9 +69,6 @@ Globs `migrations/*.sql`, parses the `^\d+_` prefix, asserts:
 - Prefixes are monotonic starting at 1 with no gaps.
 - Filenames match `^\d{4}_[a-z][a-z0-9_]*\.sql$`.
 
-Currently the known `0005_*.sql` collision is whitelisted in
-`test_prefixes_are_unique`; any new duplicate prefix fails immediately.
-
 ### `test_reachability.py`
 
 AST-scans `app/tools/*.py`, `app/graph/nodes/*.py`, `app/scheduler/*.py`,
