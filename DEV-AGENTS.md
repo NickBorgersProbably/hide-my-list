@@ -76,6 +76,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `docs/python-rewrite/` — Python stack contributor docs and runbooks
 - `docs/python-rewrite/rollback.md` — Cutover rollback runbook + forward cutover procedure
 - `docs/python-rewrite/langgraph-semantics.md` — LangGraph durability spike findings
+- `docs/python-rewrite/test-rig.md` — Authoritative test rig architecture spec: layer table, 8 bug classes, regression catalog convention, eval fixture format, integration mock discipline, LLM swap mechanism
 - `scripts/migrate_state_json.py` — One-shot OpenClaw → Postgres state migration; requires `--peer <E.164>`
 - `docker/backup.sh` — Postgres pg_dump wrapper with retention policy
 - `docker/Dockerfile` — Multi-stage Python 3.12-slim image for the app service
@@ -112,6 +113,7 @@ Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude
 - `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers; read by `app/models.py` at startup
 - `pyproject.toml` — Python 3.12 dependency manifest for the LangGraph stack; runtime and dev deps pinned by version
 - `.github/workflows/python-validation.yml` — Required CI gate: ruff + mypy + pytest-unit on every PR touching Python source files
+- `.github/scripts/review/prompts/test.md` — Test coverage reviewer: enforces 6 test-rig contract clauses on PRs touching app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**
 
 ## Safety
 
