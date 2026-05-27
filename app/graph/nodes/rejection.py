@@ -8,7 +8,6 @@ Implements docs/ai-prompts/rejection.md behavior.
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any, cast
 
@@ -17,10 +16,6 @@ import structlog
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
-
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
 
 _REJECTION_SYSTEM_PROMPT = """\
 The user rejected the suggested task. Understand why and find an alternative.
@@ -73,14 +68,6 @@ OUTPUT (JSON):
 async def rejection_node(state: State) -> dict[str, Any]:
     """REJECT handler: classify rejection and suggest alternative."""
     peer = state.get("peer", "")
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        draft: OutboundDraft = {
-            "recipient": peer,
-            "body": "[stub] REJECT not yet active (ENABLE_LANGGRAPH_PATH=false)",
-            "notion_page_id": None,
-        }
-        return {"pending_outbound": [draft]}
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage

@@ -45,8 +45,6 @@ docker compose up -d
 docker compose logs -f app
 ```
 
-See [docs/python-rewrite/rollback.md](docs/python-rewrite/rollback.md) for the full cutover and rollback procedure.
-
 ## Git hooks
 
 Install the repo hooks in every worktree you plan to commit from:
@@ -82,7 +80,6 @@ The CI pipeline includes a **psychological research evidence reviewer** that val
 - [Reward System](docs/reward-system.md)
 - [ADHD Design Priorities](design/adhd-priorities.md)
 - [Security Architecture](SECURITY.md)
-- [Rollback Runbook](docs/python-rewrite/rollback.md)
 
 ## License
 

@@ -44,12 +44,11 @@ async def dispatch_due_reminders() -> None:
 
 
 async def check_notion_health() -> None:
-    """Ping Notion API and enqueue an ops alert on failure.
+    """Ping Notion API every 15 min; enqueue notion_health_failed ops alert on failure.
 
-    Replacement for OpenClaw heartbeat Check 3 (Notion connectivity).
-    Runs every 15 minutes. Calls notion.health_check() which GETs /v1/users/me.
-    On failure, enqueues a 'notion_health_failed' ops alert; the drain job
-    delivers it to OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert storms.
+    Calls notion.health_check() which GETs /v1/users/me. On failure, enqueues a
+    'notion_health_failed' ops alert; the drain job delivers it to
+    OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert storms.
     """
     from app.tools import notion, ops_alerts
 
@@ -67,10 +66,9 @@ async def check_notion_health() -> None:
 
 
 async def send_pending_ops_alerts() -> None:
-    """Drain ops alerts queue and deliver any pending alerts via Signal.
+    """Drain ops alerts queue every 5 min and deliver any pending alerts via Signal.
 
-    Replacement for OpenClaw heartbeat alert dispatch path.
-    Runs every 5 minutes. Calls ops_alerts.drain() which:
+    Calls ops_alerts.drain() which:
       - Fetches pending alerts from the ops_alerts Postgres table.
       - Sends each via signal_client to OPS_ALERT_SIGNAL_NUMBER.
       - Marks delivered; updates per-kind throttle.
@@ -82,7 +80,6 @@ async def send_pending_ops_alerts() -> None:
 async def run_state_audit() -> None:
     """Nightly database maintenance: VACUUM + retention pruning.
 
-    Replacement for OpenClaw heartbeat Check 6 (memory/state audit).
     Runs nightly at 3am user time (USER_TZ env var).
 
     Operations:
@@ -90,13 +87,7 @@ async def run_state_audit() -> None:
       2. Delete recent_outbound rows older than 90 days.
 
     Idempotent: safe to re-run. Rows already pruned are not re-deleted.
-    Only runs when ENABLE_LANGGRAPH_PATH=true; logs a dormancy message otherwise.
     """
-    _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in ("true", "1", "yes")
-    if not _enabled:
-        log.debug("state_audit.dormant")
-        return
-
     from datetime import UTC, datetime, timedelta  # noqa: PLC0415
 
     from app.tools.db import get_db_conn
@@ -142,10 +133,8 @@ async def run_state_audit() -> None:
 
 
 async def generate_weekly_recap() -> None:
-    """Generate and send weekly recap to the user.
-
-    # Real impl in Phase B/C
-    """
+    """Generate and send weekly recap to the user."""
+    # TODO: implement recap generation
     log.debug("weekly_recap.tick")
 
 
@@ -162,13 +151,7 @@ async def dispatch_check_ins() -> None:
     This job does NOT classify from user messages — it injects CHECK_IN directly
     via the graph's routing (routing.check_in_route).
     """
-    _enabled = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in ("true", "1", "yes")
-    if not _enabled:
-        log.debug("dispatch_check_ins.dormant")
-        return
-
-    # Phase B implementation: stub that logs intent.
-    # Phase C wires this to query active tasks from Postgres/Notion and invoke graph.
+    # TODO: query active tasks and invoke graph
     log.debug("dispatch_check_ins.tick")
 
 

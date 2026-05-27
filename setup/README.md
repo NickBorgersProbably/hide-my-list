@@ -58,7 +58,6 @@ signal-cli volume management or registration carry-over. The `signal-cli` servic
 | `USER_TZ` | No | IANA timezone identifier (default `America/Chicago`) |
 | `OPENAI_API_KEY` | No | For AI-generated reward images (`app/tools/rewards.py`) |
 | `OPS_ALERT_SIGNAL_NUMBER` | No | Separate Signal recipient for ops alerts |
-| `ENABLE_LANGGRAPH_PATH` | No | Defaults to `true`; set `false` only for emergency rollback |
 | `LANGSMITH_TRACING` | No | Set `true` to enable LangSmith tracing (requires `ALLOW_PRIVATE_TRACE_EXPORT=true`) |
 | `ALLOW_PRIVATE_TRACE_EXPORT` | No | Required alongside `LANGSMITH_TRACING=true`; explicit consent for private data export |
 

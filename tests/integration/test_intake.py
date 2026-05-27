@@ -98,7 +98,6 @@ async def test_reminder_creates_notion_row_and_outbox_row() -> None:
     mock_notion_page = _make_notion_page(page_id=page_id, title="Placeholder reminder task")
 
     with (
-        patch("app.graph.nodes.intake._ENABLE_LANGGRAPH_PATH", True),
         patch("app.tools.notion.create_reminder", new_callable=AsyncMock, return_value=mock_notion_page),
         patch("app.tools.notion.create_task", new_callable=AsyncMock, return_value=mock_notion_page),
         patch("app.tools.reminders.enqueue", side_effect=mock_enqueue),
@@ -170,7 +169,6 @@ async def test_task_without_reminder_creates_notion_task_only() -> None:
         return _make_notion_page(page_id=page_id)
 
     with (
-        patch("app.graph.nodes.intake._ENABLE_LANGGRAPH_PATH", True),
         patch("app.tools.notion.create_task", side_effect=mock_create_task),
         patch("app.tools.notion.create_reminder", side_effect=mock_create_reminder),
     ):
@@ -225,33 +223,30 @@ async def test_recurring_reminder_gets_explicit_response() -> None:
         "clarification_count": 1,
     })
 
-    with (
-        patch("app.graph.nodes.intake._ENABLE_LANGGRAPH_PATH", True),
-    ):
-        mock_llm_response = MagicMock()
-        mock_llm_response.content = clarify_response
-        mock_model = AsyncMock()
-        mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+    mock_llm_response = MagicMock()
+    mock_llm_response.content = clarify_response
+    mock_model = AsyncMock()
+    mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
 
-        with patch("app.models.llm", return_value=mock_model):
-            from app.graph.nodes.intake import intake_node
+    with patch("app.models.llm", return_value=mock_model):
+        from app.graph.nodes.intake import intake_node
 
-            state: State = {
-                "peer": "<test-intake-recurring>",
-                "incoming": "every weekday at 8 remind me to check email",
-                "intent": "ADD_TASK",
-                "messages": [],
-                "active_task": None,
-                "streak": 0,
-                "tasks_completed_today": 0,
-                "user_prefs": {},
-                "mood": None,
-                "available_minutes": None,
-                "conversation_state": "idle",
-                "pending_outbound": [],
-            }
+        state: State = {
+            "peer": "<test-intake-recurring>",
+            "incoming": "every weekday at 8 remind me to check email",
+            "intent": "ADD_TASK",
+            "messages": [],
+            "active_task": None,
+            "streak": 0,
+            "tasks_completed_today": 0,
+            "user_prefs": {},
+            "mood": None,
+            "available_minutes": None,
+            "conversation_state": "idle",
+            "pending_outbound": [],
+        }
 
-            result = await intake_node(state)
+        result = await intake_node(state)
 
     # Node must not crash; must return some response
     assert result["pending_outbound"]
@@ -259,34 +254,6 @@ async def test_recurring_reminder_gets_explicit_response() -> None:
     assert draft["recipient"] == "<test-intake-recurring>"
     # The response should mention the recurring limitation or ask for clarification
     assert len(draft["body"]) > 0
-
-
-@pytest.mark.asyncio
-async def test_intake_node_dormant_when_flag_off() -> None:
-    """Intake node returns stub when ENABLE_LANGGRAPH_PATH=false."""
-    # ENABLE_LANGGRAPH_PATH is false by default in tests
-    from app.graph.nodes.intake import intake_node
-
-    state: State = {
-        "peer": "<test-intake-dormant>",
-        "incoming": "add a task",
-        "intent": "ADD_TASK",
-        "messages": [],
-        "active_task": None,
-        "streak": 0,
-        "tasks_completed_today": 0,
-        "user_prefs": {},
-        "mood": None,
-        "available_minutes": None,
-        "conversation_state": "idle",
-        "pending_outbound": [],
-    }
-
-    result = await intake_node(state)
-
-    assert result["pending_outbound"]
-    assert "ENABLE_LANGGRAPH_PATH=false" in result["pending_outbound"][0]["body"] or \
-           "stub" in result["pending_outbound"][0]["body"].lower()
 
 
 def test_intake_prompt_parity() -> None:
@@ -334,31 +301,30 @@ async def test_intake_clarify_response_when_vague() -> None:
         "clarification_count": 1,
     })
 
-    with patch("app.graph.nodes.intake._ENABLE_LANGGRAPH_PATH", True):
-        mock_llm_response = MagicMock()
-        mock_llm_response.content = clarify_response
-        mock_model = AsyncMock()
-        mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+    mock_llm_response = MagicMock()
+    mock_llm_response.content = clarify_response
+    mock_model = AsyncMock()
+    mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
 
-        with patch("app.models.llm", return_value=mock_model):
-            from app.graph.nodes.intake import intake_node
+    with patch("app.models.llm", return_value=mock_model):
+        from app.graph.nodes.intake import intake_node
 
-            state: State = {
-                "peer": "<test-intake-vague>",
-                "incoming": "do the thing",
-                "intent": "ADD_TASK",
-                "messages": [],
-                "active_task": None,
-                "streak": 0,
-                "tasks_completed_today": 0,
-                "user_prefs": {},
-                "mood": None,
-                "available_minutes": None,
-                "conversation_state": "idle",
-                "pending_outbound": [],
-            }
+        state: State = {
+            "peer": "<test-intake-vague>",
+            "incoming": "do the thing",
+            "intent": "ADD_TASK",
+            "messages": [],
+            "active_task": None,
+            "streak": 0,
+            "tasks_completed_today": 0,
+            "user_prefs": {},
+            "mood": None,
+            "available_minutes": None,
+            "conversation_state": "idle",
+            "pending_outbound": [],
+        }
 
-            result = await intake_node(state)
+        result = await intake_node(state)
 
     # Clarification question returned, task not saved
     assert result["pending_outbound"]

@@ -8,7 +8,6 @@ Uses expensive-tier LLM for nuanced scoring and suggestion text.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from typing import Any, TypedDict, cast
 
@@ -17,11 +16,6 @@ import structlog
 from app.graph.state import ActiveTask, OutboundDraft, State
 
 log = structlog.get_logger(__name__)
-
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
-
 
 class _SimplifiedTask(TypedDict):
     id: str
@@ -62,20 +56,8 @@ def _time_of_day() -> str:
 
 
 async def selection_node(state: State) -> dict[str, Any]:
-    """GET_TASK handler: score and suggest a task.
-
-    When ENABLE_LANGGRAPH_PATH=false, echoes a stub. When true, queries Notion,
-    scores tasks with the LLM, and populates pending_outbound.
-    """
+    """GET_TASK handler: query Notion, score tasks with the LLM, and populate pending_outbound."""
     peer = state.get("peer", "")
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        draft: OutboundDraft = {
-            "recipient": peer,
-            "body": "[stub] GET_TASK not yet active (ENABLE_LANGGRAPH_PATH=false)",
-            "notion_page_id": None,
-        }
-        return {"pending_outbound": [draft]}
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage

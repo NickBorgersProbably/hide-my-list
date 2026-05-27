@@ -5,7 +5,6 @@ Covers:
   with attachment_paths=[path].
 - Draft without attachment_path: signal_client.send_message called without
   attachment_paths (text-only, backward compatible).
-- Dormant path (ENABLE_LANGGRAPH_PATH=false): attachment_count logged, not path.
 
 Private data discipline: attachment_path is private. Tests use placeholder paths
 and verify that no path value appears in log output.
@@ -75,10 +74,7 @@ class TestSendNodeWithAttachment:
 
         state = _base_state(pending_outbound=[draft])
 
-        with (
-            patch.object(send_module, "_ENABLE_LANGGRAPH_PATH", True),
-            patch("app.tools.signal_client.send_message", new=fake_send_message),
-        ):
+        with patch("app.tools.signal_client.send_message", new=fake_send_message):
             await send_module.send_node(state)
 
         assert "attachment_paths" in captured_kwargs
@@ -109,10 +105,7 @@ class TestSendNodeWithAttachment:
 
         state = _base_state(pending_outbound=[draft])
 
-        with (
-            patch.object(send_module, "_ENABLE_LANGGRAPH_PATH", True),
-            patch("app.tools.signal_client.send_message", new=fake_send_message),
-        ):
+        with patch("app.tools.signal_client.send_message", new=fake_send_message):
             await send_module.send_node(state)
 
         assert "attachment_paths" not in captured_kwargs
@@ -131,86 +124,8 @@ class TestSendNodeWithAttachment:
 
         state = _base_state(pending_outbound=[])
 
-        with (
-            patch.object(send_module, "_ENABLE_LANGGRAPH_PATH", True),
-            patch("app.tools.signal_client.send_message", new=fake_send_message),
-        ):
+        with patch("app.tools.signal_client.send_message", new=fake_send_message):
             result = await send_module.send_node(state)
 
         assert result == {}
         assert call_count == 0
-
-
-# ---------------------------------------------------------------------------
-# Dormant path: attachment_count logged, not path
-# ---------------------------------------------------------------------------
-
-class TestSendNodeDormantAttachment:
-    """When ENABLE_LANGGRAPH_PATH=false, attachment_count must be logged, not path."""
-
-    @pytest.mark.asyncio
-    async def test_dormant_logs_attachment_count_not_path(self) -> None:
-        """Dormant send_node must log attachment_count=1 for draft with attachment_path."""
-
-        from app.graph.nodes import send as send_module
-
-        fake_path = "/placeholder/reward_artifacts/private-image.png"
-        draft: Any = {
-            "recipient": "<test-recipient>",
-            "body": "Nice work! ✨",
-            "notion_page_id": "<page-id>",
-            "attachment_path": fake_path,
-        }
-
-        state = _base_state(pending_outbound=[draft])
-
-        log_events: list[dict[str, Any]] = []
-
-        import structlog
-
-        def capture_event(logger: Any, method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
-            log_events.append(dict(event_dict))
-            raise structlog.DropEvent()
-
-        with (
-            patch.object(send_module, "_ENABLE_LANGGRAPH_PATH", False),
-        ):
-            # Use structlog's testing processor chain
-            with structlog.testing.capture_logs() as captured:
-                await send_module.send_node(state)
-
-        dormant_events = [e for e in captured if e.get("event") == "send_node.dormant"]
-        assert dormant_events, "Expected at least one send_node.dormant log event"
-
-        event = dormant_events[0]
-        assert event.get("attachment_count") == 1, (
-            "Dormant log must include attachment_count=1 for draft with attachment_path"
-        )
-        # Path must not appear in the log event
-        assert fake_path not in str(event), (
-            "attachment_path value must not appear in dormant log event — private data"
-        )
-
-    @pytest.mark.asyncio
-    async def test_dormant_no_attachment_no_attachment_count(self) -> None:
-        """Dormant send_node must not log attachment_count for text-only drafts."""
-        import structlog
-
-        from app.graph.nodes import send as send_module
-
-        draft: Any = {
-            "recipient": "<test-recipient>",
-            "body": "Nice work! ✨",
-            "notion_page_id": "<page-id>",
-        }
-
-        state = _base_state(pending_outbound=[draft])
-
-        with patch.object(send_module, "_ENABLE_LANGGRAPH_PATH", False):
-            with structlog.testing.capture_logs() as captured:
-                await send_module.send_node(state)
-
-        dormant_events = [e for e in captured if e.get("event") == "send_node.dormant"]
-        assert dormant_events
-        event = dormant_events[0]
-        assert "attachment_count" not in event

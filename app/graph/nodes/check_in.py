@@ -8,7 +8,6 @@ Implements docs/ai-prompts/check-in.md behavior.
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -18,10 +17,6 @@ import structlog
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
-
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
 
 _CHECK_IN_SYSTEM_PROMPT = """\
 The user accepted a task but the expected completion time has passed.
@@ -64,14 +59,6 @@ async def check_in_node(state: State) -> dict[str, Any]:
     logs a warning and routes to chat fallback behavior.
     """
     peer = state.get("peer", "")
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        draft: OutboundDraft = {
-            "recipient": peer,
-            "body": "[stub] CHECK_IN not yet active (ENABLE_LANGGRAPH_PATH=false)",
-            "notion_page_id": None,
-        }
-        return {"pending_outbound": [draft]}
 
     # Guard: if no active task, skip check-in
     active_task = state.get("active_task")

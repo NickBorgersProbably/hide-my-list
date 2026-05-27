@@ -1,11 +1,5 @@
 """Entry point for the hide-my-list Python + LangGraph app.
 
-Production mode: ENABLE_LANGGRAPH_PATH=true (default post-cutover). The app
-starts the Signal ingress listener and APScheduler.
-
-Emergency fallback: set ENABLE_LANGGRAPH_PATH=false to skip startup and exit 0.
-Use only for diagnostics or while reverting to a prior deployment.
-
 LangSmith guard: refuses to boot when LANGSMITH_TRACING=true unless
 ALLOW_PRIVATE_TRACE_EXPORT=true is also set.
 """
@@ -56,7 +50,7 @@ def _check_langsmith_guard() -> None:
 
 
 async def _run_app() -> None:
-    """Start Signal ingress and APScheduler when ENABLE_LANGGRAPH_PATH=true."""
+    """Start Signal ingress and APScheduler."""
     from app.graph.graph import build_graph, build_postgres_checkpointer
     from app.ingress.signal_listener import SignalListener
     from app.scheduler.jobs import reconcile_jobstore
@@ -107,17 +101,6 @@ def _configure_logging() -> None:
 def main() -> None:
     _check_langsmith_guard()
     _configure_logging()
-
-    enable = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() == "true"
-
-    if not enable:
-        log.warning(
-            "app.skeleton_mode",
-            message="ENABLE_LANGGRAPH_PATH=false — emergency fallback active. "
-            "App exiting without starting. Set ENABLE_LANGGRAPH_PATH=true for production.",
-        )
-        print("skeleton")  # noqa: T201
-        sys.exit(0)
 
     asyncio.run(_run_app())
 

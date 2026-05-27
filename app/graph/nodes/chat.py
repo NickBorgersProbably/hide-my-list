@@ -4,7 +4,6 @@ Uses medium-tier LLM to provide brief, helpful responses.
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import structlog
@@ -13,27 +12,10 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
-
-
 async def chat_node(state: State) -> dict[str, Any]:
-    """CHAT handler: general conversation fallback.
-
-    When ENABLE_LANGGRAPH_PATH=false, echoes back the incoming message (Phase A
-    behavior preserved). When true, uses a medium-tier LLM for a real response.
-    """
+    """CHAT handler: general conversation fallback using medium-tier LLM."""
     peer = state.get("peer", "")
     incoming = state.get("incoming", "")
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        draft: OutboundDraft = {
-            "recipient": peer,
-            "body": f"[echo] {incoming}",
-            "notion_page_id": None,
-        }
-        return {"pending_outbound": [draft]}
 
     try:
         from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage

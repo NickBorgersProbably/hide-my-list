@@ -7,7 +7,6 @@ Reward integration implemented in PR-B5.
 """
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import structlog
@@ -16,26 +15,9 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
-_ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
-    "true", "1", "yes"
-)
-
-
 async def complete_node(state: State) -> dict[str, Any]:
-    """COMPLETE handler: mark task done and deliver reward.
-
-    When ENABLE_LANGGRAPH_PATH=false, echoes a stub.
-    When true, updates Notion, calls rewards.maybe_reward(), drafts reply.
-    """
+    """COMPLETE handler: update Notion, call rewards.maybe_reward(), draft reply."""
     peer = state.get("peer", "")
-
-    if not _ENABLE_LANGGRAPH_PATH:
-        draft: OutboundDraft = {
-            "recipient": peer,
-            "body": "[stub] COMPLETE not yet active (ENABLE_LANGGRAPH_PATH=false)",
-            "notion_page_id": None,
-        }
-        return {"pending_outbound": [draft]}
 
     try:
         from app.tools import notion
