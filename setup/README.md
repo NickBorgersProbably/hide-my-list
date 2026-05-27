@@ -51,6 +51,7 @@ signal-cli volume management or registration carry-over. The `signal-cli` servic
 | `NOTION_API_KEY` | Yes | Notion integration API key |
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
 | `SIGNAL_ACCOUNT` | Yes | E.164 phone number registered with signal-cli |
+| `AUTHORIZED_PEERS` | Yes | Comma-separated E.164 numbers allowed to send inbound messages; empty or unset refuses startup |
 | `ANTHROPIC_API_KEY` | Yes | Primary LLM (Claude via langchain-anthropic) |
 | `DATABASE_URL` | Compose-managed | Postgres DSN; hardcoded in `docker/compose.yaml` for the compose network. Override only for non-compose runs. |
 | `SIGNAL_CLI_URL` | Compose-managed | WebSocket URL of the signal-cli bridge; hardcoded in `docker/compose.yaml`. Override only for non-compose runs. |

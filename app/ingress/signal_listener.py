@@ -109,14 +109,7 @@ class SignalListener:
             peer, text = result
 
             if peer not in self._authorized_peers:
-                # Silent drop. Logging the peer prefix only — the full number
-                # would itself be useful intel for an attacker enumerating
-                # numbers via timing. No response means an attacker cannot
-                # confirm the bot is live by sending a message.
-                log.warning(
-                    "signal_listener.unauthorized_peer_dropped",
-                    peer_prefix=peer[:4] + "***",
-                )
+                log.warning("signal_listener.unauthorized_peer_dropped")
                 continue
 
             log.info("signal_listener.message_received", peer=peer[:4] + "***")
