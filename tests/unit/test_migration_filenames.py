@@ -1,9 +1,8 @@
 """Structural lint: migration filename conventions.
 
 Enforces three properties on every file under migrations/:
-  1. All numeric prefixes are unique (no duplicate 0005_*.sql files).
-     The known 0005 collision is explicitly whitelisted by test_prefixes_are_unique;
-     any new duplicate prefix fails immediately.
+  1. All numeric prefixes are unique (no duplicate prefixes across *.sql files);
+     any duplicate prefix fails immediately.
   2. Prefixes are monotonic starting at 1 with no gaps
      (0001, 0002, ..., N -- no skips).
   3. Each filename matches the pattern: 4-digit prefix + lowercase snake_case
@@ -39,9 +38,8 @@ def _prefix(filename: str) -> int:
 def test_prefixes_are_unique() -> None:
     """No two migration files may share the same numeric prefix.
 
-    The known 0005 collision (0005_readonly_user.sql and
-    0005_reward_feedback_columns.sql) is whitelisted. Any other duplicate
-    prefix fails immediately so future migrations cannot silently reuse one.
+    Any duplicate prefix fails immediately so future migrations cannot
+    silently reuse one.
     """
     files = _sql_files()
     prefixes: dict[int, list[str]] = {}
@@ -50,14 +48,10 @@ def test_prefixes_are_unique() -> None:
         prefixes.setdefault(p, []).append(f.name)
 
     collisions = {p: names for p, names in prefixes.items() if len(names) > 1}
-    assert set(collisions) <= {5}, (
-        f"Unexpected duplicate migration prefixes: {collisions}. "
+    assert not collisions, (
+        f"Duplicate migration prefixes found: {collisions}. "
         "Each migration must have a unique numeric prefix."
     )
-    if 5 in collisions:
-        assert sorted(collisions[5]) == sorted(
-            ["0005_readonly_user.sql", "0005_reward_feedback_columns.sql"]
-        ), f"Known 0005 collision changed: {collisions[5]}"
 
 
 def test_prefixes_are_monotonic() -> None:
