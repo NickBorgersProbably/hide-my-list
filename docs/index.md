@@ -33,6 +33,7 @@ An AI-powered task manager where users never directly view their task list. The 
 - [Reward Deferred Features](python-rewrite/reward-deferred.md) - Features deferred from v1 reward subsystem (audio rewards, outing suggestions, video compilation)
 - [Rollback Runbook](python-rewrite/rollback.md) - Pre-cutover snapshot, forward cutover procedure, and revert procedure
 - [Test Rig Architecture](python-rewrite/test-rig.md) - Authoritative spec for the behavior + LLM-swap test rig: layer architecture, bug-class catalog, fixture format, discipline rules
+- [LLM Observability](python-rewrite/llm-observability.md) - Token + latency logging event schema (structlog → Gravwell), perf harness usage, model comparison recipe
 
 ## Design
 
