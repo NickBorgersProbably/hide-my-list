@@ -59,6 +59,26 @@ jobs:
       - name: Install dependencies
         run: pip install --quiet -e ".[dev]"
 
+      - name: Validate dispatch inputs
+        env:
+          CANDIDATE: ${{ inputs.candidate_model }}
+          TIER: ${{ inputs.candidate_tier }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$CANDIDATE" | grep -qE '^[A-Za-z0-9._:-]+$'; then
+            printf 'Invalid candidate_model: must match [A-Za-z0-9._:-]+\n' >&2
+            exit 1
+          fi
+          valid_tiers="expensive medium cheap reminder"
+          found=false
+          for t in $valid_tiers; do
+            [ "$TIER" = "$t" ] && found=true && break
+          done
+          if [ "$found" != "true" ]; then
+            printf 'Invalid candidate_tier: must be one of %s\n' "$valid_tiers" >&2
+            exit 1
+          fi
+
       - name: Compute baseline + candidate model lists
         id: models
         env:
@@ -84,10 +104,12 @@ jobs:
           EVAL_BUDGET_USD: ${{ inputs.budget_usd }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          CANDIDATE: ${{ inputs.candidate_model }}
+          TIER: ${{ inputs.candidate_tier }}
         run: |
           set -euo pipefail
           echo "Baseline: ${{ steps.models.outputs.baseline }}"
-          echo "Candidate: ${{ inputs.candidate_model }} at tier ${{ inputs.candidate_tier }}"
+          printf 'Candidate: %s at tier %s\n' "$CANDIDATE" "$TIER"
           echo "Budget cap: \$$EVAL_BUDGET_USD"
           python -m tests.evals.runner
 
@@ -101,12 +123,13 @@ jobs:
 
       - name: Surface report.md in job summary
         if: always()
+        env:
+          CANDIDATE: ${{ inputs.candidate_model }}
         run: |
           set -euo pipefail
           LATEST=$(ls -1d tests/evals/runs/*/ 2>/dev/null | tail -1 || true)
           if [ -n "$LATEST" ] && [ -f "$LATEST/report.md" ]; then
-            echo "## Model-Swap Report: ${{ inputs.candidate_model }}" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
+            printf '## Model-Swap Report: %s\n\n' "$CANDIDATE" >> "$GITHUB_STEP_SUMMARY"
             cat "$LATEST/report.md" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No report.md produced." >> "$GITHUB_STEP_SUMMARY"

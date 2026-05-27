@@ -18,8 +18,8 @@ fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.jso
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | mocked (`MagicMock`) | none | no | Pure logic, prompt structure, regex/type assertions, structural lints |
 | Integration | `tests/integration/` | mocked (with strict call-arg assertions) | real (container) | no | State machines, DB schema, async plumbing, wiring contracts |
-| Eval | `tests/evals/` | real, multi-model via LiteLLM proxy | real | no | Behavioral contracts across model swaps; judge-LLM scoring |
-| Smoke | `tests/smoke/` | one real call via LiteLLM proxy | real | yes (boots stack) | Deployment-gap catch |
+| Eval | `tests/evals/` | real, multi-model via LiteLLM proxy | none | no | Behavioral contracts across model swaps; judge-LLM scoring |
+| Smoke | `tests/smoke/` | none (skeleton mode) | none | yes (boots stack) | Deployment-gap catch |
 | Regressions | `tests/regressions/` | varies | varies | varies | One permanent test per production bug |
 
 ### Cost and frequency
@@ -29,7 +29,7 @@ fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.jso
 | Unit | <30 s | $0 | every commit |
 | Integration | <2 min | $0 | every commit |
 | Structural lints | <10 s | $0 | every commit |
-| Compose smoke | <3 min | <$0.01 | gated by `ENABLE_COMPOSE_SMOKE=true` — runs on demand only |
+| Compose smoke | <3 min | $0 | gated by `ENABLE_COMPOSE_SMOKE=true` — runs on demand only |
 | Evals (baseline) | 10-20 min | ~$2-5 | `.github/workflows/nightly-evals.yml` — cron 09:00 UTC + `workflow_dispatch` |
 | Model-swap report | 15-30 min | ~$5-10 | `.github/workflows/model-swap.yml` — `workflow_dispatch` only |
 
@@ -201,9 +201,11 @@ meaning every reward image was silently discarded.
 hardcoded relative to the repo root. No `MODEL_TIERS_PATH` env override exists
 in the current runtime. The eval runner swaps model tiers by writing a modified
 `setup/model-tiers.json` into the test working tree before invoking the graph
-under test. In eval and smoke harnesses, `ChatAnthropic` routes through a LiteLLM proxy at
-`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. The production app
-runtime connects directly to the Anthropic API without a LiteLLM proxy.
+under test. In the eval harness, `ChatAnthropic` routes through a LiteLLM proxy at
+`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. The smoke harness
+boots in skeleton mode (`ENABLE_LANGGRAPH_PATH=false`) and makes no LLM calls.
+The production app runtime connects directly to the Anthropic API without a
+LiteLLM proxy.
 
 **Prerequisite for non-Claude swap:** `app/models.py` currently validates
 that every tier value starts with `claude-` (a Phase B leftover that was

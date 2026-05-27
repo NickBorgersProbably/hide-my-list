@@ -453,6 +453,8 @@ def run_session(
     models: list[str],
     *,
     budget_usd: float = float("inf"),
+    candidate_tier: str | None = None,
+    candidate_model: str | None = None,
 ) -> Iterator[FixtureRunResult]:
     """Yield a result for every (fixture, model) pair.
 
@@ -461,11 +463,26 @@ def run_session(
     `error='budget_exceeded'` (and empty contracts). They count as
     failures for any baseline check — a low budget cannot produce a
     false-success by silently skipping pairs.
+
+    When `candidate_model` is set, tier-scoped filtering applies:
+    the candidate only runs against fixtures for `candidate_tier`; each
+    baseline model only runs against fixtures for tiers it serves in
+    production. When `candidate_model` is None, all (model, fixture)
+    pairs run (backward-compatible behaviour for plain baseline runs).
     """
+    production_tiers = _read_tiers() if candidate_model is not None else {}
     spent = 0.0
     budget_hit = False
     for model in models:
+        is_candidate = candidate_model is not None and model == candidate_model
         for fixture in fixtures:
+            if candidate_model is not None:
+                if is_candidate:
+                    if candidate_tier and fixture.tier != candidate_tier:
+                        continue
+                else:
+                    if production_tiers.get(fixture.tier) != model:
+                        continue
             if budget_hit or spent > budget_usd:
                 if not budget_hit:
                     log.warning(
@@ -602,15 +619,26 @@ def main() -> int:
     if not fixtures:
         log.warning("eval.no_fixtures")
         return 0
-    results = list(run_session(fixtures, models, budget_usd=_budget_usd()))
+    baseline_raw = os.environ.get("EVAL_BASELINE_MODELS", "").strip()
+    baseline_set = {m.strip() for m in baseline_raw.split(",") if m.strip()}
+    candidate_tier = os.environ.get("EVAL_CANDIDATE_TIER", "").strip() or None
+    candidate_models = [m for m in models if m not in baseline_set] if baseline_set else []
+    candidate_model = candidate_models[0] if len(candidate_models) == 1 else None
+    results = list(
+        run_session(
+            fixtures,
+            models,
+            budget_usd=_budget_usd(),
+            candidate_tier=candidate_tier,
+            candidate_model=candidate_model,
+        )
+    )
     out_dir = write_report(results)
     log.info("eval.report_written", extra={"path": str(out_dir)})
     # Exit non-zero if any BASELINE model failed any contract.
-    baseline = os.environ.get("EVAL_BASELINE_MODELS", "").strip()
-    baseline_models = {m.strip() for m in baseline.split(",") if m.strip()}
-    if baseline_models:
+    if baseline_set:
         for r in results:
-            if r.model in baseline_models and not r.passed:
+            if r.model in baseline_set and not r.passed:
                 return 1
     return 0
 
