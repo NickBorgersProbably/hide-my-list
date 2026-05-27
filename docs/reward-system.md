@@ -391,7 +391,7 @@ Each reward delivery writes a row to the `reward_manifests` Postgres table. User
 
 Unknown emojis are recorded with score 0 — the reaction is stored as a "received" signal but carries no positive or negative weight.
 
-**Lookup window:** `record_reward_feedback` matches the most recent unrated `reward_manifests` row for the peer where `delivered_at` falls within 60 minutes of the reaction's target message timestamp. The window is configurable per call.
+**Lookup window:** `record_reward_feedback` uses Signal's `targetSentTimestamp` — the exact timestamp of the reacted-to message — to identify the specific reward. A tight ±30-second window around that timestamp matches the reward whose `delivered_at` is closest to the reaction target. This prevents false attribution to other bot messages.
 
 **Storage:** Three columns on `reward_manifests`:
 
@@ -399,15 +399,15 @@ Unknown emojis are recorded with score 0 — the reaction is stored as a "receiv
 - `feedback_emoji` (TEXT) — the raw emoji character(s), stored verbatim
 - `feedback_at` (TIMESTAMPTZ) — when the reaction was recorded
 
-**Idempotency:** `feedback_at IS NULL` prevents double-counting. If a user reacts twice, only the first reaction for a given reward row is recorded. A later reaction may still match an older, unrated reward within the window.
+**Idempotency:** `feedback_at IS NULL` prevents double-counting. Only the first reaction for a given reward row is recorded.
 
-**Weighting:** Stored feedback scores are collected for future use. `apply_feedback_weight` (in `app/tools/rewards`) provides the intended weighting function — time-decaying, bounded at ±0.5 — but reward generation does not yet load feedback history from `reward_manifests` or pass it into theme selection.
+**Weighting:** `maybe_reward` calls `load_feedback_history` before image generation to retrieve the peer's recent rated rows from `reward_manifests`. The resulting feedback list is passed to `generate_reward_image` as `feedback_history`. `apply_feedback_weight` (in `app/tools/rewards`) applies time-decaying, ±0.5-bounded nudges to bias theme selection toward preferred combinations and away from negatively-rated ones. Feedback degrades gracefully: if DB is unavailable, `load_feedback_history` returns `[]` and theme selection is uniform.
 
 #### Novelty Mechanics
 
 Image generation system inherently addresses novelty:
 
-1. **Weighted theme selection** - each intensity has 5+ themes; user preference settings influence selection (feedback-based nudging is not yet wired into theme selection)
+1. **Weighted theme selection** - each intensity has 5+ themes, with preferences and bounded feedback nudging rather than dictating the outcome
 2. **Task motifs** - the same theme can feel different because the accomplished task changes the scene details
 3. **AI variation** - same prompt produces different images each time
 4. **Streak-responsive** - visual elements change as streaks grow

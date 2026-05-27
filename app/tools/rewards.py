@@ -533,27 +533,31 @@ async def record_reward_feedback(
     peer: str,
     emoji: str,
     target_sent_timestamp: int,
-    window_minutes: int = 60,
+    match_window_seconds: int = 30,
 ) -> bool:
     """Record user feedback on a recent reward via Signal reaction.
 
-    Looks up the most recent reward_manifests row for this peer where
-    delivered_at is within `window_minutes` of the reaction's target
-    timestamp. Updates feedback_score, feedback_emoji, and feedback_at.
+    Uses Signal's targetSentTimestamp to identify the specific message that
+    was reacted to. That timestamp is the exact time Signal stamped the
+    original message, which corresponds closely to delivered_at in the
+    manifest. A tight ±match_window_seconds window (default ±30 s) ensures
+    the reaction is attributed to the reward message itself, not to any
+    other bot message in a broader time range. Reactions to non-reward
+    messages (no manifest row within the window) return False.
+
+    Updates feedback_score, feedback_emoji, and feedback_at on match.
 
     Returns True if a matching reward was found and updated, False if no
     match (e.g., reaction on a non-reward message, or outside the window).
 
-    Idempotency: the `feedback_at IS NULL` filter prevents double-counting.
-    If the user reacts twice to the same reward, only the first reaction
-    counts. A later reaction can still match a different (older) reward
-    within the window.
+    Idempotency: feedback_at IS NULL prevents double-counting. Only the
+    first reaction for a given reward row is recorded.
 
-    Unknown emojis receive score 0 — still recorded as an acknowledgment
-    but carry no positive/negative training signal.
+    Unknown emojis receive score 0 — recorded as an acknowledgment but
+    carry no positive/negative training signal.
 
-    Privacy: peer is used only as a DB filter key. Emoji recipient, task
-    title, and message body are never logged.
+    Privacy: peer is used only as a DB filter key. Emoji text, task title,
+    and message body are never logged.
     """
     from app.tools.db import get_db_conn
 
@@ -563,20 +567,24 @@ async def record_reward_feedback(
 
     try:
         async with get_db_conn() as conn:
-            # Find the most recent unrated reward for this peer within the window.
+            # Match the reward whose delivered_at is closest to the reaction's
+            # target timestamp, within a tight window. This ensures the reaction
+            # is attributed to the specific reward message and not to any other
+            # bot message in a broad time range.
             # Uses reward_manifests_peer_delivered_idx for efficiency.
             cur = await conn.execute(
                 """
                 SELECT id
                 FROM reward_manifests
                 WHERE peer = %s
-                  AND delivered_at <= %s
-                  AND delivered_at >= %s - (%s * interval '1 minute')
+                  AND delivered_at >= %s - (%s * interval '1 second')
+                  AND delivered_at <= %s + (%s * interval '1 second')
                   AND feedback_at IS NULL
-                ORDER BY delivered_at DESC
+                ORDER BY abs(extract(epoch from (delivered_at - %s))) ASC
                 LIMIT 1
                 """,
-                (peer, target_dt, target_dt, window_minutes),
+                (peer, target_dt, match_window_seconds,
+                 target_dt, match_window_seconds, target_dt),
             )
             row = await cur.fetchone()
             if row is None:
@@ -602,6 +610,59 @@ async def record_reward_feedback(
     except Exception:
         log.exception("record_reward_feedback.failed")
         return False
+
+
+async def load_feedback_history(
+    peer: str,
+    *,
+    limit: int = 20,
+    days_back: int = 30,
+) -> list[dict[str, Any]]:
+    """Load recent rated rewards for a peer to drive feedback-weighted theme selection.
+
+    Returns a list of dicts with keys: score, timestamp (ISO 8601 UTC string).
+    Only rows with feedback_at IS NOT NULL (i.e., rated rows) are returned.
+    Private columns (task_title, artifact_path) are never included.
+
+    Returns an empty list on DB failure (non-fatal — feedback weighting degrades
+    gracefully to uniform weights).
+    """
+    from app.tools.db import get_db_conn
+
+    cutoff = datetime.now(UTC).replace(tzinfo=UTC)
+    try:
+        async with get_db_conn() as conn:
+            cur = await conn.execute(
+                """
+                SELECT feedback_score,
+                       feedback_at
+                FROM reward_manifests
+                WHERE peer = %s
+                  AND feedback_at IS NOT NULL
+                  AND feedback_at >= now() - (%s * interval '1 day')
+                ORDER BY feedback_at DESC
+                LIMIT %s
+                """,
+                (peer, days_back, limit),
+            )
+            rows = await cur.fetchall()
+
+        return [
+            {
+                "score": row["feedback_score"] or 0,
+                "timestamp": row["feedback_at"].isoformat()
+                if row["feedback_at"]
+                else cutoff.isoformat(),
+                # theme_family/style/palette not stored; weighting uses score + recency only
+                "theme_family": "",
+                "style": "",
+                "palette": "",
+            }
+            for row in rows
+        ]
+    except Exception:
+        log.exception("load_feedback_history.failed")
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -803,6 +864,11 @@ async def maybe_reward(
     # Get emoji celebration
     celebration_text = get_celebration_emoji(intensity_label, sensitive_task=sensitive)
 
+    # Load feedback history to bias theme selection (non-fatal if DB unavailable)
+    feedback_history: list[dict[str, Any]] = []
+    if intensity_label != "lightest" and not sensitive:
+        feedback_history = await load_feedback_history(peer)
+
     # Attempt image generation
     image_path = None
     if intensity_label != "lightest" and not sensitive:
@@ -815,6 +881,7 @@ async def maybe_reward(
             energy_level=energy_required.lower(),
             sensitive_task=sensitive,
             user_prefs=prefs,
+            feedback_history=feedback_history,
         )
     elif sensitive:
         # Sensitive: muted emoji only (no image)

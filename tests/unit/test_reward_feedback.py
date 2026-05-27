@@ -231,7 +231,12 @@ async def _fake_db(conn: MagicMock) -> AsyncGenerator[MagicMock, None]:
 
 
 class TestRecordRewardFeedback:
-    """record_reward_feedback DB logic: match/no-match/window/idempotency/unknown-emoji."""
+    """record_reward_feedback DB logic: match/no-match/window/idempotency/unknown-emoji.
+
+    The function uses a tight ±30-second window around the reaction's
+    targetSentTimestamp (the exact timestamp of the reacted-to message) to
+    identify the specific reward, preventing false attribution to other messages.
+    """
 
     # A fixed "now" in ms for deterministic tests
     _TS_MS: int = 1716800000000
@@ -239,7 +244,7 @@ class TestRecordRewardFeedback:
 
     @pytest.mark.asyncio
     async def test_match_within_window_returns_true(self) -> None:
-        """Row found within window → feedback columns updated, returns True."""
+        """Row found matching the target timestamp → feedback columns updated, returns True."""
         from app.tools import rewards as rewards_module
 
         matching_id = str(uuid.uuid4())
@@ -284,16 +289,16 @@ class TestRecordRewardFeedback:
 
     @pytest.mark.asyncio
     async def test_outside_window_returns_false(self) -> None:
-        """Row exists but outside the 60-minute window → no match, returns False.
+        """Row exists but outside the ±30-second window → no match, returns False.
 
-        Simulated by fetchone returning None (the DB query filters by window).
+        Simulated by fetchone returning None (the DB query filters by tight window).
         """
         from app.tools import rewards as rewards_module
 
         # fetchone=None simulates the query returning no row (outside window)
         mock_conn = _make_mock_conn(None)
 
-        # Use a timestamp 3 hours in the past
+        # Use a timestamp far from any reward (e.g., 3 hours off)
         old_ts = int((self._TARGET_DT - timedelta(hours=3)).timestamp() * 1000)
 
         with patch("app.tools.db.get_db_conn", return_value=_fake_db(mock_conn)):
@@ -476,3 +481,131 @@ class TestReactionAuthorization:
             emoji="👍",
             target_sent_timestamp=ts,
         )
+
+
+# ---------------------------------------------------------------------------
+# load_feedback_history tests
+# ---------------------------------------------------------------------------
+
+class TestLoadFeedbackHistory:
+    """load_feedback_history returns rated rows; fails gracefully on DB error."""
+
+    @pytest.mark.asyncio
+    async def test_returns_rows_from_db(self) -> None:
+        """Rated rows from DB are returned as structured dicts."""
+        from app.tools import rewards as rewards_module
+
+        now = datetime.now(UTC)
+        mock_rows = [
+            {"feedback_score": 1, "feedback_at": now},
+            {"feedback_score": -1, "feedback_at": now - timedelta(days=1)},
+        ]
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(return_value=mock_rows)
+        mock_conn = MagicMock()
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("app.tools.db.get_db_conn", return_value=_fake_db(mock_conn)):
+            result = await rewards_module.load_feedback_history("<test-peer>")
+
+        assert len(result) == 2
+        assert result[0]["score"] == 1
+        assert result[1]["score"] == -1
+        # theme_family/style/palette are empty (not stored in manifest)
+        assert result[0]["theme_family"] == ""
+        assert "timestamp" in result[0]
+
+    @pytest.mark.asyncio
+    async def test_db_failure_returns_empty_list(self) -> None:
+        """DB failure returns [] without propagation — feedback degrades gracefully."""
+        from app.tools import rewards as rewards_module
+
+        mock_conn = MagicMock()
+        mock_conn.execute = AsyncMock(side_effect=RuntimeError("DB down"))
+
+        with patch("app.tools.db.get_db_conn", return_value=_fake_db(mock_conn)):
+            result = await rewards_module.load_feedback_history("<test-peer>")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_empty_result_returns_empty_list(self) -> None:
+        """No rated rows → empty list."""
+        from app.tools import rewards as rewards_module
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[])
+        mock_conn = MagicMock()
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch("app.tools.db.get_db_conn", return_value=_fake_db(mock_conn)):
+            result = await rewards_module.load_feedback_history("<test-peer>")
+
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# maybe_reward feedback wiring tests
+# ---------------------------------------------------------------------------
+
+class TestMaybeRewardFeedbackWiring:
+    """maybe_reward loads feedback history and passes it to generate_reward_image."""
+
+    @pytest.mark.asyncio
+    async def test_maybe_reward_passes_feedback_history_to_image_gen(self) -> None:
+        """maybe_reward passes loaded feedback_history to generate_reward_image."""
+        import uuid as uuid_mod
+
+        from app.tools import rewards as rewards_module
+
+        fake_feedback = [{"score": 1, "timestamp": datetime.now(UTC).isoformat(),
+                          "theme_family": "", "style": "", "palette": ""}]
+        recorded_gen_calls: list[dict] = []
+
+        async def fake_gen(**kwargs: Any) -> None:
+            recorded_gen_calls.append(kwargs)
+            return None
+
+        with (
+            patch.object(rewards_module, "load_feedback_history",
+                         new=AsyncMock(return_value=fake_feedback)),
+            patch.object(rewards_module, "generate_reward_image", new=fake_gen),
+            patch.object(rewards_module, "write_reward_manifest",
+                         new=AsyncMock(return_value=uuid_mod.uuid4())),
+            patch.object(rewards_module, "compute_intensity",
+                         return_value=("medium", 40)),
+        ):
+            await rewards_module.maybe_reward(
+                peer="<test-peer>",
+                task_title="Placeholder task",
+                notion_page_id="<page-id>",
+                streak=2,
+            )
+
+        assert len(recorded_gen_calls) == 1
+        assert recorded_gen_calls[0]["feedback_history"] == fake_feedback
+
+    @pytest.mark.asyncio
+    async def test_maybe_reward_lightest_skips_feedback_load(self) -> None:
+        """maybe_reward does not load feedback for lightest intensity (no image)."""
+        from app.tools import rewards as rewards_module
+
+        mock_load = AsyncMock(return_value=[])
+
+        with (
+            patch.object(rewards_module, "load_feedback_history", new=mock_load),
+            patch.object(rewards_module, "generate_reward_image",
+                         new=AsyncMock(return_value=None)),
+            patch.object(rewards_module, "write_reward_manifest",
+                         new=AsyncMock(return_value=None)),
+            patch.object(rewards_module, "compute_intensity",
+                         return_value=("lightest", 5)),
+        ):
+            await rewards_module.maybe_reward(
+                peer="<test-peer>",
+                task_title="Placeholder task",
+                notion_page_id="<page-id>",
+                streak=1,
+            )
+
+        mock_load.assert_not_awaited()
