@@ -50,24 +50,24 @@ async def send_node(state: State) -> dict[str, Any]:
     new_messages: list[BaseMessage] = []
     if incoming:
         new_messages.append(HumanMessage(content=incoming))
-    for draft in pending:
-        body = draft.get("body", "")
-        if body:
-            new_messages.append(AIMessage(content=body))
 
     if not pending:
         return {"messages": new_messages} if new_messages else {}
 
     if not _ENABLE_LANGGRAPH_PATH:
         for draft in pending:
+            recipient = draft.get("recipient", "")
+            body = draft.get("body", "")
             # Log booleans and counts only — no private values.
             log_kwargs: dict[str, Any] = {
-                "has_recipient": bool(draft.get("recipient")),
-                "has_body": bool(draft.get("body")),
+                "has_recipient": bool(recipient),
+                "has_body": bool(body),
             }
             if draft.get("attachment_path") is not None:
                 log_kwargs["attachment_count"] = 1
             log.debug("send_node.dormant", **log_kwargs)
+            if recipient and body:
+                new_messages.append(AIMessage(content=body))
         return {"messages": new_messages} if new_messages else {}
 
     from app.tools import signal_client
@@ -112,6 +112,7 @@ async def send_node(state: State) -> dict[str, Any]:
                 timestamp=result.get("timestamp"),
                 attachment_count=1 if attachment_path else 0,
             )
+            new_messages.append(AIMessage(content=body))
         except Exception:
             log.exception(
                 "send_node.send_failed",

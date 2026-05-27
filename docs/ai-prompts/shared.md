@@ -135,33 +135,27 @@ Categories:
 - CHECK_IN: System-initiated follow-up (triggered by APScheduler `check_in_dispatcher`, not by a user message)
 - CHAT: General conversation or questions
 
-RECENT_OUTBOUND_CONTEXT:
-{recent_outbound_context}
+Prior conversation (last ~5 turns from conversation history):
+{prior_conversation}
 
-If RECENT_OUTBOUND_CONTEXT contains a fresh entry with awaiting_response=true,
-use it to resolve short or elliptical replies before defaulting to CHAT.
-Examples:
-- Latest outbound = reminder "Hey, time to clean up boxes before noon."
-  and user says "I did it" → COMPLETE
-- Latest outbound = reminder "Hey, time to clean up boxes before noon."
-  and user says "tomorrow at 9" → ADD_TASK (new reminder inferred from context)
-- Latest outbound = task suggestion and user says "not that one" → REJECT
-
-When ADD_TASK or REJECT is resolved via `recent_outbound`, the matched entry's context
-threads into the downstream module as follows:
-- ADD_TASK (reschedule): matched `recent_outbound.title` seeds the new reminder title in
-  `docs/ai-prompts/intake.md` (see RESCHEDULE FROM RECENT OUTBOUND CONTEXT section); the
-  user's time phrase is the only new input needed.
-- REJECT (prior suggestion declined): matched `recent_outbound.title` populates REJECTED TASK
-  in `docs/ai-prompts/rejection.md`; user message text (e.g. "not that one") is USER'S REASON.
-  Clear or mark `awaiting_response: false` on the matched entry after routing.
+If the prior conversation shows an in-progress task discussion, treat short
+follow-ups (deadlines, clarifications, pronouns like "it") as continuations of
+that intent. For example, if the previous turn was the user describing a task
+and the current message is "I need to do it by Friday", classify as ADD_TASK.
 
 Message: "{user_message}"
 
 Intent:
 ```
 
-**Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder still classify from `recent_outbound` context (Postgres) even when `active_task` is empty.
+**Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder classify from the windowed `state["messages"]` history that `send_node` writes — the same `Prior conversation` block surfaced above.
+
+### Cross-Session Reply Resolution (target — not yet wired in Phase B)
+
+DB-backed `recent_outbound` resolution remains the planned path for reminder follow-ups that arrive after a checkpoint window has rolled. Phase B does not consult the `recent_outbound` table for classification; the runtime contract above is the source of truth. When that path is wired, the matched entry's context threads into downstream modules as follows:
+
+- ADD_TASK (reschedule): matched `recent_outbound.title` seeds the new reminder title in `docs/ai-prompts/intake.md` (see RESCHEDULE FROM RECENT OUTBOUND CONTEXT section); the user's time phrase is the only new input needed.
+- REJECT (prior suggestion declined): matched `recent_outbound.title` populates REJECTED TASK in `docs/ai-prompts/rejection.md`; user message text (e.g. "not that one") is USER'S REASON. Clear or mark `awaiting_reply: false` on the matched entry after routing.
 
 ### Intent Detection Examples
 

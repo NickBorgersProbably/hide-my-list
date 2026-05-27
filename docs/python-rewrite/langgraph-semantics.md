@@ -92,7 +92,7 @@ async def classify_intent(state: State) -> dict:
     # Read recent_outbound from Postgres — NOT from checkpoint state
     async with get_db_conn() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM recent_outbound WHERE peer = $1 AND awaiting_response = true "
+            "SELECT * FROM recent_outbound WHERE peer = $1 AND awaiting_reply = true "
             "AND expires_at > now() ORDER BY sent_at DESC LIMIT 5",
             peer
         )
@@ -107,7 +107,7 @@ The Phase B implementation in `app/graph/routing.py` reads a window of prior tur
 includes them as a `Prior conversation:` block in the classifier prompt. This lets short
 follow-ups resolve against the active discussion without querying the `recent_outbound`
 table. DB-backed `recent_outbound` context remains the planned path for cross-session reply
-resolution (reminder follow-up via `awaiting_response`) and is not yet wired in Phase B.
+resolution (reminder follow-up via `awaiting_reply`) and is not yet wired in Phase B.
 
 **Worker writes:**
 
