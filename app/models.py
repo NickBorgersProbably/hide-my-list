@@ -12,6 +12,12 @@ Tiers:
 LangSmith guard: refuses boot when LANGSMITH_TRACING=true unless
 ALLOW_PRIVATE_TRACE_EXPORT=true is also set. Private user data (task titles,
 user messages) must never be exported to LangSmith by default.
+
+Observability: llm() attaches an LLMObservabilityCallback to every returned
+model instance. The callback emits llm.call.start / llm.call.end /
+llm.call.error events via structlog, tagged with tier + caller. The caller
+kwarg (short node name e.g. "intake", "chat") is optional but should always
+be provided by graph nodes.
 """
 from __future__ import annotations
 
@@ -22,6 +28,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from langchain_anthropic import ChatAnthropic
+
+from app.observability.llm_callback import LLMObservabilityCallback
 
 _REPO_ROOT = Path(__file__).parent.parent
 _MODEL_TIERS_PATH = _REPO_ROOT / "setup" / "model-tiers.json"
@@ -88,18 +96,28 @@ def _load_model_tiers() -> dict[str, str]:
     return data
 
 
-def llm(tier: Tier, *, temperature: float = 0.0) -> ChatAnthropic:
+def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> ChatAnthropic:
     """Return a LangChain ChatAnthropic instance for the given tier.
 
     Model IDs are resolved from setup/model-tiers.json, validated at first call.
     The ANTHROPIC_API_KEY environment variable must be set.
 
+    An LLMObservabilityCallback is attached automatically, emitting
+    llm.call.start / llm.call.end / llm.call.error events to structlog with
+    tier, model, caller, duration_ms, and token counts. No message content is
+    logged. At-least-once delivery of log events (LangChain callback
+    invocation semantics).
+
     Args:
         tier: One of 'expensive', 'medium', 'cheap', 'reminder'.
         temperature: Sampling temperature. Defaults to 0.0 for deterministic output.
+        caller: Short string identifying the call site (e.g., "intake", "chat",
+            "classify"). Used as a field in log events for Gravwell filtering.
+            None is valid for callsites that don't pass a caller.
 
     Returns:
-        ChatAnthropic configured for the specified tier.
+        ChatAnthropic configured for the specified tier, with observability
+        callback attached.
 
     Raises:
         RuntimeError: If model-tiers.json is missing or malformed, or if
@@ -119,7 +137,12 @@ def llm(tier: Tier, *, temperature: float = 0.0) -> ChatAnthropic:
         "temperature": temperature,
         "max_tokens_to_sample": 1024,
     }
-    return ChatAnthropic(**kwargs)
+    base_model = ChatAnthropic(**kwargs)
+
+    # Attach observability callback (one instance per llm() call so tier + caller
+    # are baked into the handler and appear as fields on every log event).
+    handler = LLMObservabilityCallback(tier=tier, model=model_id, caller=caller)
+    return base_model.with_config(callbacks=[handler])  # type: ignore[return-value]
 
 
 def validate_startup() -> None:
