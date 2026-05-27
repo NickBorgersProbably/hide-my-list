@@ -23,6 +23,29 @@ def _envelope(source: str, message: str) -> dict[str, Any]:
     }
 
 
+def _reaction_envelope(
+    source: str,
+    emoji: str = "👍",
+    target_sent_timestamp: int = 1_716_800_000_000,
+    *,
+    is_remove: bool = False,
+) -> dict[str, Any]:
+    """Build a minimal signal-cli reaction envelope for tests."""
+    return {
+        "envelope": {
+            "source": source,
+            "dataMessage": {
+                "reaction": {
+                    "emoji": emoji,
+                    "targetAuthor": "+15559876543",
+                    "targetSentTimestamp": target_sent_timestamp,
+                    "isRemove": is_remove,
+                }
+            },
+        }
+    }
+
+
 async def _async_gen(envelopes: list[dict[str, Any]]):
     for env in envelopes:
         yield env
@@ -53,6 +76,29 @@ def test_load_authorized_peers_parses_comma_list(monkeypatch: pytest.MonkeyPatch
 
     peers = _load_authorized_peers()
     assert peers == frozenset({"+15551234567", "+15559876543"})
+
+
+def test_extract_reaction_parses_signal_payload() -> None:
+    """Signal reaction envelopes parse into peer, emoji, and target timestamp."""
+    from app.ingress.signal_listener import _extract_reaction
+
+    result = _extract_reaction(_reaction_envelope("+15551234567"))
+
+    assert result == ("+15551234567", "👍", 1_716_800_000_000)
+
+
+def test_extract_reaction_skips_removed_reaction() -> None:
+    """Un-react events must not be recorded as feedback."""
+    from app.ingress.signal_listener import _extract_reaction
+
+    assert _extract_reaction(_reaction_envelope("+15551234567", is_remove=True)) is None
+
+
+def test_extract_reaction_returns_none_for_text_message() -> None:
+    """Text messages fall through to the normal graph path."""
+    from app.ingress.signal_listener import _extract_reaction
+
+    assert _extract_reaction(_envelope("+15551234567", "hello")) is None
 
 
 def test_listener_construct_fails_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,6 +154,56 @@ async def test_unauthorized_peer_silently_dropped() -> None:
         await listener.run()
 
     # Graph never reached — the silent drop must happen before invocation.
+    graph.ainvoke.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorized_reaction_records_feedback_without_graph() -> None:
+    """Authorized reactions are routed to the feedback handler, not the graph."""
+    from app.ingress.signal_listener import SignalListener
+
+    graph = AsyncMock()
+    listener = SignalListener(
+        graph=graph,
+        authorized_peers=frozenset({"+15551234567"}),
+    )
+
+    record_feedback = AsyncMock(return_value=True)
+    envelopes = [_reaction_envelope("+15551234567", emoji="👍")]
+    with (
+        patch("app.ingress.signal_listener.receive_messages", return_value=_async_gen(envelopes)),
+        patch("app.tools.rewards.record_reward_feedback", new=record_feedback),
+    ):
+        await listener.run()
+
+    record_feedback.assert_awaited_once_with(
+        peer="+15551234567",
+        emoji="👍",
+        target_sent_timestamp=1_716_800_000_000,
+    )
+    graph.ainvoke.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_reaction_dropped_before_feedback_handler() -> None:
+    """Unauthorized reactions must not reach record_reward_feedback."""
+    from app.ingress.signal_listener import SignalListener
+
+    graph = AsyncMock()
+    listener = SignalListener(
+        graph=graph,
+        authorized_peers=frozenset({"+15551234567"}),
+    )
+
+    record_feedback = AsyncMock(return_value=True)
+    envelopes = [_reaction_envelope("+19990001111", emoji="👍")]
+    with (
+        patch("app.ingress.signal_listener.receive_messages", return_value=_async_gen(envelopes)),
+        patch("app.tools.rewards.record_reward_feedback", new=record_feedback),
+    ):
+        await listener.run()
+
+    record_feedback.assert_not_awaited()
     graph.ainvoke.assert_not_awaited()
 
 

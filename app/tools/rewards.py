@@ -350,16 +350,40 @@ def _build_image_prompt(
     else:
         streak_str = f"exactly {streak_count} small glowing progress markers"
 
+    feedback_guidance = _feedback_prompt_guidance(feedback_history or [])
+    feedback_str = f" Reward feedback context: {feedback_guidance}" if feedback_guidance else ""
+
     prompt = (
         f"A {style} artwork in {palette} color palette. "
         f"Theme: {theme['theme']}. "
-        f"Mood: celebratory, uplifting, {humor} energy. "
+        f"Mood: celebratory, uplifting, {humor} energy.{feedback_str} "
         f"Include {streak_str} subtly integrated into the composition. "
         f"Professional quality, no text, no words, no letters.{avoid_str} "
         f"High resolution, clean composition."
     )
 
     return prompt
+
+
+def _feedback_prompt_guidance(feedback_history: list[dict[str, Any]]) -> str:
+    """Return short prompt guidance from recent reward feedback."""
+    if len(feedback_history) < 3:
+        return ""
+
+    positive_count = sum(1 for item in feedback_history if item.get("score", 0) > 0)
+    negative_count = sum(1 for item in feedback_history if item.get("score", 0) < 0)
+
+    if positive_count > negative_count:
+        return (
+            "User has positively responded to recent rewards; "
+            "lean energetic and celebratory."
+        )
+    if negative_count > positive_count:
+        return (
+            "User has given mixed/negative feedback recently; "
+            "be a bit more subdued."
+        )
+    return ""
 
 
 async def generate_reward_image(
@@ -623,13 +647,13 @@ async def record_reward_feedback(
     peer: str,
     emoji: str,
     target_sent_timestamp: int,
-    window_minutes: int = 60,
+    match_window_seconds: int = 30,
 ) -> bool:
     """Record user feedback on a recent reward via Signal reaction.
 
-    Looks up the most recent reward_manifests row for this peer where
-    delivered_at is within `window_minutes` of the reaction's target
-    timestamp. Updates feedback_score, feedback_emoji, and feedback_at.
+    Looks up the closest reward_manifests row for this peer where delivered_at
+    is within `match_window_seconds` of the reaction's target timestamp.
+    Updates feedback_score, feedback_emoji, and feedback_at.
 
     Returns True if a matching reward was found and updated, False if no
     match (e.g., reaction on a non-reward message, or outside the window).
@@ -653,20 +677,27 @@ async def record_reward_feedback(
 
     try:
         async with get_db_conn() as conn:
-            # Find the most recent unrated reward for this peer within the window.
+            # Find the closest unrated reward for this peer within the tight window.
             # Uses reward_manifests_peer_delivered_idx for efficiency.
             cur = await conn.execute(
                 """
                 SELECT id
                 FROM reward_manifests
                 WHERE peer = %s
-                  AND delivered_at <= %s
-                  AND delivered_at >= %s - (%s * interval '1 minute')
+                  AND delivered_at BETWEEN (%s - (%s * interval '1 second'))
+                                      AND (%s + (%s * interval '1 second'))
                   AND feedback_at IS NULL
-                ORDER BY delivered_at DESC
+                ORDER BY ABS(EXTRACT(EPOCH FROM (delivered_at - %s))) ASC
                 LIMIT 1
                 """,
-                (peer, target_dt, target_dt, window_minutes),
+                (
+                    peer,
+                    target_dt,
+                    match_window_seconds,
+                    target_dt,
+                    match_window_seconds,
+                    target_dt,
+                ),
             )
             row = await cur.fetchone()
             if row is None:
@@ -692,6 +723,53 @@ async def record_reward_feedback(
     except Exception:
         log.exception("record_reward_feedback.failed")
         return False
+
+
+async def load_feedback_history(peer: str, days: int = 90) -> list[dict[str, Any]]:
+    """Load recent reward feedback for prompt personalization.
+
+    Returns an empty list on DB failure so reward delivery can proceed with
+    neutral generation.
+    """
+    from app.tools.db import get_db_conn
+
+    try:
+        async with get_db_conn() as conn:
+            cur = await conn.execute(
+                """
+                SELECT feedback_score, feedback_emoji, feedback_at, intensity, reward_kind
+                FROM reward_manifests
+                WHERE peer = %s
+                  AND feedback_at IS NOT NULL
+                  AND feedback_at >= now() - (%s * interval '1 day')
+                ORDER BY feedback_at DESC
+                """,
+                (peer, days),
+            )
+            rows = await cur.fetchall()
+
+        history: list[dict[str, Any]] = []
+        for row in rows:
+            feedback_at = row["feedback_at"]
+            timestamp = (
+                feedback_at.isoformat()
+                if isinstance(feedback_at, datetime)
+                else str(feedback_at)
+            )
+            history.append(
+                {
+                    "score": row["feedback_score"],
+                    "emoji": row["feedback_emoji"],
+                    "timestamp": timestamp,
+                    "intensity": row["intensity"],
+                    "reward_kind": row["reward_kind"],
+                }
+            )
+        return history
+
+    except Exception:
+        log.warning("load_feedback_history.failed")
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -825,6 +903,11 @@ async def maybe_reward(
     image_path: str | None = None
     if intensity_label != "lightest" and not sensitive:
         prefs = (user_prefs or {}).get("rewards") if user_prefs else None
+        try:
+            feedback_history = await load_feedback_history(peer)
+        except Exception:
+            log.warning("maybe_reward.feedback_history_failed")
+            feedback_history = []
         image_path = await generate_reward_image(
             intensity=intensity_label,
             streak_count=1,  # Only current task available; intensity score still uses full streak
@@ -833,6 +916,7 @@ async def maybe_reward(
             energy_level=energy_required.lower(),
             sensitive_task=sensitive,
             user_prefs=prefs,
+            feedback_history=feedback_history,
         )
     elif sensitive:
         # Sensitive: muted emoji only (no image)

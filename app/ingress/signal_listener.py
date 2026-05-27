@@ -62,6 +62,30 @@ def _extract_peer_and_text(envelope: dict[str, Any]) -> tuple[str, str] | None:
     return source, text
 
 
+def _extract_reaction(envelope: dict[str, Any]) -> tuple[str, str, int] | None:
+    """Extract (sender_e164, emoji, target_sent_timestamp) from a reaction.
+
+    Returns None for non-reaction envelopes, removed reactions, or malformed
+    reaction payloads.
+    """
+    outer = envelope.get("envelope", {})
+    data_message = outer.get("dataMessage", {})
+    reaction = data_message.get("reaction")
+    if not isinstance(reaction, dict):
+        return None
+
+    if reaction.get("isRemove") is True:
+        return None
+
+    source = outer.get("source", "")
+    emoji = reaction.get("emoji", "")
+    target_sent_timestamp = reaction.get("targetSentTimestamp")
+    if not source or not emoji or not isinstance(target_sent_timestamp, int):
+        return None
+
+    return source, emoji, target_sent_timestamp
+
+
 class SignalListener:
     """Asyncio task that consumes signal-cli WebSocket and drives the graph."""
 
@@ -92,7 +116,7 @@ class SignalListener:
 
     async def run(self) -> None:
         """Main loop: consume WebSocket, route each message to the graph."""
-        graph = self._get_graph()
+        graph: Any | None = None
         log.info(
             "signal_listener.started",
             authorized_peer_count=len(self._authorized_peers),
@@ -102,6 +126,23 @@ class SignalListener:
             base_url=self._base_url,
             account=self._account,
         ):
+            reaction = _extract_reaction(envelope)
+            if reaction is not None:
+                peer, emoji, target_sent_timestamp = reaction
+                if peer not in self._authorized_peers:
+                    log.warning("signal_listener.unauthorized_peer_dropped")
+                    continue
+
+                from app.tools.rewards import record_reward_feedback
+
+                await record_reward_feedback(
+                    peer=peer,
+                    emoji=emoji,
+                    target_sent_timestamp=target_sent_timestamp,
+                )
+                log.info("signal_listener.reaction_recorded", peer=peer[:4] + "***")
+                continue
+
             result = _extract_peer_and_text(envelope)
             if result is None:
                 continue
@@ -115,6 +156,8 @@ class SignalListener:
             log.info("signal_listener.message_received", peer=peer[:4] + "***")
 
             try:
+                if graph is None:
+                    graph = self._get_graph()
                 await graph.ainvoke(
                     {"peer": peer, "incoming": text},
                     config={"configurable": {"thread_id": peer}},
