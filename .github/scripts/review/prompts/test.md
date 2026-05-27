@@ -44,6 +44,10 @@ Lens — six contract clauses:
    - PR body must name each deleted test file and explain why.
    - Silent removal of a failing test is always a blocker.
 
+7. **Changes to `scripts/run-required-checks.sh` that add or modify a pre-commit dispatch branch** MUST have:
+   - A structural test in `tests/unit/` asserting the new branch is wired: the function exists, is called from the dispatcher, and invokes the expected tools.
+   - Example: `test_precommit_python_gate.py` covers `run_pre_commit_python_checks`.
+
 ## Scope
 
 This reviewer fires for PRs touching any of:
@@ -57,6 +61,7 @@ This reviewer fires for PRs touching any of:
 - `.github/scripts/review/schema/*.json` — reviewer + fix-result schemas; vocabulary changes here affect every reviewer's enforceable contract and must be reviewed for test-coverage implications
 - `docs/python-rewrite/test-rig.md` — authoritative rig architecture spec; changes here ripple into the contract clauses above
 - `docker/compose.yaml` — compose services and env var documentation (clause 4)
+- `scripts/run-required-checks.sh` — pre-commit gate dispatcher; wiring changes require structural test coverage (clause 7)
 
 ## Abstain condition
 
