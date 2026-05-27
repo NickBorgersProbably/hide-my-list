@@ -133,6 +133,9 @@ async def dispatch_due_reminders(
     rows = await _claim_due_reminders(conn, worker_id)
     await conn.commit()
 
+    delivered_count = 0
+    failed_count = 0
+
     for row in rows:
         rid = uuid.UUID(row["id"])
         peer = row["peer"]
@@ -202,6 +205,7 @@ async def dispatch_due_reminders(
                 )
 
             log.info("reminder_worker.delivered", reminder_id=str(rid))
+            delivered_count += 1
 
         except Exception as exc:
             err_str = str(exc)[:500]
@@ -249,6 +253,14 @@ async def dispatch_due_reminders(
                     (err_str, next_due, attempt, str(rid)),
                 )
                 await conn.commit()
+            failed_count += 1
+
+    log.info(
+        "reminder_worker.cycle_done",
+        claimed_count=len(rows),
+        delivered_count=delivered_count,
+        failed_count=failed_count,
+    )
 
 
 async def run_worker_once(
