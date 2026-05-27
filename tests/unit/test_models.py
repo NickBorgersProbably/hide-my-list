@@ -194,6 +194,40 @@ def test_llm_raises_when_anthropic_api_key_missing() -> None:
     models_module._load_model_tiers.cache_clear()
 
 
+def test_cheap_tier_sets_think_false_extra_body() -> None:
+    """llm('cheap') must construct ChatOpenAI with extra_body={'think': False}.
+
+    The proxy forwards `think` to Ollama; cheap is the label-only classifier
+    path where reasoning is wasted overhead (significant output-token
+    reduction measured). Other tiers must NOT set think=false because their callers
+    (chat, rejection, breakdown coaching, selection) rely on reasoning for
+    shame-safe phrasing and scoring nuance.
+    """
+    from app import models as models_module
+    models_module._load_model_tiers.cache_clear()
+
+    env = dict(os.environ)
+    env.pop("LANGSMITH_TRACING", None)
+    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+    env.setdefault("ANTHROPIC_BASE_URL", "https://proxy.test/v1")
+
+    with patch.dict(os.environ, env, clear=True):
+        cheap = models_module.llm("cheap").bound  # unwrap RunnableBinding
+        assert getattr(cheap, "extra_body", None) == {"think": False}, (
+            f"cheap tier must send think=false; got extra_body={getattr(cheap, 'extra_body', None)!r}"
+        )
+
+        for tier in ("medium", "expensive", "reminder"):
+            other = models_module.llm(tier).bound
+            extra = getattr(other, "extra_body", None) or {}
+            assert "think" not in extra, (
+                f"{tier} tier must NOT set think (defaults to thinking=on); "
+                f"got extra_body={extra!r}"
+            )
+
+    models_module._load_model_tiers.cache_clear()
+
+
 def test_invalid_tier_raises_value_error() -> None:
     """llm() with unknown tier must raise ValueError."""
     from app import models as models_module

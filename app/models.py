@@ -3,15 +3,19 @@
 Reads model tier assignments from setup/model-tiers.json and exposes
 a single llm(tier) factory function. Validates model IDs at startup.
 
-Tiers:
-  expensive -> gemma4-small (complex reasoning: GET_TASK scoring)
-  medium    -> gemma4-small (intent classification, most nodes)
-  cheap     -> gemma4-small (lightweight tasks)
-  reminder  -> gemma4-small (reminder delivery cron)
+Tiers (model alias resolves via setup/model-tiers.json; per-tier reasoning
+behavior is set here):
+  expensive -> gemma4-small, think=on  (GET_TASK scoring; nuance matters)
+  medium    -> gemma4-small, think=on  (user-facing replies; shame-safety
+                                        contract depends on careful phrasing)
+  cheap     -> gemma4-small, think=off (label-only classification; reasoning
+                                        is wasted overhead — significant token
+                                        reduction at equivalent accuracy)
+  reminder  -> gemma4-small, think=on  (reminder cron; currently no caller)
 
-All tiers currently collapse onto a single alias because the LLM host
-can only hold one Gemma model in RAM at a time; reintroducing distinct
-tiers is a one-line edit per tier in setup/model-tiers.json.
+All tiers point at the same model alias because the LLM host can only
+hold one Gemma model in RAM at a time. Differentiation lives entirely
+in the think flag for now.
 
 Model IDs are sent as OpenAI-format chat-completion requests to the
 LiteLLM proxy at ANTHROPIC_BASE_URL (the env var name is retained for
@@ -51,6 +55,15 @@ _VALID_TIERS: frozenset[str] = frozenset(["expensive", "medium", "cheap", "remin
 # Known model-ID prefixes accepted by the LiteLLM proxy. A startup-time
 # allowlist catches typos in setup/model-tiers.json before the first call.
 _VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
+
+# Per-tier extra request body forwarded to the LiteLLM proxy. The proxy
+# passes `think` straight through to the Ollama backend. Cheap tier turns
+# reasoning off because its sole caller (intent classifier) only needs a
+# label — significant token reduction with no accuracy loss on the
+# classify prompt.
+_TIER_EXTRA_BODY: dict[str, dict[str, Any]] = {
+    "cheap": {"think": False},
+}
 
 
 def _check_langsmith_guard() -> None:
@@ -165,6 +178,9 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
         "base_url": base_url,
         "api_key": os.environ["ANTHROPIC_API_KEY"],
     }
+    extra_body = _TIER_EXTRA_BODY.get(tier)
+    if extra_body:
+        kwargs["extra_body"] = extra_body
     base_model = ChatOpenAI(**kwargs)
 
     # Attach observability callback (one instance per llm() call so tier + caller
