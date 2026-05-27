@@ -19,7 +19,7 @@ fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.jso
 | Unit | `tests/unit/` | mocked (`MagicMock`) | none | no | Pure logic, prompt structure, regex/type assertions, structural lints |
 | Integration | `tests/integration/` | mocked (with strict call-arg assertions) | real (container) | no | State machines, DB schema, async plumbing, wiring contracts |
 | Eval | `tests/evals/` | real, multi-model via LiteLLM proxy | none | no | Behavioral contracts across model swaps; judge-LLM scoring |
-| Smoke | `tests/smoke/` | none (skeleton mode) | none | yes (boots stack) | Deployment-gap catch |
+| Smoke | `tests/smoke/` | none | none | yes (boots stack) | Deployment-gap catch |
 | Regressions | `tests/regressions/` | varies | varies | varies | One permanent test per production bug |
 
 ### Cost and frequency
@@ -202,8 +202,8 @@ hardcoded relative to the repo root. No `MODEL_TIERS_PATH` env override exists
 in the current runtime. The eval runner swaps model tiers by writing a modified
 `setup/model-tiers.json` into the test working tree before invoking the graph
 under test. In the eval harness, `ChatAnthropic` routes through a LiteLLM proxy at
-`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. The smoke harness
-boots in skeleton mode (`ENABLE_LANGGRAPH_PATH=false`) and makes no LLM calls.
+`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. The smoke harness boots the full stack and makes no LLM calls (no real API
+keys are required — compose smoke uses placeholder env values).
 The production app runtime connects directly to the Anthropic API without a
 LiteLLM proxy.
 

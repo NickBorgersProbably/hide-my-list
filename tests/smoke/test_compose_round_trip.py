@@ -13,6 +13,11 @@ Privacy: no real user data. Uses placeholder fixtures only.
 This test is the ONE allowed `subprocess.run` site outside the
 constrained code surface. The tool-surface audit (`test_tool_surface_audit.py`)
 explicitly carves out this file.
+
+The app always starts in full-runtime mode (no skeleton/flag mode).
+The smoke is a *deployment-gap* test: it asserts the stack comes up
+cleanly and that key subsystems (postgres, signal-cli, migrations) are
+reachable. App-level behavior is covered by integration and eval layers.
 """
 from __future__ import annotations
 
@@ -61,11 +66,6 @@ def compose_stack() -> object:
         "SIGNAL_ACCOUNT": os.environ.get("SIGNAL_ACCOUNT", "+15555550100"),
         "NOTION_API_KEY": os.environ.get("NOTION_API_KEY", "smoke-fake-key"),
         "NOTION_DATABASE_ID": os.environ.get("NOTION_DATABASE_ID", "smoke-fake-db"),
-        # Use skeleton mode by default so the boot doesn't try to reach
-        # signal-cli or Anthropic during the smoke. The smoke is a
-        # *deployment-gap* test, not a behavior test — it asserts the
-        # stack can come up cleanly.
-        "ENABLE_LANGGRAPH_PATH": os.environ.get("ENABLE_LANGGRAPH_PATH", "false"),
     }
 
     # Bring up postgres + signal-cli + app
@@ -106,9 +106,7 @@ def test_compose_services_boot(compose_stack: object) -> None:
     """Postgres + signal-cli + app must all be running after `compose up --wait`."""
     assert _service_running("postgres"), "postgres service did not reach running state"
     assert _service_running("signal-cli"), "signal-cli service did not reach running state"
-    # The `app` service exits 0 in skeleton mode (ENABLE_LANGGRAPH_PATH=false),
-    # which is by design — so we don't assert it's still running.
-    # We DO assert it ran without error in test_app_skeleton_exits_clean below.
+    assert _service_running("app"), "app service did not reach running state"
 
 
 def test_postgres_migrations_applied(compose_stack: object) -> None:
@@ -177,11 +175,15 @@ def test_signal_cli_responds_to_health(compose_stack: object) -> None:
     assert body, "signal-cli /v1/about returned empty body"
 
 
-def test_app_skeleton_exits_clean(compose_stack: object) -> None:
-    """With ENABLE_LANGGRAPH_PATH=false, the app prints 'skeleton' and exits 0.
+def test_app_boots_runtime(compose_stack: object) -> None:
+    """App must start and produce logs without an error exit.
 
-    This is the only test of the app service in this smoke layer. Full
-    behavior is in the integration + eval layers.
+    The app always runs in full-runtime mode. This test confirms it
+    booted (service is running) and that its logs don't contain a Python
+    traceback — which would indicate a startup error caught after compose
+    reports healthy.
+
+    Full behavior is covered by the integration + eval layers.
     """
     result = subprocess.run(  # noqa: S603
         ["docker", "compose", "-f", str(_COMPOSE_FILE), "logs", "app"],
@@ -190,6 +192,6 @@ def test_app_skeleton_exits_clean(compose_stack: object) -> None:
         timeout=15,
     )
     assert result.returncode == 0, f"could not read app logs: {result.stderr}"
-    assert "skeleton" in result.stdout, (
-        f"app did not print 'skeleton' in skeleton mode. Logs:\n{result.stdout[-2000:]}"
+    assert "Traceback (most recent call last)" not in result.stdout, (
+        f"app logged a Python traceback on startup:\n{result.stdout[-2000:]}"
     )

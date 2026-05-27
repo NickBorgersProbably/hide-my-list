@@ -5,7 +5,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS user_prefs (
   peer                   TEXT PRIMARY KEY,
-  -- raw JSON blob of all user_preferences from state.json / LangGraph state.
+  -- raw JSON blob of all user preferences.
   -- Using jsonb for flexible schema as preferences evolve.
   prefs_json             JSONB NOT NULL DEFAULT '{}',
   -- reward_prefs: subset of prefs_json promoted for fast access.
