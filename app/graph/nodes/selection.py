@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypedDict, cast
 
 import structlog
 
@@ -21,6 +21,16 @@ log = structlog.get_logger(__name__)
 _ENABLE_LANGGRAPH_PATH = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() in (
     "true", "1", "yes"
 )
+
+
+class _SimplifiedTask(TypedDict):
+    id: str
+    title: str
+    work_type: str
+    urgency: int
+    time_estimate: int
+    energy_required: str
+    rejection_count: int
 
 
 def _mood_to_work_type(mood: str | None) -> str:
@@ -83,7 +93,7 @@ async def selection_node(state: State) -> dict[str, Any]:
         tasks = tasks_raw.get("results", [])
 
         # Build simplified task list for the prompt
-        simplified: list[dict] = []
+        simplified: list[_SimplifiedTask] = []
         for task in tasks:
             props = task.get("properties", {})
             simplified.append({
@@ -139,17 +149,18 @@ async def selection_node(state: State) -> dict[str, Any]:
                 log.exception("selection_node.mark_in_progress_failed", notion_page_id=selected_page_id)
 
             # Build a minimal ActiveTask from the simplified task list
-            selected_simplified = next(
-                (t for t in simplified if t.get("id") == selected_page_id), {}
-            )
+            selected_simplified = next((t for t in simplified if t["id"] == selected_page_id), None)
             active_task = ActiveTask(
                 page_id=selected_page_id,
-                title=selected_simplified.get("title", ""),
+                title=selected_simplified["title"] if selected_simplified else "",
                 status="In Progress",
-                work_type=selected_simplified.get("work_type", ""),
-                urgency=int(selected_simplified.get("urgency", 50)),
-                time_estimate=int(selected_simplified.get("time_estimate", 30)),
-                energy_required=selected_simplified.get("energy_required", "Medium"),
+                work_type=selected_simplified["work_type"] if selected_simplified else "",
+                urgency=selected_simplified["urgency"] if selected_simplified else 50,
+                time_estimate=selected_simplified["time_estimate"] if selected_simplified else 30,
+                energy_required=(
+                    selected_simplified["energy_required"] if selected_simplified else "Medium"
+                ),
+                rejection_count=selected_simplified["rejection_count"] if selected_simplified else 0,
             )
 
         log.info("selection_node.suggestion", peer=peer, notion_page_id=selected_page_id)
@@ -172,19 +183,38 @@ async def selection_node(state: State) -> dict[str, Any]:
 def _extract_title(props: dict[str, Any]) -> str:
     """Extract the title string from a Notion page properties dict."""
     title_prop = props.get("Title", {})
+    if not isinstance(title_prop, dict):
+        return ""
     items = title_prop.get("title", [])
-    return "".join(item.get("plain_text", "") for item in items)
+    if not isinstance(items, list):
+        return ""
+    parts: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            plain_text = item.get("plain_text", "")
+            if isinstance(plain_text, str):
+                parts.append(plain_text)
+    return "".join(parts)
 
 
 def _extract_select(props: dict[str, Any], key: str) -> str:
     """Extract a select property value."""
-    sel = props.get(key, {}).get("select") or {}
-    return sel.get("name", "")
+    prop = props.get(key, {})
+    if not isinstance(prop, dict):
+        return ""
+    sel = prop.get("select") or {}
+    if not isinstance(sel, dict):
+        return ""
+    name = sel.get("name", "")
+    return name if isinstance(name, str) else ""
 
 
 def _extract_number(props: dict[str, Any], key: str, default: int = 0) -> int:
     """Extract a number property value."""
-    num = props.get(key, {}).get("number")
+    prop = props.get(key, {})
+    if not isinstance(prop, dict):
+        return default
+    num = prop.get("number")
     if num is None:
         return default
     return int(num)
@@ -198,11 +228,14 @@ def _parse_selection_response(response_text: str, peer: str) -> tuple[str, str |
     json_match = re.search(r"\{[^{}]+\}", response_text, re.DOTALL)
     if json_match:
         try:
-            data = json.loads(json_match.group())
+            loaded = json.loads(json_match.group())
+            if not isinstance(loaded, dict):
+                return response_text[:500], None
+            data = cast(dict[str, Any], loaded)
             user_message = data.get("user_message", "")
             selected_id = data.get("selected_task_id") or None
-            if user_message:
-                return user_message, selected_id
+            if isinstance(user_message, str) and user_message:
+                return user_message, selected_id if isinstance(selected_id, str) else None
         except json.JSONDecodeError:
             pass
 

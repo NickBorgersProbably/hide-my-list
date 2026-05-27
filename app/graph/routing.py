@@ -10,6 +10,7 @@ classifier errs toward the safer CHAT fallback.
 from __future__ import annotations
 
 import os
+from collections.abc import Hashable
 from typing import Any
 
 import structlog
@@ -96,7 +97,7 @@ async def classify_intent(state: State) -> dict[str, Intent | None]:
         for word in raw.split():
             word_clean = word.strip(".,;:\"'")
             if word_clean in valid_intents:
-                classified = word_clean  # type: ignore[assignment]
+                classified = word_clean
                 break
 
         # CHECK_IN must never be inferred from user messages
@@ -143,7 +144,7 @@ def route_intent(state: State) -> str:
     return routing.get(intent, "chat")
 
 
-def build_routing_map() -> dict[str, str]:
+def build_routing_map() -> dict[Hashable, str]:
     """Return the routing map for conditional edges (all nodes must be declared)."""
     return {
         "intake": "intake",
