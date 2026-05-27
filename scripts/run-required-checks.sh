@@ -274,6 +274,27 @@ run_pre_commit_workflow_checks() {
   yamllint -c .yamllint "${targets[@]}"
 }
 
+run_pre_commit_python_checks() {
+  local -a targets=()
+
+  mapfile -t targets < <(collect_matching_changed_files '\.py$' | while IFS= read -r path; do
+    if [ -f "$path" ]; then
+      printf '%s\n' "$path"
+    fi
+  done)
+
+  if [ "${#targets[@]}" -eq 0 ]; then
+    return 0
+  fi
+
+  require_command ruff
+  require_command pytest
+  echo "=== Ruff lint on staged Python files ==="
+  ruff check "${targets[@]}"
+  echo "=== Pytest unit suite ==="
+  pytest tests/unit/ -x -q
+}
+
 run_pre_commit() {
   load_staged_files
   if [ "${#changed_files[@]}" -eq 0 ]; then
@@ -284,6 +305,7 @@ run_pre_commit() {
   run_pre_commit_script_checks
   run_pre_commit_doc_checks
   run_pre_commit_workflow_checks
+  run_pre_commit_python_checks
 }
 
 run_pre_push() {
