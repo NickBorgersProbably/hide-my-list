@@ -35,8 +35,6 @@
    docker compose logs -f app
    ```
 
-See `docs/python-rewrite/rollback.md` for the full cutover and rollback procedure.
-
 ## Signal CLI
 
 signal-cli is **infrastructure-provided**. The infra agent runs signal-cli with an existing
