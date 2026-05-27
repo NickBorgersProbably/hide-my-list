@@ -158,15 +158,15 @@ async def send_message(
             encoded.append(b64)
         payload["base64_attachments"] = encoded
 
-    # Log idempotency_key for operator-level duplicate detection.
+    # Log send attempt for operator-level tracing and duplicate detection.
     # Signal-cli REST API does not support client-side deduplication;
     # the key enables tracing and reconciliation when duplicates occur.
-    if idempotency_key:
-        log.debug(
-            "signal_client.send",
-            idempotency_key=idempotency_key,
-            attachment_count=len(attachment_paths) if attachment_paths else 0,
-        )
+    log.info(
+        "signal_client.send",
+        recipient_prefix=recipient[:4] + "***",
+        idempotency_key=idempotency_key,
+        attachment_count=len(attachment_paths) if attachment_paths else 0,
+    )
 
     async with httpx.AsyncClient(
         base_url=url_base,
@@ -178,7 +178,13 @@ async def send_message(
             try:
                 resp = await client.post("/v2/send", json=payload)
                 resp.raise_for_status()
-                return resp.json()  # type: ignore[no-any-return]
+                result = resp.json()
+                log.info(
+                    "signal_client.send.ok",
+                    recipient_prefix=recipient[:4] + "***",
+                    signal_timestamp=result.get("timestamp"),
+                )
+                return result  # type: ignore[no-any-return]
             except (httpx.TransportError, httpx.HTTPStatusError) as exc:
                 last_exc = exc
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
