@@ -4,14 +4,18 @@ Verifies LangSmith guard, skeleton mode, and feature-flag behavior.
 """
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
+from pathlib import Path
 
 
 def _run_main(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     """Run app.main in a subprocess with the given environment."""
-    import os
     full_env = {**os.environ, **env}
+    if "LOG_FILE" not in env:
+        full_env.pop("LOG_FILE", None)
     return subprocess.run(
         [sys.executable, "-m", "app.main"],
         capture_output=True,
@@ -26,6 +30,22 @@ def test_skeleton_mode_prints_skeleton() -> None:
     result = _run_main({"ENABLE_LANGGRAPH_PATH": "false"})
     assert result.returncode == 0
     assert "skeleton" in result.stdout
+
+
+def test_log_file_writes_structured_logs_and_preserves_stdout(tmp_path: Path) -> None:
+    """LOG_FILE writes JSON logs to disk while stdout logging remains active."""
+    log_file = tmp_path / "logs" / "app.log"
+    result = _run_main({"ENABLE_LANGGRAPH_PATH": "false", "LOG_FILE": str(log_file)})
+
+    assert result.returncode == 0
+    assert "skeleton" in result.stdout
+    assert '"event": "app.skeleton_mode"' in result.stdout
+
+    log_lines = log_file.read_text().splitlines()
+    assert len(log_lines) == 1
+    payload = json.loads(log_lines[0])
+    assert payload["event"] == "app.skeleton_mode"
+    assert payload["level"] == "warning"
 
 
 def test_langsmith_guard_blocks_boot() -> None:

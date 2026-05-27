@@ -12,6 +12,7 @@ ALLOW_PRIVATE_TRACE_EXPORT=true is also set.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 
@@ -61,6 +62,16 @@ async def _run_app() -> None:
 def main() -> None:
     _check_langsmith_guard()
 
+    log_file = os.environ.get("LOG_FILE", "")
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    if log_file:
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        handlers.append(logging.FileHandler(log_file))
+
+    logging.basicConfig(handlers=handlers, level=logging.INFO, format="%(message)s")
+
     structlog.configure(
         processors=[
             structlog.stdlib.add_log_level,
@@ -68,6 +79,8 @@ def main() -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.JSONRenderer(),
         ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
     )
 
     enable = os.environ.get("ENABLE_LANGGRAPH_PATH", "true").lower() == "true"
