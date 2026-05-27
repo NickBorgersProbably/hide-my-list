@@ -27,13 +27,13 @@ fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.jso
 | Unit | <30 s | $0 | every commit |
 | Integration | <2 min | $0 | every commit |
 | Structural lints | <10 s | $0 | every commit |
-| Compose smoke | <3 min | <$0.01 | on main / nightly |
-| Evals (baseline) | 10-20 min | ~$2-5 | nightly |
-| Model-swap report | 15-30 min | ~$5-10 | manual `workflow_dispatch` |
+| Compose smoke | <3 min | <$0.01 | planned — not yet wired to CI |
+| Evals (baseline) | 10-20 min | ~$2-5 | planned — nightly (workflow deferred to PR-2) |
+| Model-swap report | 15-30 min | ~$5-10 | planned — `workflow_dispatch` (workflow deferred to PR-2) |
 
-CI never sets `ENABLE_LIVE_LLM_EVALS=true` by default. Nightly workflow sets
-baseline tiers only. Model-swap workflow is `workflow_dispatch` with a
-`candidate_model` input.
+CI never sets `ENABLE_LIVE_LLM_EVALS=true` by default. The nightly eval workflow
+and model-swap `workflow_dispatch` workflow are deferred to PR-2; smoke, eval,
+and model-swap layers are planned but not yet connected to CI.
 
 ---
 
@@ -197,10 +197,12 @@ meaning every reward image was silently discarded.
 
 ## LLM Swap: How It Works
 
-The eval runner rewrites `setup/model-tiers.json` for the test session and
-points `MODEL_TIERS_PATH` env at the modified copy. `app.models.llm(tier)`
-reads the env-pointed JSON. `ChatAnthropic` talks to LiteLLM at
-`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias.
+`app/models.py` reads model tiers from `setup/model-tiers.json` at a path
+hardcoded relative to the repo root. No `MODEL_TIERS_PATH` env override exists
+in the current runtime. The eval runner swaps model tiers by writing a modified
+`setup/model-tiers.json` into the test working tree before invoking the graph
+under test. `ChatAnthropic` talks to LiteLLM at `ANTHROPIC_BASE_URL`; LiteLLM
+dispatches by model alias.
 
 **Prerequisite for non-Claude swap:** `app/models.py` currently validates
 that every tier value starts with `claude-` (a Phase B leftover that was

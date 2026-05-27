@@ -2,15 +2,12 @@
 
 Enforces three properties on every file under migrations/:
   1. All numeric prefixes are unique (no duplicate 0005_*.sql files).
+     The known 0005 collision is explicitly whitelisted by test_prefixes_are_unique;
+     any new duplicate prefix fails immediately.
   2. Prefixes are monotonic starting at 1 with no gaps
      (0001, 0002, ..., N -- no skips).
   3. Each filename matches the pattern: 4-digit prefix + lowercase snake_case
      (regex: [0-9]{4}_[a-z][a-z0-9_]*.sql).
-
-If main currently has a duplicate-prefix collision (e.g., two 0005_*.sql files),
-this test is marked xfail so CI stays green while the collision is documented and
-visible. The xfail will turn into an unexpected pass (xpass) once the collision
-is resolved -- at which point the xfail marker should be removed.
 
 Bug class 7: migration filename collisions.
 """
@@ -39,15 +36,13 @@ def _prefix(filename: str) -> int:
     return int(match.group(1))
 
 
-@pytest.mark.xfail(
-    reason=(
-        "known collision: 0005 prefix duplicated across 0005_readonly_user.sql and "
-        "0005_reward_feedback_columns.sql; cleanup pending in a follow-up"
-    ),
-    strict=False,
-)
 def test_prefixes_are_unique() -> None:
-    """No two migration files may share the same numeric prefix."""
+    """No two migration files may share the same numeric prefix.
+
+    The known 0005 collision (0005_readonly_user.sql and
+    0005_reward_feedback_columns.sql) is whitelisted. Any other duplicate
+    prefix fails immediately so future migrations cannot silently reuse one.
+    """
     files = _sql_files()
     prefixes: dict[int, list[str]] = {}
     for f in files:
@@ -55,19 +50,16 @@ def test_prefixes_are_unique() -> None:
         prefixes.setdefault(p, []).append(f.name)
 
     collisions = {p: names for p, names in prefixes.items() if len(names) > 1}
-    assert not collisions, (
-        f"Duplicate migration prefixes found: {collisions}. "
+    assert set(collisions) <= {5}, (
+        f"Unexpected duplicate migration prefixes: {collisions}. "
         "Each migration must have a unique numeric prefix."
     )
+    if 5 in collisions:
+        assert sorted(collisions[5]) == sorted(
+            ["0005_readonly_user.sql", "0005_reward_feedback_columns.sql"]
+        ), f"Known 0005 collision changed: {collisions[5]}"
 
 
-@pytest.mark.xfail(
-    reason=(
-        "known collision: 0005 prefix duplicated, causing monotonicity check to fail; "
-        "cleanup pending in a follow-up"
-    ),
-    strict=False,
-)
 def test_prefixes_are_monotonic() -> None:
     """Prefixes must be 1, 2, ..., N with no gaps."""
     files = _sql_files()

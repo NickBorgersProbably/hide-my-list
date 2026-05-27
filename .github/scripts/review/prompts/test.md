@@ -52,11 +52,15 @@ This reviewer fires for PRs touching any of:
 - `setup/model-tiers.json` — LLM swap surface
 - `app/prompts/**` — prompt templates (also covered above)
 - `docs/ai-prompts/**` — prompt spec sources (behavior contract changes may need eval fixtures)
+- `tests/**` — dropped or weakened tests (clause 6); regression catalog entries
+- `docs/python-rewrite/test-rig.md` — rig spec and discipline rules
+- `.github/scripts/review/schema/*.json` — reviewer/fixer artifact schemas
+- `docker/compose.yaml` — compose services and env var documentation (clause 4)
 - `.github/scripts/review/prompts/test.md` — this file (self-review)
 
 ## Abstain condition
 
-If the diff touches none of the above paths and touches no `tests/**` files, set `decision: abstain` with one-line `summary`.
+If the diff touches none of the above paths, set `decision: abstain` with one-line `summary`.
 
 ## Hard constraints
 

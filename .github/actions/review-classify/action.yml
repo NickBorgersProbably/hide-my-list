@@ -180,6 +180,7 @@ runs:
             .github/scripts/review/prompts/test.md) return 0 ;;
             docs/python-rewrite/test-rig.md) return 0 ;;
             .github/scripts/review/schema/*.json) return 0 ;;
+            docker/compose.yaml) return 0 ;;
             *) return 1 ;;
           esac
         }

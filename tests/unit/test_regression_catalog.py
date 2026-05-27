@@ -4,11 +4,14 @@ Walks tests/regressions/ and for every bug_* directory asserts:
   1. README.md exists.
   2. README.md content contains a GitHub issue or PR reference (#NNN).
   3. At least one .py test file exists in the directory, OR the README
-     explicitly notes that the test lives elsewhere (phrase "test lives in").
+     explicitly notes that the test lives elsewhere (phrase "test lives in"
+     or similar).
+  4. If the README names a test path with "test lives in/at `<path>`",
+     that path must exist in the current tree.
 
 This ensures the regression catalog stays coherent: every bug directory has
-a story (README), a canonical issue/PR link, and either a test or an explicit
-pointer to where the test lives.
+a story (README), a canonical issue/PR link, and either a real test or an
+explicit pointer to an existing test at another layer.
 
 Standalone run: pytest tests/unit/test_regression_catalog.py -v
 """
@@ -29,6 +32,10 @@ _ELSEWHERE_PHRASES = (
     "tests live in",
     "tests live at",
 )
+_PATH_AFTER_LIVES_IN = re.compile(
+    r"tests? lives? (?:in|at)\s+`([^`]+)`",
+    re.IGNORECASE,
+)
 
 
 def _bug_dirs() -> list[Path]:
@@ -42,6 +49,11 @@ def _has_test_elsewhere(readme_text: str) -> bool:
     """Return True if the README explicitly says the test lives elsewhere."""
     lower = readme_text.lower()
     return any(phrase in lower for phrase in _ELSEWHERE_PHRASES)
+
+
+def _referenced_paths(readme_text: str) -> list[str]:
+    """Extract file paths mentioned after 'test lives in/at' in backticks."""
+    return _PATH_AFTER_LIVES_IN.findall(readme_text)
 
 
 @pytest.mark.parametrize("bug_dir", _bug_dirs(), ids=lambda d: d.name)
@@ -71,6 +83,14 @@ def test_regression_directory_is_well_formed(bug_dir: Path) -> None:
         f"{bug_dir.name} has no test_*.py file and README.md does not note that "
         f"the test lives elsewhere. Either add a test_*.py or add a note like "
         f'"test lives in tests/evals/..." to the README.'
+    )
+
+    # If README names a specific path, that path must exist now.
+    referenced = _referenced_paths(readme_text)
+    missing = [p for p in referenced if not (_REPO_ROOT / p).exists()]
+    assert not missing, (
+        f"{bug_dir.name}/README.md references test paths that do not exist: {missing}. "
+        "Either add the missing tests or remove the path claim until the tests land."
     )
 
 
