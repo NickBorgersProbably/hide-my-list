@@ -26,7 +26,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field, ValidationError
 
 log = logging.getLogger(__name__)
@@ -119,33 +120,34 @@ def _call_judge_llm(
     api_key: str,
     timeout_seconds: float = 60.0,
 ) -> str:
-    """Single-shot HTTP call to the LiteLLM proxy's Anthropic-compatible endpoint.
+    """Single-shot LLM call via langchain-anthropic.
 
-    We don't go through langchain-anthropic here to keep the judge layer
-    independent of app.models — that way a misconfigured app.models doesn't
-    break the test infrastructure.
+    Uses the same client class as the production app, pointed at the same
+    LiteLLM proxy (`ANTHROPIC_BASE_URL`). Sharing the client class avoids
+    introducing a new outbound HTTP surface — the constrained-tool-surface
+    invariant from `docs/python-rewrite/test-rig.md` and
+    `app/observability/llm-observability` keep judge outbound HTTP on the
+    same approved langchain transport.
     """
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    body = {
-        "model": model,
-        "max_tokens": 256,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    url = base_url.rstrip("/") + "/v1/messages"
-    with httpx.Client(timeout=timeout_seconds) as client:
-        resp = client.post(url, headers=headers, json=body)
-        resp.raise_for_status()
-        data = resp.json()
-    # Anthropic-shaped response: {"content": [{"type": "text", "text": "..."}]}
-    blocks = data.get("content", [])
-    for block in blocks:
-        if block.get("type") == "text":
-            return str(block.get("text", "")).strip()
-    raise RuntimeError(f"Judge returned no text block in response: {data!r}")
+    chat = ChatAnthropic(
+        model_name=model,
+        api_key=api_key,
+        base_url=base_url,
+        max_tokens=256,
+        timeout=timeout_seconds,
+        stop=None,
+    )
+    response = chat.invoke([HumanMessage(content=prompt)])
+    # AIMessage.content is a string (or list of blocks for tool-calling models).
+    content = response.content
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                return str(block.get("text", "")).strip()
+            if isinstance(block, str):
+                return block.strip()
+        raise RuntimeError(f"Judge returned no text block: {content!r}")
+    return str(content).strip()
 
 
 def score(

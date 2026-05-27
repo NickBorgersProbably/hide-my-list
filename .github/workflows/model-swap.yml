@@ -37,7 +37,9 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write  # to comment on a linked PR if `pr_number` provided
+  # No write permissions — report lives in the workflow's job summary
+  # (rendered from runs/<ts>/report.md) and as an uploaded artifact.
+  # Posting back to a PR can be a follow-up if we ever need it.
 
 jobs:
   swap:

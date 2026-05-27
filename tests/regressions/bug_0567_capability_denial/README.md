@@ -20,8 +20,18 @@ language to the chat prompt template forbidding denial of reminder capability.
 `tests/unit/test_no_capability_denial.py`. Checks prompt template contents for
 absence of denial-enabling phrases. Runs on every PR without LLM calls.
 
-**Behavioral (eval layer, PR-2):** `tests/evals/test_chat_capability_contract.py`
-runs the chat node against a real LLM with the fixture
-`tests/evals/fixtures/chat/missed_reminder.yaml`. That fixture includes a
-`regex_forbid` contract against denial phrasing and a `judge` contract requiring
-capability acknowledgment >= 0.7. This test lives in PR-2 (eval layer).
+**Behavioral (eval layer):** the regression fixture lives at
+`tests/evals/fixtures/chat/missed_reminder.yaml`. It's exercised by the
+generic eval harness at `tests/evals/test_evals.py` (and the standalone
+runner at `tests/evals/runner.py`), which iterates every fixture against
+every model in `EVAL_MODELS`. The fixture includes a `regex_forbid` contract
+against denial phrasing and a `judge` contract requiring capability
+acknowledgment ≥ 0.7. To run this regression on demand:
+
+```
+ENABLE_LIVE_LLM_EVALS=true EVAL_MODELS=claude-sonnet-4-6 \
+  pytest tests/evals/test_evals.py -v
+```
+
+The nightly evals workflow (`.github/workflows/nightly-evals.yml`) runs
+this fixture against the current production tier values automatically.

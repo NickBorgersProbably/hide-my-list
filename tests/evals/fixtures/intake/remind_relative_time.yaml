@@ -14,8 +14,13 @@ prior_state:
   user_prefs:
     timezone: America/Chicago
 contracts:
-  - kind: json_schema
-    schema_ref: intake_v1
+  # NOTE: intake's structured JSON output (is_reminder, remind_at) is
+  # validated upstream by unit tests in tests/integration/test_intake.py
+  # which mock the LLM with parsed JSON. Eval contracts here validate the
+  # USER-VISIBLE confirmation text the intake_node populates into
+  # pending_outbound. JSON schema validation against that text would
+  # always fail (confirmation is prose, not JSON) so json_schema is
+  # intentionally NOT used here.
   - kind: regex_require
     pattern: "(?i)(remind|reminder).*(\\d+\\s*(min|minute)|10:?\\d{2})"
   - kind: judge

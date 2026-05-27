@@ -113,6 +113,8 @@ Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude
 - `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers; read by `app/models.py` at startup
 - `pyproject.toml` — Python 3.12 dependency manifest for the LangGraph stack; runtime and dev deps pinned by version
 - `.github/workflows/python-validation.yml` — Required CI gate: ruff + mypy + pytest-unit on every PR touching Python source files
+- `.github/workflows/nightly-evals.yml` — Cron (09:00 UTC) + `workflow_dispatch`. Runs `tests/evals/test_evals.py` against current `setup/model-tiers.json` values via the LiteLLM proxy. Posts `report.md` as a workflow artifact. Budget default $10.
+- `.github/workflows/model-swap.yml` — `workflow_dispatch` only. Inputs: candidate_model, candidate_tier, budget_usd. Runs baseline + candidate side-by-side; surfaces comparison in job summary. Budget default $15. Use before swapping a tier in `setup/model-tiers.json`.
 - `.github/scripts/review/prompts/test.md` — Test coverage reviewer: enforces 6 test-rig contract clauses on PRs touching app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**, tests/**, the test reviewer prompt, review schemas, docs/python-rewrite/test-rig.md, and docker/compose.yaml
 
 ## Safety

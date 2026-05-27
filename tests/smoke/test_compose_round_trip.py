@@ -112,9 +112,32 @@ def test_compose_services_boot(compose_stack: object) -> None:
 
 
 def test_postgres_migrations_applied(compose_stack: object) -> None:
-    """The reminder_outbox table must exist after stack boot."""
-    # Wait briefly for the app to apply migrations (it does so on startup).
-    for _ in range(10):
+    """The reminder_outbox table must exist after running migrations.
+
+    In skeleton mode the app does NOT call run_migrations() (that lives
+    in `_run_app()` which is skipped when ENABLE_LANGGRAPH_PATH=false).
+    So we invoke the migration runner directly from inside the app
+    container — that's the same code path production uses on boot when
+    the flag is on. Validates: psycopg + sqlalchemy resolve, migrations
+    dir was copied into the image, the runner can connect.
+    """
+    # Run migrations explicitly via the app container's python entrypoint.
+    result = subprocess.run(  # noqa: S603
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "run", "--rm",
+         "-e", "DATABASE_URL=postgresql://hml:hml@postgres:5432/hml",
+         "app", "python", "-c",
+         "import asyncio; from app.tools.db import run_migrations; "
+         "asyncio.run(run_migrations())"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, (
+        f"migration runner failed: {result.stderr[-2000:]}"
+    )
+
+    # Now query the table.
+    for _ in range(5):
         result = subprocess.run(  # noqa: S603
             ["docker", "compose", "-f", str(_COMPOSE_FILE), "exec", "-T", "postgres",
              "psql", "-U", "hml", "-d", "hml", "-tAc",
@@ -125,10 +148,10 @@ def test_postgres_migrations_applied(compose_stack: object) -> None:
         )
         if result.returncode == 0 and result.stdout.strip() == "reminder_outbox":
             return
-        time.sleep(2)
+        time.sleep(1)
     pytest.fail(
-        "reminder_outbox table not present after 20s. Migration runner "
-        "didn't fire or psycopg2-binary / sqlalchemy is missing."
+        "reminder_outbox table not present after migrations ran. "
+        f"psql returned: {result.stdout!r} stderr: {result.stderr!r}"
     )
 
 

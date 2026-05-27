@@ -454,16 +454,36 @@ def run_session(
     *,
     budget_usd: float = float("inf"),
 ) -> Iterator[FixtureRunResult]:
-    """Yield results for every (fixture, model) pair. Halts on budget exceeded."""
+    """Yield a result for every (fixture, model) pair.
+
+    Budget enforcement: when projected spend exceeds `budget_usd`, the
+    remaining pairs are emitted as `FixtureRunResult` with
+    `error='budget_exceeded'` (and empty contracts). They count as
+    failures for any baseline check — a low budget cannot produce a
+    false-success by silently skipping pairs.
+    """
     spent = 0.0
+    budget_hit = False
     for model in models:
         for fixture in fixtures:
-            if spent > budget_usd:
-                log.warning(
-                    "eval.budget_exceeded",
-                    extra={"spent_usd": spent, "budget_usd": budget_usd},
+            if budget_hit or spent > budget_usd:
+                if not budget_hit:
+                    log.warning(
+                        "eval.budget_exceeded",
+                        extra={"spent_usd": spent, "budget_usd": budget_usd},
+                    )
+                    budget_hit = True
+                yield FixtureRunResult(
+                    fixture_id=fixture.id,
+                    node=fixture.node,
+                    model=model,
+                    response="",
+                    contracts=[],
+                    duration_seconds=0.0,
+                    estimated_cost_usd=0.0,
+                    error=f"budget_exceeded (cap=${budget_usd:.2f}, spent=${spent:.4f})",
                 )
-                return
+                continue
             result = _run_one(fixture, model)
             spent += result.estimated_cost_usd
             yield result
