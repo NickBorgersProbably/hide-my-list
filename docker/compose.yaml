@@ -45,6 +45,7 @@ services:
       - REWARD_ARTIFACTS_DIR=/data/reward_artifacts
     volumes:
       - reward-artifacts:/data/reward_artifacts
+      - ${HML_LOG_DIR:-/tmp/hml-logs}:/var/log/hml
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -52,8 +53,6 @@ services:
         condition: service_healthy
     networks:
       - internal
-    volumes:
-      - ${HML_LOG_DIR:-/tmp/hml-logs}:/var/log/hml
     # restart: on-failure keeps the service alive on crashes but does NOT restart it
     # when it exits 0 (skeleton mode with ENABLE_LANGGRAPH_PATH=false).
     # Using unless-stopped here would cause a restart loop in dormant/skeleton mode.
