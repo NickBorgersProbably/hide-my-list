@@ -78,7 +78,23 @@ jobs:
           REVIEWER_DIR: ${{ runner.temp }}/reviewer-artifacts
           FIX_RESULT_PATH: ${{ runner.temp }}/fix-result/fixer-result.json
           VERDICT_OUTPUT_PATH: ${{ runner.temp }}/verdict-${{ inputs.post_fix_sha }}.json
+          # Write the synthesized security-lens artifact for upload as
+          # reviewer-security-<sha>; finalize.yml's renderer expects it.
+          # See §1.18.
+          MERGED_SECURITY_OUTPUT_PATH: ${{ runner.temp }}/security-result.json
         run: node .github/scripts/review/judge.mjs
+
+      - name: Upload synthesized security artifact (if produced)
+        # The merger only writes this file when at least one security
+        # lens artifact was present. Skip the upload otherwise — the
+        # finalize renderer treats a missing security row as "did not
+        # run" and uses the absence as a signal.
+        if: hashFiles(format('{0}/security-result.json', runner.temp)) != ''
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: reviewer-security-${{ inputs.reviewed_sha }}
+          path: ${{ runner.temp }}/security-result.json
 
       - name: Write verdict commit status
         uses: ./.github/actions/review-state

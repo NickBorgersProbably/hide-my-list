@@ -121,6 +121,11 @@ Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude
 - `.github/workflows/nightly-evals.yml` — Cron (09:00 UTC) + `workflow_dispatch`. Runs `python -m tests.evals.runner` against current `setup/model-tiers.json` values via the LiteLLM proxy. Posts `report.md` as a workflow artifact. Budget default $10.
 - `.github/workflows/model-swap.yml` — `workflow_dispatch` only. Inputs: candidate_model, candidate_tier, budget_usd. Runs baseline + candidate side-by-side; surfaces comparison in job summary. Budget default $15. Use before swapping a tier in `setup/model-tiers.json`.
 - `.github/scripts/review/prompts/test.md` — Test coverage reviewer: enforces 6 test-rig contract clauses on PRs touching app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**, tests/**, the test reviewer prompt, review schemas, docs/python-rewrite/test-rig.md, and docker/compose.yaml
+- `.github/scripts/review/prompts/security-breadth.md` — Vendored Anthropic security audit prompt (breadth lens of the two-lens security reviewer). Pin lives in `.github/ci/vendored-prompts.env`; refreshed weekly by `update-ai-clis.yml`.
+- `.github/scripts/review/prompts/security-narrow.md` — Repo-specific security invariants (narrow lens). Constrained tool surface, no-shell-out-from-app, private-data placeholder rule, workflow permissions, CI runtime correctness, reviewer-routing regressions.
+- `.github/scripts/review/security-merge.mjs` — Deterministic merger that collapses the two security lens artifacts into the canonical `role=security` reviewer artifact the judge consumes. Applies the exclusion filter, confidence demotion, dedup, and 5-blocking + 5-non-blocking cap.
+- `.github/ci/vendored-prompts.env` — SHA pin for vendored upstream prompts (currently just the Anthropic security audit prompt).
+- `.github/scripts/vendor-security-prompt.py` — Refresh script invoked by `update-ai-clis.yml` to regenerate the vendored block in `security-breadth.md` against a new upstream SHA.
 
 ## Safety
 
@@ -153,7 +158,7 @@ Reviewers handle Markdown spec changes and Python source changes (`app/`, `migra
 
 **Reviewer roles**:
 1. Design Review — validates intent + design quality; runs docs-as-spec consistency check on spec-critical changes; evaluates Python module design, async correctness, LangGraph node patterns, constrained-tool-surface invariant
-2. Security & Infrastructure Review — script safety, credential handling, workflow permissions, GH Actions/runtime correctness; Python: SQL injection (parameterised queries), secrets in env, no shell-out from app code, constrained-tool-surface invariant
+2. Security & Infrastructure Review — two-lens orchestrator. **Breadth lens** (`security-breadth.md`, vendored from [anthropics/claude-code-security-review](https://github.com/anthropics/claude-code-security-review) at the SHA pinned in `.github/ci/vendored-prompts.env`, refreshed weekly by `update-ai-clis.yml`) covers canonical web/agent vuln categories (injection, auth, crypto, deserialization, data exposure) with a confidence ≥0.7 threshold and an exclusion list (DoS, rate-limit, resource leaks, open-redirect, regex injection, non-applicable memory safety, SSRF in HTML, `.md`-file findings). **Narrow lens** (`security-narrow.md`) covers repo-specific invariants the external prompt can't know: constrained `httpx` tool surface (prompt-injection containment), no-shell-out from `app/`, private-data placeholder rule in logs, GH Actions `permissions:` least-privilege, CI runtime correctness, reviewer-routing regressions. Both lenses run as ordinary reviewers and upload `reviewer-security-{breadth,narrow}-<sha>` artifacts. The JUDGE (running from `main`'s checkout with read-only permissions) imports `security-merge.mjs` and synthesizes the canonical `reviewer-security-<sha>` verdict before calling `aggregate()` — closing the script-trust attack class. See `docs/agentic-pipeline-learnings.md` §1.18 and `.github/scripts/review/security-merge.mjs`.
 3. Psych Research Review — validates against ADHD clinical research; evaluates `app/prompts/*.md.j2` for banned-phrase regex + shame-safety contract
 4. Prompt Engineering Review — validates prompt clarity, constraints, cross-prompt consistency; evaluates `app/prompts/*.md.j2` for prompt-parity contract (section headings from `docs/ai-prompts/` source present in template)
 5. Documentation Consistency Review — contradictions, stale refs, cross-doc consistency; includes `docs/python-rewrite/*.md` and Python Runtime Files listed in this file
@@ -177,7 +182,7 @@ Symmetric two-agent support means the fixer must understand both `codex exec res
 
 ### Review prompt file architecture
 
-Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,prompt,test}.md`) **self-contained** — each reviewer loads only its own `${role}.md` at runtime. Codex CLI doesn't support markdown includes.
+Reviewer prompts (`.github/scripts/review/prompts/{design,security-breadth,security-narrow,psych,docs,prompt,test}.md`) **self-contained** — each reviewer loads only its own `${role}.md` at runtime. Codex CLI doesn't support markdown includes. The security role is split across two prompt files because the lenses serve disjoint purposes (vendored breadth catalog vs. repo-specific invariants) and the merger script — not the LLM — is responsible for collapsing them.
 
 Constraint applies to all reviewers → add to each prompt file individually. Use identical wording across files unless structure requires different phrasing (e.g., inline JSON placeholder vs. prose). Same applies to `fixer.md` — loaded independently.
 
