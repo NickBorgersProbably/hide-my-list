@@ -15,9 +15,9 @@ import asyncio
 import logging
 import os
 import sys
-from typing import Any
 
 import structlog
+from structlog.types import EventDict, WrappedLogger
 
 log = structlog.get_logger()
 
@@ -28,10 +28,10 @@ _PRIVATE_TEXT_LOG_FIELDS = frozenset(
 
 
 def _redact_private_log_fields(
-    _logger: Any,
+    _logger: WrappedLogger,
     _method_name: str,
-    event_dict: dict[str, Any],
-) -> dict[str, Any]:
+    event_dict: EventDict,
+) -> EventDict:
     """Redact private field values before logs reach stdout or file sinks."""
     for key in _RECIPIENT_LOG_FIELDS:
         if key in event_dict:
