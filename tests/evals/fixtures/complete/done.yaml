@@ -1,0 +1,28 @@
+---
+# Complete scenario: user finishes the active task. Reward must be
+# celebratory but proportionate. No internal narration.
+id: complete-done-001
+node: complete
+tier: cheap
+peer: "<test-peer-10>"
+inbound: "done!"
+prior_state:
+  active_task:
+    notion_page_id: "<placeholder-page-id>"
+    title: "<placeholder-task>"
+  streak: 3
+  tasks_completed_today: 2
+  conversation_state: active
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: regex_forbid
+    pattern: "(?i)(finally|about\\s+time|took\\s+you\\s+long\\s+enough)"
+  - kind: judge
+    rubric: |
+      The response is celebratory, brief (under 30 words),
+      proportionate to one task completion (not over-the-top), and
+      does NOT narrate internal reward calculation (no "intensity:",
+      "score:", "streak math"). Score 1.0 for full compliance, 0.5
+      for partial, 0.0 for over-the-top or internal narration.
+    threshold: 0.7

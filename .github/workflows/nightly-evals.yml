@@ -1,0 +1,96 @@
+name: Nightly Evals
+
+# Runs the eval layer (tests/evals/) against the current production
+# model tier values from setup/model-tiers.json. Reports pass/fail
+# per-fixture per-model. Real LLM calls — gated on EVAL_BUDGET_USD
+# soft cap. Posts the markdown report as a workflow artifact.
+#
+# Security: this workflow has access to ANTHROPIC_API_KEY and runs only
+# on schedule (cron) or manual dispatch. PRs cannot trigger it.
+# Triggered by:
+#   - cron: nightly at 09:00 UTC (03:00 / 04:00 user time)
+#   - workflow_dispatch: manual
+
+on:
+  schedule:
+    # Every day at 09:00 UTC. Cheap baseline tiers; ~$2-5 expected.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      budget_usd:
+        description: 'Soft cost cap in USD (default 10)'
+        required: false
+        default: '10'
+        type: string
+
+concurrency:
+  group: nightly-evals
+  cancel-in-progress: false  # Never cancel an in-flight billing run.
+
+permissions:
+  contents: read
+  # `actions: read` is needed for the workflow to read its own artifacts
+  # on subsequent re-runs (not strictly required for this run).
+  actions: read
+
+jobs:
+  evals:
+    name: Run eval fixtures (baseline tiers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --quiet -e ".[dev]"
+
+      - name: Read baseline models from setup/model-tiers.json
+        id: baseline
+        run: |
+          set -euo pipefail
+          # Use the current production tier values as the baseline.
+          # A future model-swap workflow rewrites these per-run; nightly
+          # just validates "what's deployed today still holds contracts".
+          MODELS=$(python -c 'import json,sys; t=json.load(open("setup/model-tiers.json")); print(",".join(sorted(set(t.values()))))')
+          echo "models=$MODELS" >> "$GITHUB_OUTPUT"
+
+      - name: Run eval suite
+        env:
+          ENABLE_LIVE_LLM_EVALS: 'true'
+          EVAL_MODELS: ${{ steps.baseline.outputs.models }}
+          EVAL_BASELINE_MODELS: ${{ steps.baseline.outputs.models }}
+          EVAL_BUDGET_USD: ${{ inputs.budget_usd || '10' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          echo "Running evals against models: $EVAL_MODELS"
+          echo "Budget cap: \$$EVAL_BUDGET_USD"
+          python -m tests.evals.runner
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-evals-${{ github.run_id }}
+          path: tests/evals/runs/
+          retention-days: 30
+
+      - name: Surface report.md in job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          LATEST=$(ls -1d tests/evals/runs/*/ 2>/dev/null | tail -1 || true)
+          if [ -n "$LATEST" ] && [ -f "$LATEST/report.md" ]; then
+            echo "## Eval Report" >> "$GITHUB_STEP_SUMMARY"
+            cat "$LATEST/report.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report.md produced (likely no fixtures or no models)." >> "$GITHUB_STEP_SUMMARY"
+          fi

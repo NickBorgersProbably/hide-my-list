@@ -1,0 +1,27 @@
+---
+# Baseline CHAT scenario: a generic conversational message that's neither
+# a task request nor a follow-up about a failed reminder. Validates the
+# CHAT node stays in voice and doesn't drift into denials or list dumps.
+id: chat-general-question-001
+node: chat
+tier: medium
+peer: "<test-peer-2>"
+inbound: "morning! anything I should know before we start?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)(here(?:'s| is)|are)\\s+your\\s+(tasks?|full list|task list)"
+  - kind: regex_forbid
+    pattern: "(?i)hello!\\s|good morning,?\\s+\\w"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The response is brief (under 50 words), conversational (like
+      texting a friend), and does NOT dump a task list. It may offer
+      to suggest a task or ask what time the user has — but never
+      enumerates tasks. Score 1.0 for full compliance, 0.0 for a
+      task list dump or formal greeting.
+    threshold: 0.7

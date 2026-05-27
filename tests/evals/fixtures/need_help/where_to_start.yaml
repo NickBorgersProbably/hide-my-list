@@ -1,0 +1,24 @@
+---
+# Need-help scenario: user is stuck before starting. Node must produce
+# 1-3 concrete first steps, not a long lecture.
+id: need-help-where-to-start-001
+node: need_help
+tier: medium
+peer: "<test-peer-8>"
+inbound: "I don't know how to start"
+prior_state:
+  active_task:
+    notion_page_id: "<placeholder-page-id>"
+    title: "<placeholder-task>"
+  conversation_state: active
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The response gives between 1 and 3 concrete first-step
+      suggestions. Each is actionable in under 5 minutes. It does
+      NOT lecture, list more than 3 steps, or imply the user
+      should have known how to start. Score 1.0 for full
+      compliance, 0.5 for partial, 0.0 for any of the failure modes.
+    threshold: 0.7

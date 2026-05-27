@@ -18,8 +18,8 @@ fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.jso
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | mocked (`MagicMock`) | none | no | Pure logic, prompt structure, regex/type assertions, structural lints |
 | Integration | `tests/integration/` | mocked (with strict call-arg assertions) | real (container) | no | State machines, DB schema, async plumbing, wiring contracts |
-| Eval | `tests/evals/` | real, multi-model via LiteLLM proxy | real | no | Behavioral contracts across model swaps; judge-LLM scoring |
-| Smoke | `tests/smoke/` | one real call via LiteLLM proxy | real | yes (boots stack) | Deployment-gap catch |
+| Eval | `tests/evals/` | real, multi-model via LiteLLM proxy | none | no | Behavioral contracts across model swaps; judge-LLM scoring |
+| Smoke | `tests/smoke/` | none (skeleton mode) | none | yes (boots stack) | Deployment-gap catch |
 | Regressions | `tests/regressions/` | varies | varies | varies | One permanent test per production bug |
 
 ### Cost and frequency
@@ -29,13 +29,15 @@ fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.jso
 | Unit | <30 s | $0 | every commit |
 | Integration | <2 min | $0 | every commit |
 | Structural lints | <10 s | $0 | every commit |
-| Compose smoke | <3 min | <$0.01 | planned — not yet wired to CI |
-| Evals (baseline) | 10-20 min | ~$2-5 | planned — nightly (workflow deferred to PR-2) |
-| Model-swap report | 15-30 min | ~$5-10 | planned — `workflow_dispatch` (workflow deferred to PR-2) |
+| Compose smoke | <3 min | $0 | gated by `ENABLE_COMPOSE_SMOKE=true` — runs on demand only |
+| Evals (baseline) | 10-20 min | ~$2-5 | `.github/workflows/nightly-evals.yml` — cron 09:00 UTC + `workflow_dispatch` |
+| Model-swap report | 15-30 min | ~$5-10 | `.github/workflows/model-swap.yml` — `workflow_dispatch` only |
 
-CI never sets `ENABLE_LIVE_LLM_EVALS=true` by default. The nightly eval workflow
-and model-swap `workflow_dispatch` workflow are deferred to PR-2; smoke, eval,
-and model-swap layers are planned but not yet connected to CI.
+CI never sets `ENABLE_LIVE_LLM_EVALS=true` for PRs. The nightly eval workflow
+and model-swap workflow use repo secrets (`ANTHROPIC_API_KEY`,
+`ANTHROPIC_BASE_URL`) and are off by default for PR runs. The compose smoke
+is manually gated by `ENABLE_COMPOSE_SMOKE` — there's no scheduled trigger
+(it boots the full stack and is too slow for PR CI).
 
 ---
 
@@ -47,10 +49,10 @@ Each bug class leaves a permanent test. Fix -> regression test ->
 | # | Bug | Where tested | Key assertion |
 |---|---|---|---|
 | 1 | psycopg3 UUID coercion | `tests/regressions/bug_0570_reminder_uuid_coercion/test_uuid_round_trip.py` | Insert via `reminders.enqueue`, dispatch, assert no `AttributeError`, `state='delivered'`, correct recipient kwarg |
-| 2 | LLM capability denial | `tests/unit/test_no_capability_denial.py` (structural) + `tests/evals/test_chat_capability_contract.py` (eval, PR-2) | `regex_forbid` denial phrasing; judge score >= 0.7 for capability acknowledgment |
-| 3 | Image orphaned from delivery | `tests/integration/test_reward_image_delivery.py` (follow-up) | `mock.call_args.kwargs["attachment_path"]` is non-None AND file exists; not just `mock.called` |
-| 4 | Auth gate | `tests/unit/test_signal_listener_auth.py` (existing) + `tests/smoke/test_compose_auth_closed.py` (PR-2) | Unauthorized peer rejected; no state-table writes |
-| 5 | Deployment gaps | `tests/smoke/test_compose_round_trip.py` (PR-2) | Full compose stack boots; reminder_outbox table exists; env vars threaded |
+| 2 | LLM capability denial | `tests/unit/test_no_capability_denial.py` (structural) + `tests/evals/fixtures/chat/missed_reminder.yaml` exercised via `tests/evals/test_evals.py` | `regex_forbid` denial phrasing; judge score >= 0.7 for capability acknowledgment |
+| 3 | Image orphaned from delivery | `tests/integration/test_reward_image_delivery.py` (follow-up; tracked in `tests/regressions/bug_0563_reward_image_orphan/README.md`) | `mock.call_args.kwargs["attachment_path"]` is non-None AND file exists; not just `mock.called` |
+| 4 | Auth gate | `tests/unit/test_signal_listener_auth.py` | Unauthorized peer rejected; no state-table writes |
+| 5 | Deployment gaps | `tests/smoke/test_compose_round_trip.py` | Full compose stack boots; reminder_outbox table created when migrations run; env vars threaded |
 | 6 | Dead-code wiring | `tests/unit/test_reachability.py` (AST scan) | Every public top-level function in scanned dirs has >= 1 call site outside its definition |
 | 7 | Migration filename collisions | `tests/unit/test_migration_filenames.py` | Unique prefixes, monotonic sequence, format `\d{4}_[a-z][a-z0-9_]*.sql` |
 | 8 | mypy suppression sprawl | `tests/unit/test_mypy_suppression_budget.py` | Count of `ignore_errors = true` overrides matches frozen baseline; can only shrink |
@@ -199,9 +201,11 @@ meaning every reward image was silently discarded.
 hardcoded relative to the repo root. No `MODEL_TIERS_PATH` env override exists
 in the current runtime. The eval runner swaps model tiers by writing a modified
 `setup/model-tiers.json` into the test working tree before invoking the graph
-under test. In eval and smoke harnesses, `ChatAnthropic` routes through a LiteLLM proxy at
-`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. The production app
-runtime connects directly to the Anthropic API without a LiteLLM proxy.
+under test. In the eval harness, `ChatAnthropic` routes through a LiteLLM proxy at
+`ANTHROPIC_BASE_URL`; LiteLLM dispatches by model alias. The smoke harness
+boots in skeleton mode (`ENABLE_LANGGRAPH_PATH=false`) and makes no LLM calls.
+The production app runtime connects directly to the Anthropic API without a
+LiteLLM proxy.
 
 **Prerequisite for non-Claude swap:** `app/models.py` currently validates
 that every tier value starts with `claude-` (a Phase B leftover that was
