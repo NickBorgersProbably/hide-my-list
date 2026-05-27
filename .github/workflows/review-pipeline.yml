@@ -411,10 +411,24 @@ jobs:
       statuses: read
       actions: read
     steps:
-      - name: Checkout main (for merger + schema + composite actions)
+      - name: Checkout main (for composite actions)
         uses: actions/checkout@v4
         with:
           ref: main
+
+      - name: Checkout PR branch (for merger script + schema)
+        # The merger script and the schema's optional summary_metadata
+        # block are PR-side surface. We trust the PR's version of both
+        # for the same reason reviewers read the PR's version of their
+        # own prompt files: a malicious PR modifying the merger would
+        # also have to suppress its own reviewer blockers, which is
+        # visible in the human-reviewed diff.
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          repository: ${{ inputs.head_repo }}
+          path: pr-head
+          fetch-depth: 1
 
       - name: Download lens artifacts
         uses: actions/download-artifact@v4
@@ -441,7 +455,7 @@ jobs:
           OUTPUT_PATH="$OUTPUT" \
           REVIEWED_SHA="$REVIEWED_SHA" \
           REVIEW_CYCLE="$REVIEW_CYCLE" \
-            node .github/scripts/review/security-merge.mjs
+            node pr-head/.github/scripts/review/security-merge.mjs
           echo "result_json=$OUTPUT" >> "$GITHUB_OUTPUT"
 
       - name: Validate merged artifact against schema
@@ -451,9 +465,13 @@ jobs:
           set -euo pipefail
           # Merged artifact has role="security" which is in main's enum,
           # so the main schema is authoritative — no bootstrap shim
-          # needed here.
+          # needed here for the role field. We still validate against
+          # the PR-head schema because the optional summary_metadata
+          # block is PR-side. The same trust model applies as for the
+          # merger script: a malicious PR would have to suppress its
+          # own blockers via reviewer prompts, visible in human diff.
           npx -y ajv-cli@5 validate --spec=draft2020 \
-            -s .github/scripts/review/schema/reviewer-v1.json \
+            -s pr-head/.github/scripts/review/schema/reviewer-v1.json \
             -d "$ARTIFACT"
 
       - name: Publish merged review as PR comment
