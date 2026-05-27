@@ -66,4 +66,3 @@ build/
 Thumbs.db
 .github-pat
 *.original.md
-gravwell.token
