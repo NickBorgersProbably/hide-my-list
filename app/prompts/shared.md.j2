@@ -73,11 +73,13 @@ Categories:
 - CHECK_IN: System-initiated follow-up (never inferred from user messages)
 - CHAT: General conversation or questions
 
-RECENT_OUTBOUND_CONTEXT:
-{{ recent_outbound_context | default('') }}
+Prior conversation (last ~5 turns from conversation history):
+{{ prior_conversation | default('No prior context.') }}
 
-If RECENT_OUTBOUND_CONTEXT contains a fresh entry with awaiting_response=true,
-use it to resolve short or elliptical replies before defaulting to CHAT.
+If the prior conversation shows an in-progress task discussion, treat short
+follow-ups (deadlines, clarifications, pronouns like "it") as continuations of
+that intent. For example, if the previous turn was the user describing a task
+and the current message is "I need to do it by Friday", classify as ADD_TASK.
 
 Message: "{{ user_message | default('') }}"
 

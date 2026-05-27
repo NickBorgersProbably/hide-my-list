@@ -81,6 +81,7 @@ def _render_template_with_empty_context(template_name: str) -> str:
         "preferred_work_type": "any",
         "time_of_day": "afternoon",
         "tasks_json": "[]",
+        "prior_conversation": "user: placeholder prior turn",
         "conversation_context": "",
         "task_title": "placeholder task",
         "rejection_reason": "",
@@ -150,3 +151,28 @@ def test_templates_render_without_error() -> None:
     for template_name in _PARITY_MAP.values():
         rendered = _render_template_with_empty_context(template_name)
         assert len(rendered) > 10, f"Template {template_name} rendered as near-empty"
+
+
+def test_shared_template_prior_conversation_contract() -> None:
+    """shared.md.j2 must surface the prior_conversation block and must not reference
+    the obsolete RECENT_OUTBOUND_CONTEXT anchor.
+
+    Regression guard for #574: the template replaced RECENT_OUTBOUND_CONTEXT with
+    a windowed Prior conversation block. This test fails if the template is rolled
+    back to the old anchor or the new block is removed.
+    """
+    from app.prompts.loader import render
+
+    sentinel = "test-prior-turn-sentinel"
+    rendered = render("shared.md.j2", {"prior_conversation": sentinel})
+
+    assert "Prior conversation" in rendered, (
+        "shared.md.j2 must render a 'Prior conversation' heading/label in the intent"
+        " detection prompt"
+    )
+    assert sentinel in rendered, (
+        "prior_conversation value must appear in the rendered shared.md.j2 output"
+    )
+    assert "RECENT_OUTBOUND_CONTEXT" not in rendered, (
+        "obsolete RECENT_OUTBOUND_CONTEXT anchor must not appear in shared.md.j2"
+    )

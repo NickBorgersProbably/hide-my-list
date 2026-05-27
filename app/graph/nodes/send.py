@@ -16,6 +16,7 @@ import os
 from typing import Any
 
 import structlog
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from app.graph.state import State
 
@@ -35,24 +36,39 @@ async def send_node(state: State) -> dict[str, Any]:
     Ordering: drafts are sent in list order (preserved from upstream nodes).
     Failures: logged, not raised. Graph completion is not blocked by send failures.
 
-    Returns an empty dict — no state mutation after the terminal node.
+    Returns a messages delta — HumanMessage for the incoming turn and AIMessage per
+    non-empty outbound draft — for the add_messages reducer, or an empty dict if
+    nothing to record. Send failures are logged and non-blocking.
     """
     pending = state.get("pending_outbound", [])
 
+    # Build the conversation-history delta for this turn so future turns retain
+    # context. The State `messages` channel uses the `add_messages` reducer,
+    # so returning a list here appends; bounding lives in the consumers (each
+    # node windows to the last few messages when prompting the LLM).
+    incoming = state.get("incoming", "")
+    new_messages: list[BaseMessage] = []
+    if incoming:
+        new_messages.append(HumanMessage(content=incoming))
+
     if not pending:
-        return {}
+        return {"messages": new_messages} if new_messages else {}
 
     if not _ENABLE_LANGGRAPH_PATH:
         for draft in pending:
+            recipient = draft.get("recipient", "")
+            body = draft.get("body", "")
             # Log booleans and counts only — no private values.
             log_kwargs: dict[str, Any] = {
-                "has_recipient": bool(draft.get("recipient")),
-                "has_body": bool(draft.get("body")),
+                "has_recipient": bool(recipient),
+                "has_body": bool(body),
             }
             if draft.get("attachment_path") is not None:
                 log_kwargs["attachment_count"] = 1
             log.debug("send_node.dormant", **log_kwargs)
-        return {}
+            if recipient and body:
+                new_messages.append(AIMessage(content=body))
+        return {"messages": new_messages} if new_messages else {}
 
     from app.tools import signal_client
 
@@ -96,6 +112,7 @@ async def send_node(state: State) -> dict[str, Any]:
                 timestamp=result.get("timestamp"),
                 attachment_count=1 if attachment_path else 0,
             )
+            new_messages.append(AIMessage(content=body))
         except Exception:
             log.exception(
                 "send_node.send_failed",
@@ -108,4 +125,4 @@ async def send_node(state: State) -> dict[str, Any]:
             # For reminders, the outbox handles delivery. For conversation replies,
             # logging is the signal for operator visibility.
 
-    return {}
+    return {"messages": new_messages} if new_messages else {}
