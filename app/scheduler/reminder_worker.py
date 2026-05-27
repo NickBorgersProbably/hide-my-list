@@ -52,6 +52,13 @@ def _next_due_at(attempt: int) -> datetime:
     return _now() + timedelta(minutes=_BACKOFF_MINUTES[idx])
 
 
+def _coerce_uuid(value: Any) -> uuid.UUID:
+    """Accept psycopg-native UUID values and string-like UUID values."""
+    if isinstance(value, uuid.UUID):
+        return value
+    return uuid.UUID(str(value))
+
+
 async def _throttled_ops_alert(
     conn: psycopg.AsyncConnection[Any],
     alert_kind: str,
@@ -137,7 +144,7 @@ async def dispatch_due_reminders(
     failed_count = 0
 
     for row in rows:
-        rid = uuid.UUID(row["id"])
+        rid = _coerce_uuid(row["id"])
         peer = row["peer"]
         body = row["body"]
         notion_page_id = row["notion_page_id"]
