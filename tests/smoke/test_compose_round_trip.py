@@ -112,12 +112,10 @@ def test_compose_services_boot(compose_stack: object) -> None:
 def test_postgres_migrations_applied(compose_stack: object) -> None:
     """The reminder_outbox table must exist after running migrations.
 
-    In skeleton mode the app does NOT call run_migrations() (that lives
-    in `_run_app()` which is skipped when ENABLE_LANGGRAPH_PATH=false).
-    So we invoke the migration runner directly from inside the app
-    container — that's the same code path production uses on boot when
-    the flag is on. Validates: psycopg + sqlalchemy resolve, migrations
-    dir was copied into the image, the runner can connect.
+    Invokes the migration runner directly from inside the app container —
+    the same code path production uses on boot. Validates: psycopg +
+    sqlalchemy resolve, migrations dir was copied into the image, the
+    runner can connect.
     """
     # Run migrations explicitly via the app container's python entrypoint.
     result = subprocess.run(  # noqa: S603
