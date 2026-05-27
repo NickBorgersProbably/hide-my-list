@@ -290,7 +290,7 @@ class TestImageGenFallback:
         env = dict(os.environ)
         env.pop("OPENAI_API_KEY", None)
         with patch.dict(os.environ, env, clear=True):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 generate_reward_image(
                     intensity="medium",
                     streak_count=2,
@@ -305,10 +305,10 @@ class TestImageGenFallback:
         import asyncio
         import base64
         import tempfile
-        from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock
+        from unittest.mock import AsyncMock as _AsyncMock
+        from unittest.mock import MagicMock as _MagicMock
 
         from app.tools.rewards import generate_reward_image
-        import app.tools.rewards as rewards_module
 
         fake_b64 = base64.b64encode(b"fake-image-bytes").decode()
         fake_image = _MagicMock()
@@ -325,7 +325,7 @@ class TestImageGenFallback:
             with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key", "REWARD_ARTIFACTS_DIR": tmpdir}):
                 with patch("app.tools.rewards.log") as mock_log:
                     with patch("openai.AsyncOpenAI", mock_openai_cls):
-                        result = asyncio.get_event_loop().run_until_complete(
+                        result = asyncio.run(
                             generate_reward_image(
                                 intensity="medium",
                                 streak_count=1,

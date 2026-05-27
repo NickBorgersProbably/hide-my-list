@@ -19,7 +19,6 @@ from unittest.mock import MagicMock, patch
 
 from app.observability.llm_callback import LLMObservabilityCallback
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -160,7 +159,7 @@ def test_ainvoke_triggers_callback_events() -> None:
         run_id = uuid.uuid4()
 
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-        from langchain_core.outputs import ChatGeneration, ChatResult
+        from langchain_core.outputs import ChatGeneration
 
         async def _simulate_call() -> None:
             await handler.on_chat_model_start(
