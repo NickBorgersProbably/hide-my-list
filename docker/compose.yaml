@@ -22,6 +22,7 @@ services:
       - NOTION_API_KEY=${NOTION_API_KEY:-}
       - NOTION_DATABASE_ID=${NOTION_DATABASE_ID:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - DATABASE_URL=postgresql://hml:hml@postgres:5432/hml
       - SIGNAL_CLI_URL=http://signal-cli:8080
@@ -33,6 +34,8 @@ services:
       - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
       - ALLOW_PRIVATE_TRACE_EXPORT=${ALLOW_PRIVATE_TRACE_EXPORT:-false}
       - USER_TZ=${USER_TZ:-America/Chicago}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
