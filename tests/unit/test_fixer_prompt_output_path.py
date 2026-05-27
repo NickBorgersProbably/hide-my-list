@@ -74,3 +74,20 @@ def test_no_hard_coded_output_filename(prompt_path: Path) -> None:
         f"This conflicts with $OUTPUT_PATH and risks the same misread that "
         f"caused PR #574 to stall. Reference $OUTPUT_PATH only."
     )
+
+
+@pytest.mark.parametrize("prompt_path", _fixer_prompt_files(), ids=lambda p: p.name)
+def test_output_contract_references_output_path(prompt_path: Path) -> None:
+    """The output-write instruction must reference $OUTPUT_PATH.
+
+    A prompt that avoids 'fix-result JSON' and hard-coded paths but also
+    omits '$OUTPUT_PATH' from the write instruction still leaves the
+    same artifact-discovery failure mode open: the agent has no canonical
+    destination and may invent a filename.
+    """
+    text = prompt_path.read_text()
+    assert "$OUTPUT_PATH" in text, (
+        f"{prompt_path.name} does not reference $OUTPUT_PATH. "
+        f"The output contract section must instruct the agent to write the "
+        f"result JSON to $OUTPUT_PATH so the host runner can locate the artifact."
+    )

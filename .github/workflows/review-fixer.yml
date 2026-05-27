@@ -37,7 +37,7 @@ on:
         description: 'SHA after fixer push (== reviewed_sha if no-op)'
         value: ${{ jobs.fix.outputs.new_sha }}
       fix_artifact_name:
-        description: 'Artifact name containing fix-result.json'
+        description: 'Artifact name containing fixer-result.json'
         value: ${{ jobs.fix.outputs.fix_artifact_name }}
     secrets:
       WORKFLOW_PAT:
@@ -146,10 +146,15 @@ jobs:
         # fixer-output.jsonl owned by the runner UID (1001). The Codex
         # fixer runs as UID 1000 inside the container and can't
         # overwrite them. Remove stale files so the fixer starts clean.
+        # Also remove near-miss filenames the salvage block may consume
+        # (fix-result.json, result.json) so a stale artifact from a
+        # prior failed run can't be promoted into fixer-result.json.
         run: |
           rm -f "${PR_WORKSPACE_PATH}/.review-output/fixer-result.json" \
                 "${PR_WORKSPACE_PATH}/.review-output/fixer-output.jsonl" \
-                "${PR_WORKSPACE_PATH}/.review-output/write-test"
+                "${PR_WORKSPACE_PATH}/.review-output/write-test" \
+                "${PR_WORKSPACE_PATH}/.review-output/fix-result.json" \
+                "${PR_WORKSPACE_PATH}/.review-output/result.json"
 
       - name: Create directories for devcontainer mounts
         run: mkdir -p ~/.config/gh ~/.claude ~/.codex
