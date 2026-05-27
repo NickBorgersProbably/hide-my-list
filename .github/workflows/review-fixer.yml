@@ -333,10 +333,44 @@ jobs:
           # explicit --spec=draft2020 flag to register the meta-schema;
           # without it the schema parse fails with "no schema with key
           # or ref https://json-schema.org/draft/2020-12/schema".
-          npx -y ajv-cli@5 validate \
-            --spec=draft2020 \
-            -s .github/scripts/review/schema/fix-result-v1.json \
-            -d "$ARTIFACT"
+          #
+          # Validation strategy: TRUST MAIN'S SCHEMA. The main-branch
+          # schema is the fail-closed contract; a PR cannot redefine its
+          # own fixer-validation rules.
+          #
+          # NARROW BOOTSTRAP SHIM: if the artifact references blocker
+          # namespaces (addressed[] or skipped[].id) that don't satisfy
+          # main's pattern AND the PR-head schema's pattern is a strict
+          # superset of main's, validate against the PR-head schema.
+          # Mirrors the role-bootstrap shim in review-reviewer.yml.
+          MAIN_SCHEMA=".github/scripts/review/schema/fix-result-v1.json"
+          PR_SCHEMA="${PR_WORKSPACE_PATH}/.github/scripts/review/schema/fix-result-v1.json"
+          # Try main first.
+          if npx -y ajv-cli@5 validate --spec=draft2020 -s "$MAIN_SCHEMA" -d "$ARTIFACT" 2>/dev/null; then
+            echo "Fix-result validated against main schema."
+          else
+            # Confirm PR-head schema is a superset before trusting.
+            MAIN_PATTERN=$(jq -r '.properties.addressed.items.pattern' "$MAIN_SCHEMA")
+            PR_PATTERN=$(jq -r '.properties.addressed.items.pattern' "$PR_SCHEMA")
+            # Extract the alternation group from both: e.g. "design|security|psych|docs|prompt"
+            MAIN_NS=$(echo "$MAIN_PATTERN" | sed -nE 's|^\^\(([^)]+)\)/.\+\$$|\1|p')
+            PR_NS=$(echo "$PR_PATTERN" | sed -nE 's|^\^\(([^)]+)\)/.\+\$$|\1|p')
+            for ns in $(echo "$MAIN_NS" | tr '|' ' '); do
+              if ! echo "|${PR_NS}|" | grep -q "|${ns}|"; then
+                echo "ERROR: PR-head fix-result schema removes namespace '$ns'. Refusing bootstrap shim." >&2
+                exit 1
+              fi
+            done
+            UNION_NS=$(echo "$MAIN_NS|$PR_NS" | tr '|' '\n' | sort -u | paste -sd '|')
+            TEMP_SCHEMA=$(mktemp /tmp/bootstrap-fixer-XXXXXX.json)
+            jq --arg p "^(${UNION_NS})/.+\$" '
+              .properties.addressed.items.pattern = $p |
+              .properties.skipped.items.properties.id.pattern = $p
+            ' "$MAIN_SCHEMA" > "$TEMP_SCHEMA"
+            echo "Fix-result failed main schema; derived temp schema with union namespace pattern — applying bootstrap shim."
+            npx -y ajv-cli@5 validate --spec=draft2020 -s "$TEMP_SCHEMA" -d "$ARTIFACT"
+            rm -f "$TEMP_SCHEMA"
+          fi
 
       # Commit the fixer's working-tree changes from the host runner
       # rather than from inside the CI container. The container runs

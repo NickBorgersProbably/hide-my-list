@@ -158,7 +158,7 @@ role_row() {
 render_table() {
   echo "| Agent | Verdict | Notes |"
   echo "|-------|---------|-------|"
-  for role in design security docs prompt psych; do
+  for role in design security docs prompt psych test; do
     role_row "$role"
   done
 }

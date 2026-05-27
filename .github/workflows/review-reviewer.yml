@@ -103,10 +103,43 @@ jobs:
           # explicit --spec=draft2020 flag to register the meta-schema;
           # without it the schema parse fails with "no schema with key
           # or ref https://json-schema.org/draft/2020-12/schema".
-          npx -y ajv-cli@5 validate \
-            --spec=draft2020 \
-            -s .github/scripts/review/schema/reviewer-v1.json \
-            -d "$ARTIFACT"
+          #
+          # Validation strategy: TRUST MAIN'S SCHEMA. The main-branch
+          # schema is the fail-closed contract; a PR cannot redefine the
+          # validation rules for its own artifacts.
+          #
+          # NARROW BOOTSTRAP SHIM for adding a new reviewer role: if the
+          # artifact's `role` value is not in main's enum AND the PR-head
+          # schema includes the new role as a strict SUPERSET of main's
+          # enum (no roles removed, no other vocabulary changes), validate
+          # the artifact against the PR-head schema. This permits the
+          # bootstrap of a new role without letting a PR weaken existing
+          # contracts.
+          MAIN_SCHEMA=".github/scripts/review/schema/reviewer-v1.json"
+          PR_SCHEMA="${PR_WORKSPACE_PATH}/.github/scripts/review/schema/reviewer-v1.json"
+          ROLE_VALUE=$(jq -r '.role' "$ARTIFACT")
+          if jq -e --arg r "$ROLE_VALUE" '.properties.role.enum | index($r) != null' "$MAIN_SCHEMA" > /dev/null; then
+            # Role is in main's enum — main schema is authoritative.
+            npx -y ajv-cli@5 validate --spec=draft2020 -s "$MAIN_SCHEMA" -d "$ARTIFACT"
+          else
+            # Role is new in this PR. Require PR-head schema to be a
+            # strict superset of main's before trusting it.
+            MAIN_ROLES=$(jq -r '.properties.role.enum | sort | join(",")' "$MAIN_SCHEMA")
+            PR_ROLES=$(jq -r '.properties.role.enum | sort | join(",")' "$PR_SCHEMA")
+            for role in $(echo "$MAIN_ROLES" | tr ',' ' '); do
+              if ! echo ",${PR_ROLES}," | grep -q ",${role},"; then
+                echo "ERROR: PR-head schema removes role '$role' that exists in main. Refusing bootstrap shim." >&2
+                exit 1
+              fi
+            done
+            UNION_ENUM=$(jq -s '[ .[0].properties.role.enum[], .[1].properties.role.enum[] ] | unique' \
+              "$MAIN_SCHEMA" "$PR_SCHEMA")
+            TEMP_SCHEMA=$(mktemp /tmp/bootstrap-reviewer-XXXXXX.json)
+            jq --argjson u "$UNION_ENUM" '.properties.role.enum = $u' "$MAIN_SCHEMA" > "$TEMP_SCHEMA"
+            echo "Role '$ROLE_VALUE' not in main's enum; bootstrap shim validating against derived temp schema."
+            npx -y ajv-cli@5 validate --spec=draft2020 -s "$TEMP_SCHEMA" -d "$ARTIFACT"
+            rm -f "$TEMP_SCHEMA"
+          fi
 
       - name: Publish as GitHub PR Review
         uses: ./.github/actions/review-publish

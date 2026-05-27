@@ -404,9 +404,29 @@ jobs:
     secrets:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
+  review-test:
+    name: Reviewer (test)
+    needs: gather
+    if: |
+      needs.gather.outputs.capped != 'true' &&
+      needs.gather.outputs.inherited != 'true' &&
+      contains(fromJSON(needs.gather.outputs.roles_json), 'test')
+    uses: ./.github/workflows/review-reviewer.yml
+    with:
+      role: test
+      pr_number: ${{ inputs.pr_number }}
+      reviewed_sha: ${{ inputs.reviewed_sha }}
+      base_sha: ${{ inputs.base_sha }}
+      head_ref: ${{ inputs.head_ref }}
+      head_repo: ${{ inputs.head_repo }}
+      cycle: ${{ needs.gather.outputs.cycle }}
+      devcontainer_image: ghcr.io/nickborgersprobably/hide-my-list-ci:latest
+    secrets:
+      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+
   fix:
     name: Apply reviewer-requested fixes
-    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt]
+    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt, review-test]
     # GHA defaults dependent jobs to skipped if any `needs:` job is
     # skipped — but per-role gating means several reviewers WILL be
     # skipped on every run (psych/prompt for config-only diffs,
@@ -432,7 +452,7 @@ jobs:
 
   judge:
     name: Judge (read-only aggregator)
-    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt, fix]
+    needs: [gather, review-design, review-security, review-psych, review-docs, review-prompt, review-test, fix]
     if: |
       always() &&
       needs.gather.outputs.capped != 'true' &&
@@ -490,6 +510,7 @@ jobs:
       - review-psych
       - review-docs
       - review-prompt
+      - review-test
       - fix
       - judge
       - finalize

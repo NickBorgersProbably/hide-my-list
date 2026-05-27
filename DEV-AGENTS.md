@@ -76,6 +76,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `docs/python-rewrite/` — Python stack contributor docs and runbooks
 - `docs/python-rewrite/rollback.md` — Cutover rollback runbook + forward cutover procedure
 - `docs/python-rewrite/langgraph-semantics.md` — LangGraph durability spike findings
+- `docs/python-rewrite/test-rig.md` — Authoritative test rig architecture spec: layer table, 8 bug classes, regression catalog convention, eval fixture format, integration mock discipline, LLM swap mechanism
 - `scripts/migrate_state_json.py` — One-shot OpenClaw → Postgres state migration; requires `--peer <E.164>`
 - `docker/backup.sh` — Postgres pg_dump wrapper with retention policy
 - `docker/Dockerfile` — Multi-stage Python 3.12-slim image for the app service
@@ -112,6 +113,7 @@ Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude
 - `setup/model-tiers.json` — Repo metadata mapping expensive, medium, and cheap model tiers; read by `app/models.py` at startup
 - `pyproject.toml` — Python 3.12 dependency manifest for the LangGraph stack; runtime and dev deps pinned by version
 - `.github/workflows/python-validation.yml` — Required CI gate: ruff + mypy + pytest-unit on every PR touching Python source files
+- `.github/scripts/review/prompts/test.md` — Test coverage reviewer: enforces 6 test-rig contract clauses on PRs touching app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**, tests/**, the test reviewer prompt, review schemas, docs/python-rewrite/test-rig.md, and docker/compose.yaml
 
 ## Safety
 
@@ -148,7 +150,8 @@ Reviewers handle Markdown spec changes and Python source changes (`app/`, `migra
 3. Psych Research Review — validates against ADHD clinical research; evaluates `app/prompts/*.md.j2` for banned-phrase regex + shame-safety contract
 4. Prompt Engineering Review — validates prompt clarity, constraints, cross-prompt consistency; evaluates `app/prompts/*.md.j2` for prompt-parity contract (section headings from `docs/ai-prompts/` source present in template)
 5. Documentation Consistency Review — contradictions, stale refs, cross-doc consistency; includes `docs/python-rewrite/*.md` and Python Runtime Files listed in this file
-6. Judge / Merge Decision — synthesizes all reviews into verdict
+6. Test Coverage Review — enforces test-rig maintenance per `docs/python-rewrite/test-rig.md`. Fires on the test-rig surface (app/, migrations/, setup/model-tiers.json, app/prompts/, docs/ai-prompts/, tests/, the test reviewer prompt itself, test-rig.md, and the review schemas). Blocks PRs that add public functions without integration tests, modify prompts without updating eval fixtures, add migrations without next-prefix discipline, add env vars/services without smoke-test assertions, or fix production bugs without a `tests/regressions/bug_<NNNN>_<slug>/` entry. Read-only — emits JSON verdict only; no auto-fix.
+7. Judge / Merge Decision — synthesizes all reviews into verdict
 
 Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` (orchestrator) → `review-reviewer.yml` (matrix) → `review-fixer.yml` → `review-judge.yml` → `review-finalize.yml`. Judge = deterministic Node script (`.github/scripts/review/aggregate.mjs`) with `permissions: contents: read` — cannot push by construction. Fixer runs after reviewers, before judge; pushes new commit first, then claims that SHA on `review/pipeline` immediately after push (GitHub rejects status for unpublished commit); only stage with write permission. The fixer also attempts `git merge --no-commit --no-ff origin/main` before invoking the agent so AI-authored PRs stay mergeable without a human in the loop — clean merges seal on the host, conflicts go through the agent for marker resolution, unresolved conflicts abort the merge and label `needs-human-review`. Verdicts binary **GO** / **NO-GO**; NO-GO labels PR `needs-human-review`, stops without closing or auto-creating issues. Reviewer prompts = standalone files in `.github/scripts/review/prompts/`. See `docs/agentic-pipeline-learnings.md` §1.4 + §1.5 for design decisions.
 
@@ -167,7 +170,7 @@ Symmetric two-agent support means the fixer must understand both `codex exec res
 
 ### Review prompt file architecture
 
-Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,prompt}.md`) **self-contained** — each reviewer loads only its own `${role}.md` at runtime. Codex CLI doesn't support markdown includes.
+Reviewer prompts (`.github/scripts/review/prompts/{design,security,psych,docs,prompt,test}.md`) **self-contained** — each reviewer loads only its own `${role}.md` at runtime. Codex CLI doesn't support markdown includes.
 
 Constraint applies to all reviewers → add to each prompt file individually. Use identical wording across files unless structure requires different phrasing (e.g., inline JSON placeholder vs. prose). Same applies to `fixer.md` — loaded independently.
 

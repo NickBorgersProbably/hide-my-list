@@ -20,6 +20,12 @@ description: >
     - prompt:    unless config_only (pure CI/infrastructure config);
                  also triggered by python_prompt_template files (app/prompts/*.md.j2)
                  for prompt-parity contract evaluation
+    - test:      fires for any file in the test-rig surface (see
+                 is_test_rig_surface() below): app/**, migrations/**,
+                 setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**,
+                 tests/** (including dropped/weakened tests),
+                 the test reviewer prompt itself, docs/python-rewrite/test-rig.md,
+                 and the review schema JSONs. Enforces test-rig maintenance.
 
   These mirror the conditions enforced by the current review pipeline's
   reviewer routing. Centralizing them here means adding a new role is
@@ -64,6 +70,9 @@ outputs:
   python_prompt_template:
     description: '"true" if diff includes app/prompts/*.md.j2'
     value: ${{ steps.classify.outputs.python_prompt_template }}
+  test_rig_surface:
+    description: '"true" if diff touches test-rig coverage surface (app/**, migrations/**, setup/model-tiers.json, app/prompts/**, docs/ai-prompts/**, or test.md)'
+    value: ${{ steps.classify.outputs.test_rig_surface }}
 
 runs:
   using: composite
@@ -155,8 +164,30 @@ runs:
           esac
         }
 
+        # Test-rig coverage surface: files where missing tests are a blocker.
+        # Fires the test reviewer role.
+        # Includes tests/** so PRs that delete or weaken tests are also routed
+        # to the reviewer (clause 6 of test.md: dropped tests need justification).
+        is_test_rig_surface() {
+          case "$1" in
+            app/*.py|app/**/*.py) return 0 ;;
+            migrations/*.sql) return 0 ;;
+            setup/model-tiers.json) return 0 ;;
+            app/prompts/*.md.j2) return 0 ;;
+            docs/ai-prompts/*.md) return 0 ;;
+            tests/*.py|tests/**/*.py) return 0 ;;
+            tests/regressions/*|tests/regressions/**) return 0 ;;
+            .github/scripts/review/prompts/test.md) return 0 ;;
+            docs/python-rewrite/test-rig.md) return 0 ;;
+            .github/scripts/review/schema/*.json) return 0 ;;
+            docker/compose.yaml) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+
         HAS_PYTHON_RUNTIME=false
         HAS_PYTHON_PROMPT_TEMPLATE=false
+        HAS_TEST_RIG_SURFACE=false
 
         while IFS= read -r f; do
           [ -z "$f" ] && continue
@@ -174,6 +205,11 @@ runs:
           # Python prompt templates force psych + prompt review.
           if is_python_prompt_template "$f"; then
             HAS_PYTHON_PROMPT_TEMPLATE=true
+          fi
+
+          # Test-rig surface files force test coverage review.
+          if is_test_rig_surface "$f"; then
+            HAS_TEST_RIG_SURFACE=true
           fi
 
           # Anything outside config/CI invalidates config_only.
@@ -204,6 +240,9 @@ runs:
         if [ "$CONFIG_ONLY" != "true" ] || [ "$HAS_PYTHON_PROMPT_TEMPLATE" = "true" ]; then
           ROLES=$(echo "$ROLES" | jq -c '. + ["psych","prompt"]')
         fi
+        if [ "$HAS_TEST_RIG_SURFACE" = "true" ]; then
+          ROLES=$(echo "$ROLES" | jq -c '. + ["test"]')
+        fi
 
         {
           echo "roles_json=$ROLES"
@@ -211,6 +250,7 @@ runs:
           echo "config_only=$CONFIG_ONLY"
           echo "python_runtime=$HAS_PYTHON_RUNTIME"
           echo "python_prompt_template=$HAS_PYTHON_PROMPT_TEMPLATE"
+          echo "test_rig_surface=$HAS_TEST_RIG_SURFACE"
         } >> "$GITHUB_OUTPUT"
 
-        echo "review-classify: roles=$ROLES docs_only=$DOCS_ONLY config_only=$CONFIG_ONLY python_runtime=$HAS_PYTHON_RUNTIME python_prompt_template=$HAS_PYTHON_PROMPT_TEMPLATE"
+        echo "review-classify: roles=$ROLES docs_only=$DOCS_ONLY config_only=$CONFIG_ONLY python_runtime=$HAS_PYTHON_RUNTIME python_prompt_template=$HAS_PYTHON_PROMPT_TEMPLATE test_rig_surface=$HAS_TEST_RIG_SURFACE"

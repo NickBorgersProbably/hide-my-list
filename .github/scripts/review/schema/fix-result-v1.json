@@ -22,7 +22,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^(design|security|psych|docs|prompt)/.+$",
+        "pattern": "^(design|security|psych|docs|prompt|test)/.+$",
         "description": "Namespaced blocker id, e.g. \"security/sec-1\"."
       }
     },
@@ -33,7 +33,7 @@
         "additionalProperties": false,
         "required": ["id", "reason"],
         "properties": {
-          "id": { "type": "string", "pattern": "^(design|security|psych|docs|prompt)/.+$" },
+          "id": { "type": "string", "pattern": "^(design|security|psych|docs|prompt|test)/.+$" },
           "reason": { "type": "string", "minLength": 1 }
         }
       }
