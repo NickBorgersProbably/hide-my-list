@@ -1,7 +1,10 @@
 """Entry point for the hide-my-list Python + LangGraph app.
 
 LangSmith guard: refuses to boot when LANGSMITH_TRACING=true unless
-ALLOW_PRIVATE_TRACE_EXPORT=true is also set.
+ALLOW_PRIVATE_TRACE_EXPORT=true is also set. The guard runs before any
+LangGraph wiring so a misconfigured deploy fails closed at startup
+rather than silently exporting private state to the LangSmith hosted
+backend.
 """
 from __future__ import annotations
 
