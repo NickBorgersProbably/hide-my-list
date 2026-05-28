@@ -214,8 +214,8 @@ def test_cheap_tier_sets_think_false_extra_body() -> None:
 
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
-    env.setdefault("ANTHROPIC_BASE_URL", "https://proxy.test/v1")
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
 
     with patch.dict(os.environ, env, clear=True):
         cheap = models_module.llm("cheap").bound  # unwrap RunnableBinding
