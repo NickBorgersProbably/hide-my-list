@@ -89,12 +89,18 @@ jobs:
         # lens artifact was present. Skip the upload otherwise — the
         # finalize renderer treats a missing security row as "did not
         # run" and uses the absence as a signal.
-        if: hashFiles(format('{0}/security-result.json', runner.temp)) != ''
+        #
+        # Gate on the step output emitted by judge.mjs, not on
+        # `hashFiles()`: hashFiles requires workspace-relative globs
+        # and silently returns empty for the absolute `${runner.temp}`
+        # path we write to, which would always skip the upload (see
+        # PR #592 for the smoke test that surfaced this).
+        if: steps.aggregate.outputs.synthesized_security_artifact != ''
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
           name: reviewer-security-${{ inputs.reviewed_sha }}
-          path: ${{ runner.temp }}/security-result.json
+          path: ${{ steps.aggregate.outputs.synthesized_security_artifact }}
 
       - name: Write verdict commit status
         uses: ./.github/actions/review-state

@@ -55,6 +55,7 @@ for (const entry of readdirSync(REVIEWER_DIR, { withFileTypes: true })) {
 // exclusion filter, and confidence demotion deterministically.
 const breadthArtifact = reviewers.find((r) => r.role === "security-breadth");
 const narrowArtifact = reviewers.find((r) => r.role === "security-narrow");
+let synthesizedSecurityPath = "";
 if (breadthArtifact || narrowArtifact) {
   // Sanity check: both lenses must agree on reviewed_sha and cycle, or
   // the orchestration is broken (mixed epochs). aggregate() catches this
@@ -70,6 +71,7 @@ if (breadthArtifact || narrowArtifact) {
 
   if (MERGED_SECURITY_OUTPUT_PATH) {
     writeFileSync(MERGED_SECURITY_OUTPUT_PATH, JSON.stringify(merged, null, 2) + "\n");
+    synthesizedSecurityPath = MERGED_SECURITY_OUTPUT_PATH;
   }
 }
 
@@ -80,8 +82,17 @@ const verdict = aggregate(reviewers, fixResult);
 console.log(JSON.stringify(verdict, null, 2));
 writeFileSync(VERDICT_OUTPUT_PATH, JSON.stringify(verdict, null, 2) + "\n");
 
-// Emit GitHub Actions step output if running inside Actions.
+// Emit GitHub Actions step outputs if running inside Actions.
+// `synthesized_security_artifact` gates the workflow's upload step
+// for the merged security artifact — using a step output here avoids
+// the `hashFiles(absolute_path)` foot-gun (hashFiles silently returns
+// empty for non-workspace-relative paths, which caused PR #592's
+// upload to be skipped and the agent table to render `did not run`).
 const ghOut = process.env.GITHUB_OUTPUT;
 if (ghOut) {
-  writeFileSync(ghOut, `verdict=${verdict.verdict}\n`, { flag: "a" });
+  writeFileSync(
+    ghOut,
+    `verdict=${verdict.verdict}\nsynthesized_security_artifact=${synthesizedSecurityPath}\n`,
+    { flag: "a" }
+  );
 }
