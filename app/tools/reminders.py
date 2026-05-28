@@ -39,15 +39,18 @@ async def enqueue(
     """Insert a new reminder into the outbox with state='pending'.
 
     Returns the UUID of the inserted row. Raises psycopg.errors.UniqueViolation
-    if notion_page_id already exists (each reminder maps to exactly one Notion page).
+    if idempotency_key already exists. Duplicate idempotency_key raises
+    UniqueViolation (deadline daemon uses key format
+    "deadline-<page_id>-<milestone>-<deadline_iso>" for at-most-once enqueue
+    per task+milestone+deadline tuple).
 
     Args:
         conn: Open async psycopg connection.
-        notion_page_id: Notion page ID for this reminder (UNIQUE constraint).
+        notion_page_id: Notion page ID for this reminder.
         peer: E.164 recipient phone number.
         body: Reminder message text.
         due_at: When the reminder should be sent (UTC).
-        idempotency_key: Unique key passed to signal-cli for deduplication.
+        idempotency_key: Unique key per reminder; UNIQUE constraint prevents duplicate inserts.
         reminder_id: Optional UUID; generated if not provided.
     """
     rid = reminder_id or uuid.uuid4()
