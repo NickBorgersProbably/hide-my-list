@@ -13,10 +13,13 @@ Covers all 9 verbs from scripts/notion-cli.sh:
 
 Plus:
   health_check() — lightweight connectivity probe used by notion_health job.
+  query_tasks_with_unscheduled_deadlines() — finds deadline tasks needing reminder series.
+  mark_reminder_scheduled(page_id) — marks a task's reminder series as created.
 
 This module is the only authorised place that imports httpx.AsyncClient
 for Notion calls. All requests go through _client() to allow test injection.
 """
+
 from __future__ import annotations
 
 import os
@@ -54,6 +57,7 @@ def _database_id() -> str:
 # Verb 1 — create_task
 # ---------------------------------------------------------------------------
 
+
 async def create_task(
     title: str,
     work_type: str,
@@ -64,10 +68,16 @@ async def create_task(
     status: str = "Pending",
     parent_id: str = "",
     sequence: int | None = None,
+    due_at_iso: str | None = None,
 ) -> dict[str, Any]:
     """Create a task page in the Notion database.
 
     Mirrors: notion-cli.sh create-task
+
+    Args:
+        due_at_iso: Optional ISO 8601 deadline string (e.g. "2026-06-03T17:00:00-05:00").
+            When set, the "Due At" date property is included in the payload.
+            When None (default), the field is omitted entirely — Notion treats it as empty.
     """
     props: dict[str, Any] = {
         "Title": {"title": [{"text": {"content": title}}]},
@@ -86,6 +96,8 @@ async def create_task(
         props["Parent Task"] = {"relation": [{"id": parent_id}]}
     if sequence is not None:
         props["Sequence"] = {"number": sequence}
+    if due_at_iso is not None:
+        props["Due At"] = {"date": {"start": due_at_iso}}
 
     payload = {
         "parent": {"database_id": _database_id()},
@@ -100,6 +112,7 @@ async def create_task(
 # ---------------------------------------------------------------------------
 # Verb 2 — create_reminder
 # ---------------------------------------------------------------------------
+
 
 async def create_reminder(
     title: str,
@@ -139,6 +152,7 @@ async def create_reminder(
 # Verb 3 — query_pending
 # ---------------------------------------------------------------------------
 
+
 async def query_pending() -> dict[str, Any]:
     """Query all pending (non-reminder) tasks, sorted by urgency descending.
 
@@ -163,6 +177,7 @@ async def query_pending() -> dict[str, Any]:
 # Verb 4 — query_all
 # ---------------------------------------------------------------------------
 
+
 async def query_all() -> dict[str, Any]:
     """Query all tasks, sorted by urgency descending.
 
@@ -180,6 +195,7 @@ async def query_all() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Verb 5 — query_due_reminders
 # ---------------------------------------------------------------------------
+
 
 async def query_due_reminders(before_iso: str | None = None) -> dict[str, Any]:
     """Query reminders due on or before the given ISO timestamp.
@@ -211,6 +227,7 @@ async def query_due_reminders(before_iso: str | None = None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Verb 6 — update_status
 # ---------------------------------------------------------------------------
+
 
 async def update_status(page_id: str, new_status: str) -> dict[str, Any]:
     """Update the Status property of a page.
@@ -251,6 +268,7 @@ async def update_status(page_id: str, new_status: str) -> dict[str, Any]:
 # Verb 7 — complete_reminder
 # ---------------------------------------------------------------------------
 
+
 async def complete_reminder(
     page_id: str,
     reminder_status: str,
@@ -262,9 +280,7 @@ async def complete_reminder(
     Mirrors: notion-cli.sh complete-reminder
     """
     if reminder_status not in ("sent", "missed"):
-        raise ValueError(
-            f"reminder_status must be 'sent' or 'missed', got {reminder_status!r}"
-        )
+        raise ValueError(f"reminder_status must be 'sent' or 'missed', got {reminder_status!r}")
 
     now = datetime.now(UTC).isoformat()
     props: dict[str, Any] = {
@@ -282,6 +298,7 @@ async def complete_reminder(
 # Verb 8 — update_property
 # ---------------------------------------------------------------------------
 
+
 async def update_property(page_id: str, prop_json: dict[str, Any]) -> dict[str, Any]:
     """Apply an arbitrary properties patch to a page.
 
@@ -296,6 +313,7 @@ async def update_property(page_id: str, prop_json: dict[str, Any]) -> dict[str, 
 # ---------------------------------------------------------------------------
 # Verb 9 — get_page
 # ---------------------------------------------------------------------------
+
 
 async def get_page(page_id: str) -> dict[str, Any]:
     """Fetch a single page by ID.
@@ -312,6 +330,7 @@ async def get_page(page_id: str) -> dict[str, Any]:
 # Health check — used by notion_health APScheduler job
 # ---------------------------------------------------------------------------
 
+
 async def health_check() -> bool:
     """Probe Notion API connectivity via GET /v1/users/me.
 
@@ -321,6 +340,7 @@ async def health_check() -> bool:
     would crash the job rather than mark it failed.
     """
     import structlog
+
     _log = structlog.get_logger(__name__)
 
     try:
@@ -332,3 +352,66 @@ async def health_check() -> bool:
     except Exception as exc:
         _log.error("notion.health_check.failed", error=str(exc))
         return False
+
+
+# ---------------------------------------------------------------------------
+# Verb 10 — query_tasks_with_unscheduled_deadlines
+# ---------------------------------------------------------------------------
+
+
+async def query_tasks_with_unscheduled_deadlines() -> dict[str, Any]:
+    """Query non-reminder tasks that have a deadline but no reminder series yet.
+
+    Filter conditions (all four must hold):
+    - Due At is_not_empty
+    - Reminder Scheduled At is_empty
+    - Status != "Completed"
+    - Is Reminder = false
+
+    Sorted by Due At ascending so the nearest deadlines are processed first.
+
+    Used by the reminder_scheduler daemon to find tasks needing a reminder series.
+    """
+    payload = {
+        "filter": {
+            "and": [
+                {"property": "Due At", "date": {"is_not_empty": True}},
+                {"property": "Reminder Scheduled At", "date": {"is_empty": True}},
+                {"property": "Status", "select": {"does_not_equal": "Completed"}},
+                {"property": "Is Reminder", "checkbox": {"equals": False}},
+            ]
+        },
+        "sorts": [{"property": "Due At", "direction": "ascending"}],
+    }
+    async with _client_factory() as client:
+        resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]
+
+
+# ---------------------------------------------------------------------------
+# Verb 11 — mark_reminder_scheduled
+# ---------------------------------------------------------------------------
+
+
+async def mark_reminder_scheduled(page_id: str) -> dict[str, Any]:
+    """Set Reminder Scheduled At to the current UTC time on a task page.
+
+    Called by the reminder_scheduler daemon after successfully enqueuing
+    all milestone reminders for a task. Prevents re-scheduling on subsequent
+    daemon runs (idempotency guard).
+
+    Args:
+        page_id: The Notion page ID of the task to update.
+
+    Returns:
+        The updated page object from the Notion API.
+    """
+    now = datetime.now(UTC).isoformat()
+    props: dict[str, Any] = {
+        "Reminder Scheduled At": {"date": {"start": now}},
+    }
+    async with _client_factory() as client:
+        resp = await client.patch(f"/pages/{page_id}", json={"properties": props})
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]

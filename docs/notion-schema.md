@@ -37,6 +37,8 @@ erDiagram
         checkbox is_reminder "True if task is a timed reminder"
         date remind_at "Wall-clock time to fire reminder (ISO 8601)"
         select reminder_status "pending|sent (legacy: missed)"
+        date due_at "Hard deadline for the task (ISO 8601, optional)"
+        date reminder_scheduled_at "Timestamp set by daemon when reminder series is created (nullable)"
     }
 
     USER_PREFERENCES {
@@ -477,6 +479,34 @@ Tracks reminder delivery.
 
 ---
 
+### Due At (date)
+
+Hard deadline for the task. Optional — null for tasks without a time-bound.
+
+```
+Format: ISO 8601 with timezone (e.g., 2026-06-03T17:00:00-05:00)
+```
+
+**Set when:** The user specifies a deadline phrase during intake (e.g., "before Wednesday", "by Friday", "due June 3"). Resolved to end-of-business-day (17:00 local) when no time is specified. Independent of `urgency` — urgency reflects relative priority; `Due At` is a hard time bound.
+
+**Used by:** `reminder_scheduler` daemon — queries tasks where `Due At is_not_empty` and `Reminder Scheduled At is_empty` to determine which tasks need a reminder series created.
+
+---
+
+### Reminder Scheduled At (date)
+
+Timestamp set by the reminder-scheduling daemon to mark that the automated reminder series for this task has been created. Nullable — null until the daemon processes the task.
+
+```
+Format: ISO 8601 UTC (e.g., 2026-06-01T04:00:00+00:00)
+```
+
+**Set when:** The reminder-scheduling daemon successfully enqueues all milestone reminders for a deadline-bearing task. Setting this field prevents the daemon from re-scheduling on subsequent runs (idempotency guard).
+
+**Used by:** `reminder_scheduler` daemon — filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are picked up each cycle.
+
+---
+
 ## User Preferences Properties
 
 Personalized settings for task execution success. See [user-preferences.md](./user-preferences.md) for full docs.
@@ -754,6 +784,7 @@ sequenceDiagram
 | Next sub-task | `parent_task_id = "{parent_id}" AND status = "pending"` (sort by sequence) |
 | Standalone tasks only | `parent_task_id IS NULL AND status != "has_subtasks"` |
 | Parent tasks | `status = "has_subtasks"` |
+| Unscheduled deadlines | `Due At is_not_empty AND Reminder Scheduled At is_empty AND status != "Completed" AND is_reminder = false` (sort by Due At asc) |
 
 ---
 
@@ -781,6 +812,7 @@ sequenceDiagram
 | Resume task | `resume_count += 1, last_resumed_at → now, progressNotes += "[ts] Resumed (gap: Xm)"` |
 | Create sub-task | `parent_task_id, sequence, status = pending` |
 | Complete sub-task | `status → completed` (check if parent complete) |
+| Mark reminder scheduled | `reminder_scheduled_at → now` (set by daemon after enqueuing reminder series) |
 
 ---
 
