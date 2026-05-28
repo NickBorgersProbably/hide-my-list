@@ -39,7 +39,10 @@ async def enqueue(
     """Insert a new reminder into the outbox with state='pending'.
 
     Returns the UUID of the inserted row. Raises psycopg.errors.UniqueViolation
-    if idempotency_key already exists (key is unique per reminder).
+    if idempotency_key already exists. Duplicate idempotency_key raises
+    UniqueViolation (deadline daemon uses key format
+    "deadline-<page_id>-<milestone>-<deadline_iso>" for at-most-once enqueue
+    per task+milestone+deadline tuple).
 
     Args:
         conn: Open async psycopg connection.

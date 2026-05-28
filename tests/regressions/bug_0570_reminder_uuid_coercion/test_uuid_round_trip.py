@@ -42,7 +42,7 @@ async def db_conn() -> Any:
             await conn.execute(mig.read_text())  # type: ignore[arg-type]
         await conn.commit()
 
-        # Clean state before each test
+        # Clean state before each test (child table first to satisfy FK)
         await conn.execute(
             "TRUNCATE reminder_scheduling_ledger, reminder_outbox, recent_outbound, ops_alerts_throttle"
         )

@@ -33,10 +33,12 @@ ALTER TABLE reminder_outbox
 
 -- Restore uniqueness on the outbox via idempotency_key. The original 0001
 -- schema had UNIQUE on notion_page_id (just dropped above to allow multiple
--- reminders per task) and NOT NULL on idempotency_key (no UNIQUE). The deadline
--- daemon's idempotency_key format is "deadline-<page_id>-<milestone>-<deadline_iso>",
--- unique per (task, milestone, deadline) tuple — exactly the dedup granularity
--- we need. Add UNIQUE so retry races can't double-insert the same reminder.
+-- reminders per task) and NOT NULL on idempotency_key (no UNIQUE). The UNIQUE
+-- constraint on idempotency_key is added by this migration (the 0001 schema has
+-- it as NOT NULL but not UNIQUE). The deadline daemon's idempotency_key format
+-- is "deadline-<page_id>-<milestone>-<deadline_iso>", unique per
+-- (task, milestone, deadline) tuple — exactly the dedup granularity we need.
+-- Add UNIQUE so retry races can't double-insert the same reminder.
 DO $$
 BEGIN
   IF NOT EXISTS (
