@@ -229,3 +229,37 @@ async def test_mark_reminder_scheduled_returns_page(
 
     assert result["id"] == fake_page_id
     assert result["updated"] is True
+
+
+# ---------------------------------------------------------------------------
+# Pipeline reachability: query → mark
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unscheduled_deadline_pipeline(
+    notion_server: HTTPServer,
+    fake_db_id: str,
+    fake_page_id: str,
+) -> None:
+    """Reachability: query returns page IDs that are passed to mark_reminder_scheduled.
+
+    Proves both verbs are reachable and compose correctly as a scheduling
+    pipeline step — query result feeds directly into the mark call.
+    """
+    notion_server.expect_request(
+        f"/databases/{fake_db_id}/query", method="POST"
+    ).respond_with_json({"results": [{"object": "page", "id": fake_page_id}]})
+    notion_server.expect_request(
+        f"/pages/{fake_page_id}", method="PATCH"
+    ).respond_with_json({"object": "page", "id": fake_page_id})
+
+    result = await notion_module.query_tasks_with_unscheduled_deadlines()
+    assert len(result["results"]) == 1
+
+    page_id = result["results"][0]["id"]
+    marked = await notion_module.mark_reminder_scheduled(page_id)
+
+    assert page_id == fake_page_id
+    assert marked["id"] == fake_page_id
+    assert len(notion_server.log) == 2

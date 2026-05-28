@@ -501,7 +501,7 @@ Timestamp marking that the automated reminder series for this task has been crea
 Format: ISO 8601 UTC (e.g., 2026-06-01T04:00:00+00:00)
 ```
 
-**Set by:** `mark_reminder_scheduled(page_id)` — PATCHes this field to UTC now after reminders are enqueued, preventing re-scheduling on subsequent runs (idempotency guard).
+**Set by:** `mark_reminder_scheduled(page_id)` — PATCHes this field to UTC now. Serves as an idempotency guard: tasks with this field set are excluded by `query_tasks_with_unscheduled_deadlines()`.
 
 **Read by:** `query_tasks_with_unscheduled_deadlines()` — filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are returned.
 
@@ -784,7 +784,7 @@ sequenceDiagram
 | Next sub-task | `parent_task_id = "{parent_id}" AND status = "pending"` (sort by sequence) |
 | Standalone tasks only | `parent_task_id IS NULL AND status != "has_subtasks"` |
 | Parent tasks | `status = "has_subtasks"` |
-| Unscheduled deadlines | `Due At is_not_empty AND Reminder Scheduled At is_empty AND status != "completed" AND is_reminder = false` (sort by Due At asc) |
+| Unscheduled deadlines | `Due At is_not_empty AND Reminder Scheduled At is_empty AND Status != "Completed" AND Is Reminder = false` (sort by Due At asc) |
 
 ---
 

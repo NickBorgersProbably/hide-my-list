@@ -370,7 +370,7 @@ async def query_tasks_with_unscheduled_deadlines() -> dict[str, Any]:
 
     Sorted by Due At ascending so the nearest deadlines are processed first.
 
-    Used by the reminder_scheduler daemon to find tasks needing a reminder series.
+    Additive plumbing for deadline-driven reminder scheduling.
     """
     payload = {
         "filter": {
@@ -397,9 +397,9 @@ async def query_tasks_with_unscheduled_deadlines() -> dict[str, Any]:
 async def mark_reminder_scheduled(page_id: str) -> dict[str, Any]:
     """Set Reminder Scheduled At to the current UTC time on a task page.
 
-    Called by the reminder_scheduler daemon after successfully enqueuing
-    all milestone reminders for a task. Prevents re-scheduling on subsequent
-    daemon runs (idempotency guard).
+    Additive plumbing for deadline-driven reminder scheduling. Tasks with a
+    non-null value here are excluded from query_tasks_with_unscheduled_deadlines()
+    results (idempotency guard).
 
     Args:
         page_id: The Notion page ID of the task to update.
