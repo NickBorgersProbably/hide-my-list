@@ -372,6 +372,24 @@ jobs:
             rm -f "$TEMP_SCHEMA"
           fi
 
+      # Install the tools that .githooks/pre-commit invokes via
+      # scripts/run-required-checks.sh. The host commit step below sets
+      # core.hooksPath=.githooks, which activates the same hook a
+      # developer runs locally — and the hook hard-fails when any of its
+      # required commands are missing. GH Actions runners don't ship
+      # yamllint / ruff / pytest, so without this step the hook aborts
+      # the commit with "required command 'yamllint' is not installed"
+      # the moment the fixer stages a workflow file. shellcheck is
+      # already on ubuntu-latest; python3 is too.
+      - name: Install pre-commit hook tooling
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --user \
+            yamllint==1.37.1 \
+            ruff==0.15.13 \
+            pytest==9.0.3
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       # Lint gate: run ruff against the full Python tree in the PR
       # workspace before committing. The pre-commit hook in .githooks/
       # only covers *staged* files, so it cannot catch violations that

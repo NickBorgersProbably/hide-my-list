@@ -54,6 +54,38 @@ def test_lint_gate_precedes_commit_step() -> None:
     )
 
 
+def test_install_step_precedes_lint_gate() -> None:
+    """An 'Install pre-commit hook tooling' step must precede the ruff lint gate.
+
+    The host commit step sets core.hooksPath=.githooks, which activates
+    .githooks/pre-commit on every fixer commit. The hook calls
+    scripts/run-required-checks.sh, which hard-fails when yamllint / ruff /
+    pytest are missing — and GH Actions hosts don't ship them by default.
+    Without the install step, the fixer aborts every commit on a workflow PR
+    with "required command 'yamllint' is not installed".
+    """
+    text = _workflow_text()
+    install_pos = text.find("Install pre-commit hook tooling")
+    lint_pos = text.find("Ruff lint gate")
+    commit_pos = text.find("Commit fixer working-tree changes")
+    assert install_pos != -1, (
+        "Expected an 'Install pre-commit hook tooling' step in review-fixer.yml. "
+        "The host commit's pre-commit hook needs yamllint / ruff / pytest on PATH; "
+        "GH Actions runners don't provide them."
+    )
+    assert install_pos < lint_pos < commit_pos, (
+        "Install step must run before the ruff lint gate (which uses ruff) and "
+        "before the commit step (whose hook uses yamllint / ruff / pytest)."
+    )
+    install_block_end = text.find("\n      - name:", install_pos + 1)
+    install_block = text[install_pos:install_block_end] if install_block_end != -1 else text[install_pos:]
+    for tool in ("yamllint", "ruff", "pytest"):
+        assert tool in install_block, (
+            f"Install step must install '{tool}'. The pre-commit hook requires it "
+            f"whenever the fixer stages a file in its scope."
+        )
+
+
 def test_commit_step_activates_pre_commit_hook() -> None:
     """The commit step must set GIT_CONFIG_COUNT so core.hooksPath is active."""
     text = _workflow_text()
