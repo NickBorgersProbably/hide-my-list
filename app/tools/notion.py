@@ -11,6 +11,10 @@ Covers all 9 verbs from scripts/notion-cli.sh:
   8. update_property
   9. get_page
 
+Plus deadline-reminder plumbing verbs:
+  10. query_tasks_with_unscheduled_deadlines
+  11. mark_reminder_scheduled
+
 Plus:
   health_check() — lightweight connectivity probe used by notion_health job.
 
@@ -320,6 +324,60 @@ async def get_page(page_id: str) -> dict[str, Any]:
     """
     async with _client_factory() as client:
         resp = await client.get(f"/pages/{page_id}")
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]
+
+
+# ---------------------------------------------------------------------------
+# Verb 10 — query_tasks_with_unscheduled_deadlines
+# ---------------------------------------------------------------------------
+
+
+async def query_tasks_with_unscheduled_deadlines() -> dict[str, Any]:
+    """Return tasks with a Due At but no Reminder Scheduled At yet.
+
+    4-condition AND filter:
+      - Due At is_not_empty
+      - Reminder Scheduled At is_empty
+      - Status != Completed
+      - Is Reminder = false
+
+    Sorted by Due At ascending (soonest deadline first).
+    """
+    payload = {
+        "filter": {
+            "and": [
+                {"property": "Due At", "date": {"is_not_empty": True}},
+                {"property": "Reminder Scheduled At", "date": {"is_empty": True}},
+                {"property": "Status", "select": {"does_not_equal": "Completed"}},
+                {"property": "Is Reminder", "checkbox": {"equals": False}},
+            ]
+        },
+        "sorts": [{"property": "Due At", "direction": "ascending"}],
+    }
+    async with _client_factory() as client:
+        resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]
+
+
+# ---------------------------------------------------------------------------
+# Verb 11 — mark_reminder_scheduled
+# ---------------------------------------------------------------------------
+
+
+async def mark_reminder_scheduled(page_id: str) -> dict[str, Any]:
+    """Set Reminder Scheduled At to UTC now, marking the reminder series as created.
+
+    Idempotency guard: query_tasks_with_unscheduled_deadlines() excludes tasks
+    where this field is set.
+    """
+    now = datetime.now(UTC).isoformat()
+    props: dict[str, Any] = {
+        "Reminder Scheduled At": {"date": {"start": now}},
+    }
+    async with _client_factory() as client:
+        resp = await client.patch(f"/pages/{page_id}", json={"properties": props})
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
 
