@@ -39,7 +39,7 @@ These are the authoritative behavioral contracts. The Python implementation in `
 
 The Python/LangGraph application. Safe to edit via PRs.
 
-- `app/tools/notion.py` — Notion API client (9 verbs + health_check)
+- `app/tools/notion.py` — Notion API client (11 verbs + health_check)
 - `app/tools/signal_client.py` — Signal bridge async client
 - `app/tools/reminders.py` — Reminder outbox CRUD
 - `app/tools/rewards.py` — Reward delivery (emoji + image; v1 scope)
@@ -74,7 +74,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `migrations/0005_readonly_user.sql` — Adds `hml_readonly` Postgres role with GRANT SELECT for read-only DB access
 - `migrations/0006_reward_feedback_columns.sql` — Adds `feedback_emoji` and `feedback_at` columns to `reward_manifests`
 - `tests/unit/` — Unit tests (no DATABASE_URL required)
-- `tests/integration/` — Integration tests (require DATABASE_URL)
+- `tests/integration/` — Integration tests; DB-backed tests require DATABASE_URL, HTTP-only tests do not
 - `tests/perf/` — Perf harness: latency + token stats per model, gated by `ENABLE_LLM_PERF=true`. See `docs/python-rewrite/llm-observability.md` for usage.
 - `tests/spike/` — Durability spike tests
 - `tests/evals/` — LLM behavior eval fixtures + multi-model runner; gated by `ENABLE_LIVE_LLM_EVALS=true`

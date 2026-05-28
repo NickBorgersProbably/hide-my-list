@@ -487,23 +487,23 @@ Hard deadline for the task. Optional — null for tasks without a time-bound.
 Format: ISO 8601 with timezone (e.g., 2026-06-03T17:00:00-05:00)
 ```
 
-**Set when:** The user specifies a deadline phrase during intake (e.g., "before Wednesday", "by Friday", "due June 3"). Resolved to end-of-business-day (17:00 local) when no time is specified. Independent of `urgency` — urgency reflects relative priority; `Due At` is a hard time bound.
+**Set by:** `create_task(due_at_iso=...)` when a deadline is provided. Independent of `urgency` — urgency reflects relative priority; `Due At` is a hard time bound.
 
-**Used by:** `reminder_scheduler` daemon — queries tasks where `Due At is_not_empty` and `Reminder Scheduled At is_empty` to determine which tasks need a reminder series created.
+**Read by:** `query_tasks_with_unscheduled_deadlines()` — filters tasks where `Due At is_not_empty` and `Reminder Scheduled At is_empty` to surface deadline-bearing tasks that have not yet had reminders scheduled.
 
 ---
 
 ### Reminder Scheduled At (date)
 
-Timestamp set by the reminder-scheduling daemon to mark that the automated reminder series for this task has been created. Nullable — null until the daemon processes the task.
+Timestamp marking that the automated reminder series for this task has been created. Nullable — null until set.
 
 ```
 Format: ISO 8601 UTC (e.g., 2026-06-01T04:00:00+00:00)
 ```
 
-**Set when:** The reminder-scheduling daemon successfully enqueues all milestone reminders for a deadline-bearing task. Setting this field prevents the daemon from re-scheduling on subsequent runs (idempotency guard).
+**Set by:** `mark_reminder_scheduled(page_id)` — PATCHes this field to UTC now after reminders are enqueued, preventing re-scheduling on subsequent runs (idempotency guard).
 
-**Used by:** `reminder_scheduler` daemon — filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are picked up each cycle.
+**Read by:** `query_tasks_with_unscheduled_deadlines()` — filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are returned.
 
 ---
 
@@ -784,7 +784,7 @@ sequenceDiagram
 | Next sub-task | `parent_task_id = "{parent_id}" AND status = "pending"` (sort by sequence) |
 | Standalone tasks only | `parent_task_id IS NULL AND status != "has_subtasks"` |
 | Parent tasks | `status = "has_subtasks"` |
-| Unscheduled deadlines | `Due At is_not_empty AND Reminder Scheduled At is_empty AND status != "Completed" AND is_reminder = false` (sort by Due At asc) |
+| Unscheduled deadlines | `Due At is_not_empty AND Reminder Scheduled At is_empty AND status != "completed" AND is_reminder = false` (sort by Due At asc) |
 
 ---
 
