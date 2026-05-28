@@ -79,6 +79,12 @@ _KNOWN_DEAD: frozenset[str] = frozenset(
         # app/tools/rewards.py — apply_feedback_weight defined but not called.
         # Cleanup: wire into record_reward_feedback or remove.
         "apply_feedback_weight",  # never called; feedback weight logic unused
+        # app/scheduler/deadline_planner.py — plan_milestones is the deadline
+        # reminder series planner. Pure function; PR 4 (intake inline scheduling
+        # in app/graph/nodes/intake.py) and PR 5 (daemon backstop in
+        # app/scheduler/reminder_scheduler.py) will add real callers. Remove
+        # this entry when those PRs land.
+        "plan_milestones",
     ]
 )
 
