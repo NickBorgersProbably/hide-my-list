@@ -291,3 +291,37 @@ async def test_outbox_allows_multiple_rows_same_page_id(db_conn: Any) -> None:
     assert count == 2, (
         f"Expected 2 outbox rows for same notion_page_id after UNIQUE drop, got {count}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 6: idempotency_key UNIQUE — duplicate key must fail
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_outbox_idempotency_key_unique(db_conn: Any) -> None:
+    """After migration 0007 adds UNIQUE on reminder_outbox.idempotency_key,
+    inserting two rows with the same idempotency_key must raise UniqueViolation,
+    even when notion_page_id and due_at differ (proving it's the key enforcing dedup)."""
+    import psycopg
+
+    shared_key = "dedup-test-1"
+
+    # First insert — different page_id and due_at from the second
+    await _insert_outbox(
+        db_conn,
+        notion_page_id=f"page-{uuid.uuid4()}",
+        idempotency_key=shared_key,
+    )
+    await db_conn.commit()
+
+    # Second insert — same idempotency_key, distinct page_id and due_at
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        await _insert_outbox(
+            db_conn,
+            notion_page_id=f"page-{uuid.uuid4()}",
+            idempotency_key=shared_key,
+        )
+        await db_conn.commit()
+
+    await db_conn.rollback()
