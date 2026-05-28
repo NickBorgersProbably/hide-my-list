@@ -21,7 +21,16 @@
     "schema_version": { "const": "1" },
     "role": {
       "type": "string",
-      "enum": ["design", "security", "psych", "docs", "prompt", "test"]
+      "enum": [
+        "design",
+        "security",
+        "security-breadth",
+        "security-narrow",
+        "psych",
+        "docs",
+        "prompt",
+        "test"
+      ]
     },
     "reviewed_sha": {
       "type": "string",
@@ -109,6 +118,38 @@
       }
     },
     "tokens_used": { "type": "integer", "minimum": 0 },
-    "duration_seconds": { "type": "integer", "minimum": 0 }
+    "duration_seconds": { "type": "integer", "minimum": 0 },
+    "summary_metadata": {
+      "type": "object",
+      "description": "Optional diagnostics emitted by reviewer roles that post-process the LLM's raw output (e.g., the security orchestrator's merger). Reviewer roles that emit raw LLM output are not required to populate this.",
+      "additionalProperties": false,
+      "properties": {
+        "merged_from": {
+          "type": "array",
+          "description": "Roles of the source artifacts this artifact was merged from. Empty/absent for non-merged reviewer artifacts.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "truncated_blocking_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Blocking findings dropped by the per-cycle cap before this artifact was written."
+        },
+        "truncated_nonblocking_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Non-blocking findings dropped by the per-cycle cap before this artifact was written."
+        },
+        "dropped_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Findings dropped by exclusion-list filtering before the cap was applied."
+        },
+        "demoted_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Findings demoted from blocking to non-blocking (e.g., confidence below the orchestrator's blocking threshold)."
+        }
+      }
+    }
   }
 }

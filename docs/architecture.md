@@ -47,7 +47,7 @@ flowchart TB
     end
 
     subgraph External["External Services"]
-        Anthropic[Anthropic API<br/>LLM]
+        LLMProxy[LiteLLM Proxy<br/>Primary LLM]
         OpenAI[OpenAI API<br/>Image Generation]
     end
 
@@ -62,7 +62,7 @@ flowchart TB
     Worker --> Signal
     Worker --> Notion
 
-    Graph --> Anthropic
+    Graph --> LLMProxy
     Graph --> OpenAI
 ```
 
@@ -71,8 +71,12 @@ flowchart TB
 The app container runs four concurrent async tasks:
 
 1. **Signal ingress** (`app/ingress/signal_listener.py`) — WebSocket consumer on
-   signal-cli REST API. Maps `(peer, text)` → `graph.ainvoke(...)` with
-   `thread_id = peer` for per-peer conversation isolation.
+   signal-cli REST API. For authorized text messages, extracts `(peer, text,
+   timestamp)`, schedules a best-effort read receipt for the received timestamp,
+   maintains a refreshed typing indicator while graph execution is active, and
+   maps `(peer, text)` → `graph.ainvoke(...)` with `thread_id = peer` for
+   per-peer conversation isolation. Typing stop is scheduled after graph
+   completion or graph error.
 
 2. **LangGraph graph** (`app/graph/graph.py`) — Eight intent nodes (`ADD_TASK`,
    `GET_TASK`, `COMPLETE`, `REJECT`, `CANNOT_FINISH`, `CHECK_IN`, `NEED_HELP`,
@@ -120,7 +124,11 @@ duplicate delivery over loss.
 ## Model Routing
 
 `app/models.py` reads `setup/model-tiers.json` at startup and validates all
-model IDs. No LiteLLM proxy — LangChain provider adapters directly.
+model IDs. LangChain sends OpenAI-format chat-completion requests to the
+LiteLLM proxy configured by `LLM_PROXY_BASE_URL`. LiteLLM dispatches by model
+alias; the app has no direct connection to any provider API.
+`LLM_PROXY_API_KEY` is forwarded as the bearer token. If the proxy does not
+require auth, set it to any non-empty placeholder in the runtime environment.
 
 ## Security
 
@@ -138,7 +146,8 @@ model IDs. No LiteLLM proxy — LangChain provider adapters directly.
 |----------|---------|
 | `NOTION_API_KEY` | Notion integration token |
 | `NOTION_DATABASE_ID` | Tasks database identifier |
-| `ANTHROPIC_API_KEY` | Primary LLM |
+| `LLM_PROXY_BASE_URL` | OpenAI-compatible LiteLLM proxy endpoint for the primary LLM |
+| `LLM_PROXY_API_KEY` | LiteLLM proxy bearer token for the primary LLM |
 | `OPENAI_API_KEY` | Reward image generation |
 | `DATABASE_URL` | Postgres connection string |
 | `SIGNAL_CLI_URL` | signal-cli REST API base URL |
@@ -151,7 +160,7 @@ model IDs. No LiteLLM proxy — LangChain provider adapters directly.
 For the infra operator / VM-isolation configuration:
 
 - `api.notion.com` — Notion CRUD
-- `api.anthropic.com` — primary LLM
+- LiteLLM proxy endpoint — primary LLM, configured by `LLM_PROXY_BASE_URL`
 - `api.openai.com` — reward image generation
 - Signal infrastructure — managed by the `signal-cli` container
 

@@ -140,9 +140,12 @@ runs:
         STAGING_DIR="${RUNNER_TEMP:-/tmp}/ci-agent"
         mkdir -p "$STAGING_DIR"
         ENV_FILE="$(mktemp "${STAGING_DIR}/env.XXXXXX")"
+        CLAUDE_ENV_PREFIX=ANTHROPIC
+        LLM_PROXY_API_KEY=fake-key
+        LLM_PROXY_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
         cat > "$ENV_FILE" <<EOF
-        ANTHROPIC_API_KEY=fake-key
-        ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/
+        LLM_PROXY_API_KEY=${LLM_PROXY_API_KEY}
+        LLM_PROXY_BASE_URL=${LLM_PROXY_BASE_URL}
         GH_TOKEN=${WORKFLOW_PAT}
         REVIEW_ROLE=${ROLE}
         REVIEW_PROMPT_PATH=${PROMPT_PATH}
@@ -156,6 +159,10 @@ runs:
         PR_TITLE_B64=${PR_TITLE_B64}
         PR_BODY_B64=${PR_BODY_B64}
         EOF
+        {
+          printf '%s_API_KEY=%s\n' "$CLAUDE_ENV_PREFIX" "$LLM_PROXY_API_KEY"
+          printf '%s_BASE_URL=%s\n' "$CLAUDE_ENV_PREFIX" "$LLM_PROXY_BASE_URL"
+        } >> "$ENV_FILE"
         if [ -n "$EXTRA_ENV" ]; then
           printf '%s\n' "$EXTRA_ENV" | grep -Ev '^\s*(#|$)' >> "$ENV_FILE" || true
         fi

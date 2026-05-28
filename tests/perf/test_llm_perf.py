@@ -331,7 +331,7 @@ def test_llm_perf_model(model_tier: str, tmp_path: Path) -> None:
     successful = [r for r in result["per_prompt"] if "error" not in r]
     assert successful, (
         f"No successful LLM calls for model tier '{model_tier}'. "
-        f"Check ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, and model-tiers.json. "
+        f"Check LLM_PROXY_API_KEY, LLM_PROXY_BASE_URL, and model-tiers.json. "
         f"Per-prompt errors: {[r for r in result['per_prompt'] if 'error' in r]}"
     )
 

@@ -56,7 +56,7 @@ Mitigations below constrain what manipulated agent could do.
 
 Python app gets credentials for:
 - **Notion** — single database (not full workspace; `NOTION_DATABASE_ID` scopes the token)
-- **Anthropic** — LLM calls only (`ANTHROPIC_API_KEY`)
+- **LLM proxy** — primary LLM calls only (`LLM_PROXY_API_KEY`)
 - **OpenAI** — reward image generation only, optional (`OPENAI_API_KEY`)
 - **Signal** — the owner's registered account (`SIGNAL_ACCOUNT`)
 
