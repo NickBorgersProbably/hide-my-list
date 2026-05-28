@@ -120,6 +120,7 @@ duplicate delivery over loss.
 | `check_in_dispatcher` | 10 min | Trigger CHECK_IN graph turns for due tasks |
 | `state_audit` | Daily 03:00 USER_TZ | VACUUM + prune `recent_outbound` (90-day retention) |
 | `weekly_recap` | Sun 18:00 USER_TZ | Generate weekly recap |
+| `reminder_scheduler` | Daily 04:00 USER_TZ | Backstop for deadline-driven reminder series: catch tasks where intake's inline scheduling failed and detect deadline edits made in Notion after the initial schedule |
 
 ## Model Routing
 
