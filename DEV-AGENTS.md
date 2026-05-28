@@ -39,7 +39,7 @@ These are the authoritative behavioral contracts. The Python implementation in `
 
 The Python/LangGraph application. Safe to edit via PRs.
 
-- `app/tools/notion.py` — Notion API client (11 verbs + health_check)
+- `app/tools/notion.py` — Notion API client (9 verbs + health_check)
 - `app/tools/signal_client.py` — Signal bridge async client
 - `app/tools/reminders.py` — Reminder outbox CRUD
 - `app/tools/rewards.py` — Reward delivery (emoji + image; v1 scope)

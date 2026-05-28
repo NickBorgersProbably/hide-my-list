@@ -13,8 +13,6 @@ Covers all 9 verbs from scripts/notion-cli.sh:
 
 Plus:
   health_check() — lightweight connectivity probe used by notion_health job.
-  query_tasks_with_unscheduled_deadlines() — finds deadline tasks needing reminder series.
-  mark_reminder_scheduled(page_id) — marks a task's reminder series as created.
 
 This module is the only authorised place that imports httpx.AsyncClient
 for Notion calls. All requests go through _client() to allow test injection.
@@ -352,66 +350,3 @@ async def health_check() -> bool:
     except Exception as exc:
         _log.error("notion.health_check.failed", error=str(exc))
         return False
-
-
-# ---------------------------------------------------------------------------
-# Verb 10 — query_tasks_with_unscheduled_deadlines
-# ---------------------------------------------------------------------------
-
-
-async def query_tasks_with_unscheduled_deadlines() -> dict[str, Any]:
-    """Query non-reminder tasks that have a deadline but no reminder series yet.
-
-    Filter conditions (all four must hold):
-    - Due At is_not_empty
-    - Reminder Scheduled At is_empty
-    - Status != "Completed"
-    - Is Reminder = false
-
-    Sorted by Due At ascending so the nearest deadlines are processed first.
-
-    Additive plumbing for deadline-driven reminder scheduling.
-    """
-    payload = {
-        "filter": {
-            "and": [
-                {"property": "Due At", "date": {"is_not_empty": True}},
-                {"property": "Reminder Scheduled At", "date": {"is_empty": True}},
-                {"property": "Status", "select": {"does_not_equal": "Completed"}},
-                {"property": "Is Reminder", "checkbox": {"equals": False}},
-            ]
-        },
-        "sorts": [{"property": "Due At", "direction": "ascending"}],
-    }
-    async with _client_factory() as client:
-        resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
-        resp.raise_for_status()
-        return resp.json()  # type: ignore[no-any-return]
-
-
-# ---------------------------------------------------------------------------
-# Verb 11 — mark_reminder_scheduled
-# ---------------------------------------------------------------------------
-
-
-async def mark_reminder_scheduled(page_id: str) -> dict[str, Any]:
-    """Set Reminder Scheduled At to the current UTC time on a task page.
-
-    Additive plumbing for deadline-driven reminder scheduling. Tasks with a
-    non-null value here are excluded from query_tasks_with_unscheduled_deadlines()
-    results (idempotency guard).
-
-    Args:
-        page_id: The Notion page ID of the task to update.
-
-    Returns:
-        The updated page object from the Notion API.
-    """
-    now = datetime.now(UTC).isoformat()
-    props: dict[str, Any] = {
-        "Reminder Scheduled At": {"date": {"start": now}},
-    }
-    async with _client_factory() as client:
-        resp = await client.patch(f"/pages/{page_id}", json={"properties": props})
-        resp.raise_for_status()
-        return resp.json()  # type: ignore[no-any-return]

@@ -784,7 +784,6 @@ sequenceDiagram
 | Next sub-task | `parent_task_id = "{parent_id}" AND status = "pending"` (sort by sequence) |
 | Standalone tasks only | `parent_task_id IS NULL AND status != "has_subtasks"` |
 | Parent tasks | `status = "has_subtasks"` |
-| Unscheduled deadlines | `Due At is_not_empty AND Reminder Scheduled At is_empty AND Status != "Completed" AND Is Reminder = false` (sort by Due At asc) |
 
 ---
 
@@ -812,7 +811,6 @@ sequenceDiagram
 | Resume task | `resume_count += 1, last_resumed_at → now, progressNotes += "[ts] Resumed (gap: Xm)"` |
 | Create sub-task | `parent_task_id, sequence, status = pending` |
 | Complete sub-task | `status → completed` (check if parent complete) |
-| Mark reminder scheduled | `reminder_scheduled_at → now` (set by daemon after enqueuing reminder series) |
 
 ---
 
