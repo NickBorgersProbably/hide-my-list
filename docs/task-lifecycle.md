@@ -72,6 +72,22 @@ stateDiagram-v2
 | Reminder Sent | Reminder delivered | `Completed` (reminder_status=sent) |
 | Completed | Task finished | `Completed` |
 
+## Deadline Reminder Series
+
+Tasks with a `Due At` date automatically generate a scheduled reminder series. Intake schedules
+reminders inline immediately after task creation; the `reminder_scheduler` daemon runs daily as
+a backstop for tasks intake missed (transient enqueue failures or deadlines edited in Notion).
+
+The reminder series is milestone-based: the tier is determined by urgency (dense/standard/sparse),
+and each milestone (e.g. 90d, 14d, 3d, 4h before deadline) that fits within remaining time gets
+a load-balanced slot in the `reminder_outbox`. The `reminder_scheduling_ledger` tracks assigned
+slots. If the deadline is later changed in Notion, the daemon supersedes the old series and
+creates a fresh one.
+
+The confirmation message at intake includes the full planned reminder schedule, so the user
+knows exactly when to expect pings. Reminder bodies use shame-safe framing:
+`"<title> is coming up <when> — want to start now?"`
+
 ## Phase 1: Task Intake
 
 ```mermaid

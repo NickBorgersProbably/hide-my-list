@@ -119,7 +119,68 @@ duplicate delivery over loss.
 | `ops_alerts_drain` | 5 min | Send pending ops alerts via Signal |
 | `check_in_dispatcher` | 10 min | Trigger CHECK_IN graph turns for due tasks |
 | `state_audit` | Daily 03:00 USER_TZ | VACUUM + prune `recent_outbound` (90-day retention) |
+| `reminder_scheduler` | Daily 04:00 USER_TZ | Backstop: schedule deadline-driven reminder series for tasks intake missed (orphan tasks + deadline edits) |
 | `weekly_recap` | Sun 18:00 USER_TZ | Generate weekly recap |
+
+## Deadline-Driven Reminder Scheduling
+
+Tasks with a `Due At` date automatically generate a milestone reminder series. The scheduling
+happens in two complementary paths:
+
+1. **Inline (intake node)**: Immediately after `notion.create_task()` succeeds with a `due_at_iso`,
+   `app/scheduler/reminder_scheduling.schedule_for_task()` plans and enqueues the full milestone
+   series before returning the confirmation to the user. The user sees the reminder schedule in
+   the confirmation message.
+
+2. **Daemon backstop (`reminder_scheduler`)**: Runs daily at 04:00 USER_TZ. Picks up tasks where
+   `Reminder Scheduled At` is empty — either because inline scheduling failed (transient DB error)
+   or because the deadline was edited in Notion after the fact.
+
+### Milestone Tiers
+
+`app/scheduler/deadline_planner.tier_for(urgency)` selects the tier:
+
+| Urgency | Tier | Milestones before deadline |
+|---------|------|---------------------------|
+| ≥ 80 | dense | 90d, 30d, 14d, 7d, 3d, 1d, 4h |
+| 40–79 | standard | 60d, 14d, 7d, 3d, 1d, 4h |
+| < 40 | sparse | 60d, 14d, 3d, 4h |
+
+A milestone is scheduled only when `(deadline - offset) > now + 15 min`.
+
+### Load Balancing
+
+`assign_slot()` walks outward from the ideal slot in 30-minute increments (configurable via
+`REMINDER_SLOT_MINUTES`), biasing earlier, skipping quiet hours (22:00–08:00 local by default,
+configurable via `REMINDER_QUIET_START_HOUR`/`REMINDER_QUIET_END_HOUR`), and skipping buckets
+that already have ≥ `REMINDER_SLOT_CAPACITY` (default 2) reminders. The load data comes from
+`reminder_scheduling_ledger`.
+
+### reminder_scheduling_ledger
+
+The `reminder_scheduling_ledger` Postgres table (migration `0007_reminder_scheduling_ledger.sql`)
+tracks each assigned slot:
+
+```
+reminder_scheduling_ledger
+  id                  UUID PK
+  notion_page_id      TEXT
+  deadline_at         TIMESTAMPTZ
+  urgency             INT
+  tier                TEXT  -- 'dense'|'standard'|'sparse'
+  milestone_label     TEXT  -- '90d'|'30d'|...|'4h'
+  ideal_slot_at       TIMESTAMPTZ
+  assigned_slot_at    TIMESTAMPTZ  -- load-balanced actual slot
+  reminder_outbox_id  UUID REFERENCES reminder_outbox(id)
+  scheduled_at        TIMESTAMPTZ  -- when this row was created
+  superseded_at       TIMESTAMPTZ  -- set when deadline changes
+```
+
+Indexed on `assigned_slot_at WHERE superseded_at IS NULL` (for load-balancing window queries)
+and `notion_page_id WHERE superseded_at IS NULL` (for deadline-change detection).
+
+When a deadline changes in Notion, the daemon supersedes all active ledger rows and cancels the
+corresponding `reminder_outbox` rows (`state='dead'`), then schedules a fresh series.
 
 ## Model Routing
 
@@ -154,6 +215,10 @@ require auth, set it to any non-empty placeholder in the runtime environment.
 | `SIGNAL_ACCOUNT` | E.164 Signal account number |
 | `AUTHORIZED_PEERS` | Comma-separated E.164 allowed inbound peers; empty or unset refuses startup |
 | `USER_TZ` | User's IANA timezone (default `America/Chicago`) |
+| `REMINDER_SLOT_MINUTES` | Reminder slot bucket size in minutes (default `30`) |
+| `REMINDER_SLOT_CAPACITY` | Max reminders per slot bucket (default `2`) |
+| `REMINDER_QUIET_START_HOUR` | Quiet hours start, user-local (default `22`) |
+| `REMINDER_QUIET_END_HOUR` | Quiet hours end, user-local (default `8`) |
 
 ## Outbound Dependencies
 

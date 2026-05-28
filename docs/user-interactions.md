@@ -81,7 +81,31 @@ sequenceDiagram
     AI->>U: "Got it — focus work, ~30 min, moderate priority.<br/>Plan: 1) Read intro, 2) Check numbers, 3) Note concerns, 4) Draft feedback"
 ```
 
-> **Decision Fatigue Prevention:** System prefers inference over questions. All labels (urgency, time, work type) inferred from context — never asked. When task too vague to identify (e.g., "do the thing"), up to 3 simple clarifying questions, one at a time. User can correct after ("actually that's urgent") but never forced to decide on labels.
+> **Decision Fatigue Prevention:** System prefers inference over questions. All labels (urgency, time, work type) inferred from context — never asked. When task too vague to identify (e.g., "do the thing"), up to 3 simple clarifying questions, one at a time. The one exception to the no-questions rule is high-stakes tasks with no detected deadline — those trigger a single "When do you want this done by?" question. User can correct after ("actually that's urgent") but never forced to decide on labels.
+
+### Deadline Detection
+
+When the user's message contains a deadline phrase, intake parses it to a `due_at` timestamp:
+
+| Phrase type | Example | Parsed as |
+|-------------|---------|-----------|
+| "before X" | "before next Wednesday" | Wed 17:00 local |
+| "by X" | "by end of month" | Last day 17:00 local |
+| "due X" | "due Thursday" | Thu 17:00 local |
+| "at TIME DATE" | "at 10am tomorrow" | Tomorrow 10:00 local |
+| "finish/submit/complete by X" | "submit by Friday" | Fri 17:00 local |
+
+When a clock time is given ("at 10am"), that exact time is used. When no time is given, the default is 17:00 local (end of business day).
+
+`due_at` and `urgency` are independent fields: urgency = relative priority; `due_at` = hard time bound. A task with a deadline automatically generates a milestone reminder series (see `docs/architecture.md` — Deadline-Driven Reminder Scheduling). The full planned schedule appears in the confirmation message.
+
+### Stakes Clarification
+
+The one automatic clarification on a non-vague task: if a task matches a high-stakes category (life/health/legal/financial/safety) and no deadline phrase was detected, intake asks ONE question: "When do you want this done by?"
+
+Low-stakes tasks with no deadline save silently. The confirmation includes: "No deadline, so I won't ping you. Reply 'remind me' if you want one."
+
+If the user answers the stakes-clarifier with "I don't know", the task saves with no deadline but `urgency = 70` so it surfaces in task selection.
 
 ### Intake Flow (Inference-First, Questions as Last Resort)
 

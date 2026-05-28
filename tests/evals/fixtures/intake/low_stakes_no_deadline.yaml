@@ -1,0 +1,36 @@
+---
+# Eval fixture: low-stakes task with no deadline must save silently (no clarification).
+# Verifies the low-stakes path of STAKES DETECTION: no question, just save.
+id: intake-low-stakes-no-deadline-001
+node: intake
+tier: medium
+peer: "<test-peer-low-stakes>"
+inbound: "I want to organize my bookshelf"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: json_field
+    field: "action"
+    value: "save"
+    description: "Low-stakes no-deadline task must save without clarification"
+  - kind: json_field
+    field: "due_at"
+    value: null
+    description: "No due_at for low-stakes task with no deadline"
+  - kind: regex_forbid
+    pattern: "(?i)(when do you want|done by|by when|what's the deadline)"
+    description: "Must NOT ask about deadline for low-stakes tasks"
+  - kind: regex_forbid
+    pattern: "(?i)(here'?s? your plan|step[s]?:|\\d+\\)\\s)"
+    description: "No numbered plan steps in confirmation"
+  - kind: judge
+    rubric: |
+      The response must save the task without asking about a deadline. It should
+      produce action='save' with due_at=null. The confirmation_message may include
+      a 'no deadline' disclaimer. Score 1.0 if action='save' and no clarification
+      question about deadlines is present. Score 0.0 if action='clarify' or if
+      the response asks when the task should be done.
+    threshold: 0.8

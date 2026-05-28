@@ -1,18 +1,24 @@
-"""ADD_TASK node: task intake with label inference, sub-task generation, reminder detection.
+"""ADD_TASK node: task intake with label inference, deadline detection, and reminder scheduling.
 
-Ports docs/ai-prompts/intake.md (464 lines) behavior:
+Ports docs/ai-prompts/intake.md behavior:
 - Aggressive label inference (urgency, work_type, time_estimate)
-- Sub-task generation for every task
-- Reminder detection (wall-clock time → outbox row)
-- Clarification flow (max 3 questions)
+- Deadline detection: phrases like "by Friday", "before next Wednesday" set due_at
+- Stakes detection: high-stakes tasks with no deadline trigger ONE clarification question
+- Sub-task generation on request only (explicit breakdown routes to NEED_HELP)
+- Reminder detection (wall-clock time → outbox row via existing path)
+- Inline reminder scheduling for deadline tasks immediately after task creation
+- Clarification flow (max 3 questions, stakes-clarification counts as one)
 - Reschedule from recent_outbound context
 
-When a reminder is detected:
-- Creates Notion row via app/tools/notion.create_reminder()
-- Enqueues outbox row via app/tools/reminders.enqueue()
-- Uses app/tools/time_context to resolve user-local time
+DEADLINE REMINDER SCHEDULING:
+After notion.create_task() succeeds with a due_at_iso, the node calls
+schedule_for_task() from app/scheduler/reminder_scheduling.py to plan and
+enqueue the milestone reminder series inline. If any milestone enqueue fails,
+an ops_alert is emitted and Reminder Scheduled At is left empty so the nightly
+reminder_scheduler daemon can retry.
 
-REMINDER PERSISTENCE uses the outbox state machine; the reminder worker (APScheduler) handles delivery.
+REMINDER PERSISTENCE uses the outbox state machine; the reminder_worker (APScheduler)
+handles delivery. The reminder_scheduling_ledger tracks assigned slots for load balancing.
 """
 from __future__ import annotations
 
@@ -28,8 +34,9 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
+
 async def intake_node(state: State) -> dict[str, Any]:
-    """ADD_TASK handler: infer labels, generate sub-tasks, detect reminders."""
+    """ADD_TASK handler: infer labels, detect deadlines, schedule reminders, save task."""
     peer = state.get("peer", "")
 
     try:
@@ -104,15 +111,21 @@ async def intake_node(state: State) -> dict[str, Any]:
         inline_steps = parsed.get("inline_steps", "")
         use_hidden_subtasks = bool(parsed.get("use_hidden_subtasks", False))
         sub_tasks = parsed.get("sub_tasks", [])
-        confirmation_message = parsed.get("confirmation_message", f"Got it — {work_type}, ~{time_estimate} min.")
+        due_at_iso = parsed.get("due_at") or None
+        is_high_stakes = bool(parsed.get("is_high_stakes", False))
+        confirmation_message = parsed.get(
+            "confirmation_message",
+            f"Saved — {work_type}, ~{time_estimate} min.",
+        )
 
         log.info(
             "intake_node.parsed",
             is_reminder=is_reminder,
             has_remind_at=bool(remind_at_str),
-            remind_at=remind_at_str,  # ISO timestamp; not PII
+            remind_at=remind_at_str,
             urgency=urgency,
             time_estimate=time_estimate,
+            has_due_at=bool(due_at_iso),
         )
 
         if is_reminder and remind_at_str:
@@ -123,8 +136,13 @@ async def intake_node(state: State) -> dict[str, Any]:
                 energy_required=energy_required,
                 remind_at_str=remind_at_str,
             )
+            page_id = (notion_page or {}).get("id")
         else:
-            log.info("intake_node.no_reminder", has_remind_at=bool(remind_at_str), is_reminder=is_reminder)
+            log.info(
+                "intake_node.no_reminder",
+                has_remind_at=bool(remind_at_str),
+                is_reminder=is_reminder,
+            )
             notion_page = await notion.create_task(
                 title=task_title,
                 work_type=work_type,
@@ -132,11 +150,31 @@ async def intake_node(state: State) -> dict[str, Any]:
                 time_estimate=time_estimate,
                 energy_required=energy_required,
                 inline_steps=inline_steps,
+                due_at_iso=due_at_iso,
             )
+            page_id = (notion_page or {}).get("id")
 
-        page_id = (notion_page or {}).get("id")
+            # Inline reminder scheduling for deadline tasks.
+            if due_at_iso and page_id and not is_reminder:
+                confirmation_message = await _schedule_deadline_reminders(
+                    page_id=page_id,
+                    title=task_title,
+                    peer=peer,
+                    due_at_iso=due_at_iso,
+                    urgency=urgency,
+                    user_timezone=user_timezone,
+                    is_high_stakes=is_high_stakes,
+                    confirmation_message=confirmation_message,
+                )
+            elif not due_at_iso and not is_reminder and not is_high_stakes:
+                # Low-stakes task with no deadline: add the no-ping disclaimer.
+                confirmation_message = (
+                    f"{confirmation_message} "
+                    "No deadline, so I won't ping you. Reply 'remind me' if you want one."
+                )
 
-        # Create hidden sub-tasks if needed
+        # Create hidden sub-tasks if needed (explicit user request path via NEED_HELP,
+        # or when the LLM still populates use_hidden_subtasks for complex tasks).
         if use_hidden_subtasks and sub_tasks and page_id:
             for sub in sub_tasks:
                 try:
@@ -172,6 +210,106 @@ async def intake_node(state: State) -> dict[str, Any]:
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
+
+
+async def _schedule_deadline_reminders(
+    *,
+    page_id: str,
+    title: str,
+    peer: str,
+    due_at_iso: str,
+    urgency: int,
+    user_timezone: str,
+    is_high_stakes: bool,
+    confirmation_message: str,
+) -> str:
+    """Schedule inline milestone reminders for a deadline task.
+
+    Calls schedule_for_task, appends a deterministic reminder summary to the
+    confirmation message (NOT generated by the LLM to avoid hallucinated times).
+
+    Returns the (possibly augmented) confirmation_message string.
+    """
+    from app.scheduler.deadline_planner import format_reminder_summary
+    from app.scheduler.reminder_scheduling import schedule_for_task
+    from app.tools import notion, ops_alerts
+
+    try:
+        normalized = due_at_iso.strip().replace("Z", "+00:00")
+        deadline_at = datetime.fromisoformat(normalized)
+        if deadline_at.tzinfo is None:
+            deadline_at = deadline_at.replace(tzinfo=UTC)
+    except (ValueError, TypeError) as exc:
+        log.warning("intake_node.due_at_parse_failed", due_at_iso=due_at_iso, error=str(exc))
+        return confirmation_message
+
+    now = datetime.now(UTC)
+
+    try:
+        assigned_slots, enqueue_failures = await schedule_for_task(
+            page_id=page_id,
+            title=title,
+            peer=peer,
+            deadline_at=deadline_at,
+            urgency=urgency,
+            now=now,
+            user_tz=user_timezone,
+        )
+    except Exception as exc:
+        log.exception("intake_node.schedule_for_task_failed", page_id=page_id, error=str(exc))
+        enqueue_failures = ["schedule_error"]
+        assigned_slots = []
+
+    if assigned_slots and not enqueue_failures:
+        # All milestones successfully enqueued — mark scheduled and append summary.
+        try:
+            await notion.mark_reminder_scheduled(page_id)
+        except Exception as notion_exc:
+            # Non-fatal: outbox rows exist; daemon retries mark_reminder_scheduled.
+            log.warning(
+                "intake_node.mark_scheduled_failed",
+                page_id=page_id,
+                error=str(notion_exc),
+            )
+
+        summary = format_reminder_summary(assigned_slots, user_timezone)
+        if summary:
+            confirmation_message = f"{confirmation_message} {summary}"
+
+    elif enqueue_failures:
+        # Partial or full failure — daemon backstop will retry tonight.
+        log.warning(
+            "intake_node.reminder_partial_failure",
+            page_id=page_id,
+            failed_milestones=enqueue_failures,
+        )
+        try:
+            await ops_alerts.enqueue(
+                kind="intake_reminder_partial_failure",
+                body=(
+                    "intake: inline reminder scheduling partially failed for <page_id>. "
+                    f"Failed milestones: {enqueue_failures}. "
+                    "reminder_scheduler daemon will retry tonight."
+                ),
+                severity="warning",
+            )
+        except Exception as alert_exc:
+            log.error("intake_node.ops_alert_failed", error=str(alert_exc))
+
+        confirmation_message = (
+            f"{confirmation_message} "
+            "(Couldn't schedule reminders right now — I'll retry tonight.)"
+        )
+
+    elif not assigned_slots:
+        # Deadline too close or already past — no milestones fit.
+        # Mark scheduled to stop daemon from retrying indefinitely.
+        try:
+            await notion.mark_reminder_scheduled(page_id)
+        except Exception:
+            pass
+
+    return confirmation_message
 
 
 async def _create_reminder(
@@ -230,7 +368,7 @@ async def _create_reminder(
                 from app.tools import ops_alerts
                 await ops_alerts.enqueue(
                     kind="reminder_enqueue_failed",
-                    body=f"Reminder outbox enqueue failed for page {page_id!r}. Reminder exists in Notion but will not be delivered until the outbox row is created.",
+                    body="Reminder outbox enqueue failed for <page_id>. Reminder exists in Notion but will not be delivered until the outbox row is created.",
                     severity="warning",
                 )
             except Exception:
@@ -273,10 +411,12 @@ def _parse_intake_response(response_text: str) -> dict[str, Any]:
         "energy_required": "Medium",
         "is_reminder": False,
         "remind_at": None,
+        "due_at": None,
+        "is_high_stakes": False,
         "use_hidden_subtasks": False,
         "sub_tasks": [],
         "inline_steps": "",
-        "confirmation_message": "Got it — added.",
+        "confirmation_message": "Saved — added.",
     }
 
 

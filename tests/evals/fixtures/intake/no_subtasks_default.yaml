@@ -1,0 +1,43 @@
+---
+# Eval fixture: intake must NOT include numbered plan steps in the confirmation.
+# Sub-tasks are on-request only; the "Here's your plan: 1) X, 2) Y" format is removed.
+id: intake-no-subtasks-default-001
+node: intake
+tier: medium
+peer: "<test-peer-no-subtasks>"
+inbound: "I need to review the placeholder proposal"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: json_field
+    field: "action"
+    value: "save"
+    description: "Standard task must save without clarification"
+  - kind: regex_forbid
+    pattern: "Here'?s? your plan:\\s*1\\)"
+    description: "Must not include 'Here's your plan: 1)' framing"
+  - kind: regex_forbid
+    pattern: "Step:"
+    description: "Must not include 'Step:' numbering"
+  - kind: regex_forbid
+    pattern: "(?i)(first step|next step|step 1)"
+    description: "Must not prescribe steps in the confirmation"
+  - kind: judge
+    rubric: |
+      The confirmation_message must be a brief acknowledgment of the save —
+      something like "Saved — focus, ~30 min." — without listing numbered steps
+      or a "Here's your plan" section. Score 1.0 if the confirmation is a clean
+      one-sentence save acknowledgment. Score 0.0 if the confirmation includes
+      a numbered list of steps, "Here's your plan:", or "Step:".
+    threshold: 0.8
+  - kind: judge
+    shame_safe: true
+    rubric: |
+      The response must not imply failure, judgement, or urgency the user didn't
+      express. Score 1.0 if the response is neutral, supportive, or encouraging.
+      Score 0.0 if the response uses shame language, urgency inflation, or implies
+      the user should have done this already.
+    threshold: 0.9

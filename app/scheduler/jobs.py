@@ -138,6 +138,19 @@ async def generate_weekly_recap() -> None:
     log.debug("weekly_recap.tick")
 
 
+async def run_deadline_reminder_scheduler() -> None:
+    """Nightly backstop: schedule deadline-driven reminder series for tasks intake missed.
+
+    Runs daily at 04:00 user time (USER_TZ env var). Picks up tasks where
+    "Due At" is set but "Reminder Scheduled At" is empty, plus tasks where
+    the deadline was edited in Notion after inline scheduling. Calls
+    reminder_scheduler.run_reminder_scheduler() which does the full plan →
+    assign → enqueue → ledger cycle.
+    """
+    from app.scheduler.reminder_scheduler import run_reminder_scheduler
+    await run_reminder_scheduler()
+
+
 async def dispatch_check_ins() -> None:
     """Find peers with active tasks past their check-in window and invoke CHECK_IN.
 
@@ -183,6 +196,15 @@ SCHEDULED_JOBS: list[JobSpec] = [
             timezone=_USER_TZ,
         ),
         func=run_state_audit,
+    ),
+    JobSpec(
+        id="reminder_scheduler",
+        trigger=CronTrigger(
+            hour=4,
+            minute=0,
+            timezone=_USER_TZ,
+        ),
+        func=run_deadline_reminder_scheduler,
     ),
     JobSpec(
         id="check_in_dispatcher",

@@ -38,6 +38,15 @@ services:
       - ALLOW_PRIVATE_TRACE_EXPORT=${ALLOW_PRIVATE_TRACE_EXPORT:-false}
       - USER_TZ=${USER_TZ:-America/Chicago}
       - OPS_ALERT_SIGNAL_NUMBER=${OPS_ALERT_SIGNAL_NUMBER:-}
+      # Deadline reminder scheduling tuning (all optional — defaults shown):
+      # REMINDER_SLOT_MINUTES: bucket size for load balancing (default 30)
+      # REMINDER_SLOT_CAPACITY: max reminders per bucket (default 2)
+      # REMINDER_QUIET_START_HOUR: quiet hours start, local time (default 22)
+      # REMINDER_QUIET_END_HOUR: quiet hours end, local time (default 8)
+      - REMINDER_SLOT_MINUTES=${REMINDER_SLOT_MINUTES:-30}
+      - REMINDER_SLOT_CAPACITY=${REMINDER_SLOT_CAPACITY:-2}
+      - REMINDER_QUIET_START_HOUR=${REMINDER_QUIET_START_HOUR:-22}
+      - REMINDER_QUIET_END_HOUR=${REMINDER_QUIET_END_HOUR:-8}
       # REWARD_ARTIFACTS_DIR: mount path for generated PNG reward images.
       # Must match the volume mount below so images persist across container restarts.
       - REWARD_ARTIFACTS_DIR=/data/reward_artifacts

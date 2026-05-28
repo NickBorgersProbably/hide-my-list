@@ -57,6 +57,7 @@ _ENTRY_POINTS: frozenset[str] = frozenset(
         "run_state_audit",  # func=run_state_audit in JobSpec
         "generate_weekly_recap",  # func=generate_weekly_recap in JobSpec
         "dispatch_check_ins",  # func=dispatch_check_ins in JobSpec
+        "run_deadline_reminder_scheduler",  # func=run_deadline_reminder_scheduler in JobSpec
         # app/ingress/signal_listener.py — called by main.py via asyncio.run()
         "run",  # asyncio.run(run()) in main.py
     ]

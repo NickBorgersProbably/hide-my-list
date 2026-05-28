@@ -2,7 +2,7 @@
 
 ### Module 2: Task Intake
 
-The user wants to add a task. Extract details, infer labels, and ALWAYS generate sub-tasks.
+The user wants to add a task. Extract details and infer labels aggressively.
 
 User said: "{{ user_message | default('') }}"
 Previous context: {{ conversation_history | default('No prior context.') }}
@@ -12,28 +12,6 @@ Current user time: {{ current_time | default('') }}
 User timezone: {{ user_timezone | default('America/Chicago') }}
 
 ### Task Intake Prompt
-
-CORE PRINCIPLE: Users interpret vague goals as infinite and avoid them.
-Every task MUST have explicit sub-tasks that define exactly what "done" looks like.
-
-### Sub-Task Generation (Always Required)
-
-Every task gets explicit sub-tasks, regardless of complexity.
-- Quick tasks (15-30 min): 2-3 inline steps shown with the task
-- Standard tasks (30-60 min): 3-5 inline steps
-- Large tasks (60+ min): Create as hidden Notion sub-tasks
-
-### Storage Decision Rules
-
-STORAGE DECISION (use_hidden_subtasks):
-- true: Store as separate Notion tasks (for tasks > 60 min or multi-phase work)
-- false: Store as inline steps in task description (for tasks <= 60 min)
-
-BREAKDOWN SIGNALS (use_hidden_subtasks=true):
-- Vague scope: "complete the project", "finish the report", "work on X"
-- Multi-phase: tasks requiring research -> draft -> review -> finalize
-- Long duration: estimated > 60 minutes
-- Multiple deliverables: "prepare and send", "design and implement"
 
 ### Decision Fatigue Prevention
 
@@ -48,6 +26,56 @@ CLARIFYING QUESTIONS (last resort):
 - Ask ONE question at a time — never multiple questions in a single message
 - Maximum 3 clarifying questions per task — after 3, infer and save with best guess
 - Never ask about labels (urgency, time, energy) — always infer those
+
+### DEADLINE DETECTION
+
+When the user's message contains a deadline phrase, parse it to an ISO 8601 datetime.
+
+Deadline phrases:
+- "before <date/day>" — e.g. "before next Wednesday", "before Friday"
+- "by <date/day>" — e.g. "by end of month", "by the 15th"
+- "due <date>" — e.g. "due Thursday", "due July 1st"
+- "at <time> <date>" / "<date> at <time>" — e.g. "at 10am tomorrow", "Friday at noon"
+- "needs to be done <date>" — e.g. "needs to be done this week"
+- "finish by <date>", "complete by <date>", "submit by <date>"
+
+When detected:
+- Parse to ISO 8601 using user timezone: {{ user_timezone | default('America/Chicago') }}
+- Resolve relative references ("tomorrow", "next week", day names) against current_time
+- When a clock time is given ("at 10am"), use that exact time
+- When no clock time is given ("by Friday"), default to 17:00 local (end of business day)
+- Set `due_at` in output (distinct from `remind_at` — deadline ≠ explicit reminder)
+- `due_at` and `urgency` are independent: urgency = relative priority; due_at = hard time bound
+
+Examples:
+  "Cancel my appointment before next Wednesday" at current_time 2026-06-01T10:00 Central →
+    due_at: "2026-06-03T17:00:00-05:00"
+  "Finish the report by 10am tomorrow" at current_time 2026-06-01T09:00 Central →
+    due_at: "2026-06-02T10:00:00-05:00"
+  "Pay taxes by April 15" at current_time 2026-03-01T12:00 Central →
+    due_at: "2026-04-15T17:00:00-05:00"
+
+### STAKES DETECTION
+
+Some tasks are too important to silently park without a deadline. If a task matches
+a high-stakes category AND no deadline phrase was detected, ask ONE clarification
+question: "When do you want this done by?"
+
+Then resume normal intake with the user's answer parsed as due_at.
+
+High-stakes categories (LLM judgment — list is illustrative, not exhaustive):
+- Life/family protection: life insurance, will, estate, beneficiaries, custody
+- Health: medical appointments, prescriptions, screenings, referrals, lab work
+- Legal: contracts, court dates, regulatory filings, immigration paperwork
+- Financial protection: taxes, mortgage, loan deadlines, insurance renewals
+- Safety: home maintenance with safety implications (smoke alarms, recalls)
+
+Rules:
+- This is the ONLY automatic clarification for non-vague tasks (deadline-missing high-stakes)
+- Low-stakes deadlineless tasks ("organize bookshelf", "research vacation spots") save silently
+- If the user answers "I don't know" or similar, save with no due_at but set urgency = 70
+- The stakes-clarification counts as one of the max-3 clarification questions
+- Set `is_high_stakes: true` in output when a task matches a high-stakes category
 
 ### Reminder Detection
 
@@ -94,26 +122,48 @@ If task is clear enough to save:
   "energy_required": "High|Medium|Low",
   "is_reminder": false,
   "remind_at": null,
+  "due_at": null,
+  "is_high_stakes": false,
   "use_hidden_subtasks": false,
-  "sub_tasks": [{"title": "...", "time_estimate_minutes": 10, "done_criteria": "...", "sequence": 1}],
-  "inline_steps": "1. First step\n2. Second step",
-  "confirmation_message": "Got it — focus, ~30 min. Plan: 1) X, 2) Y"
+  "sub_tasks": [],
+  "inline_steps": "",
+  "confirmation_message": "Saved — focus, ~30 min, due Fri."
 }
 
-If task is too vague and clarification_count < 3:
+If task is too vague or is high-stakes with no deadline and clarification_count < 3:
 {
   "action": "clarify",
   "clarification_question": "...",
   "clarification_count": 1
 }
 
-### Confirmation Message Format
+### Confirmation Format
 
-- For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
-- For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
+For ALL tasks (no sub-tasks in the confirmation by default):
+- "Saved — [work type], ~[time]." (no deadline)
+- "Saved — [work type], ~[time], due [humanized deadline]." (with deadline)
 - For reminders: "Got it — I'll remind you [time description] to [task]."
 
-REMINDER CONFIRMATION SAFETY:
-- Never mention cron jobs, polling, outbox, Notion writes, or scheduling internals
+Do NOT include numbered plan steps or "Here's your plan: 1)..." in the confirmation.
+Do NOT list sub-tasks inline. The LLM-generated confirmation is the leading clause;
+the app node appends the reminder schedule summary deterministically from assigned slots.
+
+When you detect a deadline, include the humanized deadline in confirmation_message:
+"Saved — independent, ~15 min, due Wed." (not the ISO timestamp, a human form)
+
+### Sub-Tasks On Request Only
+
+Intake saves the task with labels. Sub-task generation is NOT automatic.
+If the user explicitly asks for breakdown ("how do I start?", "break this down",
+"what are the steps?"), that routes to NEED_HELP, not here.
+
+The `use_hidden_subtasks` and `sub_tasks` fields are only populated when the
+task itself is inherently multi-step and the user explicitly asked for a breakdown.
+For standard intake: leave `use_hidden_subtasks: false` and `sub_tasks: []`.
+
+### Confirmation Safety
+
+- Never mention cron jobs, polling, outbox, Notion writes, ledger, or scheduling internals
 - Never include self-commentary about what you did, did not do, or considered internally
-- The visible confirmation should be a single short sentence, then stop
+- The visible confirmation should be a brief acknowledgment sentence, then stop
+- Reminder confirmations: do not append notes about automatic retry, daemon, or Notion status

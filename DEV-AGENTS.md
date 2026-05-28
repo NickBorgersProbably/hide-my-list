@@ -39,7 +39,7 @@ These are the authoritative behavioral contracts. The Python implementation in `
 
 The Python/LangGraph application. Safe to edit via PRs.
 
-- `app/tools/notion.py` — Notion API client (9 verbs + health_check)
+- `app/tools/notion.py` — Notion API client (11 verbs + health_check); includes `query_tasks_with_unscheduled_deadlines` and `mark_reminder_scheduled` for deadline-reminder plumbing
 - `app/tools/signal_client.py` — Signal bridge async client
 - `app/tools/reminders.py` — Reminder outbox CRUD
 - `app/tools/rewards.py` — Reward delivery (emoji + image; v1 scope)
@@ -59,7 +59,10 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/graph/nodes/complete.py` — COMPLETE intent node
 - `app/graph/nodes/send.py` — Terminal send node
 - `app/scheduler/scheduler.py` — APScheduler v3 wiring with PostgresJobStore
-- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `weekly_recap`
+- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `reminder_scheduler`, `check_in_dispatcher`, `weekly_recap`
+- `app/scheduler/deadline_planner.py` — Pure-function milestone planner: `tier_for`, `plan_milestones`, `assign_slot` (load-balanced slot finder), `format_reminder_summary`; no I/O
+- `app/scheduler/reminder_scheduling.py` — Shared scheduling helper `schedule_for_task`; called by intake (inline) and daemon (backstop); also `supersede_ledger_rows`, `cancel_outbox_rows`, `get_active_deadline_for_page`
+- `app/scheduler/reminder_scheduler.py` — Nightly backstop daemon `run_reminder_scheduler`; picks up tasks intake missed or deadlines edited in Notion; runs at 04:00 USER_TZ
 - `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker
 - `app/ingress/signal_listener.py` — Authorized Signal WebSocket consumer; routes reactions to reward feedback, schedules read receipts, maintains typing indicators around graph execution, and invokes the graph for text messages
 - `app/prompts/` — Jinja2 prompt templates (`*.md.j2`) for each intent
