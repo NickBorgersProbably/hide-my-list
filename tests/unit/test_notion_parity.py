@@ -20,6 +20,7 @@ All 9 verbs are tested:
 Private data discipline: no real page IDs, titles, or phone numbers.
 All test values use placeholder strings.
 """
+
 from __future__ import annotations
 
 import json
@@ -35,6 +36,7 @@ import app.tools.notion as notion_module
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def fake_page_id() -> str:
     return str(uuid.uuid4()).replace("-", "")
@@ -46,7 +48,9 @@ def fake_db_id() -> str:
 
 
 @pytest.fixture()
-def notion_server(httpserver: HTTPServer, fake_db_id: str, monkeypatch: pytest.MonkeyPatch) -> HTTPServer:
+def notion_server(
+    httpserver: HTTPServer, fake_db_id: str, monkeypatch: pytest.MonkeyPatch
+) -> HTTPServer:
     """Configure environment and redirect httpx to the test server."""
     base_url = httpserver.url_for("/")
     # Strip trailing slash for compatibility with httpx base_url
@@ -76,6 +80,7 @@ def notion_server(httpserver: HTTPServer, fake_db_id: str, monkeypatch: pytest.M
 # Helper
 # ---------------------------------------------------------------------------
 
+
 def _captured_body(request_data: bytes) -> dict:  # type: ignore[type-arg]
     """Parse JSON body from captured request bytes."""
     return json.loads(request_data.decode("utf-8"))  # type: ignore[no-any-return]
@@ -84,6 +89,7 @@ def _captured_body(request_data: bytes) -> dict:  # type: ignore[type-arg]
 # ---------------------------------------------------------------------------
 # Verb 1 — create_task
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_create_task_request(notion_server: HTTPServer, fake_db_id: str) -> None:
@@ -124,7 +130,49 @@ async def test_create_task_request(notion_server: HTTPServer, fake_db_id: str) -
 
 
 @pytest.mark.asyncio
-async def test_create_task_with_parent(notion_server: HTTPServer, fake_db_id: str, fake_page_id: str) -> None:
+async def test_create_task_with_due_at(notion_server: HTTPServer, fake_db_id: str) -> None:
+    """create_task with due_at_iso includes Due At date property in payload."""
+    notion_server.expect_request("/pages", method="POST").respond_with_json(
+        {"object": "page", "id": "fake-page-id"}
+    )
+
+    due_at = "2026-06-03T17:00:00-05:00"
+    await notion_module.create_task(
+        title="Test task",
+        work_type="Independent",
+        due_at_iso=due_at,
+    )
+
+    req = notion_server.log[0][0]
+    body = _captured_body(req.data)
+    props = body["properties"]
+    assert "Due At" in props
+    assert props["Due At"]["date"]["start"] == due_at
+
+
+@pytest.mark.asyncio
+async def test_create_task_without_due_at(notion_server: HTTPServer, fake_db_id: str) -> None:
+    """create_task with due_at_iso=None (default) omits Due At from the payload."""
+    notion_server.expect_request("/pages", method="POST").respond_with_json(
+        {"object": "page", "id": "fake-page-id"}
+    )
+
+    await notion_module.create_task(
+        title="Test task",
+        work_type="Independent",
+        # due_at_iso omitted — defaults to None
+    )
+
+    req = notion_server.log[0][0]
+    body = _captured_body(req.data)
+    props = body["properties"]
+    assert "Due At" not in props
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_parent(
+    notion_server: HTTPServer, fake_db_id: str, fake_page_id: str
+) -> None:
     """create_task includes Parent Task relation when parent_id is set."""
     notion_server.expect_request("/pages", method="POST").respond_with_json(
         {"object": "page", "id": "fake-page-id"}
@@ -147,6 +195,7 @@ async def test_create_task_with_parent(notion_server: HTTPServer, fake_db_id: st
 # ---------------------------------------------------------------------------
 # Verb 2 — create_reminder
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_create_reminder_request(notion_server: HTTPServer, fake_db_id: str) -> None:
@@ -180,12 +229,13 @@ async def test_create_reminder_request(notion_server: HTTPServer, fake_db_id: st
 # Verb 3 — query_pending
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_query_pending_request(notion_server: HTTPServer, fake_db_id: str) -> None:
     """query_pending sends POST /databases/{db_id}/query with correct filter."""
-    notion_server.expect_request(
-        f"/databases/{fake_db_id}/query", method="POST"
-    ).respond_with_json({"results": []})
+    notion_server.expect_request(f"/databases/{fake_db_id}/query", method="POST").respond_with_json(
+        {"results": []}
+    )
 
     await notion_module.query_pending()
 
@@ -206,12 +256,13 @@ async def test_query_pending_request(notion_server: HTTPServer, fake_db_id: str)
 # Verb 4 — query_all
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_query_all_request(notion_server: HTTPServer, fake_db_id: str) -> None:
     """query_all sends POST /databases/{db_id}/query with urgency sort only."""
-    notion_server.expect_request(
-        f"/databases/{fake_db_id}/query", method="POST"
-    ).respond_with_json({"results": []})
+    notion_server.expect_request(f"/databases/{fake_db_id}/query", method="POST").respond_with_json(
+        {"results": []}
+    )
 
     await notion_module.query_all()
 
@@ -227,12 +278,13 @@ async def test_query_all_request(notion_server: HTTPServer, fake_db_id: str) -> 
 # Verb 5 — query_due_reminders
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_query_due_reminders_request(notion_server: HTTPServer, fake_db_id: str) -> None:
     """query_due_reminders sends POST with Is Reminder=true, status=pending, on_or_before."""
-    notion_server.expect_request(
-        f"/databases/{fake_db_id}/query", method="POST"
-    ).respond_with_json({"results": []})
+    notion_server.expect_request(f"/databases/{fake_db_id}/query", method="POST").respond_with_json(
+        {"results": []}
+    )
 
     before_iso = "2026-06-01T20:00:00+00:00"
     await notion_module.query_due_reminders(before_iso=before_iso)
@@ -254,9 +306,9 @@ async def test_query_due_reminders_request(notion_server: HTTPServer, fake_db_id
 @pytest.mark.asyncio
 async def test_query_due_reminders_default_time(notion_server: HTTPServer, fake_db_id: str) -> None:
     """query_due_reminders without before_iso uses current UTC time."""
-    notion_server.expect_request(
-        f"/databases/{fake_db_id}/query", method="POST"
-    ).respond_with_json({"results": []})
+    notion_server.expect_request(f"/databases/{fake_db_id}/query", method="POST").respond_with_json(
+        {"results": []}
+    )
 
     before = datetime.now(UTC)
     await notion_module.query_due_reminders()
@@ -278,19 +330,18 @@ async def test_query_due_reminders_default_time(notion_server: HTTPServer, fake_
 # Verb 6 — update_status
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_update_status_completed(
-    notion_server: HTTPServer, fake_page_id: str
-) -> None:
+async def test_update_status_completed(notion_server: HTTPServer, fake_page_id: str) -> None:
     """update_status to Completed sends GET then PATCH with Completed At."""
     # First request: GET the page (to check Started At)
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="GET"
-    ).respond_with_json({"object": "page", "id": fake_page_id, "properties": {}})
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="GET").respond_with_json(
+        {"object": "page", "id": fake_page_id, "properties": {}}
+    )
     # Second request: PATCH
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="PATCH"
-    ).respond_with_json({"object": "page", "id": fake_page_id})
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="PATCH").respond_with_json(
+        {"object": "page", "id": fake_page_id}
+    )
 
     await notion_module.update_status(fake_page_id, "Completed")
 
@@ -307,14 +358,12 @@ async def test_update_status_in_progress_sets_started_at(
     notion_server: HTTPServer, fake_page_id: str
 ) -> None:
     """update_status to In Progress sets Started At when not already set."""
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="GET"
-    ).respond_with_json(
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="GET").respond_with_json(
         {"object": "page", "id": fake_page_id, "properties": {"Started At": {"date": None}}}
     )
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="PATCH"
-    ).respond_with_json({"object": "page", "id": fake_page_id})
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="PATCH").respond_with_json(
+        {"object": "page", "id": fake_page_id}
+    )
 
     await notion_module.update_status(fake_page_id, "In Progress")
 
@@ -330,18 +379,16 @@ async def test_update_status_in_progress_no_overwrite(
     notion_server: HTTPServer, fake_page_id: str
 ) -> None:
     """update_status to In Progress does NOT overwrite an existing Started At."""
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="GET"
-    ).respond_with_json({
-        "object": "page",
-        "id": fake_page_id,
-        "properties": {
-            "Started At": {"date": {"start": "2026-01-01T10:00:00Z"}}
-        },
-    })
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="PATCH"
-    ).respond_with_json({"object": "page", "id": fake_page_id})
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="GET").respond_with_json(
+        {
+            "object": "page",
+            "id": fake_page_id,
+            "properties": {"Started At": {"date": {"start": "2026-01-01T10:00:00Z"}}},
+        }
+    )
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="PATCH").respond_with_json(
+        {"object": "page", "id": fake_page_id}
+    )
 
     await notion_module.update_status(fake_page_id, "In Progress")
 
@@ -356,14 +403,13 @@ async def test_update_status_in_progress_no_overwrite(
 # Verb 7 — complete_reminder
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_complete_reminder_sent(
-    notion_server: HTTPServer, fake_page_id: str
-) -> None:
+async def test_complete_reminder_sent(notion_server: HTTPServer, fake_page_id: str) -> None:
     """complete_reminder sends PATCH with Status=Completed, Reminder Status=sent."""
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="PATCH"
-    ).respond_with_json({"object": "page", "id": fake_page_id})
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="PATCH").respond_with_json(
+        {"object": "page", "id": fake_page_id}
+    )
 
     await notion_module.complete_reminder(fake_page_id, "sent")
 
@@ -386,14 +432,13 @@ async def test_complete_reminder_invalid_status(fake_page_id: str) -> None:
 # Verb 8 — update_property
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_update_property_request(
-    notion_server: HTTPServer, fake_page_id: str
-) -> None:
+async def test_update_property_request(notion_server: HTTPServer, fake_page_id: str) -> None:
     """update_property sends PATCH with arbitrary JSON body."""
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="PATCH"
-    ).respond_with_json({"object": "page", "id": fake_page_id})
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="PATCH").respond_with_json(
+        {"object": "page", "id": fake_page_id}
+    )
 
     prop_json = {"properties": {"Urgency": {"number": 100}}}
     await notion_module.update_property(fake_page_id, prop_json)
@@ -407,14 +452,13 @@ async def test_update_property_request(
 # Verb 9 — get_page
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_get_page_request(
-    notion_server: HTTPServer, fake_page_id: str
-) -> None:
+async def test_get_page_request(notion_server: HTTPServer, fake_page_id: str) -> None:
     """get_page sends GET /pages/{page_id}."""
-    notion_server.expect_request(
-        f"/pages/{fake_page_id}", method="GET"
-    ).respond_with_json({"object": "page", "id": fake_page_id})
+    notion_server.expect_request(f"/pages/{fake_page_id}", method="GET").respond_with_json(
+        {"object": "page", "id": fake_page_id}
+    )
 
     result = await notion_module.get_page(fake_page_id)
 
@@ -429,14 +473,15 @@ async def test_get_page_request(
 # Authorization header check (spot-check one verb)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_notion_sends_authorization_header(
     notion_server: HTTPServer, fake_db_id: str
 ) -> None:
     """Verify Authorization and Notion-Version headers are set."""
-    notion_server.expect_request(
-        f"/databases/{fake_db_id}/query", method="POST"
-    ).respond_with_json({"results": []})
+    notion_server.expect_request(f"/databases/{fake_db_id}/query", method="POST").respond_with_json(
+        {"results": []}
+    )
 
     await notion_module.query_all()
 
