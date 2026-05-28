@@ -377,6 +377,54 @@ jobs:
             rm -f "$TEMP_SCHEMA"
           fi
 
+      # Install the tools that .githooks/pre-commit invokes via
+      # scripts/run-required-checks.sh. The host commit step below sets
+      # core.hooksPath=.githooks, which activates the same hook a
+      # developer runs locally — and the hook hard-fails when any of its
+      # required commands are missing. GH Actions runners don't ship
+      # yamllint / ruff / pytest, so without this step the hook aborts
+      # the commit with "required command 'yamllint' is not installed"
+      # the moment the fixer stages a workflow file. shellcheck is
+      # already on ubuntu-latest; python3 is too.
+      - name: Install pre-commit hook tooling
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --user \
+            yamllint==1.37.1 \
+            ruff==0.15.13 \
+            pytest==9.0.3
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # Lint gate: run ruff against the full Python tree in the PR
+      # workspace before committing. The pre-commit hook in .githooks/
+      # only covers *staged* files, so it cannot catch violations that
+      # were already present in the tree when the fixer ran (e.g. a
+      # lint regression merged to main before the fixer's cycle). This
+      # step runs on the host (not inside the container) and checks the
+      # entire tree — the same scope as python-validation.yml's ruff job
+      # — so the fixer cannot push a commit that would fail the
+      # Python Validation Required required check.
+      #
+      # Failure here is intentional: it surfaces the violation before the
+      # push and forces a human to fix the upstream regression rather than
+      # letting the fixer silently carry it forward. The fixer is not
+      # expected to fix pre-existing lint regressions it didn't introduce;
+      # those should be addressed in a separate PR on main.
+      - name: Ruff lint gate (full tree, pre-commit)
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        run: |
+          set -euo pipefail
+          if ! command -v ruff >/dev/null 2>&1; then
+            echo "::warning::ruff not found on host runner; skipping pre-commit lint gate"
+            exit 0
+          fi
+          echo "=== Ruff lint on full Python tree ==="
+          ruff check app/ tests/ scripts/ || {
+            echo "::error::ruff found violations in the PR tree. The fixer will not push a commit that fails the Python Validation ruff gate."
+            echo "::error::If the violations are pre-existing on main (not introduced by this PR), open a separate PR on main to fix them first."
+            exit 1
+          }
+
       # Commit the fixer's working-tree changes from the host runner
       # rather than from inside the CI container. The container runs
       # as UID 1000 (`ci` user) and the bind-mounted workspace's
@@ -401,6 +449,14 @@ jobs:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          # Activate the pre-commit hook for staged-file checks. The hook
+          # is in .githooks/ (not .git/hooks/) so git won't find it unless
+          # core.hooksPath is set. The fixer container sets this via
+          # GIT_CONFIG env vars, but the host-side commit step is a plain
+          # runner shell — it needs the env-based config override too.
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.hooksPath
+          GIT_CONFIG_VALUE_0: .githooks
         working-directory: ${{ env.PR_WORKSPACE_PATH }}
         run: |
           set -euo pipefail
