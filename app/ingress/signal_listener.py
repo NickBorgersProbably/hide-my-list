@@ -13,14 +13,18 @@ This module is one of three authorised sites for httpx.AsyncClient usage.
 """
 from __future__ import annotations
 
+import asyncio
 import os
+from collections.abc import Coroutine
 from typing import Any
 
 import structlog
 
-from app.tools.signal_client import receive_messages
+from app.tools.signal_client import receive_messages, send_read_receipt, send_typing_indicator
 
 log = structlog.get_logger(__name__)
+
+_TYPING_REFRESH_SECONDS = 10.0
 
 
 def _load_authorized_peers() -> frozenset[str]:
@@ -42,24 +46,66 @@ def _load_authorized_peers() -> frozenset[str]:
     return peers
 
 
-def _extract_peer_and_text(envelope: dict[str, Any]) -> tuple[str, str] | None:
-    """Extract (sender_e164, text) from a signal-cli envelope dict.
+def _extract_peer_and_text(envelope: dict[str, Any]) -> tuple[str, str, int | None] | None:
+    """Extract (sender_e164, text, timestamp) from a signal-cli envelope dict.
 
     Returns None if the envelope is not a text message from a peer.
     """
-    data_message = (
-        envelope.get("envelope", {})
-        .get("dataMessage", {})
-    )
+    outer = envelope.get("envelope", {})
+    data_message = outer.get("dataMessage", {})
     text = data_message.get("message", "")
     if not text:
         return None
 
-    source = envelope.get("envelope", {}).get("source", "")
+    source = outer.get("source", "")
     if not source:
         return None
 
-    return source, text
+    timestamp = outer.get("timestamp")
+    if not isinstance(timestamp, int):
+        timestamp = data_message.get("timestamp")
+    if not isinstance(timestamp, int):
+        timestamp = None
+
+    return source, text, timestamp
+
+
+def _log_background_task_result(task: asyncio.Task[None]) -> None:
+    """Consume unexpected background task exceptions without leaking content."""
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        return
+    except Exception as exc:
+        log.warning("signal_listener.background_task_failed", error_type=type(exc).__name__)
+
+
+def _start_background_task(coro: Coroutine[Any, Any, None]) -> None:
+    """Schedule a best-effort coroutine and log unexpected failures."""
+    task = asyncio.create_task(coro)
+    task.add_done_callback(_log_background_task_result)
+
+
+async def _maintain_typing_indicator(
+    *,
+    peer: str,
+    stop_event: asyncio.Event,
+    base_url: str | None,
+    account: str | None,
+    refresh_seconds: float = _TYPING_REFRESH_SECONDS,
+) -> None:
+    """Refresh Signal typing indicator until stop_event is set."""
+    while not stop_event.is_set():
+        await send_typing_indicator(
+            peer,
+            started=True,
+            base_url=base_url,
+            account=account,
+        )
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=refresh_seconds)
+        except TimeoutError:
+            continue
 
 
 def _extract_reaction(envelope: dict[str, Any]) -> tuple[str, str, int, str] | None:
@@ -163,7 +209,7 @@ class SignalListener:
             if result is None:
                 continue
 
-            peer, text = result
+            peer, text, timestamp = result
 
             if peer not in self._authorized_peers:
                 log.warning("signal_listener.unauthorized_peer_dropped")
@@ -171,6 +217,27 @@ class SignalListener:
 
             log.info("signal_listener.message_received", peer=peer[:4] + "***")
 
+            if timestamp is not None:
+                _start_background_task(
+                    send_read_receipt(
+                        peer,
+                        timestamp,
+                        base_url=self._base_url,
+                        account=self._account,
+                    )
+                )
+            else:
+                log.warning("signal_listener.receipt_skipped_missing_timestamp")
+
+            typing_stop = asyncio.Event()
+            _start_background_task(
+                _maintain_typing_indicator(
+                    peer=peer,
+                    stop_event=typing_stop,
+                    base_url=self._base_url,
+                    account=self._account,
+                )
+            )
             try:
                 if graph is None:
                     graph = self._get_graph()
@@ -180,3 +247,13 @@ class SignalListener:
                 )
             except Exception:
                 log.exception("signal_listener.graph_error", peer=peer[:4] + "***")
+            finally:
+                typing_stop.set()
+                _start_background_task(
+                    send_typing_indicator(
+                        peer,
+                        started=False,
+                        base_url=self._base_url,
+                        account=self._account,
+                    )
+                )

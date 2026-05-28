@@ -66,6 +66,8 @@ def compose_stack() -> object:
         "SIGNAL_ACCOUNT": os.environ.get("SIGNAL_ACCOUNT", "+15555550100"),
         "NOTION_API_KEY": os.environ.get("NOTION_API_KEY", "smoke-fake-key"),
         "NOTION_DATABASE_ID": os.environ.get("NOTION_DATABASE_ID", "smoke-fake-db"),
+        "LLM_PROXY_API_KEY": "smoke-fake-llm-key",
+        "LLM_PROXY_BASE_URL": "https://proxy.test/v1",
     }
 
     # Bring up postgres + signal-cli + app
@@ -171,6 +173,20 @@ def test_signal_cli_responds_to_health(compose_stack: object) -> None:
         return
     body = result.stdout.strip()
     assert body, "signal-cli /v1/about returned empty body"
+
+
+def test_app_receives_llm_proxy_env(compose_stack: object) -> None:
+    """Compose must thread LLM proxy env vars into the app container."""
+    result = subprocess.run(  # noqa: S603
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "exec", "-T", "app", "env"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, f"could not inspect app env: {result.stderr}"
+    env_lines = set(result.stdout.splitlines())
+    assert "LLM_PROXY_API_KEY=smoke-fake-llm-key" in env_lines
+    assert "LLM_PROXY_BASE_URL=https://proxy.test/v1" in env_lines
 
 
 def test_app_boots_runtime(compose_stack: object) -> None:

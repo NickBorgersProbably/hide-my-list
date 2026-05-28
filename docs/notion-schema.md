@@ -37,6 +37,8 @@ erDiagram
         checkbox is_reminder "True if task is a timed reminder"
         date remind_at "Wall-clock time to fire reminder (ISO 8601)"
         select reminder_status "pending|sent (legacy: missed)"
+        date due_at "Hard deadline for the task (ISO 8601, optional)"
+        date reminder_scheduled_at "Timestamp set by daemon when reminder series is created (nullable)"
     }
 
     USER_PREFERENCES {
@@ -474,6 +476,34 @@ Tracks reminder delivery.
 **Legacy compatibility:** Older deployments may still have a `missed` select option or historical rows using it. Runtime behavior no longer produces that value; if a legacy handoff or record is touched during delivery, normalize it to `sent`.
 
 **Design constraint:** The reminder worker does not set `Reminder Status` to `sent` until after the Signal delivery succeeds. Pre-delivery mutation would cause the row to drop from the `pending` query before confirmed delivery, which could result in silent loss.
+
+---
+
+### Due At (date)
+
+Hard deadline for the task. Optional — null for tasks without a time-bound.
+
+```
+Format: ISO 8601 with timezone (e.g., 2026-06-03T17:00:00-05:00)
+```
+
+**Set by:** `create_task(due_at_iso=...)` when a deadline is provided. Independent of `urgency` — urgency reflects relative priority; `Due At` is a hard time bound.
+
+**Read by:** `query_tasks_with_unscheduled_deadlines()` — filters tasks where `Due At is_not_empty` and `Reminder Scheduled At is_empty` to surface deadline-bearing tasks that have not yet had reminders scheduled.
+
+---
+
+### Reminder Scheduled At (date)
+
+Timestamp marking that the automated reminder series for this task has been created. Nullable — null until set.
+
+```
+Format: ISO 8601 UTC (e.g., 2026-06-01T04:00:00+00:00)
+```
+
+**Set by:** `mark_reminder_scheduled(page_id)` — PATCHes this field to UTC now. Serves as an idempotency guard: tasks with this field set are excluded by `query_tasks_with_unscheduled_deadlines()`.
+
+**Read by:** `query_tasks_with_unscheduled_deadlines()` — filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are returned.
 
 ---
 

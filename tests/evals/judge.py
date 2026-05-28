@@ -26,8 +26,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 log = logging.getLogger(__name__)
@@ -120,22 +120,18 @@ def _call_judge_llm(
     api_key: str,
     timeout_seconds: float = 60.0,
 ) -> str:
-    """Single-shot LLM call via langchain-anthropic.
+    """Single-shot LLM call via langchain-openai.
 
-    Uses the same client class as the production app, pointed at the same
-    LiteLLM proxy (`ANTHROPIC_BASE_URL`). Sharing the client class avoids
-    introducing a new outbound HTTP surface — the constrained-tool-surface
-    invariant from `docs/python-rewrite/test-rig.md` and
-    `app/observability/llm-observability` keep judge outbound HTTP on the
-    same approved langchain transport.
+    Points at the same LiteLLM proxy (`LLM_PROXY_BASE_URL`) as the production
+    app. Keeping judge outbound HTTP inside LangChain preserves the
+    constrained-tool-surface invariant from `docs/python-rewrite/test-rig.md`.
     """
-    chat = ChatAnthropic(
-        model_name=model,
+    chat = ChatOpenAI(
+        model=model,
         api_key=api_key,
         base_url=base_url,
         max_tokens=256,
         timeout=timeout_seconds,
-        stop=None,
     )
     response = chat.invoke([HumanMessage(content=prompt)])
     # AIMessage.content is a string (or list of blocks for tool-calling models).
@@ -168,9 +164,9 @@ def score(
         response: The model-under-test's output to score.
         model: Judge model alias (must resolve via LiteLLM proxy).
             Default `claude-sonnet-4-6`.
-        base_url: LiteLLM proxy URL. Defaults to env `ANTHROPIC_BASE_URL`.
+        base_url: LiteLLM proxy URL. Defaults to env `LLM_PROXY_BASE_URL`.
             If neither is set, raises RuntimeError.
-        api_key: LiteLLM proxy API key. Defaults to env `ANTHROPIC_API_KEY`.
+        api_key: LiteLLM proxy API key. Defaults to env `LLM_PROXY_API_KEY`.
             If neither is set, raises RuntimeError.
 
     Returns:
@@ -188,16 +184,16 @@ def score(
         log.debug("judge.cache_hit", extra={"key": key[:12]})
         return cached
 
-    effective_base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL")
-    effective_api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    effective_base_url = base_url or os.environ.get("LLM_PROXY_BASE_URL")
+    effective_api_key = api_key or os.environ.get("LLM_PROXY_API_KEY")
     if not effective_base_url:
         raise RuntimeError(
-            "Judge requires ANTHROPIC_BASE_URL (LiteLLM proxy endpoint) — "
+            "Judge requires LLM_PROXY_BASE_URL (LiteLLM proxy endpoint) — "
             "pass base_url= or set the env var."
         )
     if not effective_api_key:
         raise RuntimeError(
-            "Judge requires ANTHROPIC_API_KEY — "
+            "Judge requires LLM_PROXY_API_KEY — "
             "pass api_key= or set the env var."
         )
 

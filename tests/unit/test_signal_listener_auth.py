@@ -7,20 +7,28 @@ closed default).
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 
-def _envelope(source: str, message: str) -> dict[str, Any]:
+def _envelope(
+    source: str,
+    message: str,
+    timestamp: int | None = 1_716_800_000_000,
+) -> dict[str, Any]:
     """Build a minimal signal-cli envelope for tests."""
-    return {
+    envelope: dict[str, Any] = {
         "envelope": {
             "source": source,
             "dataMessage": {"message": message},
         }
     }
+    if timestamp is not None:
+        envelope["envelope"]["timestamp"] = timestamp
+    return envelope
 
 
 def _reaction_envelope(
@@ -134,6 +142,102 @@ async def test_authorized_peer_invokes_graph() -> None:
     assert args[0]["peer"] == "+15551234567"
     assert args[0]["incoming"] == "hello"
     assert kwargs["config"]["configurable"]["thread_id"] == "+15551234567"
+
+
+@pytest.mark.asyncio
+async def test_authorized_peer_schedules_receipt_and_typing_around_graph() -> None:
+    """Receipt and typing UX signals are scheduled around graph invocation."""
+    from app.ingress.signal_listener import SignalListener
+
+    events: list[str] = []
+
+    async def fake_graph_ainvoke(*args: Any, **kwargs: Any) -> None:
+        events.append("graph")
+
+    def fake_start_background_task(coro: Any) -> None:
+        name = getattr(getattr(coro, "cr_code", None), "co_name", "")
+        events.append(name)
+        coro.close()
+
+    graph = AsyncMock()
+    graph.ainvoke.side_effect = fake_graph_ainvoke
+    listener = SignalListener(
+        graph=graph,
+        base_url="http://signal-cli-test:8080",
+        account="<test-account>",
+        authorized_peers=frozenset({"+15551234567"}),
+    )
+
+    envelopes = [_envelope("+15551234567", "hello", timestamp=1_716_800_000_000)]
+    with (
+        patch("app.ingress.signal_listener.receive_messages", return_value=_async_gen(envelopes)),
+        patch(
+            "app.ingress.signal_listener._start_background_task",
+            new=fake_start_background_task,
+        ),
+    ):
+        await listener.run()
+
+    assert events == [
+        "send_read_receipt",
+        "_maintain_typing_indicator",
+        "graph",
+        "send_typing_indicator",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_typing_indicator_refreshes_until_stopped() -> None:
+    """Long graph work gets repeated typing-start refreshes."""
+    from app.ingress import signal_listener
+
+    calls: list[dict[str, Any]] = []
+    stop_event = asyncio.Event()
+
+    async def fake_send_typing_indicator(
+        peer: str,
+        *,
+        started: bool = True,
+        base_url: str | None = None,
+        account: str | None = None,
+    ) -> None:
+        calls.append(
+            {
+                "peer": peer,
+                "started": started,
+                "base_url": base_url,
+                "account": account,
+            }
+        )
+        if len(calls) == 2:
+            stop_event.set()
+
+    with patch(
+        "app.ingress.signal_listener.send_typing_indicator",
+        new=fake_send_typing_indicator,
+    ):
+        await signal_listener._maintain_typing_indicator(
+            peer="+15551234567",
+            stop_event=stop_event,
+            base_url="http://signal-cli-test:8080",
+            account="<test-account>",
+            refresh_seconds=0,
+        )
+
+    assert calls == [
+        {
+            "peer": "+15551234567",
+            "started": True,
+            "base_url": "http://signal-cli-test:8080",
+            "account": "<test-account>",
+        },
+        {
+            "peer": "+15551234567",
+            "started": True,
+            "base_url": "http://signal-cli-test:8080",
+            "account": "<test-account>",
+        },
+    ]
 
 
 @pytest.mark.asyncio

@@ -327,8 +327,9 @@ jobs:
       - name: Resolve issue with Claude Code
         if: steps.check-existing.outputs.skip != 'true' && needs.detect_autoresolve.outputs.agent == 'claude'
         env:
-          ANTHROPIC_API_KEY: fake-key
-          ANTHROPIC_BASE_URL: https://llm.featherback-mermaid.ts.net/anthropic/
+          CLAUDE_ENV_PREFIX: ANTHROPIC
+          LLM_PROXY_API_KEY: fake-key
+          LLM_PROXY_BASE_URL: https://llm.featherback-mermaid.ts.net/anthropic/
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE_B64: ${{ needs.detect_autoresolve.outputs.issue_title_b64 }}
@@ -350,8 +351,9 @@ jobs:
             -v "${{ github.workspace }}:/workspace" \
             -v "$OUTPUT_STAGING:/output" \
             -v "$SESSION_HOST_DIR:$SESSION_CONTAINER_HOME" \
-            -e ANTHROPIC_API_KEY \
-            -e ANTHROPIC_BASE_URL \
+            -e CLAUDE_ENV_PREFIX \
+            -e LLM_PROXY_API_KEY \
+            -e LLM_PROXY_BASE_URL \
             -e GH_TOKEN \
             -e ISSUE_NUMBER \
             -e ISSUE_TITLE_B64 \
@@ -365,6 +367,8 @@ jobs:
             "${CI_IMAGE}" \
             -lc '
               set -euo pipefail
+              export "${CLAUDE_ENV_PREFIX}_API_KEY=$LLM_PROXY_API_KEY"
+              export "${CLAUDE_ENV_PREFIX}_BASE_URL=$LLM_PROXY_BASE_URL"
 
               if [ ! -d .githooks ]; then
                 echo "::warning::resolve-issue (claude): .githooks/ not found; commits will skip pre-commit/pre-push validation"

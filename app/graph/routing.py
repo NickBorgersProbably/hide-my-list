@@ -53,8 +53,9 @@ Examples:
 async def classify_intent(state: State) -> dict[str, Intent | None]:
     """Classify the incoming message intent using an LLM.
 
-    Uses the medium-tier model to classify intent.
-    Defaults low-confidence to CHAT as a prompt-injection mitigation.
+    Uses the cheap tier, which routes to a think=false model configuration
+    in app/models.py — classification needs a label, not reasoning. Defaults
+    low-confidence to CHAT as a prompt-injection mitigation.
     """
     incoming = state.get("incoming", "").strip()
     if not incoming:
@@ -65,7 +66,7 @@ async def classify_intent(state: State) -> dict[str, Intent | None]:
 
         from app.models import llm
 
-        model = llm("medium", caller="classify")
+        model = llm("cheap", caller="classify")
 
         # Pull a small window of prior turns so short follow-ups can resolve
         # against the active discussion (e.g. "by Friday" after an ADD_TASK turn).

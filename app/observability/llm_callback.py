@@ -85,7 +85,7 @@ class LLMObservabilityCallback(AsyncCallbackHandler):
 
     Usage:
         handler = LLMObservabilityCallback(tier="medium", model=model_id, caller="intake")
-        model = ChatAnthropic(...).with_config(callbacks=[handler])
+        model = ChatOpenAI(...).with_config(callbacks=[handler])
         await model.ainvoke(messages)
         metrics = handler.completed_calls  # list[CallMetrics]
         # Access handler after with_config via: model.config["callbacks"][0]
@@ -145,7 +145,7 @@ class LLMObservabilityCallback(AsyncCallbackHandler):
     ) -> None:
         """Fallback hook for non-chat LLM starts (completion-style APIs).
 
-        on_chat_model_start takes priority for ChatAnthropic; this fires for
+        on_chat_model_start takes priority for chat models; this fires for
         any provider that does not subclass BaseChatModel.
         """
         run_key = str(run_id)

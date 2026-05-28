@@ -50,7 +50,8 @@ signal-cli volume management or registration carry-over. The `signal-cli` servic
 | `NOTION_DATABASE_ID` | Yes | ID of the tasks database |
 | `SIGNAL_ACCOUNT` | Yes | E.164 phone number registered with signal-cli |
 | `AUTHORIZED_PEERS` | Yes | Comma-separated E.164 numbers allowed to send inbound messages; empty or unset refuses startup |
-| `ANTHROPIC_API_KEY` | Yes | Primary LLM (Claude via langchain-anthropic) |
+| `LLM_PROXY_BASE_URL` | Yes | LiteLLM proxy OpenAI-compatible `/v1` endpoint (e.g. `https://proxy.host/v1`) |
+| `LLM_PROXY_API_KEY` | Yes | Bearer token for LiteLLM proxy; use any non-empty placeholder if proxy needs no auth |
 | `DATABASE_URL` | Compose-managed | Postgres DSN; hardcoded in `docker/compose.yaml` for the compose network. Override only for non-compose runs. |
 | `SIGNAL_CLI_URL` | Compose-managed | WebSocket URL of the signal-cli bridge; hardcoded in `docker/compose.yaml`. Override only for non-compose runs. |
 | `USER_TZ` | No | IANA timezone identifier (default `America/Chicago`) |
@@ -75,18 +76,19 @@ The app uses APScheduler v3 with PostgresJobStore for durable scheduled jobs:
 ## Model Tiers
 
 Model assignments use a tier system defined in `setup/model-tiers.json`. Read by `app/models.py`
-at startup to validate all model references. Models are used directly via `langchain-anthropic`
-with `ANTHROPIC_API_KEY` — no LiteLLM proxy required.
+at startup to validate all model references. All tiers are routed through `ChatOpenAI` to the
+LiteLLM proxy at `LLM_PROXY_BASE_URL`; LiteLLM dispatches by model alias.
 
 | Tier | Role |
 |------|------|
-| `expensive` | Primary interactive agent (graph nodes) |
-| `medium` | Available for fallback opt-in |
-| `cheap` | Scheduled background jobs |
+| `expensive` | Complex reasoning (e.g. GET_TASK scoring) |
+| `medium` | Intent classification and most graph nodes |
+| `cheap` | Lightweight tasks |
+| `reminder` | Reminder delivery cron |
 
 To remap tiers: edit `setup/model-tiers.json` values to point at your model IDs, then restart
-the stack. `app/models.py` validates the mapping at startup and logs an error if any tier is
-missing or uses a non-Anthropic model ID.
+the stack. `app/models.py` validates the mapping at startup and raises if any tier is missing
+or uses a model ID prefix not in the accepted allowlist (`claude-`, `gemma`, `gpt-`).
 
 ## Contributor Hooks
 

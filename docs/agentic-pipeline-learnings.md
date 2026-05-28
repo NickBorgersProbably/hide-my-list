@@ -59,7 +59,7 @@ Per-row state is post-fixer: each row cross-references the reviewer's `blocking_
 **Before:** Post-merge follow-ups failed with "could not fetch ref".
 **Evidence:** #308, #351, #353, #354
 
-**Manual regression playbook:** Open PR, let `review-entry.yml` freeze `reviewed_sha`, push another commit before `review-fixer.yml` reaches push step. Fixer should log that `origin/<head_ref>` moved, rewrite `fix-result.json` so `new_sha == input_sha == reviewed_sha`, add `skipped[]` reason, exit without pushing. Judge/finalize should evaluate unchanged reviewed tree instead of overwriting newer commit.
+**Manual regression playbook:** Open PR, let `review-entry.yml` freeze `reviewed_sha`, push another commit before `review-fixer.yml` reaches push step. Fixer should log that `origin/<head_ref>` moved, rewrite `fixer-result.json` so `new_sha == input_sha == reviewed_sha`, add `skipped[]` reason, exit without pushing. Judge/finalize should evaluate unchanged reviewed tree instead of overwriting newer commit.
 
 ### 1.8 Dedupe workflow-failure issues by fingerprint
 **Why:** Helper script fingerprints failures by (workflow, branch, commit) and reuses existing open issue.
@@ -141,6 +141,28 @@ Required properties:
 
 `scripts/ci-session-store.sh` is the single source of path conventions and trailer parsing — workflows call its subcommands rather than recomputing paths inline. `scripts/test-ci-session-store.sh` covers the helper logic and is run by `review-fixer-resume-smoke.yml` on PRs that touch the resume code paths. Full cross-container resume round-trip is empirically validated by the first multi-cycle review on a `resolve-issue` PR — that requires real LiteLLM calls, too expensive for every PR's smoke.
 
+### 1.18 Security reviewer is a two-lens orchestrator
+**Why:** A single security prompt has to be both broad enough to catch generic web/agent vulns (injection, deserialization, weak crypto, JWT, IDOR, supply chain) and specific enough to enforce this repo's own invariants (constrained `httpx` tool surface, no-shell-out from `app/`, private-data placeholder rule, workflow `permissions:` hygiene, reviewer-routing regressions). Cramming both into one prompt produced shallow checks on either side and gave the LLM no built-in budget for confidence filtering, exclusion handling, or finding caps — large diffs trended toward naggy output.
+
+**How:** The `security` role is dispatched as two sub-lenses:
+- `security-breadth` (`.github/scripts/review/prompts/security-breadth.md`) — vendored verbatim (subject to MIT attribution) from [anthropics/claude-code-security-review](https://github.com/anthropics/claude-code-security-review), `claudecode/prompts.py` → `get_security_audit_prompt`. Pin in `.github/ci/vendored-prompts.env`; refreshed weekly by `update-ai-clis.yml` via `.github/scripts/vendor-security-prompt.py`. Carries Anthropic's confidence ladder (`<0.7` → don't report) and exclusion list (DoS, rate-limit, resource leaks, open-redirect, regex injection, memory safety in non-C/C++, SSRF in HTML, findings on `.md` files). The vendor script strips upstream's output-schema section before substituting into the BEGIN/END VENDORED PROMPT markers so the refresh can't reintroduce a conflicting `{findings:[]}` contract.
+- `security-narrow` (`.github/scripts/review/prompts/security-narrow.md`) — repo-specific invariants only. Explicit instruction not to duplicate breadth's catalog so the merger sees minimal overlap.
+
+Both lenses run as ordinary reviewers via `review-reviewer.yml` with no special arguments — they upload as `reviewer-security-{breadth,narrow}-<sha>`, publish their own PR Review comments, and write their own `review/reviewer-security-{breadth,narrow}` commit statuses.
+
+**The judge collapses the lenses.** `judge.mjs` runs from `main`'s checkout with read-only permissions; it imports `.github/scripts/review/security-merge.mjs` (also from `main`) and, before calling `aggregate()`, folds any `security-breadth` and `security-narrow` artifacts into a single synthesized `role=security` artifact, dropping the originals from the reviewers list. This closes the script-trust attack class: there is no PR-controlled deterministic code running on the runner in the verdict path — the merger source is pinned by virtue of living in `main`. The judge job also writes the synthesized artifact out to `${runner.temp}/security-result.json` and re-uploads it as `reviewer-security-<sha>` so `render-finalize-comment.sh` (which iterates `design security docs prompt psych test`) finds a single security row to render.
+
+`security-merge.mjs` is pure logic:
+1. Drops findings matching Anthropic's exclusion list (port of `claudecode/findings_filter.py`) as a backstop.
+2. Demotes blocking issues with paired `fix_suggestion[].confidence < 0.7` to `non_blocking_notes[]`.
+3. Dedupes by `(normalized_file, floor(line/5))`. Category is intentionally **not** in the key because breadth (catalog categories) and narrow (repo-categories) use disjoint vocabularies; cross-category collisions in the same 5-line bucket collapse with narrow winning.
+4. Caps at 5 blocking + 5 non-blocking per cycle, with severity-then-confidence sort. Overflow surfaces in `summary_metadata.truncated_*_count`.
+5. Always emits `role: "security"` so the judge's `aggregate()` contract is unchanged.
+
+`reviewer-v1.json` adds an optional `summary_metadata` block (counts of dropped / demoted / truncated findings, plus `merged_from: ["security-breadth", "security-narrow"]`) for diagnostics. The block is opt-in and ignored by other reviewer roles. Roles `security-breadth` and `security-narrow` are added to the schema enum; the existing bootstrap shim in `review-reviewer.yml` accepts them on the PR that introduces them.
+
+**Bootstrap caveat for the PR that introduces this design:** on the very PR that adds `security-merge.mjs` and the lens collapse to `judge.mjs`, `main`'s judge.mjs is still the pre-collapse version. During that PR's own review the lens artifacts flow into `aggregate()` as two separate reviewers (`security-breadth` and `security-narrow`); the synthesized `reviewer-security-<sha>` artifact is not produced and the agent-table row for `security` shows `_did not run_`. Lens findings still surface in the unaddressed-blockers list under namespaced ids like `security-breadth/secb-001`. Subsequent pipeline runs read the merged-in version of `judge.mjs` and operate normally.
+
 ---
 
 ## 2. CI Runtime Infrastructure
@@ -150,7 +172,7 @@ Required properties:
 **Evidence:** #77, #78
 
 ### 2.2 Pass only the active tool's minimal auth env into CI containers
-**Why:** Stable pattern = run review jobs through baked container config, pass only the runtime env the selected CLI actually reads. Current split: Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}`; Claude fixer jobs forward `ANTHROPIC_API_KEY=fake-key`, `ANTHROPIC_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`, and `GH_TOKEN=${WORKFLOW_PAT}`. Neither path should depend on OAuth/keychain passthrough.
+**Why:** Stable pattern = run review jobs through baked container config, pass only the runtime env the selected CLI actually reads. Current split: Codex reviewer jobs forward `OPENAI_API_KEY=fake-key` and `GH_TOKEN=${WORKFLOW_PAT}`; Claude fixer jobs forward `LLM_PROXY_API_KEY=fake-key`, `LLM_PROXY_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`, and `GH_TOKEN=${WORKFLOW_PAT}`. Neither path should depend on OAuth/keychain passthrough.
 **Before:** Earlier iterations tried to forward unused or mismatched LLM auth env vars directly, failed in confusing ways when container runtime forwarding differed from expectations.
 **Evidence:** #90, #100, #475
 

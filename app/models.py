@@ -3,11 +3,23 @@
 Reads model tier assignments from setup/model-tiers.json and exposes
 a single llm(tier) factory function. Validates model IDs at startup.
 
-Tiers:
-  expensive -> claude-opus-4-6 (complex reasoning: GET_TASK scoring)
-  medium    -> claude-sonnet-4-6 (intent classification, most nodes)
-  cheap     -> claude-haiku-4-5 (lightweight tasks)
-  reminder  -> claude-haiku-4-5 (reminder delivery cron)
+Tiers (model alias resolves via setup/model-tiers.json; per-tier reasoning
+behavior is set here):
+  expensive -> gemma4-small, think=on  (GET_TASK scoring; nuance matters)
+  medium    -> gemma4-small, think=on  (user-facing replies; shame-safety
+                                        contract depends on careful phrasing)
+  cheap     -> gemma4-small, think=off (label-only classification; reasoning
+                                        is wasted overhead — significant token
+                                        reduction at equivalent accuracy)
+  reminder  -> gemma4-small, think=on  (reminder cron; currently no caller)
+
+All tiers point at the same model alias because the LLM host can only
+hold one Gemma model in RAM at a time. Differentiation lives entirely
+in the think flag for now.
+
+Model IDs are sent as OpenAI-format chat-completion requests to the
+LiteLLM proxy at LLM_PROXY_BASE_URL. Adding a new provider family is
+just adding its prefix to _VALID_MODEL_PREFIXES.
 
 LangSmith guard: refuses boot when LANGSMITH_TRACING=true unless
 ALLOW_PRIVATE_TRACE_EXPORT=true is also set. Private user data (task titles,
@@ -27,7 +39,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 
 from app.observability.llm_callback import LLMObservabilityCallback
 
@@ -38,8 +50,31 @@ Tier = Literal["expensive", "medium", "cheap", "reminder"]
 
 _VALID_TIERS: frozenset[str] = frozenset(["expensive", "medium", "cheap", "reminder"])
 
-# Anthropic model prefix for validation
-_ANTHROPIC_PREFIX = "claude-"
+# Known model-ID prefixes accepted by the LiteLLM proxy. A startup-time
+# allowlist catches typos in setup/model-tiers.json before the first call.
+_VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
+
+# Per-tier extra request body forwarded to the LiteLLM proxy. The proxy
+# passes `think` straight through to the Ollama backend. Cheap tier turns
+# reasoning off because its sole caller (intent classifier) only needs a
+# label — significant token reduction with no accuracy loss on the
+# classify prompt.
+_TIER_EXTRA_BODY: dict[str, dict[str, Any]] = {
+    "cheap": {"think": False},
+}
+
+
+def _require_llm_proxy_config() -> tuple[str, str]:
+    """Return required LiteLLM proxy config, failing fast when absent."""
+    base_url = os.environ.get("LLM_PROXY_BASE_URL")
+    api_key = os.environ.get("LLM_PROXY_API_KEY")
+    if not base_url:
+        raise RuntimeError(
+            "LLM_PROXY_BASE_URL must point at the OpenAI-compatible LiteLLM /v1 endpoint"
+        )
+    if not api_key:
+        raise RuntimeError("LLM_PROXY_API_KEY must be set for the LiteLLM proxy")
+    return base_url, api_key
 
 
 def _check_langsmith_guard() -> None:
@@ -83,24 +118,32 @@ def _load_model_tiers() -> dict[str, str]:
             f"Expected tiers: {sorted(_VALID_TIERS)}"
         )
 
-    # Validate model IDs — must be Anthropic models for langchain-anthropic
+    # Validate model IDs against the known-prefix allowlist. The proxy is the
+    # source of truth for which aliases actually resolve; this check only
+    # catches obvious typos at startup.
     for tier, model_id in data.items():
         if tier not in _VALID_TIERS:
             continue  # Extra keys are ignored
-        if not isinstance(model_id, str) or not model_id.startswith(_ANTHROPIC_PREFIX):
+        if not isinstance(model_id, str) or not any(
+            model_id.startswith(p) for p in _VALID_MODEL_PREFIXES
+        ):
             raise RuntimeError(
                 f"setup/model-tiers.json tier '{tier}' has invalid model ID '{model_id}'. "
-                f"Anthropic models must start with '{_ANTHROPIC_PREFIX}'."
+                f"Model IDs must start with one of: {_VALID_MODEL_PREFIXES}."
             )
 
     return data
 
 
-def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> ChatAnthropic:
-    """Return a LangChain ChatAnthropic instance for the given tier.
+def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> ChatOpenAI:
+    """Return a LangChain ChatOpenAI instance pointing at the LiteLLM proxy.
 
     Model IDs are resolved from setup/model-tiers.json, validated at first call.
-    The ANTHROPIC_API_KEY environment variable must be set.
+    LLM_PROXY_BASE_URL must point at the proxy (OpenAI-compatible endpoint, i.e.
+    include the /v1 suffix); LLM_PROXY_API_KEY is forwarded as the bearer token.
+    Both env vars are required — startup fails if either is unset or empty. If the
+    proxy does not require auth, set LLM_PROXY_API_KEY to any non-empty placeholder
+    value in the runtime environment.
 
     An LLMObservabilityCallback is attached automatically, emitting
     llm.call.start / llm.call.end / llm.call.error events to structlog with
@@ -116,12 +159,13 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
             None is valid for callsites that don't pass a caller.
 
     Returns:
-        ChatAnthropic configured for the specified tier, with observability
+        ChatOpenAI configured for the specified tier, with observability
         callback attached.
 
     Raises:
-        RuntimeError: If model-tiers.json is missing or malformed, or if
-            LANGSMITH_TRACING=true without ALLOW_PRIVATE_TRACE_EXPORT.
+        RuntimeError: If model-tiers.json is missing or malformed, if
+            LANGSMITH_TRACING=true without ALLOW_PRIVATE_TRACE_EXPORT, or if
+            LLM_PROXY_BASE_URL or LLM_PROXY_API_KEY is unset or empty.
         ValueError: If tier is not a valid tier name.
     """
     if tier not in _VALID_TIERS:
@@ -132,12 +176,19 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     tiers = _load_model_tiers()
     model_id = tiers[tier]
 
+    base_url, api_key = _require_llm_proxy_config()
+
     kwargs: dict[str, Any] = {
-        "model_name": model_id,
+        "model": model_id,
         "temperature": temperature,
-        "max_tokens_to_sample": 1024,
+        "max_tokens": 1024,
+        "base_url": base_url,
+        "api_key": api_key,
     }
-    base_model = ChatAnthropic(**kwargs)
+    extra_body = _TIER_EXTRA_BODY.get(tier)
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+    base_model = ChatOpenAI(**kwargs)
 
     # Attach observability callback (one instance per llm() call so tier + caller
     # are baked into the handler and appear as fields on every log event).
@@ -152,3 +203,4 @@ def validate_startup() -> None:
     contains invalid model IDs, or if LangSmith guard fires.
     """
     _load_model_tiers()
+    _require_llm_proxy_config()
