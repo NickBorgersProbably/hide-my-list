@@ -18,7 +18,6 @@ from pytest_httpserver import HTTPServer
 
 import app.tools.notion as notion_module
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
