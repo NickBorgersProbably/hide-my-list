@@ -19,7 +19,7 @@ class _FakeAsyncClient:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.base_url = kwargs.get("base_url")
 
-    async def __aenter__(self) -> "_FakeAsyncClient":
+    async def __aenter__(self) -> _FakeAsyncClient:
         return self
 
     async def __aexit__(self, *args: Any) -> None:
