@@ -73,6 +73,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `migrations/0004_user_prefs.sql` — User preferences table
 - `migrations/0005_readonly_user.sql` — Adds `hml_readonly` Postgres role with GRANT SELECT for read-only DB access
 - `migrations/0006_reward_feedback_columns.sql` — Adds `feedback_emoji` and `feedback_at` columns to `reward_manifests`
+- `migrations/0007_reminder_scheduling_ledger.sql` — Adds `reminder_scheduling_ledger` table for deadline-driven reminder tracking; drops `reminder_outbox.notion_page_id` UNIQUE constraint and adds UNIQUE on `idempotency_key`
 - `tests/unit/` — Unit tests (no DATABASE_URL required)
 - `tests/integration/` — Integration tests; DB-backed tests require DATABASE_URL, HTTP-only tests do not
 - `tests/perf/` — Perf harness: latency + token stats per model, gated by `ENABLE_LLM_PERF=true`. See `docs/python-rewrite/llm-observability.md` for usage.
