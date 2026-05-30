@@ -1,0 +1,24 @@
+---
+# Deadline phrasing fixture: "<task> <weekday> before <time>" must be
+# treated as a reminder request, not as a plain task with a vague date.
+id: intake-remind-deadline-before-time-001
+node: intake
+tier: medium
+peer: "<test-peer-deadline>"
+inbound: "Submit sample form Tuesday before 9am"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: regex_require
+    pattern: "(?i)(remind|reminder|scheduled|set).*(tuesday|9\\s*am|09:00)"
+  - kind: judge
+    rubric: |
+      The response confirms a reminder was set for the task before the
+      named weekday/time deadline. It does NOT merely add a plain task
+      without acknowledging the timing. It does NOT mention internal
+      infrastructure. Score 1.0 for reminder plus timing, 0.5 for task
+      capture with timing but no reminder, 0.0 for task-only capture.
+    threshold: 0.7

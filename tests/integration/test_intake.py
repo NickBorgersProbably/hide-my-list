@@ -208,6 +208,75 @@ async def test_task_without_reminder_creates_notion_task_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unparseable_intake_output_saves_raw_task_and_alerts() -> None:
+    """Malformed intake JSON preserves capture without fabricating reminder scheduling."""
+    page_id = str(uuid.uuid4())
+    incoming = "Submit sample form Tuesday before 9am"
+    create_task_calls: list[dict[str, Any]] = []
+
+    async def mock_create_task(**kwargs: Any) -> dict:
+        create_task_calls.append(kwargs)
+        return _make_notion_page(page_id=page_id, title=incoming)
+
+    mock_llm_response = MagicMock()
+    mock_llm_response.content = (
+        '{"action": "save", "title": "Submit sample form", '
+        '"is_reminder": true, "remind_at": "2026-06'
+    )
+    mock_model = AsyncMock()
+    mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+    ops_enqueue = AsyncMock()
+
+    with (
+        patch("app.models.llm", return_value=mock_model),
+        patch("app.tools.notion.create_task", side_effect=mock_create_task),
+        patch("app.tools.notion.create_reminder", new_callable=AsyncMock) as create_reminder,
+        patch("app.tools.reminders.enqueue", new_callable=AsyncMock) as enqueue,
+        patch("app.tools.ops_alerts.enqueue", ops_enqueue),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        state: State = {
+            "peer": "<test-intake-parse-failure>",
+            "incoming": incoming,
+            "intent": "ADD_TASK",
+            "messages": [],
+            "active_task": None,
+            "streak": 0,
+            "tasks_completed_today": 0,
+            "user_prefs": {"timezone": "America/Chicago"},
+            "mood": None,
+            "available_minutes": None,
+            "conversation_state": "idle",
+            "pending_outbound": [],
+        }
+
+        result = await intake_node(state)
+
+    assert create_task_calls == [
+        {
+            "title": incoming,
+            "work_type": "focus",
+            "urgency": 50,
+            "time_estimate": 30,
+            "energy_required": "Medium",
+            "inline_steps": "",
+        }
+    ]
+    create_reminder.assert_not_awaited()
+    enqueue.assert_not_awaited()
+    ops_enqueue.assert_awaited_once()
+    assert ops_enqueue.await_args.kwargs["kind"] == "intake_parse_failed"
+
+    draft = result["pending_outbound"][0]
+    assert draft["recipient"] == "<test-intake-parse-failure>"
+    assert draft["notion_page_id"] == page_id
+    assert "added" in draft["body"].lower()
+    assert "timing" in draft["body"].lower()
+    assert "schedule" in draft["body"].lower()
+
+
+@pytest.mark.asyncio
 async def test_recurring_reminder_gets_explicit_response() -> None:
     """'every weekday at 8' receives a response (recurring not fully supported in v1).
 

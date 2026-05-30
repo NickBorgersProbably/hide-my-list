@@ -54,13 +54,16 @@ _VALID_TIERS: frozenset[str] = frozenset(["expensive", "medium", "cheap", "remin
 # allowlist catches typos in setup/model-tiers.json before the first call.
 _VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
 
-# Per-tier extra request body forwarded to the LiteLLM proxy. The proxy
-# passes `think` straight through to the Ollama backend. Cheap tier turns
-# reasoning off because its sole caller (intent classifier) only needs a
-# label — significant token reduction with no accuracy loss on the
-# classify prompt.
+# Per-tier kwargs forwarded to ChatOpenAI. Reasoning tiers do not set
+# max_tokens because local reasoning models spend output tokens on hidden
+# reasoning before the final answer; capping them can truncate structured
+# JSON. Cheap is label-only classification, so it keeps a small response cap
+# and disables reasoning overhead.
 _TIER_EXTRA_BODY: dict[str, dict[str, Any]] = {
     "cheap": {"think": False},
+}
+_TIER_MAX_TOKENS: dict[str, int] = {
+    "cheap": 1024,
 }
 
 
@@ -181,10 +184,11 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     kwargs: dict[str, Any] = {
         "model": model_id,
         "temperature": temperature,
-        "max_tokens": 1024,
         "base_url": base_url,
         "api_key": api_key,
     }
+    if tier in _TIER_MAX_TOKENS:
+        kwargs["max_tokens"] = _TIER_MAX_TOKENS[tier]
     extra_body = _TIER_EXTRA_BODY.get(tier)
     if extra_body:
         kwargs["extra_body"] = extra_body

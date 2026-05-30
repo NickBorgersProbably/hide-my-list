@@ -131,7 +131,7 @@ def test_valid_tier_returns_llm_instance() -> None:
 
 
 def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
-    """llm() must pass tier model id, temperature, max_tokens, base_url, and api_key to ChatOpenAI."""
+    """llm() must pass tier model id, temperature, base_url, and api_key to ChatOpenAI."""
     import json
     from pathlib import Path
     from unittest.mock import MagicMock, patch
@@ -155,7 +155,7 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
             call_kwargs = mock_cls.call_args.kwargs
             assert call_kwargs["model"] == expected_model
             assert call_kwargs["temperature"] == 0.0
-            assert call_kwargs["max_tokens"] == 1024
+            assert "max_tokens" not in call_kwargs
             assert call_kwargs["base_url"] == "https://proxy.test/v1"
             assert call_kwargs["api_key"] == "test-key"
 
@@ -230,6 +230,33 @@ def test_cheap_tier_sets_think_false_extra_body() -> None:
                 f"{tier} tier must NOT set think (defaults to thinking=on); "
                 f"got extra_body={extra!r}"
             )
+
+    models_module._load_model_tiers.cache_clear()
+
+
+def test_only_cheap_tier_sets_max_tokens() -> None:
+    """Reasoning tiers must avoid app-side output caps; cheap stays bounded."""
+    from unittest.mock import MagicMock, patch
+
+    from app import models as models_module
+    models_module._load_model_tiers.cache_clear()
+
+    fake_instance = MagicMock()
+    fake_instance.with_config.return_value = fake_instance
+
+    env = dict(os.environ)
+    env.pop("LANGSMITH_TRACING", None)
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
+
+    with patch.dict(os.environ, env, clear=True):
+        with patch("app.models.ChatOpenAI", return_value=fake_instance) as mock_cls:
+            for tier in ("medium", "expensive", "reminder"):
+                models_module.llm(tier)  # type: ignore[arg-type]
+                assert "max_tokens" not in mock_cls.call_args.kwargs
+
+            models_module.llm("cheap")
+            assert mock_cls.call_args.kwargs["max_tokens"] == 1024
 
     models_module._load_model_tiers.cache_clear()
 
