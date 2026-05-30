@@ -122,8 +122,18 @@ async def intake_node(state: State) -> dict[str, Any]:
         )
 
         # Parse due_at (deadline) — privacy-safe failure: no value, no exception.
+        #
+        # due_at and is_reminder are orthogonal per the prompt contract
+        # (docs/ai-prompts/intake.md Deadline Detection). Parse the deadline
+        # whenever the LLM provided it. The runtime currently routes
+        # is_reminder=true tasks to the reminder path (notion.create_reminder
+        # does not yet thread due_at into the Notion row), so for the v1
+        # implementation a deadline accompanying a reminder is captured at
+        # parse time but the milestone series is only scheduled for
+        # non-reminder tasks. Wiring due_at into reminder rows + scheduling a
+        # series for them is a follow-up.
         deadline_at: datetime | None = None
-        if due_at_str and not is_reminder:
+        if due_at_str:
             try:
                 deadline_at = _parse_iso_strict(due_at_str)
             except ValueError:
@@ -160,12 +170,16 @@ async def intake_node(state: State) -> dict[str, Any]:
         page_id = (notion_page or {}).get("id")
 
         # Inline deadline-series scheduling. Runs after task creation when a
-        # deadline was extracted. Failures are silent from the user's
-        # perspective — the daemon backstop (jobs.reminder_scheduler) will
-        # retry on the next nightly cycle. We never surface infra retry
-        # state to the user (psy-001 / docs/ai-prompts/shared.md).
+        # deadline was extracted AND the task is not a wall-clock reminder.
+        # Reminder rows are created on a different Notion page shape and the
+        # deadline-series wiring for those is a follow-up (see prm-002 in
+        # docs/ai-prompts/intake.md Deadline Detection). Failures are silent
+        # from the user's perspective — the daemon backstop
+        # (jobs.reminder_scheduler) will retry on the next nightly cycle. We
+        # never surface infra retry state to the user
+        # (psy-001 / docs/ai-prompts/shared.md).
         assigned_slots: list[tuple[str, datetime]] = []
-        if deadline_at is not None and page_id:
+        if deadline_at is not None and page_id and not is_reminder:
             assigned_slots = await _schedule_deadline_series(
                 page_id=page_id,
                 title=task_title,
@@ -213,9 +227,13 @@ async def intake_node(state: State) -> dict[str, Any]:
             "notion_page_id": page_id,
         }
 
+        # Privacy: never log raw peer phone numbers (DEV-AGENTS.md Safety).
+        # Match the redaction pattern used by signal_listener.message_received
+        # (`peer=peer[:4] + "***"`). Use `has_peer` boolean if peer is empty.
         log.info(
             "intake_node.saved",
-            peer=peer,
+            has_peer=bool(peer),
+            peer_redacted=(peer[:4] + "***") if peer else "",
             page_id=page_id,
             is_reminder=is_reminder,
             has_due_at=deadline_at is not None,
@@ -227,7 +245,11 @@ async def intake_node(state: State) -> dict[str, Any]:
         }
 
     except Exception:
-        log.exception("intake_node.error", peer=peer)
+        # Privacy: never log raw peer phone numbers in structured logs.
+        log.exception(
+            "intake_node.error",
+            peer_redacted=(peer[:4] + "***") if peer else "",
+        )
         fallback: OutboundDraft = {
             "recipient": peer,
             "body": "Got it, I'll add that to your list.",

@@ -100,15 +100,46 @@ async def schedule_for_task(
             )
 
             if used_fallback:
+                # Saturation/quiet-hours fallback is a load-bearing
+                # degradation path: the planner could not find a
+                # naturally-ideal slot inside the drift window, so it had
+                # to fall back to a less-preferred time. The reminder
+                # still goes out, but operationally this is a signal that
+                # slot capacity may be undersized for the current load.
+                # Emit an ops alert so the operator can investigate
+                # (matches the docstring contract in
+                # reminder_scheduler.py).
                 log.warning(
                     "reminder_scheduling.slot_fallback_used",
                     page_id=page_id,
                     milestone=m.label,
                 )
+                try:
+                    from app.tools import ops_alerts
+                    await ops_alerts.enqueue(
+                        kind="reminder_slot_fallback_used",
+                        body=(
+                            "reminder_scheduling: slot fallback used for a "
+                            f"{m.label} milestone (page {page_id!r}). "
+                            "Slot capacity may be undersized for current load."
+                        ),
+                        severity="warning",
+                    )
+                except Exception:
+                    # Privacy: do not surface ops-alert exception strings.
+                    log.exception("reminder_scheduling.ops_alert_failed")
 
-            # Build the human-readable reminder body (shame-safe, ADHD-friendly).
+            # Build the human-readable reminder body (shame-safe,
+            # ADHD-friendly). The previous draft ("is coming up <when> —
+            # want to start now?") combined countdown framing with a
+            # supervisory "start now" decision, which violates the
+            # shame-free messaging contract in design/adhd-priorities.md
+            # (avoid pressure / countdown) and the safe-exit-ramp clause
+            # in docs/ai-prompts/shared.md (no guilt or pressure). The
+            # new body is informational only: it surfaces the upcoming
+            # deadline as data, with no implicit demand to act now.
             humanized_deadline = _humanize_deadline(deadline_at, user_tz)
-            body = f"{title} is coming up {humanized_deadline} - want to start now?"
+            body = f"Heads up — {title} has a deadline {humanized_deadline}."
             idempotency_key = (
                 f"deadline-{page_id}-{m.label}-{deadline_at.isoformat()}"
             )

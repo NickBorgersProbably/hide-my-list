@@ -305,11 +305,26 @@ def _parse_page_for_scheduling(
     urgency_val = urgency_prop.get("number")
     urgency = int(urgency_val) if isinstance(urgency_val, (int, float)) else 50
 
-    # Peer — daemon resolves from env. Per-user routing belongs to a
-    # follow-up; the single-user deployment uses one peer.
-    peer = os.environ.get("OPS_ALERT_SIGNAL_NUMBER", "") or os.environ.get(
-        "DEFAULT_PEER", ""
-    )
+    # Peer — daemon resolves from AUTHORIZED_PEERS, the documented user
+    # routing source (see app/ingress/signal_listener.py). The Notion
+    # database is single-tenant, so any reminder the daemon sends must
+    # reach the user whose tasks live in that DB; AUTHORIZED_PEERS is the
+    # single source of truth for that identity.
+    #
+    # OPS_ALERT_SIGNAL_NUMBER is intentionally NOT used here: it is for
+    # operational alerts to the operator, which may be a different person
+    # than the user in dev/staging deployments. Routing user-facing
+    # reminders through it would misdeliver them.
+    #
+    # Single-tenant assumption: AUTHORIZED_PEERS may contain multiple
+    # entries (multi-device, future multi-user). The daemon picks the
+    # first one for now. Per-user routing belongs to a follow-up that
+    # also carries a per-task owner column. DEFAULT_PEER is honoured as
+    # a backwards-compat fallback for existing deployments that have not
+    # yet wired AUTHORIZED_PEERS into the scheduler environment.
+    raw_authorized = os.environ.get("AUTHORIZED_PEERS", "")
+    authorized = [p.strip() for p in raw_authorized.split(",") if p.strip()]
+    peer = authorized[0] if authorized else os.environ.get("DEFAULT_PEER", "")
     if not peer:
         log.info("reminder_scheduler.parse_skip_no_peer", page_id=page_id)
         return None

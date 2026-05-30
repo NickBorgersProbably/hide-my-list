@@ -68,25 +68,35 @@ When detected:
 
 ### Deadline Detection
 
-When the user's message contains a hard time bound for a task (distinct from
-notification intent), populate the `due_at` field. This is independent of
-`is_reminder` — deadlines and reminders are orthogonal:
+`due_at` and `is_reminder` are ORTHOGONAL. They model two different things and
+either or both can be set on a single task:
 
-- `is_reminder` = the user wants a wall-clock ping at a specific time.
-- `due_at` = the user has a hard time bound for the task itself.
+- `is_reminder = true` with `remind_at` set: the user wants a wall-clock ping
+  at a specific moment (a notification). The reminder worker delivers exactly
+  once at `remind_at`.
+- `due_at` set: the user has a hard time bound for the task itself (a
+  deadline). The scheduler builds an escalating series of pings as the
+  deadline approaches.
+- BOTH set: the user expressed both intents (e.g., "remind me at 5pm to
+  finish report by Friday"). Save `remind_at = 5pm today` AND
+  `due_at = Friday 17:00`. Do not suppress either field — they are
+  independent contracts.
+- Neither set: a task with no time bound. `due_at = null`,
+  `is_reminder = false`.
 
 Deadline phrases:
 - "before <date/day>", "by <date/day>", "due <date>"
 - "<date> at <time>", "at <time> <date>", "needs to be done <date>"
 
-When detected:
-- Set is_reminder = false (this is a deadline, not a wall-clock ping)
-- Resolve the phrase to ISO 8601 with timezone offset against current_time
+When a deadline phrase is detected:
+- Set `due_at` to the resolved ISO 8601 timestamp with timezone offset
 - Default timezone: {{ user_timezone | default('America/Chicago') }}
 - If a clock time is given ("by 10am tomorrow"), use that time
 - If no time is given ("by Friday"), default to 17:00 local on that day
-- Set urgency based on the usual rules — do NOT auto-set to 90 just because
+- Set urgency by the usual rules — do NOT auto-set to 90 just because
   there is a deadline. Urgency is a separate signal.
+- Do NOT clear `is_reminder` or `remind_at` if those were ALSO detected
+  in the same message. The two are independent.
 
 Set `due_at` to null when no deadline phrase is present.
 

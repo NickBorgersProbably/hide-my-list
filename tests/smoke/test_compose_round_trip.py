@@ -189,6 +189,38 @@ def test_app_receives_llm_proxy_env(compose_stack: object) -> None:
     assert "LLM_PROXY_BASE_URL=https://proxy.test/v1" in env_lines
 
 
+def test_app_receives_reminder_scheduling_env(compose_stack: object) -> None:
+    """Compose must thread reminder-scheduling knobs into the app container.
+
+    The four REMINDER_* vars tune the deadline-driven reminder scheduler
+    (slot bucket size, capacity, quiet hours). Defaults must reach the
+    app container even when the operator does not override them — otherwise
+    the daemon falls back to whatever Python-level default
+    `_env_defaults()` reads, which silently re-introduces the deployment-gap
+    bug class the smoke test exists to catch.
+    """
+    result = subprocess.run(  # noqa: S603
+        ["docker", "compose", "-f", str(_COMPOSE_FILE), "exec", "-T", "app", "env"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, f"could not inspect app env: {result.stderr}"
+    env_lines = set(result.stdout.splitlines())
+    assert "REMINDER_SLOT_MINUTES=30" in env_lines, (
+        "REMINDER_SLOT_MINUTES default did not reach the app container"
+    )
+    assert "REMINDER_SLOT_CAPACITY=2" in env_lines, (
+        "REMINDER_SLOT_CAPACITY default did not reach the app container"
+    )
+    assert "REMINDER_QUIET_START_HOUR=22" in env_lines, (
+        "REMINDER_QUIET_START_HOUR default did not reach the app container"
+    )
+    assert "REMINDER_QUIET_END_HOUR=8" in env_lines, (
+        "REMINDER_QUIET_END_HOUR default did not reach the app container"
+    )
+
+
 def test_app_boots_runtime(compose_stack: object) -> None:
     """App must start and produce logs without an error exit.
 

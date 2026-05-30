@@ -67,8 +67,20 @@ def _notion_page(page_id: str, due_at: datetime, urgency: int = 50) -> dict[str,
 
 @pytest.fixture(autouse=True)
 def _peer_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Provide DEFAULT_PEER env var so the daemon can resolve a recipient."""
-    monkeypatch.setenv("DEFAULT_PEER", "<peer>")
+    """Provide AUTHORIZED_PEERS env var so the daemon can resolve a recipient.
+
+    Fixes d-001 from PR 602: the daemon used to read OPS_ALERT_SIGNAL_NUMBER
+    or an undocumented DEFAULT_PEER. The documented user-routing source is
+    AUTHORIZED_PEERS (same env var the signal listener gates ingress on).
+    Single-tenant assumption: the first entry is the user. DEFAULT_PEER
+    remains as a backwards-compat fallback in the daemon, but new tests
+    should exercise the AUTHORIZED_PEERS code path explicitly.
+    """
+    monkeypatch.setenv("AUTHORIZED_PEERS", "<peer>")
+    # Also clear DEFAULT_PEER / OPS_ALERT_SIGNAL_NUMBER so the test
+    # cannot accidentally pass via a regressed fallback.
+    monkeypatch.delenv("DEFAULT_PEER", raising=False)
+    monkeypatch.delenv("OPS_ALERT_SIGNAL_NUMBER", raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -303,3 +315,96 @@ async def test_daemon_handles_notion_query_failure(
 
     # ops alert was enqueued.
     assert ops_enqueue.await_count >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test 5 — d-001 recipient routing: daemon uses AUTHORIZED_PEERS, not
+# OPS_ALERT_SIGNAL_NUMBER. The orphan path enqueues an outbox row whose
+# `peer` column must equal the first AUTHORIZED_PEERS entry, never the
+# ops alert recipient.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_daemon_routes_to_authorized_peers_not_ops_alert(
+    db_conn: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The daemon must not silently misdeliver a user reminder to the ops
+    alert recipient. Fixes d-001 from PR 602."""
+    import psycopg.rows
+
+    from app.scheduler.reminder_scheduler import run_reminder_scheduler
+    from app.tools import notion
+
+    # Override the autouse fixture: place a sentinel in AUTHORIZED_PEERS and
+    # a DIFFERENT sentinel in OPS_ALERT_SIGNAL_NUMBER so we can verify the
+    # daemon picked the right one.
+    monkeypatch.setenv("AUTHORIZED_PEERS", "+15555550111")
+    monkeypatch.setenv("OPS_ALERT_SIGNAL_NUMBER", "+15555550999")
+
+    page_id = f"page-{uuid.uuid4()}"
+    due_at = datetime.now(UTC) + timedelta(days=10)
+
+    monkeypatch.setattr(
+        notion, "query_tasks_with_unscheduled_deadlines",
+        AsyncMock(return_value={"results": [_notion_page(page_id, due_at)]}),
+    )
+    monkeypatch.setattr(
+        notion, "query_scheduled_tasks_with_deadlines",
+        AsyncMock(return_value={"results": []}),
+    )
+    monkeypatch.setattr(notion, "mark_reminder_scheduled", AsyncMock(return_value={}))
+
+    await run_reminder_scheduler()
+
+    async with db_conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+        await cur.execute(
+            "SELECT DISTINCT peer FROM reminder_outbox "
+            "WHERE notion_page_id = %s AND kind = 'deadline'",
+            (page_id,),
+        )
+        peers = [row["peer"] for row in await cur.fetchall()]
+
+    assert peers, "No outbox rows were created for the orphan task"
+    assert peers == ["+15555550111"], (
+        "Daemon routed deadline reminder to the wrong recipient. "
+        f"Expected ['+15555550111'] (AUTHORIZED_PEERS), got {peers}. "
+        "Routing user reminders to OPS_ALERT_SIGNAL_NUMBER is the d-001 bug."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 6 — APScheduler job wrapper dispatches to the daemon entry point.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_reminder_scheduler_job_dispatches_to_daemon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`run_reminder_scheduler_job` (the APScheduler-registered callable)
+    must actually invoke `reminder_scheduler.run_reminder_scheduler`.
+
+    The declared-jobs registration test in test_scheduler.py proves the
+    JobSpec is registered, but it does NOT prove the wrapper's body
+    dispatches correctly. If a future refactor renamed the daemon entry
+    point and left the wrapper pointing at a stub, that wouldn't be
+    caught without this test.
+    """
+    from app.scheduler import jobs as jobs_module
+    from app.scheduler import reminder_scheduler as scheduler_module
+
+    called = {"hits": 0}
+
+    async def _fake_run() -> None:
+        called["hits"] += 1
+
+    monkeypatch.setattr(scheduler_module, "run_reminder_scheduler", _fake_run)
+
+    await jobs_module.run_reminder_scheduler_job()
+
+    assert called["hits"] == 1, (
+        "run_reminder_scheduler_job did not dispatch to "
+        "reminder_scheduler.run_reminder_scheduler"
+    )
