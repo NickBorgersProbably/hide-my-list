@@ -489,7 +489,9 @@ Format: ISO 8601 with timezone (e.g., 2026-06-03T17:00:00-05:00)
 
 **Set by:** `create_task(due_at_iso=...)` when a deadline is provided. Independent of `urgency` — urgency reflects relative priority; `Due At` is a hard time bound.
 
-**Read by:** `query_tasks_with_unscheduled_deadlines()` — filters tasks where `Due At is_not_empty` and `Reminder Scheduled At is_empty` to surface deadline-bearing tasks that have not yet had reminders scheduled.
+**Read by:**
+- `query_tasks_with_unscheduled_deadlines()` — filters tasks where `Due At is_not_empty` and `Reminder Scheduled At is_empty` to surface deadline-bearing tasks that have not yet had reminders scheduled (orphan catch-up path).
+- `query_scheduled_tasks_with_deadlines()` — filters tasks where `Due At is_not_empty` and `Reminder Scheduled At is_not_empty` to surface already-scheduled tasks for deadline-edit detection. The daemon cross-checks the current `Due At` against the ledger's `deadline_at` (±60s tolerance) and reschedules on drift.
 
 ---
 
@@ -501,9 +503,11 @@ Timestamp marking that the automated reminder series for this task has been crea
 Format: ISO 8601 UTC (e.g., 2026-06-01T04:00:00+00:00)
 ```
 
-**Set by:** `mark_reminder_scheduled(page_id)` — PATCHes this field to UTC now. Serves as an idempotency guard: tasks with this field set are excluded by `query_tasks_with_unscheduled_deadlines()`.
+**Set by:** `mark_reminder_scheduled(page_id)` — PATCHes this field to UTC now. Called by `app/graph/nodes/intake.py` immediately after a successful inline deadline-series enqueue (the primary path for new tasks created with a deadline) AND by `app/scheduler/reminder_scheduler.py` after the nightly daemon backstop schedules an orphan series or reschedules following a deadline edit. Serves as an idempotency guard: tasks with this field set are excluded by `query_tasks_with_unscheduled_deadlines()` and routed instead to `query_scheduled_tasks_with_deadlines()` for edit detection.
 
-**Read by:** `query_tasks_with_unscheduled_deadlines()` — filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are returned.
+**Read by:**
+- `query_tasks_with_unscheduled_deadlines()` — filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are returned (orphan catch-up).
+- `query_scheduled_tasks_with_deadlines()` — filters to `Reminder Scheduled At is_not_empty` so already-scheduled tasks flow through the edit-detection path.
 
 ---
 
@@ -784,6 +788,8 @@ sequenceDiagram
 | Next sub-task | `parent_task_id = "{parent_id}" AND status = "pending"` (sort by sequence) |
 | Standalone tasks only | `parent_task_id IS NULL AND status != "has_subtasks"` |
 | Parent tasks | `status = "has_subtasks"` |
+| Unscheduled deadlines (orphan catch-up) | `Due At is_not_empty AND Reminder Scheduled At is_empty AND Status != "Completed" AND Is Reminder = false` (sort by Due At ascending) — `query_tasks_with_unscheduled_deadlines()` |
+| Scheduled deadlines (edit detection) | `Due At is_not_empty AND Reminder Scheduled At is_not_empty AND Status != "Completed" AND Is Reminder = false` (sort by Due At ascending) — `query_scheduled_tasks_with_deadlines()` |
 
 ---
 
@@ -811,6 +817,7 @@ sequenceDiagram
 | Resume task | `resume_count += 1, last_resumed_at → now, progressNotes += "[ts] Resumed (gap: Xm)"` |
 | Create sub-task | `parent_task_id, sequence, status = pending` |
 | Complete sub-task | `status → completed` (check if parent complete) |
+| Mark reminder series scheduled | `Reminder Scheduled At → UTC now` — `mark_reminder_scheduled(page_id)`. Called by `app/graph/nodes/intake.py` after successful inline deadline-series enqueue, and by `app/scheduler/reminder_scheduler.py` after the daemon backstop schedules an orphan or reschedules after a deadline edit. Serves as the idempotency guard that excludes the task from `query_tasks_with_unscheduled_deadlines()`. |
 
 ---
 

@@ -1,0 +1,39 @@
+---
+# Eval fixture: deadline phrase in user message must produce due_at in LLM output.
+# Verifies the Deadline Detection block in app/prompts/intake.md.j2 correctly
+# parses relative date phrases like "before next Wednesday" and emits a non-null
+# due_at field in the structured JSON output.
+#
+# This is the test-rig clause-2 coverage for the deadline-detection contract:
+# without a live-LLM fixture, mocked intake tests only exercise the post-LLM
+# parser, not whether the rendered prompt actually makes the model emit due_at.
+id: intake-deadline-phrase-001
+node: intake
+tier: medium
+peer: "<test-peer-deadline>"
+inbound: "I need to cancel my placeholder appointment before next Wednesday"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  # The intake JSON must contain a non-null due_at. "null" is the explicit
+  # signal that no deadline was detected; the regex below fails if the LLM
+  # emitted "due_at": null or omitted the field entirely.
+  - kind: regex_require
+    pattern: "\"due_at\"\\s*:\\s*\"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}"
+  # action must be "save", not "clarify" — the message is unambiguous.
+  - kind: regex_require
+    pattern: "\"action\"\\s*:\\s*\"save\""
+  # Plan-step framing should not appear for a simple single-step task.
+  - kind: regex_forbid
+    pattern: "(?i)(here'?s? your plan|step[s]?:|\\d+\\)\\s)"
+  - kind: judge
+    rubric: |
+      The JSON output must have action='save' and due_at set to a valid ISO 8601
+      timestamp on or before the user's next Wednesday at 17:00 local. Score 1.0
+      if both due_at is set (non-null, parseable ISO 8601 with timezone offset)
+      and action is 'save'. Score 0.5 if due_at is set but its date is wrong.
+      Score 0.0 if action is 'clarify' or due_at is null/missing.
+    threshold: 0.7

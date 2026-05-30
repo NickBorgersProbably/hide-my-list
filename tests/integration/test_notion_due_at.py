@@ -226,3 +226,84 @@ async def test_mark_reminder_scheduled_returns_response(
     result = await notion_module.mark_reminder_scheduled(fake_page_id)
 
     assert result["id"] == fake_page_id
+
+
+# ---------------------------------------------------------------------------
+# query_scheduled_tasks_with_deadlines (edit detection — daemon backstop)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_query_scheduled_deadlines_filter_shape(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
+    """query_scheduled_tasks_with_deadlines sends all 4 AND filter conditions.
+
+    Counterpart to test_query_unscheduled_deadlines_filter_shape. The key
+    difference is the Reminder Scheduled At clause — `is_not_empty` here
+    (already scheduled, candidate for edit detection) instead of `is_empty`
+    (never scheduled, orphan catch-up).
+
+    The daemon's monkeypatch-based tests would still pass if this query
+    filtered on `is_empty` by mistake; this test pins the actual HTTP
+    payload that goes to Notion.
+    """
+    notion_server.expect_request(
+        f"/databases/{fake_db_id}/query", method="POST"
+    ).respond_with_json({"results": []})
+
+    await notion_module.query_scheduled_tasks_with_deadlines()
+
+    req = notion_server.log[0][0]
+    body = _captured_body(req.data)
+    filters = body["filter"]["and"]
+
+    assert len(filters) == 4, (
+        f"Expected 4 ANDed conditions, got {len(filters)}: {filters}"
+    )
+
+    due_at_f = next(f for f in filters if f.get("property") == "Due At")
+    sched_at_f = next(f for f in filters if f.get("property") == "Reminder Scheduled At")
+    status_f = next(f for f in filters if f.get("property") == "Status")
+    is_rem_f = next(f for f in filters if f.get("property") == "Is Reminder")
+
+    assert due_at_f["date"]["is_not_empty"] is True
+    # The load-bearing edit-detection condition: scheduled tasks only.
+    assert sched_at_f["date"]["is_not_empty"] is True, (
+        "query_scheduled_tasks_with_deadlines must filter to "
+        "Reminder Scheduled At is_not_empty — otherwise it duplicates the "
+        "orphan-catch-up query and never detects deadline edits"
+    )
+    assert status_f["select"]["does_not_equal"] == "Completed"
+    assert is_rem_f["checkbox"]["equals"] is False
+
+
+@pytest.mark.asyncio
+async def test_query_scheduled_deadlines_sort_ascending(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
+    """query_scheduled_tasks_with_deadlines sorts by Due At ascending."""
+    notion_server.expect_request(
+        f"/databases/{fake_db_id}/query", method="POST"
+    ).respond_with_json({"results": []})
+
+    await notion_module.query_scheduled_tasks_with_deadlines()
+
+    req = notion_server.log[0][0]
+    body = _captured_body(req.data)
+    assert body["sorts"] == [{"property": "Due At", "direction": "ascending"}]
+
+
+@pytest.mark.asyncio
+async def test_query_scheduled_deadlines_returns_response(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
+    """query_scheduled_tasks_with_deadlines propagates the Notion response."""
+    page = {"object": "page", "id": "fake-page-id"}
+    notion_server.expect_request(
+        f"/databases/{fake_db_id}/query", method="POST"
+    ).respond_with_json({"results": [page]})
+
+    result = await notion_module.query_scheduled_tasks_with_deadlines()
+
+    assert result["results"] == [page]

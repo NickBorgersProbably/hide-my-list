@@ -149,12 +149,21 @@ async def dispatch_due_reminders(
         body = row["body"]
         notion_page_id = row["notion_page_id"]
         idempotency_key = row["idempotency_key"]
+        # kind column added in migration 0008. The worker branches on it after
+        # delivery: 'reminder' rows complete the Notion task; 'deadline' rows
+        # do NOT (deadline series rows nudge the user toward an unfinished
+        # task — the task remains in its current state).
+        # Default to 'reminder' for legacy rows that pre-date migration 0008
+        # (the column has DEFAULT 'reminder' at the DB layer; this is a belt
+        # for older psycopg cursors that may surface NULL for missing columns).
+        kind = row.get("kind") or "reminder"
         attempt = row["attempt"] + 1
 
         log.info(
             "reminder_worker.delivering",
             reminder_id=str(rid),
             attempt=attempt,
+            kind=kind,
         )
 
         try:
@@ -200,18 +209,24 @@ async def dispatch_due_reminders(
                 )
             await conn.commit()
 
-            # Mark Notion reminder as sent (idempotent, outside transaction)
-            try:
-                from app.tools.notion import complete_reminder
-                await complete_reminder(notion_page_id, "sent")
-            except Exception as notion_err:
-                log.warning(
-                    "reminder_worker.notion_complete_failed",
-                    reminder_id=str(rid),
-                    error=str(notion_err),
-                )
+            # Mark Notion reminder as sent (idempotent, outside transaction).
+            # SKIPPED for deadline-series rows: those rows live on the user's
+            # task page, and complete_reminder would set Status=Completed —
+            # which would silently complete the task after the first milestone
+            # ping. Deadline series rows just deliver the body; the task stays
+            # in its current state.
+            if kind == "reminder":
+                try:
+                    from app.tools.notion import complete_reminder
+                    await complete_reminder(notion_page_id, "sent")
+                except Exception as notion_err:
+                    log.warning(
+                        "reminder_worker.notion_complete_failed",
+                        reminder_id=str(rid),
+                        error=str(notion_err),
+                    )
 
-            log.info("reminder_worker.delivered", reminder_id=str(rid))
+            log.info("reminder_worker.delivered", reminder_id=str(rid), kind=kind)
             delivered_count += 1
 
         except Exception as exc:

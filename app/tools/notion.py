@@ -13,7 +13,8 @@ Covers all 9 verbs from scripts/notion-cli.sh:
 
 Plus deadline-reminder plumbing verbs:
   10. query_tasks_with_unscheduled_deadlines
-  11. mark_reminder_scheduled
+  11. query_scheduled_tasks_with_deadlines
+  12. mark_reminder_scheduled
 
 Plus:
   health_check() — lightweight connectivity probe used by notion_health job.
@@ -362,7 +363,46 @@ async def query_tasks_with_unscheduled_deadlines() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Verb 11 — mark_reminder_scheduled
+# Verb 11 — query_scheduled_tasks_with_deadlines (edit detection)
+# ---------------------------------------------------------------------------
+
+
+async def query_scheduled_tasks_with_deadlines() -> dict[str, Any]:
+    """Return tasks with both Due At and Reminder Scheduled At set.
+
+    Used by the reminder_scheduler daemon to detect deadline edits AFTER a
+    reminder series has been scheduled. The daemon cross-checks the current
+    Notion Due At against the ledger's deadline_at; mismatches trigger
+    supersede + reschedule.
+
+    4-condition AND filter:
+      - Due At is_not_empty
+      - Reminder Scheduled At is_not_empty (counterpart to
+        query_tasks_with_unscheduled_deadlines)
+      - Status != Completed
+      - Is Reminder = false
+
+    Sorted by Due At ascending.
+    """
+    payload = {
+        "filter": {
+            "and": [
+                {"property": "Due At", "date": {"is_not_empty": True}},
+                {"property": "Reminder Scheduled At", "date": {"is_not_empty": True}},
+                {"property": "Status", "select": {"does_not_equal": "Completed"}},
+                {"property": "Is Reminder", "checkbox": {"equals": False}},
+            ]
+        },
+        "sorts": [{"property": "Due At", "direction": "ascending"}],
+    }
+    async with _client_factory() as client:
+        resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]
+
+
+# ---------------------------------------------------------------------------
+# Verb 12 — mark_reminder_scheduled
 # ---------------------------------------------------------------------------
 
 

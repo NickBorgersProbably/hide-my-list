@@ -39,7 +39,7 @@ These are the authoritative behavioral contracts. The Python implementation in `
 
 The Python/LangGraph application. Safe to edit via PRs.
 
-- `app/tools/notion.py` — Notion API client (9 verbs + health_check)
+- `app/tools/notion.py` — Notion API client (12 verbs + health_check); deadline-reminder plumbing includes `query_tasks_with_unscheduled_deadlines`, `query_scheduled_tasks_with_deadlines`, and `mark_reminder_scheduled`
 - `app/tools/signal_client.py` — Signal bridge async client
 - `app/tools/reminders.py` — Reminder outbox CRUD
 - `app/tools/rewards.py` — Reward delivery (emoji + image; v1 scope)
@@ -59,8 +59,11 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/graph/nodes/complete.py` — COMPLETE intent node
 - `app/graph/nodes/send.py` — Terminal send node
 - `app/scheduler/scheduler.py` — APScheduler v3 wiring with PostgresJobStore
-- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `weekly_recap`
-- `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker
+- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `weekly_recap`, `reminder_scheduler`
+- `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker; branches on `reminder_outbox.kind` so that `kind='deadline'` rows do NOT trigger `notion.complete_reminder` (deadline-series pings nudge an unfinished task; only wall-clock `kind='reminder'` rows complete the task on delivery)
+- `app/scheduler/deadline_planner.py` — Pure-function milestone planner: tier selection (dense/standard/sparse), `plan_milestones`, `assign_slot` (load-balanced quiet-hours-aware), `format_reminder_summary`. No I/O. Env-tunable defaults via `REMINDER_SLOT_MINUTES`, `REMINDER_SLOT_CAPACITY`, `REMINDER_QUIET_START_HOUR`, `REMINDER_QUIET_END_HOUR`.
+- `app/scheduler/reminder_scheduling.py` — Shared `schedule_for_task` helper used by both intake-inline scheduling and the daemon backstop. Enqueues outbox rows with `kind='deadline'`, inserts ledger rows, exposes `supersede_ledger_rows` + `cancel_outbox_rows` + `get_active_deadline_for_page` for deadline-edit detection.
+- `app/scheduler/reminder_scheduler.py` — Daily backstop daemon (04:00 user TZ). Dual Notion query: orphan catch-up (Reminder Scheduled At is_empty) and edit-detection (Reminder Scheduled At is_not_empty, deadline cross-checked against ledger with ±60s tolerance). On edit detected, supersedes ledger rows + cancels outbox rows + reschedules.
 - `app/ingress/signal_listener.py` — Authorized Signal WebSocket consumer; routes reactions to reward feedback, schedules read receipts, maintains typing indicators around graph execution, and invokes the graph for text messages
 - `app/prompts/` — Jinja2 prompt templates (`*.md.j2`) for each intent
 - `app/observability/__init__.py` — Package marker for the observability module
@@ -74,6 +77,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `migrations/0005_readonly_user.sql` — Adds `hml_readonly` Postgres role with GRANT SELECT for read-only DB access
 - `migrations/0006_reward_feedback_columns.sql` — Adds `feedback_emoji` and `feedback_at` columns to `reward_manifests`
 - `migrations/0007_reminder_scheduling_ledger.sql` — Adds `reminder_scheduling_ledger` table for deadline-driven reminder tracking; drops `reminder_outbox.notion_page_id` UNIQUE constraint and adds UNIQUE on `idempotency_key`
+- `migrations/0008_reminder_outbox_kind.sql` — Adds `reminder_outbox.kind` column (`'reminder'|'deadline'`, default `'reminder'`) with CHECK constraint. The discriminator is consumed by `reminder_worker.py` to suppress `notion.complete_reminder` for `kind='deadline'` rows so the task is not silently marked Completed when a deadline ping fires.
 - `tests/unit/` — Unit tests (no DATABASE_URL required)
 - `tests/integration/` — Integration tests; DB-backed tests require DATABASE_URL, HTTP-only tests do not
 - `tests/perf/` — Perf harness: latency + token stats per model, gated by `ENABLE_LLM_PERF=true`. See `docs/python-rewrite/llm-observability.md` for usage.

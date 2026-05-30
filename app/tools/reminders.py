@@ -34,6 +34,7 @@ async def enqueue(
     body: str,
     due_at: datetime,
     idempotency_key: str,
+    kind: str = "reminder",
     reminder_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """Insert a new reminder into the outbox with state='pending'.
@@ -51,21 +52,27 @@ async def enqueue(
         body: Reminder message text.
         due_at: When the reminder should be sent (UTC).
         idempotency_key: Unique key per reminder; UNIQUE constraint prevents duplicate inserts.
+        kind: Discriminator — "reminder" (default; wall-clock reminder that
+            completes the Notion task on delivery) or "deadline" (milestone
+            in a deadline-driven reminder series; does NOT complete the task).
+            Migration 0008 added the kind column with a CHECK constraint
+            enforcing this set.
         reminder_id: Optional UUID; generated if not provided.
     """
     rid = reminder_id or uuid.uuid4()
     await conn.execute(
         """
         INSERT INTO reminder_outbox
-          (id, notion_page_id, peer, body, due_at, state, idempotency_key)
-        VALUES (%s, %s, %s, %s, %s, 'pending', %s)
+          (id, notion_page_id, peer, body, due_at, state, idempotency_key, kind)
+        VALUES (%s, %s, %s, %s, %s, 'pending', %s, %s)
         """,
-        (str(rid), notion_page_id, peer, body, due_at, idempotency_key),
+        (str(rid), notion_page_id, peer, body, due_at, idempotency_key, kind),
     )
     log.info(
         "reminders.enqueued",
         reminder_id=str(rid),
         due_at=due_at.isoformat(),
+        kind=kind,
     )
     return rid
 

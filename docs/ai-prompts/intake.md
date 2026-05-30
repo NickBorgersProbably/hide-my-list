@@ -211,6 +211,63 @@ Example:
     remind_at: "<now+1h ISO>",
     confirmation_message: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
 
+DEADLINE DETECTION:
+When the user's message contains a hard time bound for the task itself
+(distinct from a notification ping), populate the `due_at` field. `due_at`
+and `is_reminder` are ORTHOGONAL — they model two different things and
+either or both can be set on a single task:
+
+- `is_reminder = true` with `remind_at` set: the user wants a wall-clock
+  ping at a specific moment (a notification). The reminder worker delivers
+  exactly once at `remind_at`.
+- `due_at` set: the user has a hard time bound for the task itself (a
+  deadline). The scheduler builds an escalating series of pings as the
+  deadline approaches.
+- BOTH set: the user expressed both intents (e.g., "remind me at 5pm to
+  finish report by Friday"). Save `remind_at = 5pm today` AND
+  `due_at = Friday 17:00`. Do not suppress either field — they are
+  independent contracts.
+- Neither set: a task with no time bound. `due_at = null`,
+  `is_reminder = false`.
+
+Deadline phrases:
+- "before <date/day>", "by <date/day>", "due <date>"
+- "<date> at <time>", "at <time> <date>", "needs to be done <date>"
+
+When a deadline phrase is detected:
+- Set `due_at` to the resolved ISO 8601 timestamp with timezone offset
+- Default timezone: the user's configured timezone (`USER_TZ` env var,
+  default `America/Chicago`)
+- If a clock time is given ("by 10am tomorrow"), use that time
+- If no time is given ("by Friday"), default to 17:00 local on that day
+- Set urgency by the usual rules — do NOT auto-set to 90 just because
+  there is a deadline. Urgency is a separate signal.
+- Do NOT clear `is_reminder` or `remind_at` if those were ALSO detected
+  in the same message. The two fields are independent.
+
+Set `due_at` to null when no deadline phrase is present.
+
+Examples:
+  "Submit the placeholder form at 10am tomorrow" →
+    is_reminder: false, due_at: "<tomorrow>T10:00:00-06:00", title: "Submit placeholder form"
+  "Cancel the placeholder appointment before next Wednesday" →
+    is_reminder: false, due_at: "<next Wed>T17:00:00-06:00", title: "Cancel placeholder appointment"
+  "Remind me at 5pm to finish the report by Friday" →
+    is_reminder: true, remind_at: "<today>T17:00:00-06:00",
+    due_at: "<Fri>T17:00:00-06:00", title: "Finish the report"
+
+DEADLINE PERSISTENCE:
+When `due_at` is set on a non-reminder task, `app/graph/nodes/intake.py`
+calls `notion.create_task(due_at_iso=...)` which writes the `Due At`
+property on the Notion row. After successful task creation, the inline
+scheduler (`app/scheduler/reminder_scheduling.schedule_for_task`) builds
+the milestone series, enqueues outbox rows with `kind='deadline'`, and
+calls `notion.mark_reminder_scheduled(page_id)` to set the idempotency
+guard. If inline scheduling fails, the nightly `reminder_scheduler`
+daemon picks the task up via the unscheduled-deadline query. The
+user-facing confirmation never mentions retry state — failure is silent
+from the user's perspective.
+
 OUTPUT (JSON):
 
 If task is clear enough to save:
@@ -226,6 +283,7 @@ If task is clear enough to save:
   "energy_required": "...",
   "is_reminder": false,
   "remind_at": null,
+  "due_at": null,
   "use_hidden_subtasks": true|false,
   "sub_tasks": [
     {

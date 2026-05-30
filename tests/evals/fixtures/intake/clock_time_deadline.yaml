@@ -1,0 +1,33 @@
+---
+# Eval fixture: "at 10am tomorrow" sets exact clock time in due_at (not the
+# 17:00 end-of-day default). Verifies the Deadline Detection block correctly
+# distinguishes "clock time given" vs. "date only" paths.
+#
+# Test-rig clause-2 coverage: pins the explicit-clock-time branch of the
+# deadline-detection contract.
+id: intake-clock-time-deadline-001
+node: intake
+tier: medium
+peer: "<test-peer-clock>"
+inbound: "I need to submit the placeholder form at 10am tomorrow"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: regex_require
+    pattern: "\"action\"\\s*:\\s*\"save\""
+  # due_at must be present, ISO 8601, and contain a 10:00 clock time —
+  # not the 17:00 default the prompt uses when no clock time is supplied.
+  - kind: regex_require
+    pattern: "\"due_at\"\\s*:\\s*\"[0-9]{4}-[0-9]{2}-[0-9]{2}T10:00"
+  - kind: judge
+    rubric: |
+      The JSON output must have action='save' and due_at set to tomorrow at
+      10:00:00 in the user's timezone (America/Chicago). The clock time "10am"
+      must be preserved exactly — not replaced with the 17:00 end-of-day default.
+      Score 1.0 if due_at is set and contains T10:00 with a local timezone offset.
+      Score 0.5 if due_at is set but uses 17:00 instead of 10:00.
+      Score 0.0 if due_at is null or action is 'clarify'.
+    threshold: 0.7

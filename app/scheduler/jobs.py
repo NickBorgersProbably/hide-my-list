@@ -155,6 +155,18 @@ async def dispatch_check_ins() -> None:
     log.debug("dispatch_check_ins.tick")
 
 
+async def run_reminder_scheduler_job() -> None:
+    """Invoke the reminder_scheduler daemon (deadline-driven series backstop).
+
+    Fires once daily at 04:00 user-local. Picks up tasks whose inline
+    scheduling failed (orphans) and tasks whose Due At was edited after the
+    initial schedule (deadline-edit detection).
+    """
+    log.debug("reminder_scheduler.tick")
+    from app.scheduler.reminder_scheduler import run_reminder_scheduler
+    await run_reminder_scheduler()
+
+
 # ---------------------------------------------------------------------------
 # Declarative job list — single source of truth
 # ---------------------------------------------------------------------------
@@ -197,6 +209,15 @@ SCHEDULED_JOBS: list[JobSpec] = [
             timezone=_USER_TZ,
         ),
         func=generate_weekly_recap,
+    ),
+    JobSpec(
+        id="reminder_scheduler",
+        trigger=CronTrigger(
+            hour=4,
+            minute=0,
+            timezone=_USER_TZ,
+        ),
+        func=run_reminder_scheduler_job,
     ),
 ]
 
