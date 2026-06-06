@@ -1,7 +1,10 @@
 name: Python Validation
 
-# Runs ruff, mypy, and pytest on every PR that touches Python source files
-# under app/, migrations/, tests/, or scripts/*.py.
+# Runs on every PR so the required "Python Validation Required" check always
+# reports. The lint/type/test jobs (ruff, mypy, pytest-unit) are gated on the
+# `changes` job, which detects whether the PR touches Python source under
+# app/, migrations/, tests/, scripts/*.py, or pyproject.toml. On PRs with no
+# Python changes those jobs skip and the required check reports green quickly.
 #
 # This is a required check: ALL three gates (ruff, mypy, pytest-unit) must
 # pass before merge. Integration tests (pytest-integration) run only when
@@ -24,12 +27,6 @@ on:
       - main
       - master
       - '**'
-    paths:
-      - 'app/**'
-      - 'migrations/**'
-      - 'tests/**'
-      - 'scripts/*.py'
-      - 'pyproject.toml'
   workflow_dispatch:
     inputs:
       ref:
