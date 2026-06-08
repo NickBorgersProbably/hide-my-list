@@ -83,6 +83,8 @@ async def intake_node(state: State) -> dict[str, Any]:
         response_text = str(response.content).strip()
 
         parsed = _parse_intake_response(response_text)
+        if parsed is None:
+            return await _save_raw_task_after_parse_failure(peer=peer, incoming=incoming)
 
         if parsed.get("action") == "clarify":
             question = parsed.get("clarification_question", "Which task are you thinking of?")
@@ -165,13 +167,69 @@ async def intake_node(state: State) -> dict[str, Any]:
         }
 
     except Exception:
-        log.exception("intake_node.error", peer=peer)
+        log.exception("intake_node.error")
+        try:
+            from app.tools import ops_alerts
+
+            await ops_alerts.enqueue(
+                kind="intake_node_failed",
+                body="Intake node failed before it could confirm task capture.",
+                severity="warning",
+            )
+        except Exception:
+            log.exception("intake_node.ops_alert_failed")
         fallback: OutboundDraft = {
             "recipient": peer,
-            "body": "Got it, I'll add that to your list.",
+            "body": "I hit a problem and couldn't add that. Please send it again.",
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
+
+
+async def _save_raw_task_after_parse_failure(*, peer: str, incoming: str) -> dict[str, Any]:
+    """Preserve capture when intake JSON is malformed without fabricating reminder success."""
+    from app.tools import notion
+
+    log.warning("intake_node.parse_failed")
+
+    notion_page = await notion.create_task(
+        title=incoming[:200],
+        work_type="focus",
+        urgency=50,
+        time_estimate=30,
+        energy_required="Medium",
+        inline_steps="",
+    )
+    page_id = (notion_page or {}).get("id")
+
+    try:
+        from app.tools import ops_alerts
+
+        await ops_alerts.enqueue(
+            kind="intake_parse_failed",
+            body=(
+                "Intake LLM response could not be parsed; saved raw user message "
+                "as a plain task without scheduling a reminder."
+            ),
+            severity="warning",
+        )
+    except Exception:
+        log.exception("intake_node.parse_failed_ops_alert_failed")
+
+    draft: OutboundDraft = {
+        "recipient": peer,
+        "body": (
+            "I added that to your list, but I couldn't reliably read any reminder "
+            "timing. If that was meant to be timed, send the time again and I'll "
+            "schedule it."
+        ),
+        "notion_page_id": page_id,
+    }
+    log.info("intake_node.raw_task_saved_after_parse_failure", page_id=page_id)
+    return {
+        "pending_outbound": [draft],
+        "conversation_state": "idle",
+    }
 
 
 async def _create_reminder(
@@ -251,8 +309,8 @@ def _parse_remind_at(remind_at_str: str) -> datetime:
         raise ValueError(f"Cannot parse remind_at: {remind_at_str!r}") from exc
 
 
-def _parse_intake_response(response_text: str) -> dict[str, Any]:
-    """Extract JSON from LLM intake response."""
+def _parse_intake_response(response_text: str) -> dict[str, Any] | None:
+    """Extract JSON from LLM intake response, returning None when malformed."""
     # Try to find a JSON block
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
@@ -261,23 +319,9 @@ def _parse_intake_response(response_text: str) -> dict[str, Any]:
             if isinstance(loaded, dict):
                 return cast(dict[str, Any], loaded)
         except json.JSONDecodeError:
-            pass
+            return None
 
-    # Fallback: return a save action with the raw text as title
-    return {
-        "action": "save",
-        "title": response_text[:200],
-        "work_type": "focus",
-        "urgency": 50,
-        "time_estimate_minutes": 30,
-        "energy_required": "Medium",
-        "is_reminder": False,
-        "remind_at": None,
-        "use_hidden_subtasks": False,
-        "sub_tasks": [],
-        "inline_steps": "",
-        "confirmation_message": "Got it — added.",
-    }
+    return None
 
 
 def _build_prefs_context(user_prefs: Mapping[str, object]) -> str:
