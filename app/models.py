@@ -5,13 +5,18 @@ a single llm(tier) factory function. Validates model IDs at startup.
 
 Tiers (model alias resolves via setup/model-tiers.json; per-tier reasoning
 behavior is set here):
-  expensive -> gemma4-small, think=on  (GET_TASK scoring; nuance matters)
-  medium    -> gemma4-small, think=on  (user-facing replies; shame-safety
-                                        contract depends on careful phrasing)
-  cheap     -> gemma4-small, think=off (label-only classification; reasoning
-                                        is wasted overhead — significant token
-                                        reduction at equivalent accuracy)
-  reminder  -> gemma4-small, think=on  (reminder cron; currently no caller)
+  expensive -> gemma4-small, think=on,  uncapped (GET_TASK scoring; nuance matters)
+  medium    -> gemma4-small, think=on,  uncapped (user-facing replies + intake's
+                                        structured JSON; shame-safety contract
+                                        depends on careful phrasing)
+  cheap     -> gemma4-small, think=off, max_tokens=1024 (label-only
+                                        classification; reasoning is wasted
+                                        overhead and a small cap is free safety)
+  reminder  -> gemma4-small, think=on,  uncapped (reminder cron; currently no caller)
+
+Reasoning tiers send no max_tokens: think+JSON output must not be truncated, or
+the partial JSON fails to parse and a reminder is silently dropped. Only the
+label-only cheap tier carries an output cap (see _TIER_MAX_TOKENS).
 
 All tiers point at the same model alias because the LLM host can only
 hold one Gemma model in RAM at a time. Differentiation lives entirely
@@ -61,6 +66,17 @@ _VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
 # classify prompt.
 _TIER_EXTRA_BODY: dict[str, dict[str, Any]] = {
     "cheap": {"think": False},
+}
+
+# Per-tier output-token cap. Only the cheap tier is capped: its sole caller
+# (intent classifier) emits a single label, so a small ceiling is free safety.
+# Reasoning tiers (expensive/medium/reminder) are intentionally absent — they
+# run think=on and emit structured JSON (e.g. intake's full task object), and a
+# cap truncates that output mid-JSON. Truncated JSON then fails to parse and the
+# task is silently saved without its reminder. Tokens are cheap; correctness is
+# not — so reasoning tiers send no max_tokens and let the model finish.
+_TIER_MAX_TOKENS: dict[str, int] = {
+    "cheap": 1024,
 }
 
 
@@ -181,10 +197,12 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     kwargs: dict[str, Any] = {
         "model": model_id,
         "temperature": temperature,
-        "max_tokens": 1024,
         "base_url": base_url,
         "api_key": api_key,
     }
+    max_tokens = _TIER_MAX_TOKENS.get(tier)
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
     extra_body = _TIER_EXTRA_BODY.get(tier)
     if extra_body:
         kwargs["extra_body"] = extra_body
