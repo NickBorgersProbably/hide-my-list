@@ -43,9 +43,11 @@ NO-GO. The two later commits fixed exactly that failure.
 The check lives in the job rather than at dispatch time because the concurrency
 wait elapses before any job starts; freshness is only meaningful once the run
 has un-queued. The newest push always resolves to the live head, so it is never
-the run that gets dropped — a burst collapses to exactly one cycle, on the
-commit that survived. Gated to `pull_request` events: `/review` resolves its
-SHA from the API at run time and is head by construction.
+the run dropped. The guard skips cycles whose SHA is already stale when
+resolve runs; a push that lands after the freshness check passes can
+still produce a cycle on the now-superseded SHA. Gated to
+`pull_request` events: `/review` resolves its SHA from the API at run
+time and is head by construction.
 
 See `docs/agentic-pipeline-learnings.md` §1.19 for how this relates to the
 §1.13 GO short-circuit and the §1.14 merge-from-main inherit path.

@@ -3,8 +3,9 @@ name: Review pipeline v2 — entry
 # SINGLE entry point for the v2 review pipeline. Listens to PR events
 # and `/review` comments. Resolves the head SHA, runs SHA-keyed dedup,
 # and dispatches the orchestrator if and only if this run owns the
-# SHA. /review, reopen, push, and synchronize all collapse into the
-# same path with no per-trigger special-cases.
+# SHA. All triggers share the resolve/dedup path; per-trigger gates
+# apply after: the freshness check (§1.19) and GO short-circuit (§1.13)
+# run only on pull_request events — /review bypasses both.
 
 on:
   pull_request:
@@ -211,8 +212,9 @@ jobs:
       # superseded code.
       #
       # The newest push always resolves to the live head, so it is never the
-      # one skipped here: dropping stale SHAs collapses a burst of rapid
-      # pushes into exactly one cycle, on the commit that survived.
+      # one skipped here. This guard skips cycles whose SHA is already stale
+      # when resolve runs; a push that lands after this check passes can
+      # still produce a cycle on the now-superseded SHA.
       #
       # This check must live here rather than at dispatch time, because the
       # concurrency wait happens before any job runs — the freshness question
