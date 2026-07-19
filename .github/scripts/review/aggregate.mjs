@@ -27,6 +27,15 @@
 //      bare `id`, so two reviewers emitting the same id cannot
 //      cross-clear each other's blockers. The fixer must therefore
 //      emit `addressed[]` entries as `"<role>/<id>"` strings.
+//      Security is the one role whose artifact the fixer sees under a
+//      different name than the judge does: the fixer reads the raw
+//      `security-breadth` / `security-narrow` lens artifacts, while
+//      the judge consumes the merged `security` artifact those lenses
+//      collapse into. A lens-prefixed id therefore also matches under
+//      `security/`, so a fixer that namespaces by the artifact it
+//      actually read still clears the blocker. The lens form keeps
+//      matching too, for the pre-merge shape where the lenses reach
+//      aggregate() as two separate reviewers.
 //   5. The empty-reviewer set is NO-GO ("no reviewers ran").
 //   6. The all-abstain case is NO-GO ("no applicable reviewers"),
 //      not a vacuous GO. The pipeline should ensure at least one role
@@ -99,6 +108,37 @@ function nsId(role, id) {
   return `${role}/${id}`;
 }
 
+/** Lens role names that collapse into the canonical `security` role. */
+const SECURITY_LENS_ROLES = ["security-breadth", "security-narrow"];
+
+/**
+ * Expand a namespaced blocker id emitted by the fixer into every form
+ * that legitimately denotes the same finding.
+ *
+ * The fixer reads per-lens security artifacts (`security-breadth`,
+ * `security-narrow`) but the judge normally sees only the merged
+ * `security` artifact, so a lens-namespaced id would otherwise never
+ * match a blocker and would silently read as unaddressed. Blocker ids
+ * survive the merge unchanged, so rewriting the namespace suffices.
+ *
+ * The raw entry is kept alongside the rewritten one so the pre-merge
+ * shape — lens artifacts reaching aggregate() as two separate
+ * reviewers — still resolves. Only the namespace is rewritten, so this
+ * cannot clear a blocker owned by a non-security role.
+ *
+ * @param {string} entry
+ * @returns {string[]}
+ */
+function nsIdAliases(entry) {
+  if (typeof entry !== "string") return [];
+  for (const lens of SECURITY_LENS_ROLES) {
+    if (entry.startsWith(`${lens}/`)) {
+      return [entry, `security/${entry.slice(lens.length + 1)}`];
+    }
+  }
+  return [entry];
+}
+
 /**
  * Aggregate reviewer artifacts and a fix-result into a single verdict.
  * Fails closed on any input inconsistency.
@@ -167,7 +207,9 @@ export function aggregate(reviewers, fixResult) {
   }
 
   // (4) Resolve blockers by NAMESPACED id ("<role>/<id>").
-  const addressed = new Set(Array.isArray(fixResult.addressed) ? fixResult.addressed : []);
+  const addressed = new Set(
+    (Array.isArray(fixResult.addressed) ? fixResult.addressed : []).flatMap(nsIdAliases)
+  );
 
   const unaddressed = [];
   for (const r of reviewers) {
