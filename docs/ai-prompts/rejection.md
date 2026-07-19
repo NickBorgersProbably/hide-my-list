@@ -46,9 +46,13 @@ OUTPUT (JSON):
     "rejection_note": "[timestamp] {reason}"
   },
   "alternative_task_id": "..." or null,
-  "user_message": "conversational response with alternative"
+  "user_message": "conversational response with {task} if alternative_task_id is non-null"
 }
 ```
+
+When `alternative_task_id` is non-null, `user_message` uses the literal token
+`{task}` wherever it refers to the alternative task. The application substitutes
+the exact selected title before sending the message.
 
 ### Rejection Response Templates (Shame-Safe)
 
@@ -56,11 +60,11 @@ OUTPUT (JSON):
 
 | Category | Response Template |
 |----------|-------------------|
-| timing | "Got it — that one's too long right now. How about [shorter task]?" |
-| mood_mismatch | "Fair enough — that tells me what kind of work fits right now. How about [task]?" |
-| blocked | "I'll hold off on that one. In the meantime, try [task]?" |
+| timing | "Got it — that one's too long right now. How about {task}?" |
+| mood_mismatch | "Fair enough — that tells me what kind of work fits right now. How about {task}?" |
+| blocked | "I'll hold off on that one. In the meantime, try {task}?" |
 | already_done | "Oh nice, already done! Let me mark that off. Ready for another?" |
-| general | "No problem — that helps me learn what works for you. Here's something different: [task]?" |
+| general | "No problem — that helps me learn what works for you. Here's something different: {task}?" |
 
 ### Escalation After Multiple Rejections (Shame-Aware)
 
