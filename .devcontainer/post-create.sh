@@ -152,4 +152,20 @@ fi
 
 bash "$SCRIPT_DIR/configure-codex.sh"
 
+# Provision the project's Python environment. This is what makes `pytest
+# tests/unit/` work on a fresh clone with no further setup — and it is not
+# optional: postCreateCommand installs .githooks/, whose pre-commit hook runs
+# ruff and the unit suite. Without these dependencies the first commit in a new
+# container fails with "required command 'pytest' is not installed".
+#
+# uv owns the interpreter (pyproject.toml requires >=3.12; the base image's
+# system Python is not pinned to that). `uv pip install` rather than `uv sync`
+# so no uv.lock is written into the working tree — pyproject.toml already pins
+# every dependency to an exact version.
+echo "Provisioning Python environment (.venv)..."
+cd "$REPO_ROOT"
+uv venv --python 3.12 --allow-existing
+uv pip install --quiet --python "$REPO_ROOT/.venv/bin/python" -e ".[dev]"
+echo "Python environment ready: $("$REPO_ROOT/.venv/bin/python" --version)"
+
 echo "=== Devcontainer setup complete ==="

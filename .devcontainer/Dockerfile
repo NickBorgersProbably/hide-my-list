@@ -29,6 +29,22 @@ RUN set -eux; \
     tar -xzf "${tmp_dir}/${archive}" -C /usr/local/bin actionlint; \
     rm -rf "${tmp_dir}"
 
+# Install uv, which provisions the project's Python toolchain in post-create.
+# uv (not the base image's python3) owns the interpreter version: pyproject.toml
+# requires >=3.12 and the base image's system Python is not pinned to that.
+ARG UV_VERSION=0.11.14
+RUN set -eux; \
+    archive="uv-x86_64-unknown-linux-gnu.tar.gz"; \
+    base_url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION}"; \
+    tmp_dir="$(mktemp -d)"; \
+    curl -fsSL "${base_url}/${archive}" -o "${tmp_dir}/${archive}"; \
+    curl -fsSL "${base_url}/${archive}.sha256" -o "${tmp_dir}/${archive}.sha256"; \
+    (cd "${tmp_dir}" && sha256sum -c "${archive}.sha256"); \
+    tar -xzf "${tmp_dir}/${archive}" -C "${tmp_dir}"; \
+    install -m 0755 "${tmp_dir}/uv-x86_64-unknown-linux-gnu/uv" /usr/local/bin/uv; \
+    install -m 0755 "${tmp_dir}/uv-x86_64-unknown-linux-gnu/uvx" /usr/local/bin/uvx; \
+    rm -rf "${tmp_dir}"
+
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \

@@ -91,6 +91,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 
 Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude Code, Codex, etc.).
 
+- `.devcontainer/` — Devcontainer definition. `post-create.sh` provisions `.venv` via `uv` (Python 3.12, `-e ".[dev]"`) so a fresh clone can run `pytest tests/unit/` with no manual setup; `devcontainer.json` puts `.venv/bin` on `remoteEnv.PATH` so the `.githooks/pre-commit` gate resolves `pytest` / `ruff` without shell activation. CI's `Devcontainer Build Check` builds the image only — it does not run `postCreateCommand`, so `tests/unit/test_devcontainer_python_env.py` guards the provisioning wiring.
 - `.github/workflows/` — GitHub Actions workflow definitions
 - `.github/actions/` — Composite actions used by workflows
 - `.github/pull_request_template.md` — Default PR body template, including the `/review` fallback hint for missing initial review checks
