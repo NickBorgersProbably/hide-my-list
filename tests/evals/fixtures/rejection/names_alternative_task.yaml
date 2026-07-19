@@ -1,0 +1,63 @@
+---
+# Rejection scenario: the user declines a task and asks for something else.
+# The node picks an alternative from the candidate list and must NAME it.
+#
+# Regression coverage for the failure where the model selected a valid
+# alternative_task_id but referred to it only by duration ("how about this
+# 30-minute task instead?"), leaving the user with no way to know what was
+# suggested. send_node transmits `body` only — notion_page_id is metadata
+# and is never rendered — so an unnamed task is a dead-end message.
+id: rejection-names-alternative-001
+node: rejection
+tier: medium
+peer: "<test-peer-7>"
+inbound: "I tried but that one got complicated, anything else?"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id-1>"
+    title: "Draft the quarterly summary"
+    rejection_count: 0
+  conversation_state: active
+  available_minutes: 30
+  mood: neutral
+# Candidate pool the node reads via notion.query_pending(). Titles are
+# deliberately distinct from each other so the judge can tell whether the
+# response identifies a specific one.
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Draft the quarterly summary"
+    work_type: "Deep Work"
+    time_estimate: 90
+  - id: "<placeholder-page-id-2>"
+    title: "Water the office plants"
+    work_type: "Physical"
+    time_estimate: 10
+  - id: "<placeholder-page-id-3>"
+    title: "Sort the recycling bins"
+    work_type: "Physical"
+    time_estimate: 30
+contracts:
+  # Exact signature of the observed failure: the task referred to by
+  # duration alone, with no identifying noun.
+  - kind: regex_forbid
+    pattern: "(?i)\\bthis\\s+\\d+[-\\s]minute\\s+task\\b"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The response suggests a specific alternative task and names it
+      clearly enough that the user could tell WHICH task is being
+      suggested without having to ask.
+
+      Score 1.0 if the response identifies the alternative by its title
+      or an unambiguous paraphrase of it (e.g. "the recycling" for
+      "Sort the recycling bins").
+
+      Score 0.0 if the alternative is referred to only by an attribute
+      such as duration, size, or type ("this 30-minute task", "something
+      shorter", "an easier one") with no identifying noun, or if no
+      alternative is offered at all.
+
+      Judge only whether the task is identifiable. Do not score tone,
+      warmth, or shame-safety — other contracts cover those.
+    threshold: 0.8

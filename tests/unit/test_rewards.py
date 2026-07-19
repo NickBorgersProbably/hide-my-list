@@ -24,6 +24,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+def _fake_image(
+    path: str = "/tmp/reward_artifacts/test-image.png",
+    *,
+    theme_family: str = "test theme",
+    style: str = "test style",
+    palette: str = "test palette",
+) -> dict[str, str]:
+    """Build an ImageGeneration-shaped result for mocking generate_reward_image."""
+    return {
+        "path": path,
+        "theme_family": theme_family,
+        "style": style,
+        "palette": palette,
+    }
+
+
 class _FakeCursor:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
@@ -236,7 +252,11 @@ class TestImageGenFallback:
         fake_path = "/tmp/reward_artifacts/test-image.png"
         manifest_mock = AsyncMock(return_value=uuid.uuid4())
         with (
-            patch.object(rewards_module, "generate_reward_image", new=AsyncMock(return_value=fake_path)),
+            patch.object(
+                rewards_module,
+                "generate_reward_image",
+                new=AsyncMock(return_value=_fake_image(fake_path)),
+            ),
             patch.object(rewards_module, "write_reward_manifest", new=manifest_mock),
             patch.object(rewards_module, "compute_intensity", return_value=("high", 70)),
         ):
@@ -257,6 +277,11 @@ class TestImageGenFallback:
         manifest_kwargs = manifest_mock.await_args.kwargs
         assert manifest_kwargs["artifact_path"] == fake_path
         assert manifest_kwargs["reward_kind"] == "emoji+image"
+        # Visual descriptors are persisted so a later reaction can be
+        # attributed to them (migration 0011).
+        assert manifest_kwargs["theme_family"] == "test theme"
+        assert manifest_kwargs["style"] == "test style"
+        assert manifest_kwargs["palette"] == "test palette"
 
     @pytest.mark.asyncio
     async def test_lightest_never_attempts_image(self) -> None:
@@ -351,6 +376,215 @@ class TestImageGenFallback:
             for v in c.kwargs.values():
                 assert not isinstance(v, str) or "Placeholder" not in v, \
                     "task content must not appear in log fields"
+
+
+class TestImageGenerationCallContract:
+    """The parameters sent to the OpenAI images API must be valid for gpt-image-1.
+
+    Regression guard. generate_reward_image() wraps its whole API call in a bare
+    `except Exception: return None`, so an invalid parameter does not surface as
+    an error — every completion silently degrades to the emoji fallback and the
+    feature looks like it was never built. Mocking images.generate wholesale
+    (as the tests above do) cannot catch that, because a MagicMock accepts any
+    keyword argument. These tests assert on the call itself.
+    """
+
+    @staticmethod
+    def _capture_generate_kwargs() -> dict[str, Any]:
+        import asyncio
+        import base64
+        import tempfile
+
+        from app.tools.rewards import generate_reward_image
+
+        fake_image = MagicMock()
+        fake_image.b64_json = base64.b64encode(b"fake-image-bytes").decode()
+        fake_response = MagicMock()
+        fake_response.data = [fake_image]
+
+        generate_mock = AsyncMock(return_value=fake_response)
+        mock_client = MagicMock()
+        mock_client.images = MagicMock()
+        mock_client.images.generate = generate_mock
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(
+                os.environ, {"OPENAI_API_KEY": "test-key", "REWARD_ARTIFACTS_DIR": tmpdir}
+            ):
+                with patch("openai.AsyncOpenAI", MagicMock(return_value=mock_client)):
+                    result = asyncio.run(
+                        generate_reward_image(
+                            intensity="epic",
+                            streak_count=1,
+                            task_descriptions=["Placeholder task"],
+                        )
+                    )
+
+        assert result is not None, "image generation should have succeeded"
+        generate_mock.assert_awaited_once()
+        return dict(generate_mock.await_args.kwargs)
+
+    def test_response_format_is_not_sent(self) -> None:
+        """gpt-image-1 rejects response_format with a 400.
+
+        Per the openai SDK docstring for images.generate: "This parameter isn't
+        supported for the GPT image models, which always return base64-encoded
+        images." Sending it broke every reward image in production while all
+        unit tests still passed.
+        """
+        kwargs = self._capture_generate_kwargs()
+        assert "response_format" not in kwargs, (
+            "response_format must not be sent for gpt-image-1 — the API rejects it "
+            "and the failure degrades silently to the emoji fallback"
+        )
+
+    def test_only_sends_parameters_the_sdk_accepts(self) -> None:
+        """Every kwarg must be a real parameter of the installed SDK method.
+
+        Catches typos and parameters dropped in an SDK upgrade, which would
+        otherwise fail the same silent way.
+        """
+        import inspect
+
+        from openai.resources.images import AsyncImages
+
+        accepted = set(inspect.signature(AsyncImages.generate).parameters)
+        unknown = set(self._capture_generate_kwargs()) - accepted
+        assert not unknown, f"parameters not accepted by the installed SDK: {sorted(unknown)}"
+
+    def test_sends_expected_model_and_size(self) -> None:
+        """Model/size/quality must match the docs/reward-system.md technical table."""
+        kwargs = self._capture_generate_kwargs()
+        assert kwargs["model"] == "gpt-image-1"
+        assert kwargs["size"] == "1024x1024"
+        # Epic tier uses high quality; all other tiers use auto.
+        assert kwargs["quality"] == "high"
+        assert kwargs["n"] == 1
+
+
+class TestFeedbackWeightedSelection:
+    """Emoji reactions must actually steer future image selection.
+
+    apply_feedback_weight() existed but was never called, and the columns it
+    matches on were never persisted, so reactions could not influence anything.
+    """
+
+    @staticmethod
+    def _history(theme: str, score: int, count: int = 6) -> list[dict[str, Any]]:
+        now = datetime.now(UTC)
+        return [
+            {
+                "score": score,
+                "theme_family": theme,
+                "style": "majestic illustration",
+                "palette": "fire gold",
+                "timestamp": now.isoformat(),
+            }
+            for _ in range(count)
+        ]
+
+    @staticmethod
+    def _weights_for(history: list[dict[str, Any]]) -> dict[str, float]:
+        """Return the selection weight _select_theme assigns to each theme.
+
+        Asserts on the weights handed to random.choices rather than on sampled
+        outcomes. Sampling would be flaky by construction: the nudge is capped
+        at +/-0.5, so a favored theme in a 5-theme pool only moves from p=0.20
+        to p=0.27, and any threshold between those is within normal variance.
+        """
+        from app.tools import rewards as rewards_module
+
+        captured: dict[str, float] = {}
+
+        def fake_choices(
+            population: list[dict[str, str]],
+            weights: list[float],
+            k: int = 1,
+        ) -> list[dict[str, str]]:
+            for candidate, weight in zip(population, weights, strict=True):
+                captured[candidate["theme_family"]] = weight
+            return [population[0]]
+
+        with patch.object(rewards_module.random, "choices", fake_choices):
+            rewards_module._select_theme(intensity="high", feedback_history=history)
+
+        assert captured, "_select_theme must select via weighted random choice"
+        return captured
+
+    def test_positively_rated_theme_is_favored(self) -> None:
+        """A theme the user reacted positively to gets a higher selection weight."""
+        liked = "phoenix rising from golden flames"
+        weights = self._weights_for(self._history(liked, score=1))
+
+        others = [w for theme, w in weights.items() if theme != liked]
+        assert weights[liked] > max(others), (
+            f"liked theme weight {weights[liked]} should exceed all others {others}"
+        )
+
+    def test_negatively_rated_theme_is_disfavored_but_still_possible(self) -> None:
+        """Negative feedback reduces a theme's weight without zeroing it.
+
+        Novelty is a hard requirement of docs/reward-system.md — habituation is
+        the failure mode the image system exists to prevent — so no theme may
+        ever be permanently excluded by feedback.
+        """
+        disliked = "phoenix rising from golden flames"
+        weights = self._weights_for(self._history(disliked, score=-1))
+
+        others = [w for theme, w in weights.items() if theme != disliked]
+        assert weights[disliked] < min(others), "negative feedback should reduce the weight"
+        assert all(w > 0 for w in weights.values()), (
+            "feedback must nudge, never permanently exclude a theme"
+        )
+
+    def test_feedback_weight_stays_within_documented_bounds(self) -> None:
+        """Weights stay in [0.5, 1.5] no matter how lopsided the history.
+
+        docs/reward-system.md pins this range; it is what keeps one strong
+        reaction from collapsing selection onto a single theme.
+        """
+        liked = "phoenix rising from golden flames"
+        lopsided = self._history(liked, score=1, count=50)
+        weights = self._weights_for(lopsided)
+
+        assert all(0.5 <= w <= 1.5 for w in weights.values()), weights
+
+    def test_no_feedback_selects_from_full_pool(self) -> None:
+        """With no history, selection is unbiased across the intensity pool."""
+        from app.tools.rewards import _THEME_POOLS, _select_theme
+
+        picks = {
+            _select_theme(intensity="low", feedback_history=[])["theme_family"]
+            for _ in range(200)
+        }
+        assert picks == {t["theme"] for t in _THEME_POOLS["low"]}
+
+    def test_sensitive_tasks_ignore_user_style_preferences(self) -> None:
+        """The sensitive-task guardrail allowlist wins over user preferences."""
+        from app.tools.rewards import _SENSITIVE_THEMES, _select_theme
+
+        selection = _select_theme(
+            intensity="epic",
+            sensitive_task=True,
+            user_prefs={"preferred_styles": ["neon airbrush"], "preferred_palettes": ["hot pink"]},
+        )
+        assert selection["style"] != "neon airbrush"
+        assert selection["palette"] != "hot pink"
+        assert selection["theme_family"] in {t["theme"] for t in _SENSITIVE_THEMES}
+
+    def test_user_preferences_drive_style_and_palette(self) -> None:
+        """Non-sensitive rewards honor the user_prefs.rewards taste profile."""
+        from app.tools.rewards import _select_theme
+
+        selection = _select_theme(
+            intensity="medium",
+            user_prefs={
+                "preferred_styles": ["storybook watercolor"],
+                "preferred_palettes": ["cozy pastel glow"],
+            },
+        )
+        assert selection["style"] == "storybook watercolor"
+        assert selection["palette"] == "cozy pastel glow"
 
     def test_fallback_reward_pool_has_min_size(self) -> None:
         """Fallback reward pool must have at least 12 entries."""
@@ -481,6 +715,9 @@ class TestRewardFeedback:
                 "feedback_at": feedback_at,
                 "intensity": "high",
                 "reward_kind": "emoji+image",
+                "theme_family": "phoenix rising from golden flames",
+                "style": "majestic illustration",
+                "palette": "fire gold",
             }
         ]
         mock_conn = MagicMock()
@@ -500,6 +737,10 @@ class TestRewardFeedback:
                 "timestamp": feedback_at.isoformat(),
                 "intensity": "high",
                 "reward_kind": "emoji+image",
+                # Carried through so apply_feedback_weight() can match on them.
+                "theme_family": "phoenix rising from golden flames",
+                "style": "majestic illustration",
+                "palette": "fire gold",
             }
         ]
 
@@ -513,7 +754,7 @@ class TestRewardFeedback:
             {"score": 1, "timestamp": "2026-05-26T12:00:00+00:00"},
             {"score": 1, "timestamp": "2026-05-25T12:00:00+00:00"},
         ]
-        image_mock = AsyncMock(return_value="/tmp/reward_artifacts/test-image.png")
+        image_mock = AsyncMock(return_value=_fake_image())
 
         with (
             patch.object(rewards_module, "load_feedback_history", new=AsyncMock(return_value=history)) as load_mock,
@@ -541,7 +782,7 @@ class TestRewardFeedback:
         async def crashing_history(_peer: str) -> list[dict[str, Any]]:
             raise RuntimeError("DB unavailable")
 
-        image_mock = AsyncMock(return_value="/tmp/reward_artifacts/test-image.png")
+        image_mock = AsyncMock(return_value=_fake_image())
 
         with (
             patch.object(rewards_module, "load_feedback_history", new=crashing_history),

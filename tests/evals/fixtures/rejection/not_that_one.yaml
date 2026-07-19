@@ -9,9 +9,21 @@ peer: "<test-peer-6>"
 inbound: "not that one"
 prior_state:
   active_task:
-    notion_page_id: "<placeholder-page-id>"
+    page_id: "<placeholder-page-id-1>"
     title: "<placeholder-task>"
   conversation_state: active
+# Candidate pool read via notion.query_pending(). Without this the node
+# sees an empty pool and can only offer a graceful exit, which the rubric
+# accepts — the fixture would pass without exercising alternative selection.
+notion_tasks:
+  - id: "<placeholder-page-id-2>"
+    title: "Water the office plants"
+    work_type: "Physical"
+    time_estimate: 10
+  - id: "<placeholder-page-id-3>"
+    title: "Sort the recycling bins"
+    work_type: "Physical"
+    time_estimate: 30
 contracts:
   - kind: regex_forbid
     pattern: "(?i)\\bwhy\\s+not\\??"
@@ -25,4 +37,12 @@ contracts:
       It does NOT demand a reason. It offers either a different task
       or a graceful exit ("want to take a break?" etc.). Score 1.0
       for both validation + forward step, 0.0 for any pressure.
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      If the response suggests an alternative task, it names the specific
+      alternative task in the user-visible text. A vague reference such as
+      "this 30-minute task", "something different", or "the next task" without
+      a task name scores 0.0. If the response offers only a graceful exit
+      without suggesting an alternative task, score 1.0.
     threshold: 0.8

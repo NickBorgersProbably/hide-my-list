@@ -42,7 +42,7 @@ there's no scheduled trigger (it boots the full stack and is too slow for PR CI)
 
 ---
 
-## The Nine Bug Classes
+## The Ten Bug Classes
 
 Each bug class leaves a permanent test. Fix -> regression test ->
 `tests/regressions/bug_<NNNN>_<slug>/`. The catalog grows; we don't relearn.
@@ -58,6 +58,7 @@ Each bug class leaves a permanent test. Fix -> regression test ->
 | 7 | Migration filename collisions | `tests/unit/test_migration_filenames.py` | Unique prefixes, monotonic sequence, format `\d{4}_[a-z][a-z0-9_]*.sql` |
 | 8 | mypy suppression sprawl | `tests/unit/test_mypy_suppression_budget.py` | Count of `ignore_errors = true` overrides matches frozen baseline; can only shrink |
 | 9 | Production dependency pin staleness | `tests/unit/test_signal_cli_pin.py` | Image pinned by immutable digest AND a scheduled refresh workflow exists and targets the same image |
+| 10 | Silent degradation behind intentional exception-swallowing, masked by a permissive mock | `tests/unit/test_rewards.py` (`TestImageGenerationCallContract`) | Assert outbound kwargs shape; validate each kwarg against `inspect.signature(real_dependency)` — mock return value is same whether call is valid or not |
 
 ---
 
@@ -178,6 +179,11 @@ prior_state:
   last_reminder_at: "2026-05-26T14:00:00Z"
   active_task_title: "<placeholder>"
 tier: medium
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Water the office plants"
+    work_type: "Physical"
+    time_estimate: 10
 contracts:
   - kind: regex_forbid
     pattern: "(?i)(can(not|'t)|not able to)\\s+send\\s+reminders"
@@ -190,10 +196,25 @@ contracts:
     threshold: 0.8
 ```
 
+`notion_tasks` declares the candidate pool the node reads via
+`notion.query_pending()`. The runner translates these flat mappings into
+Notion's nested property shape and serves them from a stubbed client;
+writes are accepted and discarded. Fixtures for nodes that read tasks
+(`selection`, `rejection`) must declare a pool — an eval that reaches a
+live Notion database scores whatever happens to be in it that day, and one
+that reaches an empty pool scores a degenerate "nothing to suggest" reply.
+
+Nodes catch their own exceptions and return a hand-written fallback
+message. Those fallbacks are shame-safe by construction, so a fixture that
+scores one passes its tone contracts without the model having been called.
+The runner detects the node's terminal `<node>_node.error` event and fails
+the fixture as an error rather than scoring the fallback. When adding a
+node, keep that event name so the guard covers it.
+
 Contract kinds:
 - `regex_forbid` / `regex_require` — deterministic; no LLM
 - `json_schema` — pydantic validation of structured outputs (intake node)
-- `judge` — qualitative rubric scored by a stronger judge LLM (Sonnet 4.6)
+- `judge` — qualitative rubric scored by a stronger judge LLM (defaults to `claude-sonnet-5`; override via `EVAL_JUDGE_MODEL`)
 - `shame_safe` — judge with fixed ADHD-safety rubric from `design/adhd-priorities.md`
 
 Privacy invariant: all fixtures use placeholder values (`<test-peer>`,

@@ -96,4 +96,6 @@ Always set `new_sha` to `${REVIEWED_SHA}` — host commit step overwrites with r
 
 `addressed[]` and `skipped[].id` MUST be namespaced as `<role>/<id>`. Judge fails closed on bare ids — prevents two reviewers' colliding ids from cross-clearing.
 
+Valid namespaces: `design`, `security`, `psych`, `docs`, `prompt`, `test`. Security runs as two lenses whose artifacts you read directly (`reviewer-security-breadth-<sha>`, `reviewer-security-narrow-<sha>`, carrying `role: "security-breadth"` / `"security-narrow"`), but the judge consumes the single merged `security` artifact — so namespace security blockers from either lens as `security/<id>`. Blocker ids are unchanged by the merge; only the namespace differs.
+
 `input_sha` MUST equal `${REVIEWED_SHA}`. Judge fails closed on mismatch.
