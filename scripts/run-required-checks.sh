@@ -288,9 +288,20 @@ run_pre_commit_python_checks() {
   fi
 
   require_command ruff
-  require_command pytest
   echo "=== Ruff lint on staged Python files ==="
   ruff check "${targets[@]}"
+
+  # The unit suite needs the project's runtime dependencies importable.
+  # Contexts that commit without an installed project — notably the review
+  # fixer's host-side commit step — set HML_SKIP_HOOK_PYTEST=1 and rely on
+  # python-validation.yml's pytest-unit required check instead, which runs
+  # with the full dependency set on Python 3.12.
+  if [ "${HML_SKIP_HOOK_PYTEST:-0}" = "1" ]; then
+    echo "=== Pytest unit suite: skipped (HML_SKIP_HOOK_PYTEST=1) ==="
+    return 0
+  fi
+
+  require_command pytest
   echo "=== Pytest unit suite ==="
   pytest tests/unit/ -x -q
 }

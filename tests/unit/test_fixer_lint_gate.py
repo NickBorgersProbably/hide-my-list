@@ -59,10 +59,15 @@ def test_install_step_precedes_lint_gate() -> None:
 
     The host commit step sets core.hooksPath=.githooks, which activates
     .githooks/pre-commit on every fixer commit. The hook calls
-    scripts/run-required-checks.sh, which hard-fails when yamllint / ruff /
-    pytest are missing — and GH Actions hosts don't ship them by default.
+    scripts/run-required-checks.sh, which hard-fails when yamllint / ruff
+    are missing — and GH Actions hosts don't ship them by default.
     Without the install step, the fixer aborts every commit on a workflow PR
     with "required command 'yamllint' is not installed".
+
+    pytest is deliberately excluded: the unit suite needs the project's
+    runtime dependencies importable, which the host job does not install.
+    The commit step sets HML_SKIP_HOOK_PYTEST=1 instead — see
+    tests/unit/test_fixer_pytest_hook_skip.py.
     """
     text = _workflow_text()
     install_pos = text.find("Install pre-commit hook tooling")
@@ -70,16 +75,16 @@ def test_install_step_precedes_lint_gate() -> None:
     commit_pos = text.find("Commit fixer working-tree changes")
     assert install_pos != -1, (
         "Expected an 'Install pre-commit hook tooling' step in review-fixer.yml. "
-        "The host commit's pre-commit hook needs yamllint / ruff / pytest on PATH; "
+        "The host commit's pre-commit hook needs yamllint / ruff on PATH; "
         "GH Actions runners don't provide them."
     )
     assert install_pos < lint_pos < commit_pos, (
         "Install step must run before the ruff lint gate (which uses ruff) and "
-        "before the commit step (whose hook uses yamllint / ruff / pytest)."
+        "before the commit step (whose hook uses yamllint / ruff)."
     )
     install_block_end = text.find("\n      - name:", install_pos + 1)
     install_block = text[install_pos:install_block_end] if install_block_end != -1 else text[install_pos:]
-    for tool in ("yamllint", "ruff", "pytest"):
+    for tool in ("yamllint", "ruff"):
         assert tool in install_block, (
             f"Install step must install '{tool}'. The pre-commit hook requires it "
             f"whenever the fixer stages a file in its scope."
