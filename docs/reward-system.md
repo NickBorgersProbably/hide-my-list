@@ -365,7 +365,7 @@ Supported preference dimensions:
 - **Avoid list** - tags or vibes to suppress
 - **Humor level** - `subtle`, `playful`, or `maximal`
 
-**Input constraint:** preference values are visual descriptors only — art styles, palettes, and subject categories. `preferred_styles` and `preferred_palettes` are persisted verbatim onto `reward_manifests` as `style` and `palette`, which the manifest contract treats as non-private and safe to read in ops queries. Personal detail must never be written into these fields; anything identifying belongs nowhere in the reward preference profile.
+**Input constraint:** preference values are intended as visual descriptors — art styles, palettes, and subject categories — and must not contain personal detail. `preferred_styles` and `preferred_palettes` are persisted verbatim onto `reward_manifests` as `style` and `palette` when an image is generated. These strings originate from user-supplied preference text with no runtime allowlist enforcement; treat `style` and `palette` manifest columns as user-provided text that may not be free of personal detail in ops queries.
 
 #### Streak Enhancements
 
@@ -407,8 +407,7 @@ reaction can be attributed to them:
 - `style` (TEXT) — the selected art style
 - `palette` (TEXT) — the selected color palette
 
-These are generic art descriptors, not user data, and are NULL for emoji-only
-rewards.
+These columns are NULL for emoji-only rewards and for rows written when image generation fails.
 
 **Idempotency:** `feedback_at IS NULL` prevents double-counting. If a user reacts twice, only the first reaction for a given reward row is recorded. A later reaction may still match another unrated reward inside the tight timestamp window.
 

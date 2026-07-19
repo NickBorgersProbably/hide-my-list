@@ -52,6 +52,10 @@ Lens — six contract clauses:
    - A structural lint in `tests/unit/` asserting the two-property invariant: (1) the image is pinned by immutable sha256 digest, not a mutable tag; and (2) a scheduled refresh workflow exists that targets the same image and validates the digest before writing. (Catches bug class 9 — production dependency pin staleness; see `tests/unit/test_signal_cli_pin.py` as the canonical template.)
    - PRs that remove or weaken an existing production-dependency pin lint (e.g., deleting `test_signal_cli_pin.py` or removing the digest-validation assertion) are blockers under clause 6 unless the dependency itself is also removed.
 
+9. **Side-effecting calls wrapped in intentional exception-swallowing handlers** MUST have:
+   - A test that asserts the outbound call's kwargs shape directly — not just the fallback return value, which looks identical whether the call was valid or not.
+   - A test that validates each kwarg name against `inspect.signature(real_dependency)` so a parameter rejected or removed by a future SDK version fails loudly rather than silently falling back. (Catches bug class 10 — silent degradation behind intentional exception-swallowing; see `tests/unit/test_rewards.py` `TestImageGenerationCallContract` as the canonical template.)
+
 ## Scope
 
 This reviewer fires for PRs touching any of:

@@ -5,13 +5,13 @@
 -- reaction against: load_feedback_history() could return the score but not the
 -- theme/style/palette that earned it, so per-theme learning was impossible.
 --
--- These are generic art descriptors ("phoenix rising from golden flames",
--- "watercolor", "warm pastel") — NOT user data. Unlike task_title they are safe
--- to read in ops queries. That holds because style/palette may originate from
--- user_prefs.rewards, which docs/reward-system.md constrains to visual
--- descriptors only — no personal detail may be written into those preferences. They are NULL for emoji-only rewards and for every
--- row written before this migration; load_feedback_history() coerces NULL to ''
--- so historical rows simply never match a candidate.
+-- These columns originate from user_prefs.rewards preference strings, which are
+-- intended as art descriptors but are not validated or allowlisted at write time.
+-- Treat style/palette as user-provided text; do not assume they are free of
+-- personal detail in ops queries. They are NULL for emoji-only rewards, for rows
+-- written when image generation fails, and for every row written before this
+-- migration; load_feedback_history() coerces NULL to '' so historical rows
+-- simply never match a candidate.
 
 BEGIN;
 
