@@ -365,6 +365,8 @@ Supported preference dimensions:
 - **Avoid list** - tags or vibes to suppress
 - **Humor level** - `subtle`, `playful`, or `maximal`
 
+**Input constraint:** preference values are visual descriptors only — art styles, palettes, and subject categories. `preferred_styles` and `preferred_palettes` are persisted verbatim onto `reward_manifests` as `style` and `palette`, which the manifest contract treats as non-private and safe to read in ops queries. Personal detail must never be written into these fields; anything identifying belongs nowhere in the reward preference profile.
+
 #### Streak Enhancements
 
 Streak count modifies generated image:
@@ -392,15 +394,33 @@ Unknown emojis are recorded with score 0 — the reaction is stored as a "receiv
 
 **Lookup window:** `record_reward_feedback` converts Signal's target message timestamp from milliseconds to UTC and matches the closest unrated `reward_manifests` row for the peer where `delivered_at` falls within ±30 seconds of that target timestamp. The `match_window_seconds` value is configurable per call. This tight window accounts for local manifest-write time, send latency, and clock skew without attributing reactions on unrelated nearby messages to older rewards.
 
-**Storage:** Three columns on `reward_manifests`:
+**Storage:** Three feedback columns on `reward_manifests`:
 
 - `feedback_score` (INT) — -1, 0, or +1
 - `feedback_emoji` (TEXT) — the raw emoji character(s), stored verbatim
 - `feedback_at` (TIMESTAMPTZ) — when the reaction was recorded
 
+Each delivery also records the visual choices that produced the image, so a
+reaction can be attributed to them:
+
+- `theme_family` (TEXT) — the selected theme
+- `style` (TEXT) — the selected art style
+- `palette` (TEXT) — the selected color palette
+
+These are generic art descriptors, not user data, and are NULL for emoji-only
+rewards.
+
 **Idempotency:** `feedback_at IS NULL` prevents double-counting. If a user reacts twice, only the first reaction for a given reward row is recorded. A later reaction may still match another unrated reward inside the tight timestamp window.
 
-**Prompt personalization:** `load_feedback_history` loads recent rated rewards for the peer from the last 90 days. Image generation summarizes feedback only after at least three ratings:
+**Weighted selection:** `load_feedback_history` loads recent rated rewards for the peer from the last 90 days. `_select_theme` builds the candidate set — the intensity's theme pool crossed with the user's preferred styles and palettes — and scores each candidate with `apply_feedback_weight`, which returns a multiplier in `[0.5, 1.5]`:
+
+- A reaction contributes by match strength: theme `0.6`, style `0.3`, palette `0.1`.
+- Contributions decay linearly over 30 days; older ratings have no effect.
+- The total nudge is capped at ±0.5.
+
+Selection is then a weighted random draw. Every candidate keeps a non-zero probability regardless of feedback: novelty is the mechanism the image system exists to provide, so feedback biases selection and never eliminates a theme. A single reaction shifts the odds slightly; a consistent pattern shifts them meaningfully.
+
+**Prompt guidance:** Image generation additionally summarizes feedback in the prompt only after at least three ratings:
 
 - More positive than negative ratings adds guidance to lean energetic and celebratory.
 - More negative than positive ratings adds guidance to be a bit more subdued.
@@ -412,7 +432,7 @@ The prompt guidance is intentionally short and coarse so feedback nudges future 
 
 Image generation system inherently addresses novelty:
 
-1. **Weighted theme selection** - each intensity has 5+ themes, with preferences and bounded feedback nudging rather than dictating the outcome
+1. **Weighted theme selection** - each intensity has 5+ themes, with preferences and bounded feedback nudging rather than dictating the outcome; no theme is ever permanently excluded
 2. **Task motifs** - the same theme can feel different because the accomplished task changes the scene details
 3. **AI variation** - same prompt produces different images each time
 4. **Streak-responsive** - visual elements change as streaks grow
@@ -445,7 +465,7 @@ Fallback writes suggestion to `.txt` file (instead of `.png`) and exits successf
 Every generated reward image is stored under the `reward_artifacts` Docker volume:
 
 - **File naming**: `YYYY-MM-DD_HHMMSS_<intensity>.png`
-- **Manifest record**: `reward_manifests` Postgres table tracks peer, intensity, streak, delivered_at, artifact_path, and feedback columns per delivery. task_title is stored as a private column — never logged.
+- **Manifest record**: `reward_manifests` Postgres table tracks peer, intensity, streak, delivered_at, artifact_path, the visual descriptors (`theme_family`, `style`, `palette`), and feedback columns per delivery. task_title is stored as a private column — never logged.
 - **Persistent**: Images survive across sessions on the `reward_artifacts` volume — celebration history preserved
 
 #### Weekly Recap Video
