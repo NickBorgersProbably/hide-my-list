@@ -5,8 +5,10 @@ name: Nightly Evals
 # per-fixture per-model. Real LLM calls — gated on EVAL_BUDGET_USD
 # soft cap. Posts the markdown report as a workflow artifact.
 #
-# Security: this workflow has access to LLM_PROXY_API_KEY and runs only
-# on schedule (cron) or manual dispatch. PRs cannot trigger it.
+# Runs on a self-hosted homelab runner: the LiteLLM proxy is reachable
+# only over the tailnet, so a GitHub-hosted runner cannot resolve it.
+# The proxy does not verify bearer tokens, so the API key is the literal
+# `fake-key` used by every other CI caller rather than a secret.
 # Triggered by:
 #   - cron: nightly at 09:00 UTC (03:00 / 04:00 user time)
 #   - workflow_dispatch: manual
@@ -36,7 +38,7 @@ permissions:
 jobs:
   evals:
     name: Run eval fixtures (baseline tiers)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, homelab]
     timeout-minutes: 30
     steps:
       - name: Checkout code
@@ -67,8 +69,12 @@ jobs:
           EVAL_MODELS: ${{ steps.baseline.outputs.models }}
           EVAL_BASELINE_MODELS: ${{ steps.baseline.outputs.models }}
           EVAL_BUDGET_USD: ${{ inputs.budget_usd || '10' }}
-          LLM_PROXY_API_KEY: ${{ secrets.LLM_PROXY_API_KEY }}
-          LLM_PROXY_BASE_URL: ${{ secrets.LLM_PROXY_BASE_URL }}
+          # The LiteLLM proxy does not verify bearer tokens; every other CI
+          # caller passes the same literal. The eval layer needs the
+          # OpenAI-compatible /v1 endpoint (app/models.py asserts on it),
+          # not the /anthropic/ endpoint the Claude Code CLI callers use.
+          LLM_PROXY_API_KEY: fake-key
+          LLM_PROXY_BASE_URL: https://llm.featherback-mermaid.ts.net/v1
         run: |
           set -euo pipefail
           echo "Running evals against models: $EVAL_MODELS"

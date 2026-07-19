@@ -44,7 +44,9 @@ permissions:
 jobs:
   swap:
     name: Eval candidate ${{ inputs.candidate_model }} at tier ${{ inputs.candidate_tier }}
-    runs-on: ubuntu-latest
+    # Self-hosted: the LiteLLM proxy is tailnet-only and unreachable from
+    # GitHub-hosted runners.
+    runs-on: [self-hosted, homelab]
     timeout-minutes: 35
     steps:
       - name: Checkout code
@@ -102,8 +104,10 @@ jobs:
           EVAL_BASELINE_MODELS: ${{ steps.models.outputs.baseline }}
           EVAL_CANDIDATE_TIER: ${{ steps.models.outputs.candidate_tier }}
           EVAL_BUDGET_USD: ${{ inputs.budget_usd }}
-          LLM_PROXY_API_KEY: ${{ secrets.LLM_PROXY_API_KEY }}
-          LLM_PROXY_BASE_URL: ${{ secrets.LLM_PROXY_BASE_URL }}
+          # The proxy does not verify bearer tokens; the eval layer needs
+          # the OpenAI-compatible /v1 endpoint. See nightly-evals.yml.
+          LLM_PROXY_API_KEY: fake-key
+          LLM_PROXY_BASE_URL: https://llm.featherback-mermaid.ts.net/v1
           CANDIDATE: ${{ inputs.candidate_model }}
           TIER: ${{ inputs.candidate_tier }}
         run: |
