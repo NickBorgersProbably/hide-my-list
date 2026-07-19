@@ -398,11 +398,17 @@ async def test_unparseable_output_saves_raw_task_and_alerts() -> None:
     assert len(create_task_calls) == 1
     assert create_task_calls[0]["title"] == incoming
     assert "is_reminder" not in create_task_calls[0]["title"]
+    assert create_task_calls[0]["work_type"] == "focus"
+    assert create_task_calls[0]["urgency"] == 50
+    assert create_task_calls[0]["time_estimate"] == 30
+    assert create_task_calls[0]["energy_required"] == "Medium"
     # No reminder was fabricated.
     assert len(create_reminder_calls) == 0
     # Operator was alerted to the parse failure.
     assert len(alert_calls) == 1
     assert alert_calls[0]["kind"] == "intake_parse_failed"
+    assert "unparseable" in alert_calls[0]["body"].lower() or "parse" in alert_calls[0]["body"].lower()
+    assert alert_calls[0]["severity"] == "warning"
     # User got an honest message — not a bare "Got it — added." false success,
     # and it flags that the timing/reminder wasn't captured.
     assert result["pending_outbound"]

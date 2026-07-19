@@ -1,5 +1,5 @@
 ---
-# Bug-class 5 surface: a reminder phrased as a DEADLINE with no explicit
+# Surface: a reminder phrased as a DEADLINE with no explicit
 # "remind me" trigger word — "<chore> <weekday> before <time>". Intake
 # must still return is_reminder=true with a parseable remind_at at the
 # named wall-clock deadline, so the outbox/ledger gets a row and the

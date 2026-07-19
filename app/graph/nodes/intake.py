@@ -200,7 +200,7 @@ async def _handle_parse_failure(*, peer: str, incoming: str) -> dict[str, Any]:
     """
     from app.tools import notion
 
-    log.error("intake_node.parse_failed", peer=peer)
+    log.error("intake_node.parse_failed")
 
     # Deliberately uncaught: if the save fails there is nothing on the list, and
     # the honest answer is the caller's error path ("mind sending it again?").
@@ -227,7 +227,7 @@ async def _handle_parse_failure(*, peer: str, incoming: str) -> dict[str, Any]:
             severity="warning",
         )
     except Exception:
-        log.exception("intake_node.parse_failed.ops_alert_failed", peer=peer)
+        log.exception("intake_node.parse_failed.ops_alert_failed")
 
     draft: OutboundDraft = {
         "recipient": peer,
