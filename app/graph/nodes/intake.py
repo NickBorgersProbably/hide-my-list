@@ -202,18 +202,19 @@ async def _handle_parse_failure(*, peer: str, incoming: str) -> dict[str, Any]:
 
     log.error("intake_node.parse_failed", peer=peer)
 
-    page_id: str | None = None
-    try:
-        notion_page = await notion.create_task(
-            title=incoming[:200],
-            work_type="focus",
-            urgency=50,
-            time_estimate=30,
-            energy_required="Medium",
-        )
-        page_id = (notion_page or {}).get("id")
-    except Exception:
-        log.exception("intake_node.parse_failed.raw_save_failed", peer=peer)
+    # Deliberately uncaught: if the save fails there is nothing on the list, and
+    # the honest answer is the caller's error path ("mind sending it again?").
+    # Swallowing it here would reply "Added that to your list" over an empty
+    # Notion — the same fabricated success this function exists to prevent,
+    # moved one level down.
+    notion_page = await notion.create_task(
+        title=incoming[:200],
+        work_type="focus",
+        urgency=50,
+        time_estimate=30,
+        energy_required="Medium",
+    )
+    page_id = (notion_page or {}).get("id")
 
     try:
         from app.tools import ops_alerts

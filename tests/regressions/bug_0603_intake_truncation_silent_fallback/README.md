@@ -52,6 +52,13 @@ titled from the user's words, no reminder is fabricated, an `intake_parse_failed
 ops alert is emitted, and the user-visible message is honest (not "Got it —
 added.").
 
+`test_unparseable_output_with_notion_down_does_not_claim_capture` covers the
+second-order case: the parse-failure handler saves the raw message to preserve
+capture, so if *that* save fails there is nothing on the list. The handler must
+let the exception reach the node's error path ("mind sending it again?") rather
+than catching it and replying "Added that to your list" over an empty Notion —
+which would reproduce this exact bug one level below the parse fix.
+
 **Cross-model efficacy (eval, live-gated):** the regression fixture lives at
 `tests/evals/fixtures/intake/remind_deadline_before_time.yaml`, exercised by
 `tests/evals/test_evals.py`. A capable model confirms a reminder for the

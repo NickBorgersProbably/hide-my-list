@@ -409,3 +409,71 @@ async def test_unparseable_output_saves_raw_task_and_alerts() -> None:
     body = result["pending_outbound"][0]["body"].lower()
     assert body.strip() != "got it — added."
     assert "remind" in body or "timing" in body or "time" in body
+
+
+@pytest.mark.asyncio
+async def test_unparseable_output_with_notion_down_does_not_claim_capture() -> None:
+    """A parse failure plus a Notion outage must not report the task as added.
+
+    The parse-failure path saves the user's raw message to preserve capture. If
+    that save itself fails there is nothing on the list, so the reply must be
+    the error path's "send it again", never "Added that to your list" — which
+    would reproduce the fabricated-success bug one level below the parse fix.
+    """
+    incoming = "I need to clean the kitchen Friday before 10pm"
+    truncated = '{"action": "save", "title": "clean the kitchen", "is_reminder": tr'
+
+    create_reminder_calls: list[dict] = []
+    alert_kinds: list[str] = []
+
+    async def mock_create_task(**_: Any) -> dict:
+        raise RuntimeError("Notion API unavailable")
+
+    async def mock_create_reminder(**kwargs: Any) -> dict:
+        create_reminder_calls.append(kwargs)
+        return _make_notion_page(page_id=str(uuid.uuid4()))
+
+    async def mock_alert(*, kind: str, body: str, severity: str = "warning", **_: Any) -> Any:
+        alert_kinds.append(kind)
+        return uuid.uuid4()
+
+    with (
+        patch("app.tools.notion.create_task", side_effect=mock_create_task),
+        patch("app.tools.notion.create_reminder", side_effect=mock_create_reminder),
+        patch("app.tools.ops_alerts.enqueue", side_effect=mock_alert),
+    ):
+        mock_llm_response = MagicMock()
+        mock_llm_response.content = truncated
+        mock_model = AsyncMock()
+        mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+
+        with patch("app.models.llm", return_value=mock_model):
+            from app.graph.nodes.intake import intake_node
+
+            state: State = {
+                "peer": "<test-intake-notion-down>",
+                "incoming": incoming,
+                "intent": "ADD_TASK",
+                "messages": [],
+                "active_task": None,
+                "streak": 0,
+                "tasks_completed_today": 0,
+                "user_prefs": {},
+                "mood": None,
+                "available_minutes": None,
+                "conversation_state": "idle",
+                "pending_outbound": [],
+            }
+
+            result = await intake_node(state)
+
+    # Nothing was captured, so nothing may be confirmed.
+    assert len(create_reminder_calls) == 0
+    assert result["pending_outbound"]
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] is None
+    body = draft["body"].lower()
+    assert "added" not in body
+    assert "again" in body
+    # The operator still hears about it, via the node-level error alert.
+    assert "intake_node_error" in alert_kinds
