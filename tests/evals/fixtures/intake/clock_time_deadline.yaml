@@ -1,0 +1,20 @@
+---
+id: intake-clock-time-deadline-001
+node: intake
+tier: medium
+peer: "<test-peer-clock-deadline>"
+inbound: "finish the placeholder writeup by 10am tomorrow"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)(cron|worker|queue|outbox|notion)"
+  - kind: judge
+    rubric: |
+      The response confirms the task was added with a morning deadline. It
+      preserves the clock time rather than defaulting to end of day, and it
+      does not mention internal infrastructure.
+    threshold: 0.7

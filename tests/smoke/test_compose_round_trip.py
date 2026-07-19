@@ -68,6 +68,10 @@ def compose_stack() -> object:
         "NOTION_DATABASE_ID": os.environ.get("NOTION_DATABASE_ID", "smoke-fake-db"),
         "LLM_PROXY_API_KEY": "smoke-fake-llm-key",
         "LLM_PROXY_BASE_URL": "https://proxy.test/v1",
+        "REMINDER_SLOT_MINUTES": "30",
+        "REMINDER_SLOT_CAPACITY": "2",
+        "REMINDER_QUIET_START_HOUR": "22",
+        "REMINDER_QUIET_END_HOUR": "8",
     }
 
     # Bring up postgres + signal-cli + app
@@ -187,6 +191,10 @@ def test_app_receives_llm_proxy_env(compose_stack: object) -> None:
     env_lines = set(result.stdout.splitlines())
     assert "LLM_PROXY_API_KEY=smoke-fake-llm-key" in env_lines
     assert "LLM_PROXY_BASE_URL=https://proxy.test/v1" in env_lines
+    assert "REMINDER_SLOT_MINUTES=30" in env_lines
+    assert "REMINDER_SLOT_CAPACITY=2" in env_lines
+    assert "REMINDER_QUIET_START_HOUR=22" in env_lines
+    assert "REMINDER_QUIET_END_HOUR=8" in env_lines
 
 
 def test_app_boots_runtime(compose_stack: object) -> None:

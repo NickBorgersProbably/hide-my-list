@@ -172,6 +172,37 @@ async def test_query_unscheduled_deadlines_returns_response(
 
 
 # ---------------------------------------------------------------------------
+# query_scheduled_tasks_with_deadlines
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_query_scheduled_deadlines_filter_shape(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
+    """query_scheduled_tasks_with_deadlines sends the edit-detection filter."""
+    notion_server.expect_request(
+        f"/databases/{fake_db_id}/query", method="POST"
+    ).respond_with_json({"results": []})
+
+    await notion_module.query_scheduled_tasks_with_deadlines()
+
+    req = notion_server.log[0][0]
+    body = _captured_body(req.data)
+    filters = body["filter"]["and"]
+
+    due_at_f = next(f for f in filters if f.get("property") == "Due At")
+    sched_at_f = next(f for f in filters if f.get("property") == "Reminder Scheduled At")
+    status_f = next(f for f in filters if f.get("property") == "Status")
+    is_rem_f = next(f for f in filters if f.get("property") == "Is Reminder")
+
+    assert due_at_f["date"]["is_not_empty"] is True
+    assert sched_at_f["date"]["is_not_empty"] is True
+    assert status_f["select"]["does_not_equal"] == "Completed"
+    assert is_rem_f["checkbox"]["equals"] is False
+
+
+# ---------------------------------------------------------------------------
 # mark_reminder_scheduled
 # ---------------------------------------------------------------------------
 

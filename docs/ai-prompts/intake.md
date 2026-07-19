@@ -180,6 +180,23 @@ Examples:
     current user-local time: `2026-04-18T20:27:00-05:00`; "tomorrow" resolves to `2026-04-19`
     is_reminder: true, remind_at: "2026-04-19T09:00:00-05:00", title: "Clean up boxes"
 
+DEADLINE DETECTION:
+`due_at` and `is_reminder` are separate fields. A reminder is a wall-clock
+notification. A deadline is the time bound for the task itself.
+
+Deadline signals:
+- "before <date/day>", "by <date/day>", "due <date>"
+- "<date> at <time>", "at <time> <date>", "needs to be done <date>"
+
+When a deadline phrase is detected:
+- Set `due_at` to the resolved ISO 8601 timestamp with timezone offset
+- Default timezone for relative dates and unspecified clock times is the user's configured timezone from `USER_TZ` env var (default `America/Chicago`)
+- If a clock time is given ("by 10am tomorrow"), use that time
+- If no time is given ("by Friday"), default to 17:00 local on that day
+- Set urgency by the usual rules; a deadline does not automatically make urgency 90
+- Do not clear `is_reminder` or `remind_at` when a wall-clock reminder is also detected in the same message
+- Set `due_at` to null when no deadline phrase is present
+
 RESCHEDULE FROM RECENT OUTBOUND CONTEXT:
 When `recent_outbound_context` contains an entry with `awaiting_reply: true` and
 `type: "reminder"`, and the user message is a bare time reference or explicit reschedule
@@ -226,6 +243,7 @@ If task is clear enough to save:
   "energy_required": "...",
   "is_reminder": false,
   "remind_at": null,
+  "due_at": null,
   "use_hidden_subtasks": true|false,
   "sub_tasks": [
     {

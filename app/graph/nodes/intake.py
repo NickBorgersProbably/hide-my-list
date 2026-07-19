@@ -106,8 +106,9 @@ async def intake_node(state: State) -> dict[str, Any]:
         energy_required = parsed.get("energy_required", "Medium")
         is_reminder = bool(parsed.get("is_reminder", False))
         remind_at_str = parsed.get("remind_at")
+        due_at_str = parsed.get("due_at")
         inline_steps = parsed.get("inline_steps", "")
-        use_hidden_subtasks = bool(parsed.get("use_hidden_subtasks", False))
+        use_hidden_subtasks = bool(parsed.get("use_hidden_subtasks", False)) and not is_reminder
         sub_tasks = parsed.get("sub_tasks", [])
         confirmation_message = parsed.get("confirmation_message", f"Got it — {work_type}, ~{time_estimate} min.")
 
@@ -115,10 +116,17 @@ async def intake_node(state: State) -> dict[str, Any]:
             "intake_node.parsed",
             is_reminder=is_reminder,
             has_remind_at=bool(remind_at_str),
-            remind_at=remind_at_str,  # ISO timestamp; not PII
+            has_due_at=bool(due_at_str),
             urgency=urgency,
             time_estimate=time_estimate,
         )
+
+        deadline_at: datetime | None = None
+        if due_at_str:
+            try:
+                deadline_at = _parse_iso_strict(due_at_str)
+            except ValueError:
+                log.info("intake_node.due_at_parse_failed", has_due_at=True)
 
         if is_reminder and remind_at_str:
             notion_page = await _create_reminder(
@@ -137,9 +145,19 @@ async def intake_node(state: State) -> dict[str, Any]:
                 time_estimate=time_estimate,
                 energy_required=energy_required,
                 inline_steps=inline_steps,
+                due_at_iso=deadline_at.isoformat() if deadline_at else None,
             )
 
         page_id = (notion_page or {}).get("id")
+        assigned_slots: list[tuple[str, datetime]] = []
+        if deadline_at is not None and page_id and not is_reminder:
+            assigned_slots = await _schedule_deadline_series(
+                page_id=page_id,
+                peer=peer,
+                deadline_at=deadline_at,
+                urgency=urgency,
+                user_timezone=user_timezone,
+            )
 
         # Create hidden sub-tasks if needed
         if use_hidden_subtasks and sub_tasks and page_id:
@@ -157,20 +175,33 @@ async def intake_node(state: State) -> dict[str, Any]:
                 except Exception:
                     log.exception("intake_node.subtask_create_failed", page_id=page_id)
 
+        if assigned_slots:
+            from app.scheduler.deadline_planner import format_reminder_summary
+
+            summary = format_reminder_summary(assigned_slots, user_timezone)
+            if summary:
+                confirmation_message = f"{confirmation_message} {summary}"
+
         draft = {
             "recipient": peer,
             "body": confirmation_message,
             "notion_page_id": page_id,
         }
 
-        log.info("intake_node.saved", peer=peer, page_id=page_id, is_reminder=is_reminder)
+        log.info(
+            "intake_node.saved",
+            page_id=page_id,
+            is_reminder=is_reminder,
+            has_due_at=deadline_at is not None,
+            scheduled_count=len(assigned_slots),
+        )
         return {
             "pending_outbound": [draft],
             "conversation_state": "idle",
         }
 
     except Exception:
-        log.exception("intake_node.error", peer=peer)
+        log.exception("intake_node.error", has_peer=bool(peer))
         # Something raised before the task was stored. Do not claim success —
         # nothing was saved. Alert the operator and ask the user to resend.
         try:
@@ -181,7 +212,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 severity="warning",
             )
         except Exception:
-            log.exception("intake_node.error.ops_alert_failed", peer=peer)
+            log.exception("intake_node.error.ops_alert_failed", has_peer=bool(peer))
         fallback: OutboundDraft = {
             "recipient": peer,
             "body": "Something hiccupped on my end with that one — mind sending it again?",
@@ -315,7 +346,62 @@ def _parse_remind_at(remind_at_str: str) -> datetime:
             dt = dt.replace(tzinfo=UTC)
         return dt.astimezone(UTC)
     except (ValueError, TypeError) as exc:
-        raise ValueError(f"Cannot parse remind_at: {remind_at_str!r}") from exc
+        raise ValueError("invalid ISO timestamp") from exc
+
+
+def _parse_iso_strict(iso_str: str) -> datetime:
+    """Parse an ISO 8601 string to a UTC-aware datetime."""
+    if not isinstance(iso_str, str) or not iso_str.strip():
+        raise ValueError("invalid ISO timestamp")
+    try:
+        normalized = iso_str.strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("invalid ISO timestamp") from exc
+
+
+async def _schedule_deadline_series(
+    *,
+    page_id: str,
+    peer: str,
+    deadline_at: datetime,
+    urgency: int,
+    user_timezone: str,
+) -> list[tuple[str, datetime]]:
+    """Schedule a deadline milestone series after a Notion task is created."""
+    try:
+        from app.scheduler.reminder_scheduling import schedule_for_task
+        from app.tools import notion
+        from app.tools.db import get_db_conn
+
+        async with get_db_conn() as conn:
+            scheduled, failures = await schedule_for_task(
+                conn,
+                notion_page_id=page_id,
+                peer=peer,
+                deadline_at=deadline_at,
+                urgency=urgency,
+                now=datetime.now(UTC),
+                user_tz=user_timezone,
+            )
+        if scheduled and not failures:
+            try:
+                await notion.mark_reminder_scheduled(page_id)
+            except Exception:
+                log.exception("intake_node.mark_scheduled_failed", page_id=page_id)
+        log.info(
+            "intake_node.deadline_series_scheduled",
+            page_id=page_id,
+            scheduled_count=len(scheduled),
+            failure_count=len(failures),
+        )
+        return [(item.label, item.assigned_at) for item in scheduled]
+    except Exception:
+        log.exception("intake_node.deadline_series_failed", page_id=page_id)
+        return []
 
 
 def _parse_intake_response(response_text: str) -> dict[str, Any] | None:

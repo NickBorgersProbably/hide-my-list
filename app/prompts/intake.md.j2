@@ -66,6 +66,24 @@ When detected:
 - Set urgency = 90 (reminders are inherently time-critical)
 - Set reminder_status = "pending"
 
+### Deadline Detection
+
+`due_at` and `is_reminder` are separate fields. A reminder is a wall-clock
+notification. A deadline is the time bound for the task itself.
+
+Deadline signals:
+- "before <date/day>", "by <date/day>", "due <date>"
+- "<date> at <time>", "at <time> <date>", "needs to be done <date>"
+
+When a deadline phrase is detected:
+- Set `due_at` to the resolved ISO 8601 timestamp with timezone offset
+- Default timezone: {{ user_timezone | default('America/Chicago') }}
+- If a clock time is given ("by 10am tomorrow"), use that time
+- If no time is given ("by Friday"), default to 17:00 local on that day
+- Set urgency by the usual rules; a deadline does not automatically make urgency 90
+- Do not clear `is_reminder` or `remind_at` when a wall-clock reminder is also detected
+- Set `due_at` to null when no deadline phrase is present
+
 ### Reschedule From Recent Outbound Context
 
 When recent_outbound_context contains an entry with awaiting_reply=true and
@@ -94,6 +112,7 @@ If task is clear enough to save:
   "energy_required": "High|Medium|Low",
   "is_reminder": false,
   "remind_at": null,
+  "due_at": null,
   "use_hidden_subtasks": false,
   "sub_tasks": [{"title": "...", "time_estimate_minutes": 10, "done_criteria": "...", "sequence": 1}],
   "inline_steps": "1. First step\n2. Second step",
