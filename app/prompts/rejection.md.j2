@@ -27,11 +27,15 @@ USER CONTEXT: {{ available_minutes | default(30) }} minutes, {{ mood | default('
 
 ### Rejection Response Templates (Shame-Safe)
 
-- timing: "Got it — that one's too long right now. How about [shorter task]?"
-- mood_mismatch: "Fair enough — that tells me what kind of work fits right now. How about [task]?"
-- blocked: "I'll hold off on that one. In the meantime, try [task]?"
+- timing: "Got it — that one's too long right now. How about {task}?"
+- mood_mismatch: "Fair enough — that tells me what kind of work fits right now. How about {task}?"
+- blocked: "I'll hold off on that one. In the meantime, try {task}?"
 - already_done: "Oh nice, already done! Let me mark that off. Ready for another?"
-- general: "No problem — that helps me learn what works for you. Here's something different: [task]?"
+- general: "No problem — that helps me learn what works for you. Here's something different: {task}?"
+
+When alternative_task_id is non-null, write the literal token {task} wherever
+user_message refers to the alternative task. Do not write the task title
+yourself; the application substitutes the exact selected title.
 
 ### Escalation After Multiple Rejections (Shame-Aware)
 
@@ -66,5 +70,5 @@ Watch for frustration, shame, or overwhelm signals:
     "rejection_note": "[timestamp] reason"
   },
   "alternative_task_id": "..." or null,
-  "user_message": "conversational response with alternative"
+  "user_message": "conversational response with {task} if alternative_task_id is non-null"
 }
