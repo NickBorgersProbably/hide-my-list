@@ -37,3 +37,12 @@ An AI-powered task manager where users never directly view their task list. The 
 ## Design
 
 - [ADHD Priorities](../design/adhd-priorities.md) - Core design principles grounded in ADHD research
+
+## CI / Infrastructure
+
+Per-file inventory of all CI and infrastructure files lives in [DEV-AGENTS.md](../DEV-AGENTS.md) (Infrastructure & CI Files section). Key scheduled workflows:
+
+- `update-signal-cli.yml` — Mondays 10:00 UTC + `workflow_dispatch`; resolves `bbernhard/signal-cli-rest-api:latest` digest from the registry and opens a refresh PR when it differs from the digest pinned in `docker/compose.yaml`
+- `update-ai-clis.yml` — refreshes Claude Code and Codex CLI pins weekly and re-vendors the upstream security audit prompt
+- `nightly-evals.yml` — cron 09:00 UTC; runs LLM behavior evals against current model tiers on the homelab runner
+- `model-swap.yml` — `workflow_dispatch` only; side-by-side baseline vs. candidate model comparison before tier changes

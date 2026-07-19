@@ -48,6 +48,10 @@ Lens — six contract clauses:
    - A structural test in `tests/unit/` asserting the new branch is wired: the function exists, is called from the dispatcher, and invokes the expected tools.
    - Example: `test_precommit_python_gate.py` covers `run_pre_commit_python_checks`.
 
+8. **PRs that add a new production image dependency to `docker/compose.yaml`** MUST add:
+   - A structural lint in `tests/unit/` asserting the two-property invariant: (1) the image is pinned by immutable sha256 digest, not a mutable tag; and (2) a scheduled refresh workflow exists that targets the same image and validates the digest before writing. (Catches bug class 9 — production dependency pin staleness; see `tests/unit/test_signal_cli_pin.py` as the canonical template.)
+   - PRs that remove or weaken an existing production-dependency pin lint (e.g., deleting `test_signal_cli_pin.py` or removing the digest-validation assertion) are blockers under clause 6 unless the dependency itself is also removed.
+
 ## Scope
 
 This reviewer fires for PRs touching any of:

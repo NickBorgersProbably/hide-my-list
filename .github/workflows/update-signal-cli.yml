@@ -1,0 +1,173 @@
+name: Update signal-cli Image Pin
+
+# Weekly refresh of the signal-cli container image digest pinned in
+# docker/compose.yaml.
+#
+# Why this is separate from update-ai-clis.yml: those pins are CI tooling,
+# this one is a production runtime dependency. Bundling them would make a
+# signal-cli fix wait on review of an unrelated CLI bump. They need to move
+# independently.
+#
+# Why this workflow exists at all: the pin sat at a 2025-05-15 digest for
+# 14 months. Signal changed its server-side envelope format in that window
+# and the pinned signal-cli threw NullPointerException on every inbound
+# message, dropping it before it reached the app. Inbound was dead for
+# seven weeks. Pinning by digest is correct for reproducibility; pinning by
+# digest with no upgrade path is how that happens.
+#
+# Triggered by:
+#   - cron: Mondays at 10:00 UTC (an hour after update-ai-clis, so the two
+#     refresh PRs do not land simultaneously)
+#   - workflow_dispatch: manual
+
+on:
+  schedule:
+    - cron: '0 10 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-signal-cli
+  cancel-in-progress: false
+
+jobs:
+  update-signal-cli:
+    name: Check signal-cli image digest
+    # Matches update-ai-clis.yml. The registry is public, so a GitHub-hosted
+    # runner would also work; keeping the convention avoids assuming anything
+    # about egress policy on this repo's runners.
+    runs-on: [self-hosted, homelab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve current and latest image digest
+        id: check
+        env:
+          IMAGE_REPO: bbernhard/signal-cli-rest-api
+          COMPOSE_FILE: docker/compose.yaml
+        run: |
+          set -euo pipefail
+
+          DIGEST_RE='^sha256:[0-9a-f]{64}$'
+
+          # Current pin, read from the compose file that actually deploys it.
+          CURRENT=$(grep -oP "image:\s*${IMAGE_REPO}@\Ksha256:[0-9a-f]{64}" "$COMPOSE_FILE" || true)
+
+          if [[ ! "$CURRENT" =~ $DIGEST_RE ]]; then
+            echo "::error::Could not read a valid pinned digest from ${COMPOSE_FILE}." >&2
+            echo "::error::Expected a line of the form 'image: ${IMAGE_REPO}@sha256:<64 hex>'." >&2
+            exit 1
+          fi
+
+          # Anonymous pull token for the public repository.
+          TOKEN=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${IMAGE_REPO}:pull" \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')
+
+          # The manifest-list digest is what `docker pull` resolves :latest to,
+          # and is what belongs in the compose pin. Request both the Docker and
+          # OCI index media types so a registry serving either shape works.
+          LATEST=$(curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused \
+            -o /dev/null -D - \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            "https://registry-1.docker.io/v2/${IMAGE_REPO}/manifests/latest" \
+            | grep -i '^docker-content-digest:' \
+            | tr -d '\r' \
+            | awk '{print $2}')
+
+          # Fail closed: never write an unvalidated value into the compose file.
+          if [[ ! "$LATEST" =~ $DIGEST_RE ]]; then
+            echo "::error::Registry returned an invalid digest: '${LATEST}'" >&2
+            exit 1
+          fi
+
+          {
+            echo "current=$CURRENT"
+            echo "latest=$LATEST"
+            echo "pinned_on=$(date -u +%Y-%m-%d)"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$CURRENT" != "$LATEST" ]; then
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "signal-cli: $CURRENT -> $LATEST"
+
+      - name: Update the compose pin
+        if: steps.check.outputs.needs_update == 'true'
+        env:
+          CURRENT: ${{ steps.check.outputs.current }}
+          LATEST: ${{ steps.check.outputs.latest }}
+          PINNED_ON: ${{ steps.check.outputs.pinned_on }}
+          IMAGE_REPO: bbernhard/signal-cli-rest-api
+          COMPOSE_FILE: docker/compose.yaml
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path(os.environ["COMPOSE_FILE"])
+          repo = os.environ["IMAGE_REPO"]
+          current = os.environ["CURRENT"]
+          latest = os.environ["LATEST"]
+          pinned_on = os.environ["PINNED_ON"]
+
+          text = path.read_text()
+
+          image_line = f"image: {repo}@{current}"
+          if image_line not in text:
+              raise SystemExit(f"Expected to find '{image_line}' in {path}")
+          text = text.replace(image_line, f"image: {repo}@{latest}")
+
+          # Keep the provenance comment honest — a stale date is what made the
+          # 14-month drift invisible in review.
+          text, count = re.subn(
+              rf"# Pinned: \d{{4}}-\d{{2}}-\d{{2}} against {re.escape(repo)}:latest",
+              f"# Pinned: {pinned_on} against {repo}:latest",
+              text,
+          )
+          if count != 1:
+              raise SystemExit(
+                  f"Expected exactly one '# Pinned: <date> against {repo}:latest' "
+                  f"comment in {path}, found {count}"
+              )
+
+          path.write_text(text)
+          PY
+
+      - name: Create Pull Request
+        if: steps.check.outputs.needs_update == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # PAT required so the created PR triggers pull_request events
+          # (GITHUB_TOKEN suppresses them, so the review pipeline would not run)
+          token: ${{ secrets.WORKFLOW_PAT }}
+          commit-message: "chore(deps): refresh signal-cli image pin"
+          title: "chore(deps): refresh signal-cli image pin"
+          body: |
+            Automated weekly refresh of the signal-cli container image digest.
+
+            **`docker/compose.yaml`** — `bbernhard/signal-cli-rest-api`:
+            - **from:** `${{ steps.check.outputs.current }}`
+            - **to:** `${{ steps.check.outputs.latest }}`
+
+            This is a production runtime dependency: signal-cli is the only path
+            for inbound and outbound Signal messages. A bump can change receive
+            behaviour, so deploy it somewhere you can watch rather than merging
+            and forgetting.
+
+            After deploying, confirm inbound still works by sending a message and
+            checking for a `signal_listener.message_received` event. A silent
+            inbound failure is not self-announcing — that is what made the
+            previous 14-month drift cost seven weeks of downtime.
+
+            🤖 Generated automatically by the `update-signal-cli` workflow.
+          branch: chore/update-signal-cli
+          delete-branch: true
