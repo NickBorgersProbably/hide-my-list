@@ -178,6 +178,11 @@ prior_state:
   last_reminder_at: "2026-05-26T14:00:00Z"
   active_task_title: "<placeholder>"
 tier: medium
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Water the office plants"
+    work_type: "Physical"
+    time_estimate: 10
 contracts:
   - kind: regex_forbid
     pattern: "(?i)(can(not|'t)|not able to)\\s+send\\s+reminders"
@@ -189,6 +194,21 @@ contracts:
   - kind: shame_safe
     threshold: 0.8
 ```
+
+`notion_tasks` declares the candidate pool the node reads via
+`notion.query_pending()`. The runner translates these flat mappings into
+Notion's nested property shape and serves them from a stubbed client;
+writes are accepted and discarded. Fixtures for nodes that read tasks
+(`selection`, `rejection`) must declare a pool — an eval that reaches a
+live Notion database scores whatever happens to be in it that day, and one
+that reaches an empty pool scores a degenerate "nothing to suggest" reply.
+
+Nodes catch their own exceptions and return a hand-written fallback
+message. Those fallbacks are shame-safe by construction, so a fixture that
+scores one passes its tone contracts without the model having been called.
+The runner detects the node's terminal `<node>_node.error` event and fails
+the fixture as an error rather than scoring the fallback. When adding a
+node, keep that event name so the guard covers it.
 
 Contract kinds:
 - `regex_forbid` / `regex_require` — deterministic; no LLM

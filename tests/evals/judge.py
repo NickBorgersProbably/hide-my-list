@@ -32,7 +32,12 @@ from pydantic import BaseModel, Field, ValidationError
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"
+# The judge must be a stronger model than anything under test, and must be
+# an alias the LiteLLM proxy actually serves — a judge the proxy rejects
+# fails every `judge` and `shame_safe` contract as an error, taking the
+# whole qualitative half of the suite down with it. Override via
+# EVAL_JUDGE_MODEL when the proxy's alias set changes.
+_DEFAULT_JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-sonnet-5")
 _CACHE_DIR = Path(__file__).parent / ".cache"
 _JUDGE_PROMPT_TEMPLATE = """\
 You are an evaluation judge. Score how well the response below satisfies the rubric.
