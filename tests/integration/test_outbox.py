@@ -47,7 +47,8 @@ async def db_conn() -> Any:
 
         # Clean state before each test (child table first to satisfy FK)
         await conn.execute(
-            "TRUNCATE reminder_scheduling_ledger, reminder_outbox, recent_outbound, ops_alerts_throttle"
+            "TRUNCATE reminder_scheduling_ledger, deadline_task_peers, reminder_outbox, "
+            "recent_outbound, ops_alerts_throttle"
         )
         await conn.commit()
 

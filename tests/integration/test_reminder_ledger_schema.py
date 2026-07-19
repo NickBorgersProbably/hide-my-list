@@ -50,7 +50,7 @@ async def db_conn() -> Any:
 
         # Clean state: truncate dependent tables in dependency order
         await conn.execute(
-            "TRUNCATE reminder_scheduling_ledger, reminder_outbox, "
+            "TRUNCATE reminder_scheduling_ledger, deadline_task_peers, reminder_outbox, "
             "recent_outbound, ops_alerts_throttle"
         )
         await conn.commit()

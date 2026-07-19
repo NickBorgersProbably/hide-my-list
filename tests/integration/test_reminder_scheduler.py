@@ -14,9 +14,21 @@ def _page(page_id: str, due_at: datetime, urgency: int = 50) -> dict[str, Any]:
         "properties": {
             "Due At": {"date": {"start": due_at.isoformat()}},
             "Urgency": {"number": urgency},
-            "Recipient": {"phone_number": "<recipient>"},
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_reminder_scheduler_job_invokes_backstop(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.scheduler.reminder_scheduler as scheduler_module
+    from app.scheduler.jobs import _USER_TZ, run_reminder_scheduler_job
+
+    run_backstop = AsyncMock(return_value=None)
+    monkeypatch.setattr(scheduler_module, "run_reminder_scheduler", run_backstop)
+
+    await run_reminder_scheduler_job()
+
+    run_backstop.assert_awaited_once_with(user_tz=_USER_TZ)
 
 
 @pytest.mark.asyncio
@@ -49,6 +61,11 @@ async def test_orphan_catchup_schedules_and_marks(monkeypatch: pytest.MonkeyPatc
         reminder_scheduler,
         "get_active_deadline_for_page",
         AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        reminder_scheduler,
+        "get_peer_for_task",
+        AsyncMock(return_value="<recipient>"),
     )
 
     class FakeCtx:
@@ -94,6 +111,11 @@ async def test_deadline_edit_detection_supersedes_and_reschedules(
         "get_active_deadline_for_page",
         AsyncMock(return_value=current_deadline - timedelta(days=1)),
     )
+    monkeypatch.setattr(
+        reminder_scheduler,
+        "get_peer_for_task",
+        AsyncMock(return_value="<recipient>"),
+    )
     supersede = AsyncMock(return_value=[])
     cancel = AsyncMock(return_value=None)
     monkeypatch.setattr(reminder_scheduler, "supersede_ledger_rows", supersede)
@@ -122,3 +144,47 @@ async def test_deadline_edit_detection_supersedes_and_reschedules(
     supersede.assert_awaited_once()
     cancel.assert_awaited_once()
     mark_scheduled.assert_awaited_once_with("<page-id>")
+
+
+@pytest.mark.asyncio
+async def test_orphan_without_recorded_peer_alerts_and_skips(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.scheduler import reminder_scheduler
+    from app.tools import notion, ops_alerts
+
+    page = _page("<page-id>", datetime.now(UTC) + timedelta(days=5))
+    monkeypatch.setattr(
+        notion,
+        "query_tasks_with_unscheduled_deadlines",
+        AsyncMock(return_value={"results": [page]}),
+    )
+    monkeypatch.setattr(
+        notion,
+        "query_scheduled_tasks_with_deadlines",
+        AsyncMock(return_value={"results": []}),
+    )
+    monkeypatch.setattr(notion, "mark_reminder_scheduled", AsyncMock(return_value={}))
+    schedule_for_task = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(reminder_scheduler, "schedule_for_task", schedule_for_task)
+    monkeypatch.setattr(
+        reminder_scheduler,
+        "get_peer_for_task",
+        AsyncMock(return_value=None),
+    )
+    alert = AsyncMock(return_value=None)
+    monkeypatch.setattr(ops_alerts, "enqueue", alert)
+
+    class FakeCtx:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    monkeypatch.setattr("app.tools.db.get_db_conn", lambda: FakeCtx())
+
+    await reminder_scheduler.run_reminder_scheduler(user_tz="America/Chicago")
+
+    schedule_for_task.assert_not_awaited()
+    alert.assert_awaited_once()

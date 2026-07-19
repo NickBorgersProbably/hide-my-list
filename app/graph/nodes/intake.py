@@ -373,11 +373,12 @@ async def _schedule_deadline_series(
 ) -> list[tuple[str, datetime]]:
     """Schedule a deadline milestone series after a Notion task is created."""
     try:
-        from app.scheduler.reminder_scheduling import schedule_for_task
+        from app.scheduler.reminder_scheduling import record_deadline_task_peer, schedule_for_task
         from app.tools import notion
         from app.tools.db import get_db_conn
 
         async with get_db_conn() as conn:
+            await record_deadline_task_peer(conn, notion_page_id=page_id, peer=peer)
             scheduled, failures = await schedule_for_task(
                 conn,
                 notion_page_id=page_id,

@@ -103,6 +103,47 @@ async def schedule_for_task(
     return scheduled, failures
 
 
+async def record_deadline_task_peer(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    notion_page_id: str,
+    peer: str,
+) -> None:
+    """Persist the Signal peer for a Notion task page with a deadline."""
+    await conn.execute(
+        """
+        INSERT INTO deadline_task_peers (notion_page_id, peer)
+        VALUES (%s, %s)
+        ON CONFLICT (notion_page_id)
+        DO UPDATE SET peer = EXCLUDED.peer,
+                      recorded_at = now()
+        """,
+        (notion_page_id, peer),
+    )
+    await conn.commit()
+
+
+async def get_peer_for_task(
+    conn: psycopg.AsyncConnection[Any],
+    notion_page_id: str,
+) -> str | None:
+    """Return the recorded Signal peer for a Notion task page."""
+    async with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+        await cur.execute(
+            """
+            SELECT peer
+              FROM deadline_task_peers
+             WHERE notion_page_id = %s
+            """,
+            (notion_page_id,),
+        )
+        row = await cur.fetchone()
+    if row is None:
+        return None
+    peer = row["peer"]
+    return peer if isinstance(peer, str) and peer else None
+
+
 async def get_active_deadline_for_page(
     conn: psycopg.AsyncConnection[Any],
     notion_page_id: str,
@@ -262,14 +303,4 @@ async def _insert_ledger_row(
 
 
 def _deadline_body(milestone_label: str) -> str:
-    labels = {
-        "90d": "90 days",
-        "60d": "60 days",
-        "30d": "30 days",
-        "14d": "2 weeks",
-        "7d": "1 week",
-        "3d": "3 days",
-        "1d": "1 day",
-        "4h": "4 hours",
-    }
-    return f"Deadline check-in: due in {labels.get(milestone_label, milestone_label)}."
+    return "Deadline nudge for this task. Want one tiny next step?"

@@ -1,7 +1,6 @@
 """Nightly backstop for deadline-driven reminder series."""
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,6 +10,7 @@ from app.scheduler.reminder_scheduling import (
     ScheduledMilestone,
     cancel_outbox_rows,
     get_active_deadline_for_page,
+    get_peer_for_task,
     schedule_for_task,
     supersede_ledger_rows,
 )
@@ -67,9 +67,13 @@ async def _schedule_page(page: dict[str, Any], *, user_tz: str, mark_scheduled: 
     if parsed is None:
         log.warning("reminder_scheduler.page_skipped", has_due_at=False)
         return
-    page_id, peer, deadline_at, urgency = parsed
+    page_id, deadline_at, urgency = parsed
 
     async with get_db_conn() as conn:
+        peer = await get_peer_for_task(conn, page_id)
+        if peer is None:
+            await _alert_missing_peer(page_id)
+            return
         existing_deadline = await get_active_deadline_for_page(conn, page_id)
         already_scheduled = (
             existing_deadline is not None and _deadlines_match(existing_deadline, deadline_at)
@@ -104,12 +108,16 @@ async def _refresh_page_if_deadline_changed(page: dict[str, Any], *, user_tz: st
     parsed = _parse_page(page)
     if parsed is None:
         return
-    page_id, peer, current_deadline, urgency = parsed
+    page_id, current_deadline, urgency = parsed
 
     from app.tools import notion
     from app.tools.db import get_db_conn
 
     async with get_db_conn() as conn:
+        peer = await get_peer_for_task(conn, page_id)
+        if peer is None:
+            await _alert_missing_peer(page_id)
+            return
         ledger_deadline = await get_active_deadline_for_page(conn, page_id)
         if ledger_deadline is not None and _deadlines_match(ledger_deadline, current_deadline):
             return
@@ -145,7 +153,18 @@ def _deadlines_match(a: datetime, b: datetime) -> bool:
     )
 
 
-def _parse_page(page: dict[str, Any]) -> tuple[str, str, datetime, int] | None:
+async def _alert_missing_peer(page_id: str) -> None:
+    from app.tools import ops_alerts
+
+    log.warning("reminder_scheduler.missing_peer", page_id=page_id)
+    await ops_alerts.enqueue(
+        kind="reminder_scheduler_missing_peer",
+        body="Deadline reminder scheduler found a task without recorded peer metadata.",
+        severity="warning",
+    )
+
+
+def _parse_page(page: dict[str, Any]) -> tuple[str, datetime, int] | None:
     page_id = str(page.get("id", ""))
     props = page.get("properties", {})
     if not page_id or not isinstance(props, dict):
@@ -155,10 +174,7 @@ def _parse_page(page: dict[str, Any]) -> tuple[str, str, datetime, int] | None:
     if deadline is None:
         return None
     urgency = _extract_number(props.get("Urgency")) or 50
-    peer = _extract_phone(props) or _default_peer()
-    if not peer:
-        return None
-    return page_id, peer, deadline, urgency
+    return page_id, deadline, urgency
 
 
 def _extract_date(prop: Any) -> datetime | None:
@@ -185,20 +201,3 @@ def _extract_number(prop: Any) -> int | None:
     if isinstance(value, float):
         return int(value)
     return None
-
-
-def _extract_phone(props: dict[str, Any]) -> str | None:
-    for prop in props.values():
-        if not isinstance(prop, dict):
-            continue
-        phone = prop.get("phone_number")
-        if isinstance(phone, str) and phone:
-            return phone
-    return None
-
-
-def _default_peer() -> str | None:
-    peers = [item.strip() for item in os.environ.get("AUTHORIZED_PEERS", "").split(",") if item.strip()]
-    if not peers:
-        return None
-    return sorted(peers)[0]

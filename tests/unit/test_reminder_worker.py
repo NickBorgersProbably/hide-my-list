@@ -112,6 +112,10 @@ async def test_dispatch_skips_complete_reminder_for_deadline_kind(
     await reminder_worker.dispatch_due_reminders(conn, signal_send_fn=signal_send)
 
     signal_send.assert_awaited_once()
+    kwargs = signal_send.await_args.kwargs
+    assert kwargs["recipient"] == "<peer>"
+    assert kwargs["message"] == "Deadline check-in."
+    assert kwargs["idempotency_key"] == row["idempotency_key"]
     complete_reminder.assert_not_awaited()
 
 

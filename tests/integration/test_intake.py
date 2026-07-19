@@ -237,6 +237,7 @@ async def test_deadline_task_schedules_inline_series() -> None:
         {"label": "3d", "assigned_at": datetime(2026, 6, 3, 15, 0, tzinfo=UTC)},
     )()
     schedule_for_task = AsyncMock(return_value=([scheduled_item], []))
+    record_deadline_task_peer = AsyncMock(return_value=None)
     mark_scheduled = AsyncMock(return_value={})
 
     class FakeCtx:
@@ -250,6 +251,10 @@ async def test_deadline_task_schedules_inline_series() -> None:
         patch("app.tools.notion.create_task", side_effect=mock_create_task),
         patch("app.tools.notion.mark_reminder_scheduled", mark_scheduled),
         patch("app.tools.db.get_db_conn", return_value=FakeCtx()),
+        patch(
+            "app.scheduler.reminder_scheduling.record_deadline_task_peer",
+            record_deadline_task_peer,
+        ),
         patch("app.scheduler.reminder_scheduling.schedule_for_task", schedule_for_task),
     ):
         mock_llm_response = MagicMock()
@@ -278,6 +283,7 @@ async def test_deadline_task_schedules_inline_series() -> None:
             result = await intake_node(state)
 
     assert create_task_calls[0]["due_at_iso"] == "2026-06-06T22:00:00+00:00"
+    record_deadline_task_peer.assert_awaited_once()
     schedule_for_task.assert_awaited_once()
     mark_scheduled.assert_awaited_once_with(page_id)
     assert "I'll ping you" in result["pending_outbound"][0]["body"]
