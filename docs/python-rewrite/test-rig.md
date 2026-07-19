@@ -195,6 +195,19 @@ contracts:
     threshold: 0.8
 ```
 
+The eval layer never reaches a real Notion API. It scores model behavior;
+Notion integration is the integration layer's job. `_invoke_node` runs the
+real node functions, and those write as well as read — `intake_node` calls
+`create_task`, `complete_node` calls `update_status` — so an eval run
+against a live database would create and mutate pages in it. The runner
+therefore replaces every public coroutine on `app.tools.notion` and blocks
+the HTTP client factory outright. Evals require no Notion credentials, and
+credentials present in the environment have no effect on a run.
+
+Do not relax this to get end-to-end coverage. Coverage of the real Notion
+path belongs in `tests/integration/` with its own test database and
+teardown, not in a loosened eval stub.
+
 `notion_tasks` declares the candidate pool the node reads via
 `notion.query_pending()`. The runner translates these flat mappings into
 Notion's nested property shape and serves them from a stubbed client;
