@@ -7,16 +7,28 @@ from typing import Any
 import pytest
 
 
-class _SilentWebSocket:
-    def __init__(self) -> None:
-        self._never_delivers = asyncio.Event()
+class _SilentStream:
+    """Async iterator that blocks indefinitely; returned by _SilentWebSocket.__aiter__."""
 
-    def __aiter__(self) -> _SilentWebSocket:
+    def __init__(self, block: asyncio.Event) -> None:
+        self._block = block
+
+    def __aiter__(self) -> _SilentStream:
         return self
 
     async def __anext__(self) -> str:
-        await self._never_delivers.wait()
+        await self._block.wait()
         raise AssertionError("unreachable")
+
+
+class _SilentWebSocket:
+    """Async iterable only (no __anext__), matching websockets 16 ClientConnection."""
+
+    def __init__(self) -> None:
+        self._never_delivers = asyncio.Event()
+
+    def __aiter__(self) -> _SilentStream:
+        return _SilentStream(self._never_delivers)
 
 
 class _ConnectContext:

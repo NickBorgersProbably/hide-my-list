@@ -12,6 +12,7 @@ Private data discipline: all values use placeholders; no real recipients or cont
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -151,3 +152,90 @@ async def test_check_inbound_silence_alerts_when_no_marker_row(db_conn: Any) -> 
     assert kwargs["kind"] == "signal_ingress_silent"
     assert kwargs["severity"] == "critical"
     assert "unknown" in kwargs["body"]
+
+
+# ---------------------------------------------------------------------------
+# Reachability: SignalListener → record_inbound_message → DB
+# ---------------------------------------------------------------------------
+
+
+class _NullHttpClient:
+    """Minimal httpx.AsyncClient stub; silences Signal API calls in listener tests."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
+    async def __aenter__(self) -> _NullHttpClient:
+        return self
+
+    async def __aexit__(self, *args: Any) -> None: ...
+
+    async def post(self, *args: Any, **kwargs: Any) -> Any:
+        class _R:
+            def raise_for_status(self) -> None: ...
+
+        return _R()
+
+    async def request(self, *args: Any, **kwargs: Any) -> Any:
+        class _R:
+            def raise_for_status(self) -> None: ...
+
+        return _R()
+
+
+@pytest.mark.asyncio
+async def test_listener_run_records_inbound_activity(db_conn: Any) -> None:
+    """SignalListener.run() with an authorized text message writes signal_ingress_health."""
+    from app.ingress.signal_listener import SignalListener
+
+    async def _one_message():
+        yield {
+            "envelope": {
+                "source": "<test-recipient>",
+                "timestamp": 1_716_800_000_000,
+                "dataMessage": {"message": "Test message"},
+            }
+        }
+
+    graph = AsyncMock()
+    listener = SignalListener(
+        graph=graph,
+        base_url="http://signal-cli-test:8080",
+        account="<test-account>",
+        authorized_peers=frozenset({"<test-recipient>"}),
+    )
+
+    with (
+        patch("app.ingress.signal_listener.receive_messages", return_value=_one_message()),
+        patch("httpx.AsyncClient", _NullHttpClient),
+    ):
+        await listener.run()
+        await asyncio.sleep(0)
+
+    cursor = await db_conn.execute(
+        "SELECT last_inbound_at FROM signal_ingress_health WHERE name = 'default'"
+    )
+    row = await cursor.fetchone()
+    assert row is not None, "SignalListener.run() did not update signal_ingress_health"
+
+
+# ---------------------------------------------------------------------------
+# Reachability: scheduler job → check_inbound_silence
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scheduler_signal_ingress_silence_job_reaches_check_inbound_silence(
+    db_conn: Any,
+) -> None:
+    """SCHEDULED_JOBS 'signal_ingress_silence' func reaches check_inbound_silence."""
+    from app.scheduler.jobs import SCHEDULED_JOBS, check_signal_ingress_silence
+
+    job = next((j for j in SCHEDULED_JOBS if j.id == "signal_ingress_silence"), None)
+    assert job is not None, "signal_ingress_silence missing from SCHEDULED_JOBS"
+    assert job.func is check_signal_ingress_silence
+
+    mock_check = AsyncMock(return_value=False)
+    with patch("app.tools.signal_ingress_health.check_inbound_silence", mock_check):
+        await check_signal_ingress_silence()
+
+    mock_check.assert_awaited_once()

@@ -26,7 +26,7 @@ import json
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import httpx
 import structlog
@@ -352,7 +352,7 @@ async def receive_messages(
         try:
             async with websockets.connect(ws_endpoint) as ws:
                 delay = _RETRY_BASE_DELAY  # reset on successful connect
-                message_stream = cast(AsyncIterator[str | bytes], ws)
+                message_stream = aiter(ws)
                 while True:
                     try:
                         raw_message = await asyncio.wait_for(
