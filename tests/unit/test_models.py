@@ -155,9 +155,51 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
             call_kwargs = mock_cls.call_args.kwargs
             assert call_kwargs["model"] == expected_model
             assert call_kwargs["temperature"] == 0.0
-            assert call_kwargs["max_tokens"] == 1024
+            # medium is a reasoning tier: it must NOT carry an output-token cap.
+            # A cap (formerly hardcoded 1024) truncates intake's think+JSON and
+            # the truncated output silently falls back to a non-reminder task.
+            assert "max_tokens" not in call_kwargs
             assert call_kwargs["base_url"] == "https://proxy.test/v1"
             assert call_kwargs["api_key"] == "test-key"
+
+    models_module._load_model_tiers.cache_clear()
+
+
+def test_max_tokens_per_tier() -> None:
+    """Reasoning tiers send NO max_tokens; only the label-only cheap tier is capped.
+
+    The output-token cap was a Claude-era default that truncated gemma4-small's
+    think+structured-JSON intake output. Reasoning tiers (medium/expensive/reminder)
+    must let the model finish; cheap (intent classifier) only emits a label and
+    keeps a small cap.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app import models as models_module
+
+    fake_instance = MagicMock()
+    fake_instance.with_config.return_value = fake_instance
+
+    env = {k: v for k, v in os.environ.items() if k not in ("LANGSMITH_TRACING",)}
+    env["LLM_PROXY_BASE_URL"] = "https://proxy.test/v1"
+    env["LLM_PROXY_API_KEY"] = "test-key"
+
+    with patch.dict(os.environ, env, clear=True):
+        for tier in ("medium", "expensive", "reminder"):
+            models_module._load_model_tiers.cache_clear()
+            with patch("app.models.ChatOpenAI", return_value=fake_instance) as mock_cls:
+                models_module.llm(tier, caller="test")
+                assert "max_tokens" not in mock_cls.call_args.kwargs, (
+                    f"{tier} tier must not cap output tokens; "
+                    f"got {mock_cls.call_args.kwargs.get('max_tokens')!r}"
+                )
+
+        models_module._load_model_tiers.cache_clear()
+        with patch("app.models.ChatOpenAI", return_value=fake_instance) as mock_cls:
+            models_module.llm("cheap", caller="test")
+            assert mock_cls.call_args.kwargs.get("max_tokens") == 1024, (
+                "cheap tier (label-only classifier) keeps a small output cap"
+            )
 
     models_module._load_model_tiers.cache_clear()
 

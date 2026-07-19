@@ -330,3 +330,156 @@ async def test_intake_clarify_response_when_vague() -> None:
     assert result["pending_outbound"]
     body = result["pending_outbound"][0]["body"]
     assert "which" in body.lower() or "thing" in body.lower() or "?" in body
+
+
+@pytest.mark.asyncio
+async def test_unparseable_output_saves_raw_task_and_alerts() -> None:
+    """A truncated/garbled LLM response must NOT masquerade as a confirmed task.
+
+    Regression for the intake reminder-drop: when the model output is
+    unparseable (e.g. truncated at the output-token ceiling), the node must
+    (1) preserve capture by saving a raw task titled from the user's own
+    words, (2) never claim a reminder was set, and (3) emit an ops alert so
+    the operator sees the model degradation. The old behavior silently saved
+    a plain task titled with the garbled LLM text and replied "Got it — added."
+    """
+    page_id = str(uuid.uuid4())
+    incoming = "I need to clean the kitchen Friday before 10pm"
+    # Truncated JSON: opening brace, cut off mid-value, no closing brace.
+    truncated = '{"action": "save", "title": "clean the kitchen", "is_reminder": tr'
+
+    create_task_calls: list[dict] = []
+    create_reminder_calls: list[dict] = []
+    alert_calls: list[dict] = []
+
+    async def mock_create_task(**kwargs: Any) -> dict:
+        create_task_calls.append(kwargs)
+        return _make_notion_page(page_id=page_id, title="Placeholder task")
+
+    async def mock_create_reminder(**kwargs: Any) -> dict:
+        create_reminder_calls.append(kwargs)
+        return _make_notion_page(page_id=page_id)
+
+    async def mock_alert(*, kind: str, body: str, severity: str = "warning", **_: Any) -> Any:
+        alert_calls.append({"kind": kind, "body": body, "severity": severity})
+        return uuid.uuid4()
+
+    with (
+        patch("app.tools.notion.create_task", side_effect=mock_create_task),
+        patch("app.tools.notion.create_reminder", side_effect=mock_create_reminder),
+        patch("app.tools.ops_alerts.enqueue", side_effect=mock_alert),
+    ):
+        mock_llm_response = MagicMock()
+        mock_llm_response.content = truncated
+        mock_model = AsyncMock()
+        mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+
+        with patch("app.models.llm", return_value=mock_model):
+            from app.graph.nodes.intake import intake_node
+
+            state: State = {
+                "peer": "<test-intake-unparseable>",
+                "incoming": incoming,
+                "intent": "ADD_TASK",
+                "messages": [],
+                "active_task": None,
+                "streak": 0,
+                "tasks_completed_today": 0,
+                "user_prefs": {},
+                "mood": None,
+                "available_minutes": None,
+                "conversation_state": "idle",
+                "pending_outbound": [],
+            }
+
+            result = await intake_node(state)
+
+    # Raw task saved, titled from the user's words — NOT the garbled LLM output.
+    assert len(create_task_calls) == 1
+    assert create_task_calls[0]["title"] == incoming
+    assert "is_reminder" not in create_task_calls[0]["title"]
+    assert create_task_calls[0]["work_type"] == "focus"
+    assert create_task_calls[0]["urgency"] == 50
+    assert create_task_calls[0]["time_estimate"] == 30
+    assert create_task_calls[0]["energy_required"] == "Medium"
+    # No reminder was fabricated.
+    assert len(create_reminder_calls) == 0
+    # Operator was alerted to the parse failure.
+    assert len(alert_calls) == 1
+    assert alert_calls[0]["kind"] == "intake_parse_failed"
+    assert "unparseable" in alert_calls[0]["body"].lower() or "parse" in alert_calls[0]["body"].lower()
+    assert alert_calls[0]["severity"] == "warning"
+    # User got an honest message — not a bare "Got it — added." false success,
+    # and it flags that the timing/reminder wasn't captured.
+    assert result["pending_outbound"]
+    body = result["pending_outbound"][0]["body"].lower()
+    assert body.strip() != "got it — added."
+    assert "remind" in body or "timing" in body or "time" in body
+
+
+@pytest.mark.asyncio
+async def test_unparseable_output_with_notion_down_does_not_claim_capture() -> None:
+    """A parse failure plus a Notion outage must not report the task as added.
+
+    The parse-failure path saves the user's raw message to preserve capture. If
+    that save itself fails there is nothing on the list, so the reply must be
+    the error path's "send it again", never "Added that to your list" — which
+    would reproduce the fabricated-success bug one level below the parse fix.
+    """
+    incoming = "I need to clean the kitchen Friday before 10pm"
+    truncated = '{"action": "save", "title": "clean the kitchen", "is_reminder": tr'
+
+    create_reminder_calls: list[dict] = []
+    alert_kinds: list[str] = []
+
+    async def mock_create_task(**_: Any) -> dict:
+        raise RuntimeError("Notion API unavailable")
+
+    async def mock_create_reminder(**kwargs: Any) -> dict:
+        create_reminder_calls.append(kwargs)
+        return _make_notion_page(page_id=str(uuid.uuid4()))
+
+    async def mock_alert(*, kind: str, body: str, severity: str = "warning", **_: Any) -> Any:
+        alert_kinds.append(kind)
+        return uuid.uuid4()
+
+    with (
+        patch("app.tools.notion.create_task", side_effect=mock_create_task),
+        patch("app.tools.notion.create_reminder", side_effect=mock_create_reminder),
+        patch("app.tools.ops_alerts.enqueue", side_effect=mock_alert),
+    ):
+        mock_llm_response = MagicMock()
+        mock_llm_response.content = truncated
+        mock_model = AsyncMock()
+        mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+
+        with patch("app.models.llm", return_value=mock_model):
+            from app.graph.nodes.intake import intake_node
+
+            state: State = {
+                "peer": "<test-intake-notion-down>",
+                "incoming": incoming,
+                "intent": "ADD_TASK",
+                "messages": [],
+                "active_task": None,
+                "streak": 0,
+                "tasks_completed_today": 0,
+                "user_prefs": {},
+                "mood": None,
+                "available_minutes": None,
+                "conversation_state": "idle",
+                "pending_outbound": [],
+            }
+
+            result = await intake_node(state)
+
+    # Nothing was captured, so nothing may be confirmed.
+    assert len(create_reminder_calls) == 0
+    assert result["pending_outbound"]
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] is None
+    body = draft["body"].lower()
+    assert "added" not in body
+    assert "again" in body
+    # The operator still hears about it, via the node-level error alert.
+    assert "intake_node_error" in alert_kinds

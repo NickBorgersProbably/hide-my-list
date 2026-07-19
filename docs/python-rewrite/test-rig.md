@@ -227,11 +227,14 @@ change in `setup/model-tiers.json`; no Python adapter changes are required.
 All LLM routing stays through `app/models.py:llm(tier)`.
 
 Unit tests for provider-boundary behavior must assert the exact `ChatOpenAI`
-constructor payload (model id, temperature, max_tokens, base_url, api_key, and
+constructor payload (model id, temperature, base_url, api_key, and
 tier-specific `extra_body`) to catch routing regressions that would still pass
-a class-assertion-only check. Tests must assert that the `cheap` tier includes
-`extra_body={'think': False}` and that all other tiers do not set `think` unless
-a deliberate future change adds it.
+a class-assertion-only check. `max_tokens` is tier-conditional: the `cheap`
+tier sends it (capped output) and must be asserted; reasoning tiers
+(expensive/medium/reminder) omit it and tests must assert its absence. Tests
+must assert that the `cheap` tier includes `extra_body={'think': False}` and
+that all other tiers do not set `think` unless a deliberate future change adds
+it.
 
 Three cost gates for eval runs:
 - `ENABLE_LIVE_LLM_EVALS=true` — required for any real LLM call; absent = `pytest.skip`

@@ -84,6 +84,11 @@ async def intake_node(state: State) -> dict[str, Any]:
 
         parsed = _parse_intake_response(response_text)
 
+        if parsed is None:
+            # Unparseable model output (e.g. truncated mid-JSON). Do not fake a
+            # success: preserve capture, alert the operator, tell the truth.
+            return await _handle_parse_failure(peer=peer, incoming=incoming)
+
         if parsed.get("action") == "clarify":
             question = parsed.get("clarification_question", "Which task are you thinking of?")
             draft = {
@@ -166,12 +171,74 @@ async def intake_node(state: State) -> dict[str, Any]:
 
     except Exception:
         log.exception("intake_node.error", peer=peer)
+        # Something raised before the task was stored. Do not claim success —
+        # nothing was saved. Alert the operator and ask the user to resend.
+        try:
+            from app.tools import ops_alerts
+            await ops_alerts.enqueue(
+                kind="intake_node_error",
+                body="Intake node raised before saving; the task was not stored. See logs.",
+                severity="warning",
+            )
+        except Exception:
+            log.exception("intake_node.error.ops_alert_failed", peer=peer)
         fallback: OutboundDraft = {
             "recipient": peer,
-            "body": "Got it, I'll add that to your list.",
+            "body": "Something hiccupped on my end with that one — mind sending it again?",
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
+
+
+async def _handle_parse_failure(*, peer: str, incoming: str) -> dict[str, Any]:
+    """Handle an unparseable intake LLM response without faking success.
+
+    Preserves capture by saving the user's raw message as a plain task — titled
+    from their own words, never the garbled model output — alerts the operator
+    so model degradation is visible, and returns an honest confirmation that
+    flags the un-captured timing. Never claims a reminder was set.
+    """
+    from app.tools import notion
+
+    log.error("intake_node.parse_failed")
+
+    # Deliberately uncaught: if the save fails there is nothing on the list, and
+    # the honest answer is the caller's error path ("mind sending it again?").
+    # Swallowing it here would reply "Added that to your list" over an empty
+    # Notion — the same fabricated success this function exists to prevent,
+    # moved one level down.
+    notion_page = await notion.create_task(
+        title=incoming[:200],
+        work_type="focus",
+        urgency=50,
+        time_estimate=30,
+        energy_required="Medium",
+    )
+    page_id = (notion_page or {}).get("id")
+
+    try:
+        from app.tools import ops_alerts
+        await ops_alerts.enqueue(
+            kind="intake_parse_failed",
+            body=(
+                "Intake LLM returned unparseable output; saved a raw task with no "
+                "labels or reminder. Model may be truncating or degraded."
+            ),
+            severity="warning",
+        )
+    except Exception:
+        log.exception("intake_node.parse_failed.ops_alert_failed")
+
+    draft: OutboundDraft = {
+        "recipient": peer,
+        "body": (
+            "Added that to your list. I couldn't quite pin down the timing on that "
+            "one though — if there's a deadline or a time you want a nudge, send it "
+            "again and I'll set the reminder."
+        ),
+        "notion_page_id": page_id,
+    }
+    return {"pending_outbound": [draft], "conversation_state": "idle"}
 
 
 async def _create_reminder(
@@ -251,9 +318,15 @@ def _parse_remind_at(remind_at_str: str) -> datetime:
         raise ValueError(f"Cannot parse remind_at: {remind_at_str!r}") from exc
 
 
-def _parse_intake_response(response_text: str) -> dict[str, Any]:
-    """Extract JSON from LLM intake response."""
-    # Try to find a JSON block
+def _parse_intake_response(response_text: str) -> dict[str, Any] | None:
+    """Extract JSON from an LLM intake response.
+
+    Returns None when no JSON object can be parsed — e.g. the response was
+    truncated at the output-token ceiling, or the model returned prose. The
+    caller MUST treat None as a parse failure, never as a non-reminder task: a
+    fabricated default here would let a dropped reminder masquerade as a
+    confirmed plain task (the exact bug this guards against).
+    """
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
         try:
@@ -263,21 +336,7 @@ def _parse_intake_response(response_text: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
 
-    # Fallback: return a save action with the raw text as title
-    return {
-        "action": "save",
-        "title": response_text[:200],
-        "work_type": "focus",
-        "urgency": 50,
-        "time_estimate_minutes": 30,
-        "energy_required": "Medium",
-        "is_reminder": False,
-        "remind_at": None,
-        "use_hidden_subtasks": False,
-        "sub_tasks": [],
-        "inline_steps": "",
-        "confirmation_message": "Got it — added.",
-    }
+    return None
 
 
 def _build_prefs_context(user_prefs: Mapping[str, object]) -> str:
