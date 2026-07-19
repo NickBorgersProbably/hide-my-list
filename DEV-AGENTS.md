@@ -41,6 +41,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 
 - `app/tools/notion.py` — Notion API client (9 verbs + health_check)
 - `app/tools/signal_client.py` — Signal bridge async client
+- `app/tools/signal_ingress_health.py` — Durable Signal ingress liveness marker; `record_inbound_message` upserts last-inbound timestamp, `check_inbound_silence` enqueues a critical ops alert when the threshold is exceeded
 - `app/tools/reminders.py` — Reminder outbox CRUD
 - `app/tools/rewards.py` — Reward delivery (emoji + image; v1 scope)
 - `app/tools/ops_alerts.py` — Ops alert enqueue + drain
@@ -59,7 +60,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/graph/nodes/complete.py` — COMPLETE intent node
 - `app/graph/nodes/send.py` — Terminal send node
 - `app/scheduler/scheduler.py` — APScheduler v3 wiring with PostgresJobStore
-- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `weekly_recap`, `reminder_scheduler`
+- `app/scheduler/jobs.py` — Declarative SCHEDULED_JOBS list + reconcile_jobstore; jobs: `reminder_dispatcher`, `notion_health`, `ops_alerts_drain`, `state_audit`, `check_in_dispatcher`, `weekly_recap`, `reminder_scheduler`, `signal_ingress_silence`
 - `app/scheduler/reminder_worker.py` — SELECT FOR UPDATE SKIP LOCKED worker; completes Notion only for `reminder_outbox.kind='reminder'`
 - `app/scheduler/deadline_planner.py` — Pure deadline milestone planner and quiet-hours/load-balancing slot assignment
 - `app/scheduler/reminder_scheduling.py` — Shared deadline reminder scheduler helper; writes `reminder_scheduling_ledger`, deadline outbox rows, and private page-to-peer routing metadata
@@ -79,6 +80,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `migrations/0007_reminder_scheduling_ledger.sql` — Adds `reminder_scheduling_ledger` table for deadline-driven reminder tracking; drops `reminder_outbox.notion_page_id` UNIQUE constraint and adds UNIQUE on `idempotency_key`
 - `migrations/0008_reminder_outbox_kind.sql` — Adds `reminder_outbox.kind` discriminator and CHECK constraint for `reminder` vs `deadline` rows
 - `migrations/0009_deadline_task_peers.sql` — Adds private `deadline_task_peers` routing metadata for deadline reminder backstop jobs
+- `migrations/0010_signal_ingress_health.sql` — Adds `signal_ingress_health` table for durable Signal ingress liveness markers; seeds a default row
 - `tests/unit/` — Unit tests (no DATABASE_URL required)
 - `tests/integration/` — Integration tests; DB-backed tests require DATABASE_URL, HTTP-only tests do not
 - `tests/perf/` — Perf harness: latency + token stats per model, gated by `ENABLE_LLM_PERF=true`. See `docs/python-rewrite/llm-observability.md` for usage.

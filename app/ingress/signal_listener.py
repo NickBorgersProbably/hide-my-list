@@ -21,6 +21,7 @@ from typing import Any
 import structlog
 
 from app.tools.signal_client import receive_messages, send_read_receipt, send_typing_indicator
+from app.tools.signal_ingress_health import record_inbound_message
 
 log = structlog.get_logger(__name__)
 
@@ -84,6 +85,17 @@ def _start_background_task(coro: Coroutine[Any, Any, None]) -> None:
     """Schedule a best-effort coroutine and log unexpected failures."""
     task = asyncio.create_task(coro)
     task.add_done_callback(_log_background_task_result)
+
+
+async def _record_inbound_activity() -> None:
+    """Best-effort durable marker that authorized Signal ingress is alive."""
+    try:
+        await record_inbound_message()
+    except Exception as exc:
+        log.warning(
+            "signal_listener.ingress_health_record_failed",
+            error_type=type(exc).__name__,
+        )
 
 
 async def _maintain_typing_indicator(
@@ -195,6 +207,8 @@ class SignalListener:
                     log.info("signal_listener.reaction_non_bot_target_dropped")
                     continue
 
+                await _record_inbound_activity()
+
                 from app.tools.rewards import record_reward_feedback
 
                 await record_reward_feedback(
@@ -214,6 +228,8 @@ class SignalListener:
             if peer not in self._authorized_peers:
                 log.warning("signal_listener.unauthorized_peer_dropped")
                 continue
+
+            await _record_inbound_activity()
 
             log.info("signal_listener.message_received", peer=peer[:4] + "***")
 

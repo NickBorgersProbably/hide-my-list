@@ -122,6 +122,7 @@ duplicate delivery over loss.
 | `state_audit` | Daily 03:00 USER_TZ | VACUUM + prune `recent_outbound` (90-day retention) |
 | `reminder_scheduler` | Daily 04:00 USER_TZ | Schedule missing deadline reminder series and refresh edited deadlines |
 | `weekly_recap` | Sun 18:00 USER_TZ | Generate weekly recap |
+| `signal_ingress_silence` | 60 min (configurable) | Read `signal_ingress_health`; enqueue critical ops alert when inbound silence exceeds threshold |
 
 ## Model Routing
 
@@ -160,6 +161,9 @@ require auth, set it to any non-empty placeholder in the runtime environment.
 | `REMINDER_SLOT_CAPACITY` | Maximum deadline reminders per bucket (default `2`) |
 | `REMINDER_QUIET_START_HOUR` | User-local quiet-hours start for deadline reminders (default `22`) |
 | `REMINDER_QUIET_END_HOUR` | User-local quiet-hours end for deadline reminders (default `8`) |
+| `SIGNAL_RECEIVE_IDLE_TIMEOUT_SECONDS` | Receive WebSocket idle deadline before reconnect (default `300`) |
+| `SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES` | Interval for `signal_ingress_silence` job (default `60`) |
+| `SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS` | Inbound silence duration before critical ops alert (default `129600`, 36 hours) |
 
 ## Outbound Dependencies
 

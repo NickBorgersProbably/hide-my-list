@@ -20,6 +20,31 @@ from apscheduler.triggers.interval import IntervalTrigger
 log = structlog.get_logger(__name__)
 
 _USER_TZ = os.environ.get("USER_TZ", "America/Chicago")
+_DEFAULT_SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES = 60
+
+
+def _signal_ingress_silence_check_interval_minutes() -> int:
+    raw = os.environ.get(
+        "SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES",
+        str(_DEFAULT_SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES),
+    )
+    try:
+        value = int(raw)
+    except ValueError:
+        log.warning(
+            "signal_ingress_silence_check.invalid_interval",
+            configured_value=raw,
+            fallback_minutes=_DEFAULT_SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES,
+        )
+        return _DEFAULT_SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES
+    if value <= 0:
+        log.warning(
+            "signal_ingress_silence_check.invalid_interval",
+            configured_value=raw,
+            fallback_minutes=_DEFAULT_SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES,
+        )
+        return _DEFAULT_SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES
+    return value
 
 
 @dataclass
@@ -82,6 +107,16 @@ async def send_pending_ops_alerts() -> None:
     """
     from app.tools import ops_alerts
     await ops_alerts.drain()
+
+
+async def check_signal_ingress_silence() -> None:
+    """Enqueue an ops alert when authorized Signal ingress has been quiet too long."""
+    from app.tools.signal_ingress_health import check_inbound_silence
+
+    try:
+        await check_inbound_silence()
+    except Exception as exc:
+        log.error("signal_ingress_silence_check.failed", error=str(exc))
 
 
 async def run_state_audit() -> None:
@@ -189,6 +224,11 @@ SCHEDULED_JOBS: list[JobSpec] = [
         id="ops_alerts_drain",
         trigger=IntervalTrigger(minutes=5),
         func=send_pending_ops_alerts,
+    ),
+    JobSpec(
+        id="signal_ingress_silence",
+        trigger=IntervalTrigger(minutes=_signal_ingress_silence_check_interval_minutes()),
+        func=check_signal_ingress_silence,
     ),
     JobSpec(
         id="state_audit",

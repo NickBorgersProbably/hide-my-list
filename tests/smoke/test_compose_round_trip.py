@@ -72,6 +72,9 @@ def compose_stack() -> object:
         "REMINDER_SLOT_CAPACITY": "2",
         "REMINDER_QUIET_START_HOUR": "22",
         "REMINDER_QUIET_END_HOUR": "8",
+        "SIGNAL_RECEIVE_IDLE_TIMEOUT_SECONDS": "300",
+        "SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES": "60",
+        "SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS": "129600",
     }
 
     # Bring up postgres + signal-cli + app
@@ -195,6 +198,9 @@ def test_app_receives_llm_proxy_env(compose_stack: object) -> None:
     assert "REMINDER_SLOT_CAPACITY=2" in env_lines
     assert "REMINDER_QUIET_START_HOUR=22" in env_lines
     assert "REMINDER_QUIET_END_HOUR=8" in env_lines
+    assert "SIGNAL_RECEIVE_IDLE_TIMEOUT_SECONDS=300" in env_lines
+    assert "SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES=60" in env_lines
+    assert "SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS=129600" in env_lines
 
 
 def test_app_boots_runtime(compose_stack: object) -> None:

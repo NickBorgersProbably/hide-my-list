@@ -44,6 +44,13 @@ services:
       - REMINDER_QUIET_START_HOUR=${REMINDER_QUIET_START_HOUR:-22}
       - REMINDER_QUIET_END_HOUR=${REMINDER_QUIET_END_HOUR:-8}
       - OPS_ALERT_SIGNAL_NUMBER=${OPS_ALERT_SIGNAL_NUMBER:-}
+      # Signal ingress liveness controls.
+      # SIGNAL_RECEIVE_IDLE_TIMEOUT_SECONDS: receive WebSocket idle deadline before reconnect (default 300).
+      - SIGNAL_RECEIVE_IDLE_TIMEOUT_SECONDS=${SIGNAL_RECEIVE_IDLE_TIMEOUT_SECONDS:-300}
+      # SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES: interval for silence check job (default 60).
+      - SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES=${SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES:-60}
+      # SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS: inbound silence before critical alert (default 129600 = 36 h).
+      - SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS=${SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS:-129600}
       # REWARD_ARTIFACTS_DIR: mount path for generated PNG reward images.
       # Must match the volume mount below so images persist across container restarts.
       - REWARD_ARTIFACTS_DIR=/data/reward_artifacts
