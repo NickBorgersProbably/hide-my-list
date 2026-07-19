@@ -348,7 +348,16 @@ def _install_notion_stub(fixture: Fixture) -> Callable[[], None]:
     Evals must score the model, not the state of a live Notion database.
     Reads return the fixture's `notion_tasks`; writes are accepted and
     discarded. Returns an undo callable.
+
+    Fail-closed by construction: every public coroutine on the module is
+    replaced by introspection rather than from a hand-maintained list, and
+    the HTTP client factory is replaced with one that raises. A verb added
+    to a node later cannot quietly reach a real Notion database — including
+    the write verbs (`create_task`, `update_status`), which would otherwise
+    mutate whatever database happened to be configured in the environment.
     """
+    import inspect  # noqa: PLC0415
+
     from app.tools import notion  # noqa: PLC0415
 
     pages = [_as_notion_page(t) for t in fixture.notion_tasks]
@@ -359,22 +368,22 @@ def _install_notion_stub(fixture: Fixture) -> Callable[[], None]:
     async def _write(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {}
 
-    stubs: dict[str, Any] = {
-        "query_pending": _read,
-        "query_all": _read,
-        "query_due_reminders": _read,
-        "query_tasks_with_unscheduled_deadlines": _read,
-        "query_scheduled_tasks_with_deadlines": _read,
-        "update_property": _write,
-        "update_status": _write,
-        "create_task": _write,
-        "create_reminder": _write,
-        "complete_reminder": _write,
-        "mark_reminder_scheduled": _write,
-    }
-    original = {name: getattr(notion, name) for name in stubs}
-    for name, fn in stubs.items():
-        setattr(notion, name, fn)
+    def _blocked_client() -> Any:
+        raise RuntimeError(
+            "eval fixtures must not open a Notion HTTP connection — a node reached "
+            "an unstubbed code path in app.tools.notion"
+        )
+
+    original: dict[str, Any] = {}
+    for name, member in inspect.getmembers(notion, inspect.iscoroutinefunction):
+        if name.startswith("_"):
+            continue
+        original[name] = member
+        # Reads serve the fixture pool; everything else is accepted and dropped.
+        setattr(notion, name, _read if name.startswith(("query_", "get_")) else _write)
+
+    original["_client_factory"] = notion._client_factory
+    notion._client_factory = _blocked_client
 
     def _undo() -> None:
         for name, fn in original.items():

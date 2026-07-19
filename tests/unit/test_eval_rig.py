@@ -74,6 +74,39 @@ async def test_notion_stub_serves_fixture_tasks_and_restores() -> None:
     assert notion.query_pending is original
 
 
+@pytest.mark.asyncio
+async def test_notion_stub_covers_every_verb_nodes_call() -> None:
+    """No node-reachable verb may escape to a real Notion database.
+
+    Enumerating verbs by hand is fail-open: a verb added to a node later
+    would silently reach whatever database the environment points at, and
+    the write verbs would mutate it. Assert coverage against the verbs the
+    nodes actually call, and assert the HTTP factory is blocked outright.
+    """
+    import re
+    from pathlib import Path
+
+    from app.tools import notion
+
+    nodes_dir = Path(__file__).parent.parent.parent / "app" / "graph" / "nodes"
+    called = {
+        m.group(1)
+        for path in nodes_dir.glob("*.py")
+        for m in re.finditer(r"notion\.([a-z_]+)\(", path.read_text(encoding="utf-8"))
+    }
+    assert called, "no notion verbs found — did the nodes directory move?"
+
+    undo = _install_notion_stub(_fixture("rejection-names-alternative-001"))
+    try:
+        for verb in sorted(called):
+            result = await getattr(notion, verb)("<arg>", {})
+            assert isinstance(result, dict), f"{verb} escaped the stub"
+        with pytest.raises(RuntimeError, match="must not open a Notion HTTP connection"):
+            notion._client_factory()
+    finally:
+        undo()
+
+
 def test_invoke_node_rejects_exception_fallback_output() -> None:
     """A node that falls back must error, not be scored.
 
