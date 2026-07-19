@@ -51,12 +51,19 @@ def test_script_still_runs_pytest_by_default() -> None:
 
 
 def test_fixer_commit_step_sets_skip_variable() -> None:
-    """The host commit step must set the skip variable."""
+    """The host commit step must set the skip variable to '1'."""
     text = _workflow_text()
-    assert f"{_SKIP_VAR}:" in text, (
-        f"Expected review-fixer.yml to set {_SKIP_VAR} on the host commit "
-        "step. Without it the pre-commit hook runs pytest with no project "
+    commit_pos = text.find("Commit fixer working-tree changes")
+    assert commit_pos != -1, "'Commit fixer working-tree changes' step not found"
+    next_step_pos = text.find("\n      - name:", commit_pos + 1)
+    commit_block = text[commit_pos:next_step_pos] if next_step_pos != -1 else text[commit_pos:]
+    assert f"{_SKIP_VAR}:" in commit_block, (
+        f"Expected {_SKIP_VAR} in the 'Commit fixer working-tree changes' step env. "
+        "Without it the pre-commit hook runs pytest with no project "
         "dependencies installed and blocks every PR at the fixer stage."
+    )
+    assert f'{_SKIP_VAR}: "1"' in commit_block, (
+        f"Expected {_SKIP_VAR} to be set to \"1\" in the commit step env."
     )
 
 

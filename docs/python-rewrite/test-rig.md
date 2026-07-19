@@ -34,10 +34,11 @@ fires on every PR that touches `app/**`, `migrations/**`, `setup/model-tiers.jso
 | Model-swap report | 15-30 min | ~$5-10 | `.github/workflows/model-swap.yml` — `workflow_dispatch` only |
 
 CI never sets `ENABLE_LIVE_LLM_EVALS=true` for PRs. The nightly eval workflow
-and model-swap workflow use repo secrets (`LLM_PROXY_API_KEY`,
-`LLM_PROXY_BASE_URL`) and are off by default for PR runs. The compose smoke
-is manually gated by `ENABLE_COMPOSE_SMOKE` — there's no scheduled trigger
-(it boots the full stack and is too slow for PR CI).
+and model-swap workflow run on the self-hosted `homelab` runner (which can reach
+the tailnet-only proxy) and provide the required proxy env vars directly — a
+non-empty placeholder API key and the OpenAI-compatible `/v1` endpoint — rather
+than repo secrets. The compose smoke is manually gated by `ENABLE_COMPOSE_SMOKE` —
+there's no scheduled trigger (it boots the full stack and is too slow for PR CI).
 
 ---
 
@@ -112,11 +113,12 @@ source and the set.
 The pre-commit hook (`scripts/run-required-checks.sh pre-commit`) enforces a
 Python gate whenever `.py` files are staged: it runs `ruff check` on the staged
 paths and then `pytest tests/unit/ -x -q` against the full unit suite. Both
-must pass before the commit proceeds. No auto-fix. This gate complements the
-CI-only Python Validation workflow by catching lint and unit-test failures
-locally before they reach CI. This test asserts the gate is wired correctly
-when the Python source or test surface is in scope for CI (`python-validation.yml`
-trigger paths), so the hook cannot silently regress.
+must pass before the commit proceeds. No auto-fix. Setting `HML_SKIP_HOOK_PYTEST=1`
+skips the unit suite for dependency-less CI commit contexts (the review-fixer
+host commit step uses this); `python-validation.yml`'s `pytest-unit` required
+check covers the same suite there, on a read-only runner with the full dependency
+set. This test asserts both the default local path (ruff + pytest) and the opt-in
+skip path are wired correctly, so neither can silently regress.
 
 ---
 
