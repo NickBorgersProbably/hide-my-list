@@ -50,7 +50,7 @@ async def db_conn() -> Any:
 
         # Clean state: truncate dependent tables in dependency order
         await conn.execute(
-            "TRUNCATE reminder_scheduling_ledger, reminder_outbox, "
+            "TRUNCATE reminder_scheduling_ledger, deadline_task_peers, reminder_outbox, "
             "recent_outbound, ops_alerts_throttle"
         )
         await conn.commit()
@@ -321,6 +321,41 @@ async def test_outbox_idempotency_key_unique(db_conn: Any) -> None:
             db_conn,
             notion_page_id=f"page-{uuid.uuid4()}",
             idempotency_key=shared_key,
+        )
+        await db_conn.commit()
+
+    await db_conn.rollback()
+
+
+@pytest.mark.asyncio
+async def test_outbox_kind_default_and_check_constraint(db_conn: Any) -> None:
+    """Migration 0008 adds reminder/deadline discriminator with safe default."""
+    import psycopg
+
+    outbox_id = await _insert_outbox(db_conn)
+    await db_conn.commit()
+
+    async with db_conn.cursor() as cur:
+        await cur.execute("SELECT kind FROM reminder_outbox WHERE id = %s", (outbox_id,))
+        row = await cur.fetchone()
+
+    assert row[0] == "reminder"
+
+    with pytest.raises(psycopg.errors.CheckViolation):
+        await db_conn.execute(
+            """
+            INSERT INTO reminder_outbox
+              (id, notion_page_id, peer, body, due_at, state, idempotency_key, kind)
+            VALUES (%s, %s, %s, %s, %s, 'pending', %s, 'invalid')
+            """,
+            (
+                str(uuid.uuid4()),
+                f"page-{uuid.uuid4()}",
+                "<recipient>",
+                "Test reminder body",
+                datetime.now(UTC) + timedelta(days=1),
+                str(uuid.uuid4()),
+            ),
         )
         await db_conn.commit()
 

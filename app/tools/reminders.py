@@ -35,6 +35,7 @@ async def enqueue(
     due_at: datetime,
     idempotency_key: str,
     reminder_id: uuid.UUID | None = None,
+    kind: str = "reminder",
 ) -> uuid.UUID:
     """Insert a new reminder into the outbox with state='pending'.
 
@@ -52,15 +53,18 @@ async def enqueue(
         due_at: When the reminder should be sent (UTC).
         idempotency_key: Unique key per reminder; UNIQUE constraint prevents duplicate inserts.
         reminder_id: Optional UUID; generated if not provided.
+        kind: "reminder" for wall-clock reminders, "deadline" for milestone pings.
     """
+    if kind not in ("reminder", "deadline"):
+        raise ValueError("kind must be 'reminder' or 'deadline'")
     rid = reminder_id or uuid.uuid4()
     await conn.execute(
         """
         INSERT INTO reminder_outbox
-          (id, notion_page_id, peer, body, due_at, state, idempotency_key)
-        VALUES (%s, %s, %s, %s, %s, 'pending', %s)
+          (id, notion_page_id, peer, body, due_at, state, idempotency_key, kind)
+        VALUES (%s, %s, %s, %s, %s, 'pending', %s, %s)
         """,
-        (str(rid), notion_page_id, peer, body, due_at, idempotency_key),
+        (str(rid), notion_page_id, peer, body, due_at, idempotency_key, kind),
     )
     log.info(
         "reminders.enqueued",

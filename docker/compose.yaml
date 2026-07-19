@@ -37,6 +37,12 @@ services:
       - LANGSMITH_TRACING=${LANGSMITH_TRACING:-false}
       - ALLOW_PRIVATE_TRACE_EXPORT=${ALLOW_PRIVATE_TRACE_EXPORT:-false}
       - USER_TZ=${USER_TZ:-America/Chicago}
+      # Deadline reminder slot size and max rows per slot bucket.
+      - REMINDER_SLOT_MINUTES=${REMINDER_SLOT_MINUTES:-30}
+      - REMINDER_SLOT_CAPACITY=${REMINDER_SLOT_CAPACITY:-2}
+      # User-local quiet-hour bounds for deadline reminder slot assignment.
+      - REMINDER_QUIET_START_HOUR=${REMINDER_QUIET_START_HOUR:-22}
+      - REMINDER_QUIET_END_HOUR=${REMINDER_QUIET_END_HOUR:-8}
       - OPS_ALERT_SIGNAL_NUMBER=${OPS_ALERT_SIGNAL_NUMBER:-}
       # REWARD_ARTIFACTS_DIR: mount path for generated PNG reward images.
       # Must match the volume mount below so images persist across container restarts.

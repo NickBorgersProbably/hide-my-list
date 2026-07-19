@@ -150,6 +150,7 @@ async def dispatch_due_reminders(
         notion_page_id = row["notion_page_id"]
         idempotency_key = row["idempotency_key"]
         attempt = row["attempt"] + 1
+        kind = row.get("kind") or "reminder"
 
         log.info(
             "reminder_worker.delivering",
@@ -200,16 +201,17 @@ async def dispatch_due_reminders(
                 )
             await conn.commit()
 
-            # Mark Notion reminder as sent (idempotent, outside transaction)
-            try:
-                from app.tools.notion import complete_reminder
-                await complete_reminder(notion_page_id, "sent")
-            except Exception as notion_err:
-                log.warning(
-                    "reminder_worker.notion_complete_failed",
-                    reminder_id=str(rid),
-                    error=str(notion_err),
-                )
+            if kind == "reminder":
+                # Mark Notion reminder as sent (idempotent, outside transaction).
+                try:
+                    from app.tools.notion import complete_reminder
+                    await complete_reminder(notion_page_id, "sent")
+                except Exception as notion_err:
+                    log.warning(
+                        "reminder_worker.notion_complete_failed",
+                        reminder_id=str(rid),
+                        error=str(notion_err),
+                    )
 
             log.info("reminder_worker.delivered", reminder_id=str(rid))
             delivered_count += 1

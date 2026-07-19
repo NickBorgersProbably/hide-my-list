@@ -1,0 +1,20 @@
+---
+id: intake-deadline-phrase-001
+node: intake
+tier: medium
+peer: "<test-peer-deadline>"
+inbound: "I need to finish the placeholder report by Friday"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)(cron|worker|queue|outbox|notion)"
+  - kind: judge
+    rubric: |
+      The response confirms the task was added and treats "by Friday" as a
+      deadline for the task. It does not claim this is only a wall-clock
+      reminder and does not mention internal infrastructure.
+    threshold: 0.7

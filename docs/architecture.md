@@ -90,8 +90,9 @@ The app container runs four concurrent async tasks:
 4. **Reminder worker** (`app/scheduler/reminder_worker.py`) — Runs as the
    `reminder_dispatcher` APScheduler job (every 30 seconds). Claims due
    `reminder_outbox` rows with `SELECT FOR UPDATE SKIP LOCKED`, delivers via
-   signal-cli, then marks delivered and calls `scripts/notion-cli.sh
-   complete-reminder`.
+   signal-cli, then marks delivered. Rows with `kind='reminder'` complete the
+   Notion reminder page after delivery. Rows with `kind='deadline'` leave the
+   task open.
 
 ## Reminder Delivery
 
@@ -119,6 +120,7 @@ duplicate delivery over loss.
 | `ops_alerts_drain` | 5 min | Send pending ops alerts via Signal |
 | `check_in_dispatcher` | 10 min | Trigger CHECK_IN graph turns for due tasks |
 | `state_audit` | Daily 03:00 USER_TZ | VACUUM + prune `recent_outbound` (90-day retention) |
+| `reminder_scheduler` | Daily 04:00 USER_TZ | Schedule missing deadline reminder series and refresh edited deadlines |
 | `weekly_recap` | Sun 18:00 USER_TZ | Generate weekly recap |
 
 ## Model Routing
@@ -154,6 +156,10 @@ require auth, set it to any non-empty placeholder in the runtime environment.
 | `SIGNAL_ACCOUNT` | E.164 Signal account number |
 | `AUTHORIZED_PEERS` | Comma-separated E.164 allowed inbound peers; empty or unset refuses startup |
 | `USER_TZ` | User's IANA timezone (default `America/Chicago`) |
+| `REMINDER_SLOT_MINUTES` | Deadline reminder load-balancing bucket size (default `30`) |
+| `REMINDER_SLOT_CAPACITY` | Maximum deadline reminders per bucket (default `2`) |
+| `REMINDER_QUIET_START_HOUR` | User-local quiet-hours start for deadline reminders (default `22`) |
+| `REMINDER_QUIET_END_HOUR` | User-local quiet-hours end for deadline reminders (default `8`) |
 
 ## Outbound Dependencies
 

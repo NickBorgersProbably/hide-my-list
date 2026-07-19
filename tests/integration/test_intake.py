@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -43,6 +44,7 @@ def _llm_save_response(
     time_estimate: int = 30,
     is_reminder: bool = False,
     remind_at: str | None = None,
+    due_at: str | None = None,
     confirmation: str = "Got it — focus, ~30 min.",
 ) -> str:
     """Build a mock LLM save response JSON."""
@@ -55,6 +57,7 @@ def _llm_save_response(
         "energy_required": "Medium",
         "is_reminder": is_reminder,
         "remind_at": remind_at,
+        "due_at": due_at,
         "use_hidden_subtasks": False,
         "sub_tasks": [],
         "inline_steps": "1. First step\n2. Second step",
@@ -205,6 +208,85 @@ async def test_task_without_reminder_creates_notion_task_only() -> None:
     assert result["pending_outbound"]
     draft = result["pending_outbound"][0]
     assert draft["recipient"] == "<test-intake-no-reminder>"
+
+
+@pytest.mark.asyncio
+async def test_deadline_task_schedules_inline_series() -> None:
+    """A non-reminder task with due_at is saved with Due At and scheduled inline."""
+    page_id = str(uuid.uuid4())
+    due_at = "2026-06-06T17:00:00-05:00"
+    task_response = _llm_save_response(
+        title="Placeholder deadline task",
+        work_type="focus",
+        urgency=80,
+        time_estimate=45,
+        is_reminder=False,
+        due_at=due_at,
+        confirmation="Got it — focus, ~45 min.",
+    )
+
+    create_task_calls: list[dict[str, Any]] = []
+
+    async def mock_create_task(**kwargs: Any) -> dict:
+        create_task_calls.append(kwargs)
+        return _make_notion_page(page_id=page_id, title="Placeholder deadline task")
+
+    scheduled_item = type(
+        "Scheduled",
+        (),
+        {"label": "3d", "assigned_at": datetime(2026, 6, 3, 15, 0, tzinfo=UTC)},
+    )()
+    schedule_for_task = AsyncMock(return_value=([scheduled_item], []))
+    record_deadline_task_peer = AsyncMock(return_value=None)
+    mark_scheduled = AsyncMock(return_value={})
+
+    class FakeCtx:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    with (
+        patch("app.tools.notion.create_task", side_effect=mock_create_task),
+        patch("app.tools.notion.mark_reminder_scheduled", mark_scheduled),
+        patch("app.tools.db.get_db_conn", return_value=FakeCtx()),
+        patch(
+            "app.scheduler.reminder_scheduling.record_deadline_task_peer",
+            record_deadline_task_peer,
+        ),
+        patch("app.scheduler.reminder_scheduling.schedule_for_task", schedule_for_task),
+    ):
+        mock_llm_response = MagicMock()
+        mock_llm_response.content = task_response
+        mock_model = AsyncMock()
+        mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+
+        with patch("app.models.llm", return_value=mock_model):
+            from app.graph.nodes.intake import intake_node
+
+            state: State = {
+                "peer": "<test-intake-deadline>",
+                "incoming": "finish placeholder task by Saturday at 5pm",
+                "intent": "ADD_TASK",
+                "messages": [],
+                "active_task": None,
+                "streak": 0,
+                "tasks_completed_today": 0,
+                "user_prefs": {"timezone": "America/Chicago"},
+                "mood": None,
+                "available_minutes": None,
+                "conversation_state": "idle",
+                "pending_outbound": [],
+            }
+
+            result = await intake_node(state)
+
+    assert create_task_calls[0]["due_at_iso"] == "2026-06-06T22:00:00+00:00"
+    record_deadline_task_peer.assert_awaited_once()
+    schedule_for_task.assert_awaited_once()
+    mark_scheduled.assert_awaited_once_with(page_id)
+    assert "I'll ping you" in result["pending_outbound"][0]["body"]
 
 
 @pytest.mark.asyncio

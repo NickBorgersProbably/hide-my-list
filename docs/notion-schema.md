@@ -458,7 +458,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 **Set when:** Task created with `is_reminder = true`. AI parses time reference (including timezone like "6pm PT") and converts to full ISO 8601. Relative phrases such as "tomorrow", "tonight", and day-of-week names must be resolved against the user's configured timezone, not UTC message metadata; use `scripts/user-time-context.sh` when a UTC timestamp needs conversion first.
 
-**Used by:** `app/scheduler/reminder_worker.py` — the Postgres outbox worker claims rows with `state='pending'` and `due_at <= now()`, delivers via signal-cli, then calls `scripts/notion-cli.sh complete-reminder PAGE_ID sent` on success. Delivery failures retry with exponential backoff (states: `pending` → `scheduled` → `delivering` → `delivered`/`failed`/`dead`). At-least-once contract: prefer duplicate delivery over loss; duplicates are detectable via `signal_timestamp`.
+**Used by:** `app/scheduler/reminder_worker.py` — the Postgres outbox worker claims rows with `state='pending'` and `due_at <= now()`, delivers via signal-cli, and marks the outbox row delivered on success. Rows with `kind='reminder'` then call `app.tools.notion.complete_reminder(page_id, "sent")`. Rows with `kind='deadline'` leave the task page open. Delivery failures retry with exponential backoff (states: `pending` → `scheduled` → `delivering` → `delivered`/`failed`/`dead`). At-least-once contract: prefer duplicate delivery over loss; duplicates are detectable via `signal_timestamp`.
 
 ---
 
@@ -489,7 +489,7 @@ Format: ISO 8601 with timezone (e.g., 2026-06-03T17:00:00-05:00)
 
 **Set by:** `create_task(due_at_iso=...)` when a deadline is provided. Independent of `urgency` — urgency reflects relative priority; `Due At` is a hard time bound.
 
-**Read by:** `query_tasks_with_unscheduled_deadlines()` — filters tasks where `Due At is_not_empty` and `Reminder Scheduled At is_empty` to surface deadline-bearing tasks that have not yet had reminders scheduled.
+**Read by:** `query_tasks_with_unscheduled_deadlines()` filters tasks where `Due At is_not_empty` and `Reminder Scheduled At is_empty` to surface deadline-bearing tasks that have not yet had reminders scheduled. `query_scheduled_tasks_with_deadlines()` filters tasks where both fields are set so the deadline scheduler can compare current Notion deadlines with the Postgres ledger and refresh edited series.
 
 ---
 
@@ -503,7 +503,7 @@ Format: ISO 8601 UTC (e.g., 2026-06-01T04:00:00+00:00)
 
 **Set by:** `mark_reminder_scheduled(page_id)` — PATCHes this field to UTC now. Serves as an idempotency guard: tasks with this field set are excluded by `query_tasks_with_unscheduled_deadlines()`.
 
-**Read by:** `query_tasks_with_unscheduled_deadlines()` — filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are returned.
+**Read by:** `query_tasks_with_unscheduled_deadlines()` filters to `Reminder Scheduled At is_empty` so only unprocessed tasks are returned. `query_scheduled_tasks_with_deadlines()` filters to `Reminder Scheduled At is_not_empty` so the backstop can detect deadline edits after a series already exists.
 
 ---
 

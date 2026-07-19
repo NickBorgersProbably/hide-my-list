@@ -13,7 +13,8 @@ Covers all 9 verbs from scripts/notion-cli.sh:
 
 Plus deadline-reminder plumbing verbs:
   10. query_tasks_with_unscheduled_deadlines
-  11. mark_reminder_scheduled
+  11. query_scheduled_tasks_with_deadlines
+  12. mark_reminder_scheduled
 
 Plus:
   health_check() — lightweight connectivity probe used by notion_health job.
@@ -362,7 +363,36 @@ async def query_tasks_with_unscheduled_deadlines() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Verb 11 — mark_reminder_scheduled
+# Verb 11 — query_scheduled_tasks_with_deadlines
+# ---------------------------------------------------------------------------
+
+
+async def query_scheduled_tasks_with_deadlines() -> dict[str, Any]:
+    """Return active non-reminder tasks whose deadline series was scheduled.
+
+    The nightly daemon uses this second query to detect edits to Due At. The
+    orphan query intentionally excludes these rows, so edit detection cannot
+    rely on it.
+    """
+    payload = {
+        "filter": {
+            "and": [
+                {"property": "Due At", "date": {"is_not_empty": True}},
+                {"property": "Reminder Scheduled At", "date": {"is_not_empty": True}},
+                {"property": "Status", "select": {"does_not_equal": "Completed"}},
+                {"property": "Is Reminder", "checkbox": {"equals": False}},
+            ]
+        },
+        "sorts": [{"property": "Due At", "direction": "ascending"}],
+    }
+    async with _client_factory() as client:
+        resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]
+
+
+# ---------------------------------------------------------------------------
+# Verb 12 — mark_reminder_scheduled
 # ---------------------------------------------------------------------------
 
 
