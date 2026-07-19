@@ -160,8 +160,8 @@ bash "$SCRIPT_DIR/configure-codex.sh"
 #
 # uv owns the interpreter (pyproject.toml requires >=3.12; the base image's
 # system Python is not pinned to that). `uv pip install` rather than `uv sync`
-# so no uv.lock is written into the working tree — pyproject.toml already pins
-# every dependency to an exact version.
+# so no uv.lock is written into the working tree — this avoids committing a
+# lockfile that would need to be kept in sync separately from pyproject.toml.
 echo "Provisioning Python environment (.venv)..."
 cd "$REPO_ROOT"
 uv venv --python 3.12 --allow-existing
