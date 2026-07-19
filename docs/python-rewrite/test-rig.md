@@ -42,7 +42,7 @@ there's no scheduled trigger (it boots the full stack and is too slow for PR CI)
 
 ---
 
-## The Eight Bug Classes
+## The Nine Bug Classes
 
 Each bug class leaves a permanent test. Fix -> regression test ->
 `tests/regressions/bug_<NNNN>_<slug>/`. The catalog grows; we don't relearn.
@@ -57,13 +57,14 @@ Each bug class leaves a permanent test. Fix -> regression test ->
 | 6 | Dead-code wiring | `tests/unit/test_reachability.py` (AST scan) | Every public top-level function in scanned dirs has >= 1 call site outside its definition |
 | 7 | Migration filename collisions | `tests/unit/test_migration_filenames.py` | Unique prefixes, monotonic sequence, format `\d{4}_[a-z][a-z0-9_]*.sql` |
 | 8 | mypy suppression sprawl | `tests/unit/test_mypy_suppression_budget.py` | Count of `ignore_errors = true` overrides matches frozen baseline; can only shrink |
+| 9 | Production dependency pin staleness | `tests/unit/test_signal_cli_pin.py` | Image pinned by immutable digest AND a scheduled refresh workflow exists and targets the same image |
 
 ---
 
 ## Structural Lints (unit speed, always runs)
 
-Five lints in `tests/unit/` that run without LLM or Postgres. Four catch four
-of the eight bug classes directly; one ensures the pre-commit Python gate stays
+Six lints in `tests/unit/` that run without LLM or Postgres. Five catch five
+of the nine bug classes directly; one ensures the pre-commit Python gate stays
 wired.
 
 ### `test_migration_filenames.py`
@@ -119,6 +120,25 @@ host commit step uses this); `python-validation.yml`'s `pytest-unit` required
 check covers the same suite there, on a read-only runner with the full dependency
 set. This test asserts both the default local path (ruff + pytest) and the opt-in
 skip path are wired correctly, so neither can silently regress.
+
+### `test_signal_cli_pin.py`
+
+Guards the two-property invariant for `bbernhard/signal-cli-rest-api` (bug
+class 9 — production dependency pin staleness):
+
+1. `docker/compose.yaml` pins the image by immutable sha256 digest (not a
+   mutable tag).
+2. `.github/workflows/update-signal-cli.yml` exists, references the same
+   image, has a `schedule: cron:` stanza, and validates the registry digest
+   before writing it.
+
+The refresh workflow rewrites `docker/compose.yaml` by exact string match on
+the image line and by regex on the `# Pinned: <date>` provenance comment.
+Both formats are a contract between the two files — reformatting either here
+silently breaks the refresh.
+
+Adding a new production image dependency to `docker/compose.yaml` requires
+adding a similar two-property lint for that image.
 
 ---
 
