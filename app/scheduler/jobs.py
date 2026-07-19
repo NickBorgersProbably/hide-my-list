@@ -47,17 +47,24 @@ async def check_notion_health() -> None:
     """Ping Notion API every 15 min; enqueue notion_health_failed ops alert on failure.
 
     Calls notion.health_check() which GETs /v1/users/me. On failure, enqueues a
-    'notion_health_failed' ops alert; the drain job delivers it to
-    OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert storms.
+    'notion_health_failed' ops alert carrying the probe's failure reason; the
+    drain job delivers it to OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert
+    storms.
+
+    The reason is in the alert body because that is what reaches the operator
+    over Signal. An alert naming two unrelated candidate causes ("verify the
+    key or reachability") is not actionable weeks later, when the app logs
+    holding the real exception may have rotated or become unreachable.
     """
     from app.tools import notion, ops_alerts
 
-    ok = await notion.health_check()
-    if not ok:
+    result = await notion.health_check()
+    if not result.ok:
+        detail = result.detail or "no detail captured"
         try:
             await ops_alerts.enqueue(
                 kind="notion_health_failed",
-                body="Notion API health check failed. Verify NOTION_API_KEY is valid and api.notion.com is reachable.",
+                body=f"Notion API health check failed: {detail}",
                 severity="critical",
             )
         except Exception as exc:
