@@ -215,6 +215,41 @@ test("bare id in addressed[] (not namespaced) does NOT clear blockers", () => {
   assert.deepEqual(v.unaddressed_blocker_ids, ["security/sec-1"]);
 });
 
+test("security lens namespace clears the merged security blocker", () => {
+  // The fixer reads the per-lens artifacts (role=security-breadth /
+  // security-narrow) but the judge only sees the merged role=security
+  // artifact. Lens-prefixed ids normalize so the blocker still clears.
+  for (const lens of ["security-breadth", "security-narrow"]) {
+    const v = aggregate(
+      [reviewer("security", "request_changes", [blocker("secb-001")])],
+      { input_sha: SHA_A, new_sha: SHA_B, addressed: [`${lens}/secb-001`], skipped: [] }
+    );
+    assert.equal(v.verdict, "GO", `${lens} should clear the merged blocker`);
+  }
+});
+
+test("security lens namespace still clears a lens-role reviewer (pre-merge shape)", () => {
+  const v = aggregate(
+    [reviewer("security-breadth", "request_changes", [blocker("secb-001")])],
+    { input_sha: SHA_A, new_sha: SHA_B, addressed: ["security-breadth/secb-001"], skipped: [] }
+  );
+  assert.equal(v.verdict, "GO");
+});
+
+test("security lens namespace does NOT cross-clear another role's id", () => {
+  // Normalization rewrites only the namespace, so a lens-prefixed entry
+  // still cannot reach a blocker owned by a different reviewer.
+  const v = aggregate(
+    [
+      reviewer("security", "request_changes", [blocker("x-1")]),
+      reviewer("design", "request_changes", [blocker("x-1")]),
+    ],
+    { input_sha: SHA_A, new_sha: SHA_B, addressed: ["security-narrow/x-1"], skipped: [] }
+  );
+  assert.equal(v.verdict, "NO-GO");
+  assert.deepEqual(v.unaddressed_blocker_ids, ["design/x-1"]);
+});
+
 // ──────────────────── category discriminator ────────────────────
 
 test("GO carries category=go", () => {

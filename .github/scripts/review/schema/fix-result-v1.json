@@ -22,8 +22,8 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^(design|security|psych|docs|prompt|test)/.+$",
-        "description": "Namespaced blocker id, e.g. \"security/sec-1\"."
+        "pattern": "^(design|security|security-breadth|security-narrow|psych|docs|prompt|test)/.+$",
+        "description": "Namespaced blocker id, e.g. \"security/sec-1\". The `security-breadth` / `security-narrow` lens namespaces are accepted because the fixer reads the per-lens artifacts directly; the judge normalizes them to `security/` before matching."
       }
     },
     "skipped": {
@@ -33,7 +33,7 @@
         "additionalProperties": false,
         "required": ["id", "reason"],
         "properties": {
-          "id": { "type": "string", "pattern": "^(design|security|psych|docs|prompt|test)/.+$" },
+          "id": { "type": "string", "pattern": "^(design|security|security-breadth|security-narrow|psych|docs|prompt|test)/.+$" },
           "reason": { "type": "string", "minLength": 1 }
         }
       }
