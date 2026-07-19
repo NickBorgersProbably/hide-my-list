@@ -81,6 +81,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `migrations/0008_reminder_outbox_kind.sql` — Adds `reminder_outbox.kind` discriminator and CHECK constraint for `reminder` vs `deadline` rows
 - `migrations/0009_deadline_task_peers.sql` — Adds private `deadline_task_peers` routing metadata for deadline reminder backstop jobs
 - `migrations/0010_signal_ingress_health.sql` — Adds `signal_ingress_health` table for durable Signal ingress liveness markers; seeds a default row
+- `migrations/0011_reward_manifest_visual_descriptors.sql` — Adds `theme_family`, `style`, `palette` to `reward_manifests` so emoji reactions can be attributed to the visual choices that earned them; adds a partial index on rated rows
 - `tests/unit/` — Unit tests (no DATABASE_URL required)
 - `tests/integration/` — Integration tests; DB-backed tests require DATABASE_URL, HTTP-only tests do not
 - `tests/perf/` — Perf harness: latency + token stats per model, gated by `ENABLE_LLM_PERF=true`. See `docs/python-rewrite/llm-observability.md` for usage.
