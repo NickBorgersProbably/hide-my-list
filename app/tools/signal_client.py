@@ -26,7 +26,7 @@ import json
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import structlog
@@ -40,6 +40,11 @@ _CONNECT_TIMEOUT = 10.0
 _READ_TIMEOUT = 60.0
 _MAX_RETRIES = 5
 _RETRY_BASE_DELAY = 1.0  # seconds; exponential backoff
+_DEFAULT_RECEIVE_IDLE_TIMEOUT_SECONDS = 300.0
+
+
+class _ReceiveIdleTimeoutError(Exception):
+    """Raised when the receive WebSocket stays open without delivering frames."""
 
 
 def _signal_base_url() -> str:
@@ -48,6 +53,30 @@ def _signal_base_url() -> str:
 
 def _account() -> str:
     return os.environ["SIGNAL_ACCOUNT"]
+
+
+def _receive_idle_timeout_seconds() -> float:
+    raw = os.environ.get(
+        "SIGNAL_RECEIVE_IDLE_TIMEOUT_SECONDS",
+        str(_DEFAULT_RECEIVE_IDLE_TIMEOUT_SECONDS),
+    )
+    try:
+        value = float(raw)
+    except ValueError:
+        log.warning(
+            "signal_client.receive.invalid_idle_timeout",
+            configured_value=raw,
+            fallback_seconds=_DEFAULT_RECEIVE_IDLE_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_RECEIVE_IDLE_TIMEOUT_SECONDS
+    if value <= 0:
+        log.warning(
+            "signal_client.receive.invalid_idle_timeout",
+            configured_value=raw,
+            fallback_seconds=_DEFAULT_RECEIVE_IDLE_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_RECEIVE_IDLE_TIMEOUT_SECONDS
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -316,13 +345,31 @@ async def receive_messages(
     # Build WebSocket URL: http://... -> ws://..., https://... -> wss://...
     ws_url = url_base.replace("https://", "wss://").replace("http://", "ws://")
     ws_endpoint = f"{ws_url}/v1/receive/{acct}"
+    idle_timeout_seconds = _receive_idle_timeout_seconds()
 
     delay = _RETRY_BASE_DELAY
     while True:
         try:
             async with websockets.connect(ws_endpoint) as ws:
                 delay = _RETRY_BASE_DELAY  # reset on successful connect
-                async for raw_message in ws:
+                message_stream = cast(AsyncIterator[str | bytes], ws)
+                while True:
+                    try:
+                        raw_message = await asyncio.wait_for(
+                            anext(message_stream),
+                            timeout=idle_timeout_seconds,
+                        )
+                    except StopAsyncIteration:
+                        log.warning("signal_client.receive.closed", delay=delay)
+                        break
+                    except TimeoutError as exc:
+                        log.warning(
+                            "signal_client.receive.idle_timeout",
+                            idle_timeout_seconds=idle_timeout_seconds,
+                        )
+                        raise _ReceiveIdleTimeoutError(
+                            f"receive stream idle for {idle_timeout_seconds} seconds"
+                        ) from exc
                     if not raw_message:
                         continue
                     try:
@@ -330,6 +377,7 @@ async def receive_messages(
                     except json.JSONDecodeError:
                         log.warning("signal_client.receive.bad_json")
         except (
+            _ReceiveIdleTimeoutError,
             websockets.exceptions.WebSocketException,
             OSError,
         ) as exc:
