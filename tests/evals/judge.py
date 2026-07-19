@@ -6,7 +6,7 @@ the system can send reminders without explaining internals").
 
 Design notes:
 - The judge is ALWAYS a stronger model than any model under test. Default
-  is `claude-sonnet-4-6` per the test-rig spec (`docs/python-rewrite/test-rig.md`).
+  is `claude-sonnet-5` per the test-rig spec (`docs/python-rewrite/test-rig.md`).
   Never use the model-under-test as its own judge.
 - Responses are deterministic-by-cache: `sha256(rubric + response)` keys
   a JSON cache under `tests/evals/.cache/`. Re-running the same rubric
@@ -32,7 +32,12 @@ from pydantic import BaseModel, Field, ValidationError
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"
+# The judge must be a stronger model than anything under test, and must be
+# an alias the LiteLLM proxy actually serves — a judge the proxy rejects
+# fails every `judge` and `shame_safe` contract as an error, taking the
+# whole qualitative half of the suite down with it. Override via
+# EVAL_JUDGE_MODEL when the proxy's alias set changes.
+_DEFAULT_JUDGE_MODEL = os.environ.get("EVAL_JUDGE_MODEL", "claude-sonnet-5")
 _CACHE_DIR = Path(__file__).parent / ".cache"
 _JUDGE_PROMPT_TEMPLATE = """\
 You are an evaluation judge. Score how well the response below satisfies the rubric.
@@ -163,7 +168,7 @@ def score(
         rubric: The qualitative criterion the response must satisfy.
         response: The model-under-test's output to score.
         model: Judge model alias (must resolve via LiteLLM proxy).
-            Default `claude-sonnet-4-6`.
+            Default `claude-sonnet-5`.
         base_url: LiteLLM proxy URL. Defaults to env `LLM_PROXY_BASE_URL`.
             If neither is set, raises RuntimeError.
         api_key: LiteLLM proxy API key. Defaults to env `LLM_PROXY_API_KEY`.

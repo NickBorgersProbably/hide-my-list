@@ -14,6 +14,25 @@ prior_state:
   available_minutes: 15
   user_prefs:
     timezone: America/Chicago
+# Candidate pool read via notion.query_pending(). Mixed durations so the
+# 15-minute window is a real constraint the model has to respect rather
+# than a trivially-satisfied one.
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Draft the quarterly summary"
+    work_type: "Deep Work"
+    energy_required: "High"
+    time_estimate: 90
+  - id: "<placeholder-page-id-2>"
+    title: "Water the office plants"
+    work_type: "Physical"
+    energy_required: "Low"
+    time_estimate: 10
+  - id: "<placeholder-page-id-3>"
+    title: "Reconcile the expense report"
+    work_type: "Admin"
+    energy_required: "Medium"
+    time_estimate: 45
 contracts:
   - kind: shame_safe
     threshold: 0.8
