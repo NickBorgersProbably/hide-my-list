@@ -42,7 +42,7 @@ there's no scheduled trigger (it boots the full stack and is too slow for PR CI)
 
 ---
 
-## The Nine Bug Classes
+## The Ten Bug Classes
 
 Each bug class leaves a permanent test. Fix -> regression test ->
 `tests/regressions/bug_<NNNN>_<slug>/`. The catalog grows; we don't relearn.
@@ -58,6 +58,7 @@ Each bug class leaves a permanent test. Fix -> regression test ->
 | 7 | Migration filename collisions | `tests/unit/test_migration_filenames.py` | Unique prefixes, monotonic sequence, format `\d{4}_[a-z][a-z0-9_]*.sql` |
 | 8 | mypy suppression sprawl | `tests/unit/test_mypy_suppression_budget.py` | Count of `ignore_errors = true` overrides matches frozen baseline; can only shrink |
 | 9 | Production dependency pin staleness | `tests/unit/test_signal_cli_pin.py` | Image pinned by immutable digest AND a scheduled refresh workflow exists and targets the same image |
+| 10 | Silent degradation behind intentional exception-swallowing, masked by a permissive mock | `tests/unit/test_rewards.py` (`TestImageGenerationCallContract`) | Assert outbound kwargs shape; validate each kwarg against `inspect.signature(real_dependency)` — mock return value is same whether call is valid or not |
 
 ---
 

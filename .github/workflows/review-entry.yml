@@ -3,8 +3,9 @@ name: Review pipeline v2 — entry
 # SINGLE entry point for the v2 review pipeline. Listens to PR events
 # and `/review` comments. Resolves the head SHA, runs SHA-keyed dedup,
 # and dispatches the orchestrator if and only if this run owns the
-# SHA. /review, reopen, push, and synchronize all collapse into the
-# same path with no per-trigger special-cases.
+# SHA. All triggers share the resolve/dedup path; per-trigger gates
+# apply after: the freshness check (§1.19) and GO short-circuit (§1.13)
+# run only on pull_request events — /review bypasses both.
 
 on:
   pull_request:
@@ -145,6 +146,7 @@ jobs:
       head_repo: ${{ steps.resolve.outputs.head_repo }}
       base_sha: ${{ steps.resolve.outputs.base_sha }}
       terminal_verdict: ${{ steps.terminal.outputs.terminal_verdict }}
+      stale_sha: ${{ steps.freshness.outputs.stale }}
     steps:
       - name: Checkout main (for composite actions)
         uses: actions/checkout@v4
@@ -199,6 +201,49 @@ jobs:
             echo "base_sha=$BASE_SHA"
           } >> "$GITHUB_OUTPUT"
 
+      # A `pull_request` run can sit pending in the
+      # `review-entry-v2-<head_ref>` concurrency group for the entire
+      # duration of the cycle ahead of it (`cancel-in-progress: false`
+      # serializes rather than cancels). By the time it un-queues, the SHA
+      # that triggered it may be several commits behind the PR head.
+      # Reviewing it spends a full reviewer fan-out plus fixer and judge on
+      # content that no longer exists at HEAD, and stamps a verdict —
+      # including the `needs-human-review` label on NO-GO — describing
+      # superseded code.
+      #
+      # The newest push always resolves to the live head, so it is never the
+      # one skipped here. This guard skips cycles whose SHA is already stale
+      # when resolve runs; a push that lands after this check passes can
+      # still produce a cycle on the now-superseded SHA.
+      #
+      # This check must live here rather than at dispatch time, because the
+      # concurrency wait happens before any job runs — the freshness question
+      # is only meaningful once the run has un-queued.
+      #
+      # `issue_comment` (`/review`) resolves `reviewed_sha` from the API at
+      # run time, so it is head by construction; the check is event-gated out
+      # rather than left to coincidence.
+      - name: Check reviewed SHA is still PR head
+        id: freshness
+        if: |
+          steps.resolve.outputs.reviewed_sha != '' &&
+          github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          SHA: ${{ steps.resolve.outputs.reviewed_sha }}
+        run: |
+          set -euo pipefail
+          LIVE_HEAD=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          if [ "$LIVE_HEAD" != "$SHA" ]; then
+            echo "review-entry: SHA ${SHA} is superseded by PR head ${LIVE_HEAD}; skipping stale cycle (the run for ${LIVE_HEAD} reviews this content)"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "review-entry: SHA ${SHA} is still PR head; proceeding"
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Check whether the reviewed SHA has already been cleared GO by a
       # prior cycle of the v2 pipeline. The finalize job writes the
       # `All Required Agent Reviews` commit status with state=success
@@ -218,6 +263,7 @@ jobs:
         id: terminal
         if: |
           steps.resolve.outputs.reviewed_sha != '' &&
+          steps.freshness.outputs.stale != 'true' &&
           github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
@@ -239,6 +285,7 @@ jobs:
         id: dedup
         if: |
           steps.resolve.outputs.reviewed_sha != '' &&
+          steps.freshness.outputs.stale != 'true' &&
           steps.terminal.outputs.terminal_verdict != 'true'
         uses: ./.github/actions/review-dedup
         with:
@@ -258,6 +305,7 @@ jobs:
     if: |
       needs.authorize.outputs.authorized == 'true' &&
       needs.resolve.outputs.should_run == 'true' &&
+      needs.resolve.outputs.stale_sha != 'true' &&
       needs.resolve.outputs.terminal_verdict != 'true'
     uses: ./.github/workflows/review-pipeline.yml
     with:

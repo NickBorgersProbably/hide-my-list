@@ -51,6 +51,22 @@ class RewardResult(TypedDict):
     text: str
     attachment_path: str | None
 
+
+class ImageGeneration(TypedDict):
+    """A successfully generated reward image plus the visual choices behind it.
+
+    path: Absolute path to the generated PNG. Private — never log it.
+    theme_family / style / palette: the selected visual descriptors. These are
+        generic art descriptors (not user data) and are persisted on the
+        manifest row so a later emoji reaction can be attributed to them —
+        that attribution is what makes apply_feedback_weight() able to learn.
+    """
+    path: str
+    theme_family: str
+    style: str
+    palette: str
+
+
 # ---------------------------------------------------------------------------
 # Sensitive task classification
 # docs/reward-system.md:302-348
@@ -281,6 +297,62 @@ _SENSITIVE_THEMES: list[dict[str, str]] = [
 ]
 
 
+def _select_theme(
+    *,
+    intensity: str,
+    sensitive_task: bool = False,
+    user_prefs: dict[str, Any] | None = None,
+    feedback_history: list[dict[str, Any]] | None = None,
+) -> dict[str, str]:
+    """Pick a theme/style/palette, biased by prior emoji-reaction feedback.
+
+    Candidates are the intensity's theme pool crossed with the user's preferred
+    styles and palettes (when set). Each candidate is weighted by
+    apply_feedback_weight(), which decays over 30 days and is capped at +/-0.5 —
+    so feedback nudges selection without ever locking it to one theme. Novelty
+    is a hard requirement of docs/reward-system.md, so every candidate keeps a
+    non-zero chance of being selected.
+
+    Returns a dict with theme_family / style / palette keys.
+    """
+    prefs = user_prefs or {}
+
+    if sensitive_task:
+        pool = _SENSITIVE_THEMES
+        # Sensitive tasks ignore user style/palette prefs — the guardrail
+        # allowlist wins (docs/reward-system.md: Sensitive Task Guardrail).
+        styles: list[str] = []
+        palettes: list[str] = []
+    else:
+        pool = _THEME_POOLS.get(intensity, _THEME_POOLS["low"])
+        styles = list(prefs.get("preferred_styles") or [])
+        palettes = list(prefs.get("preferred_palettes") or [])
+
+    candidates: list[dict[str, str]] = []
+    for theme in pool:
+        for style in styles or [theme["style"]]:
+            for palette in palettes or [theme["palette"]]:
+                candidates.append(
+                    {
+                        "theme_family": theme["theme"],
+                        "style": style,
+                        "palette": palette,
+                    }
+                )
+
+    weights = [
+        apply_feedback_weight(
+            feedback_history or [],
+            theme_family=candidate["theme_family"],
+            style=candidate["style"],
+            palette=candidate["palette"],
+        )
+        for candidate in candidates
+    ]
+
+    return random.choices(candidates, weights=weights, k=1)[0]
+
+
 def _build_image_prompt(
     *,
     intensity: str,
@@ -289,6 +361,7 @@ def _build_image_prompt(
     user_prefs: dict[str, Any] | None = None,
     sensitive_task: bool = False,
     feedback_history: list[dict[str, Any]] | None = None,
+    selection: dict[str, str] | None = None,
 ) -> str:
     """Build a personalized OpenAI image generation prompt.
 
@@ -308,28 +381,18 @@ def _build_image_prompt(
     """
     prefs = user_prefs or {}
 
-    # Select theme from pool
-    if sensitive_task:
-        theme_pool = _SENSITIVE_THEMES
-    else:
-        theme_pool = _THEME_POOLS.get(intensity, _THEME_POOLS["low"])
-
-    # Apply feedback weighting (simple: avoid recently negatively-rated theme families)
-    if feedback_history:
-        neg_themes = {f.get("theme_family", "") for f in feedback_history if f.get("score", 0) < 0}
-        weighted_pool = [t for t in theme_pool if t.get("theme", "") not in neg_themes]
-        if weighted_pool:
-            theme_pool = weighted_pool
-
-    theme = random.choice(theme_pool)
-
-    # Apply user style preferences
-    style = theme["style"]
-    palette = theme["palette"]
-    if prefs.get("preferred_styles"):
-        style = random.choice(prefs["preferred_styles"])
-    if prefs.get("preferred_palettes"):
-        palette = random.choice(prefs["preferred_palettes"])
+    # Theme/style/palette are chosen by _select_theme() so the caller can
+    # persist the same values it prompted with onto the manifest row.
+    if selection is None:
+        selection = _select_theme(
+            intensity=intensity,
+            sensitive_task=sensitive_task,
+            user_prefs=user_prefs,
+            feedback_history=feedback_history,
+        )
+    theme_family = selection["theme_family"]
+    style = selection["style"]
+    palette = selection["palette"]
 
     # Avoid list
     avoid_str = ""
@@ -352,7 +415,7 @@ def _build_image_prompt(
 
     prompt = (
         f"A {style} artwork in {palette} color palette. "
-        f"Theme: {theme['theme']}. "
+        f"Theme: {theme_family}. "
         f"Mood: celebratory, uplifting, {humor} energy.{feedback_str} "
         f"Include {streak_str} subtly integrated into the composition. "
         f"Professional quality, no text, no words, no letters.{avoid_str} "
@@ -393,7 +456,7 @@ async def generate_reward_image(
     sensitive_task: bool = False,
     user_prefs: dict[str, Any] | None = None,
     feedback_history: list[dict[str, Any]] | None = None,
-) -> str | None:
+) -> ImageGeneration | None:
     """Generate an AI celebration image via OpenAI gpt-image-1.
 
     Implements docs/reward-system.md: AI-Generated Celebration Images.
@@ -401,7 +464,7 @@ async def generate_reward_image(
     Private data discipline:
     - task_descriptions are used for motif classification only, never embedded verbatim
     - Generated images stored under reward_artifacts volume (env REWARD_ARTIFACTS_DIR)
-    - Returns absolute path to PNG, or None on failure
+    - The returned PNG path is private — never log it
 
     Args:
         intensity: "low", "medium", "high", or "epic"
@@ -414,7 +477,8 @@ async def generate_reward_image(
         feedback_history: Optional feedback list for theme weighting
 
     Returns:
-        Absolute path to generated PNG file, or None on failure.
+        An ImageGeneration (PNG path plus the theme/style/palette used), or
+        None on failure. Callers treat None as "fall back to emoji/text".
     """
     if not os.environ.get("OPENAI_API_KEY"):
         log.debug("generate_reward_image.no_api_key")
@@ -451,6 +515,13 @@ async def generate_reward_image(
 
         client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
+        selection = _select_theme(
+            intensity=intensity,
+            sensitive_task=sensitive_task,
+            user_prefs=user_prefs,
+            feedback_history=feedback_history,
+        )
+
         prompt = _build_image_prompt(
             intensity=intensity,
             streak_count=streak_count,
@@ -458,16 +529,20 @@ async def generate_reward_image(
             user_prefs=user_prefs,
             sensitive_task=sensitive_task,
             feedback_history=feedback_history,
+            selection=selection,
         )
 
         quality: Literal["high", "auto"] = "high" if intensity == "epic" else "auto"
 
+        # NOTE: do not pass response_format here. gpt-image-1 rejects it (400)
+        # and always returns base64. Because failures below degrade silently to
+        # the emoji fallback, an unsupported parameter looks like "images just
+        # never arrive" rather than an error. See test_image_generate_call_params.
         response = await client.images.generate(
             model="gpt-image-1",
             prompt=prompt,
             size="1024x1024",
             quality=quality,
-            response_format="b64_json",
             n=1,
         )
 
@@ -500,7 +575,12 @@ async def generate_reward_image(
             duration_ms=_img_gen_duration_ms,
             # task_descriptions / prompt intentionally not logged — private data
         )
-        return str(output_path)
+        return ImageGeneration(
+            path=str(output_path),
+            theme_family=selection["theme_family"],
+            style=selection["style"],
+            palette=selection["palette"],
+        )
 
     except Exception:
         _img_gen_duration_ms = (time.monotonic() - _img_gen_start) * 1000.0
@@ -588,8 +668,11 @@ def apply_feedback_weight(
         palette: Palette to compute weight for.
 
     Returns:
-        Weight float between 0.5 and 2.0. 1.0 is neutral.
+        Weight float between 0.5 and 1.5. 1.0 is neutral.
         >1.0 means positive bias, <1.0 means negative bias.
+        The total nudge is capped at +/-0.5, matching the bounded-feedback
+        contract in docs/reward-system.md: feedback biases selection but can
+        never eliminate a theme.
     """
     if not feedback_history:
         return 1.0
@@ -744,7 +827,8 @@ async def load_feedback_history(peer: str, days: int = 90) -> list[dict[str, Any
         async with get_db_conn() as conn:
             cur = await conn.execute(
                 """
-                SELECT feedback_score, feedback_emoji, feedback_at, intensity, reward_kind
+                SELECT feedback_score, feedback_emoji, feedback_at, intensity, reward_kind,
+                       theme_family, style, palette
                 FROM reward_manifests
                 WHERE peer = %s
                   AND feedback_at IS NOT NULL
@@ -770,6 +854,12 @@ async def load_feedback_history(peer: str, days: int = 90) -> list[dict[str, Any
                     "timestamp": timestamp,
                     "intensity": row["intensity"],
                     "reward_kind": row["reward_kind"],
+                    # Visual descriptors apply_feedback_weight() matches on.
+                    # NULL for emoji-only rewards and for rows written before
+                    # migration 0011 — coerced to "" so they simply never match.
+                    "theme_family": row["theme_family"] or "",
+                    "style": row["style"] or "",
+                    "palette": row["palette"] or "",
                 }
             )
         return history
@@ -795,6 +885,9 @@ async def write_reward_manifest(
     delivered_at: datetime,
     artifact_path: str | None = None,
     sensitive_task: bool = False,
+    theme_family: str | None = None,
+    style: str | None = None,
+    palette: str | None = None,
 ) -> uuid.UUID | None:
     """Write a reward delivery record to the reward_manifests Postgres table.
 
@@ -813,8 +906,9 @@ async def write_reward_manifest(
                 """
                 INSERT INTO reward_manifests
                   (id, peer, notion_page_id, task_title, reward_kind, intensity,
-                   streak_count, delivered_at, artifact_path, sensitive_task)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   streak_count, delivered_at, artifact_path, sensitive_task,
+                   theme_family, style, palette)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     str(manifest_id),
@@ -827,6 +921,9 @@ async def write_reward_manifest(
                     delivered_at,
                     artifact_path,
                     sensitive_task,
+                    theme_family,
+                    style,
+                    palette,
                 ),
             )
         # Log without task_title — private data discipline
@@ -907,7 +1004,7 @@ async def maybe_reward(
     celebration_text = get_celebration_emoji(intensity_label, sensitive_task=sensitive)
 
     # Attempt image generation
-    image_path: str | None = None
+    image: ImageGeneration | None = None
     if intensity_label != "lightest" and not sensitive:
         prefs = (user_prefs or {}).get("rewards") if user_prefs else None
         try:
@@ -915,7 +1012,7 @@ async def maybe_reward(
         except Exception:
             log.warning("maybe_reward.feedback_history_failed")
             feedback_history = []
-        image_path = await generate_reward_image(
+        image = await generate_reward_image(
             intensity=intensity_label,
             streak_count=1,  # Only current task available; intensity score still uses full streak
             task_descriptions=[task_title],  # Private — classified, not embedded in prompt
@@ -927,11 +1024,11 @@ async def maybe_reward(
         )
     elif sensitive:
         # Sensitive: muted emoji only (no image)
-        image_path = None
+        image = None
 
     # Fallback if image gen failed
     reward_kind = "emoji"
-    if image_path:
+    if image:
         reward_kind = "emoji+image"
     elif intensity_label in ("medium", "high", "epic") and not sensitive:
         # Image was expected but failed — add fallback
@@ -950,8 +1047,14 @@ async def maybe_reward(
             intensity=intensity_label,
             streak_count=streak,
             delivered_at=delivered_at,
-            artifact_path=image_path,
+            artifact_path=image["path"] if image else None,
             sensitive_task=sensitive,
+            # Persisted so a later emoji reaction on this message can be
+            # attributed to these visual choices — this is what closes the
+            # feedback loop for apply_feedback_weight().
+            theme_family=image["theme_family"] if image else None,
+            style=image["style"] if image else None,
+            palette=image["palette"] if image else None,
         )
     except Exception:
         log.exception(
@@ -970,7 +1073,10 @@ async def maybe_reward(
         reward_kind=reward_kind,
         sensitive=sensitive,
         # task_title intentionally omitted — private data
-        # image_path intentionally omitted — private data
+        # image path intentionally omitted — private data
     )
 
-    return RewardResult(text=celebration_text, attachment_path=image_path)
+    return RewardResult(
+        text=celebration_text,
+        attachment_path=image["path"] if image else None,
+    )
