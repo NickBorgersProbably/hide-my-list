@@ -1,0 +1,22 @@
+---
+id: intake-duplicate-task-no-shame-001
+node: intake
+tier: medium
+peer: "<test-peer-6>"
+inbound: "Add the placeholder task to my list"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)(you already added that|duplicate|again)"
+  - kind: regex_forbid
+    pattern: "(?i)(did you mean|is this the same|similar task|I found \\d+)"
+  - kind: judge
+    rubric: |
+      The response handles intake without shame or correction framing. It does
+      not ask the user to confirm whether this matches another task and does
+      not enumerate candidate tasks or candidate counts.
+    threshold: 0.7

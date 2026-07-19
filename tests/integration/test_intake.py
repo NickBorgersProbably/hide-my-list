@@ -26,6 +26,17 @@ from app.graph.state import State
 # Helpers
 # ---------------------------------------------------------------------------
 
+
+@pytest.fixture(autouse=True)
+def _empty_dedup_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default intake dedup query result for tests unrelated to duplicates."""
+
+    async def query_all() -> dict[str, Any]:
+        return {"results": []}
+
+    monkeypatch.setattr("app.tools.notion.query_all", query_all)
+
+
 def _make_notion_page(page_id: str = "", title: str = "Placeholder task") -> dict:
     """Build a minimal Notion page response dict."""
     return {
@@ -33,6 +44,18 @@ def _make_notion_page(page_id: str = "", title: str = "Placeholder task") -> dic
         "properties": {
             "Title": {"title": [{"plain_text": title}]},
             "Status": {"select": {"name": "Pending"}},
+        },
+    }
+
+
+def _make_query_page(page_id: str, title: str, *, status: str = "Pending") -> dict[str, Any]:
+    """Build a minimal Notion query result page."""
+    return {
+        "id": page_id,
+        "properties": {
+            "Title": {"title": [{"plain_text": title}]},
+            "Status": {"select": {"name": status}},
+            "Is Reminder": {"checkbox": False},
         },
     }
 
@@ -63,6 +86,23 @@ def _llm_save_response(
         "inline_steps": "1. First step\n2. Second step",
         "confirmation_message": confirmation,
     })
+
+
+def _base_state(*, incoming: str, peer: str = "<test-peer-1>") -> State:
+    return {
+        "peer": peer,
+        "incoming": incoming,
+        "intent": "ADD_TASK",
+        "messages": [],
+        "active_task": None,
+        "streak": 0,
+        "tasks_completed_today": 0,
+        "user_prefs": {"timezone": "America/Chicago"},
+        "mood": None,
+        "available_minutes": None,
+        "conversation_state": "idle",
+        "pending_outbound": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +327,228 @@ async def test_deadline_task_schedules_inline_series() -> None:
     schedule_for_task.assert_awaited_once()
     mark_scheduled.assert_awaited_once_with(page_id)
     assert "I'll ping you" in result["pending_outbound"][0]["body"]
+
+
+@pytest.mark.asyncio
+async def test_dedup_no_existing_tasks_creates_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No existing open tasks means intake creates the proposed task."""
+    page_id = str(uuid.uuid4())
+    task_response = _llm_save_response(title="Placeholder task")
+    create_task = AsyncMock(return_value=_make_notion_page(page_id=page_id, title="Placeholder task"))
+
+    async def query_all() -> dict[str, Any]:
+        return {"results": []}
+
+    monkeypatch.setattr("app.tools.notion.query_all", query_all)
+
+    mock_llm_response = MagicMock()
+    mock_llm_response.content = task_response
+    mock_model = AsyncMock()
+    mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+
+    with (
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.models.llm", return_value=mock_model),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="Placeholder task"))
+
+    create_task.assert_awaited_once()
+    assert result["pending_outbound"][0]["notion_page_id"] == page_id
+
+
+@pytest.mark.asyncio
+async def test_dedup_clear_duplicate_updates_instead_of_creating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A high-confidence duplicate reuses the existing Notion page."""
+    matched_page_id = "<page_id_matched>"
+    task_response = _llm_save_response(title="Placeholder task")
+    create_task = AsyncMock(return_value=_make_notion_page(page_id=str(uuid.uuid4())))
+    update_property = AsyncMock(return_value={})
+
+    async def query_all() -> dict[str, Any]:
+        return {"results": [_make_query_page(matched_page_id, "Placeholder task", status="In Progress")]}
+
+    monkeypatch.setattr("app.tools.notion.query_all", query_all)
+
+    intake_llm_response = MagicMock()
+    intake_llm_response.content = task_response
+    intake_model = AsyncMock()
+    intake_model.ainvoke = AsyncMock(return_value=intake_llm_response)
+
+    dedup_llm_response = MagicMock()
+    dedup_llm_response.content = json.dumps({"matched_page_id": matched_page_id, "confidence": 0.96})
+    dedup_model = AsyncMock()
+    dedup_model.ainvoke = AsyncMock(return_value=dedup_llm_response)
+
+    with (
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.tools.notion.update_property", update_property),
+        patch("app.models.llm", side_effect=[intake_model, dedup_model]),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="Placeholder task"))
+
+    create_task.assert_not_awaited()
+    update_property.assert_not_awaited()
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] == matched_page_id
+    assert "Placeholder task" in draft["body"]
+    assert "duplicate" not in draft["body"].lower()
+    assert "again" not in draft["body"].lower()
+
+
+@pytest.mark.asyncio
+async def test_dedup_deadline_updates_existing_and_schedules_series(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A duplicate with a deadline updates and schedules against the existing page."""
+    matched_page_id = "<page_id_matched>"
+    due_at = "2026-06-06T17:00:00-05:00"
+    task_response = _llm_save_response(title="Placeholder deadline task", due_at=due_at)
+    create_task = AsyncMock(return_value=_make_notion_page(page_id=str(uuid.uuid4())))
+    update_property = AsyncMock(return_value={})
+
+    async def query_all() -> dict[str, Any]:
+        return {
+            "results": [
+                _make_query_page(matched_page_id, "Placeholder deadline task", status="In Progress"),
+            ]
+        }
+
+    monkeypatch.setattr("app.tools.notion.query_all", query_all)
+
+    scheduled_item = type(
+        "Scheduled",
+        (),
+        {"label": "3d", "assigned_at": datetime(2026, 6, 3, 15, 0, tzinfo=UTC)},
+    )()
+    schedule_for_task = AsyncMock(return_value=([scheduled_item], []))
+    record_deadline_task_peer = AsyncMock(return_value=None)
+    mark_scheduled = AsyncMock(return_value={})
+
+    class FakeCtx:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    intake_llm_response = MagicMock()
+    intake_llm_response.content = task_response
+    intake_model = AsyncMock()
+    intake_model.ainvoke = AsyncMock(return_value=intake_llm_response)
+
+    dedup_llm_response = MagicMock()
+    dedup_llm_response.content = json.dumps({"matched_page_id": matched_page_id, "confidence": 0.97})
+    dedup_model = AsyncMock()
+    dedup_model.ainvoke = AsyncMock(return_value=dedup_llm_response)
+
+    with (
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.tools.notion.update_property", update_property),
+        patch("app.tools.notion.mark_reminder_scheduled", mark_scheduled),
+        patch("app.tools.db.get_db_conn", return_value=FakeCtx()),
+        patch("app.scheduler.reminder_scheduling.record_deadline_task_peer", record_deadline_task_peer),
+        patch("app.scheduler.reminder_scheduling.schedule_for_task", schedule_for_task),
+        patch("app.models.llm", side_effect=[intake_model, dedup_model]),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="Placeholder deadline task"))
+
+    create_task.assert_not_awaited()
+    update_property.assert_awaited_once_with(
+        matched_page_id,
+        {"properties": {"Due At": {"date": {"start": "2026-06-06T22:00:00+00:00"}}}},
+    )
+    record_deadline_task_peer.assert_awaited_once()
+    schedule_for_task.assert_awaited_once()
+    assert schedule_for_task.await_args.kwargs["notion_page_id"] == matched_page_id
+    mark_scheduled.assert_awaited_once_with(matched_page_id)
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] == matched_page_id
+    assert "deadline" in draft["body"].lower()
+
+
+@pytest.mark.asyncio
+async def test_dedup_unrelated_existing_task_creates_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unrelated existing task does not suppress a new task."""
+    page_id = str(uuid.uuid4())
+    task_response = _llm_save_response(title="Draft sample report")
+    create_task = AsyncMock(return_value=_make_notion_page(page_id=page_id))
+
+    async def query_all() -> dict[str, Any]:
+        return {"results": [_make_query_page("<page_id_a>", "Clean placeholder room")]}
+
+    monkeypatch.setattr("app.tools.notion.query_all", query_all)
+
+    mock_llm_response = MagicMock()
+    mock_llm_response.content = task_response
+    mock_model = AsyncMock()
+    mock_model.ainvoke = AsyncMock(return_value=mock_llm_response)
+
+    with (
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.models.llm", return_value=mock_model),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="Draft sample report"))
+
+    create_task.assert_awaited_once()
+    assert result["pending_outbound"][0]["notion_page_id"] == page_id
+
+
+@pytest.mark.asyncio
+async def test_dedup_multiple_candidates_discloses_only_matched_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The duplicate path never names unmatched candidates or their count."""
+    matched_page_id = "<page_id_matched>"
+    task_response = _llm_save_response(title="Call placeholder office")
+    create_task = AsyncMock(return_value=_make_notion_page(page_id=str(uuid.uuid4())))
+
+    async def query_all() -> dict[str, Any]:
+        return {
+            "results": [
+                _make_query_page(matched_page_id, "Call placeholder office"),
+                _make_query_page("<page_id_other>", "Call placeholder coordinator"),
+            ]
+        }
+
+    monkeypatch.setattr("app.tools.notion.query_all", query_all)
+
+    intake_llm_response = MagicMock()
+    intake_llm_response.content = task_response
+    intake_model = AsyncMock()
+    intake_model.ainvoke = AsyncMock(return_value=intake_llm_response)
+
+    dedup_llm_response = MagicMock()
+    dedup_llm_response.content = json.dumps({"matched_page_id": matched_page_id, "confidence": 0.96})
+    dedup_model = AsyncMock()
+    dedup_model.ainvoke = AsyncMock(return_value=dedup_llm_response)
+
+    with (
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.models.llm", side_effect=[intake_model, dedup_model]),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="Call placeholder office"))
+
+    create_task.assert_not_awaited()
+    body = result["pending_outbound"][0]["body"]
+    assert "Call placeholder office" in body
+    assert "Call placeholder coordinator" not in body
+    assert "candidate" not in body.lower()
+    assert "similar task" not in body.lower()
+    assert "i found" not in body.lower()
 
 
 @pytest.mark.asyncio

@@ -93,6 +93,22 @@ reschedule phrase:
 - Use the matched entry's title as the task title (do not re-ask)
 - Parse the new time reference and convert to ISO 8601
 
+### Duplicate Task Detection
+
+Before creating a normal task, intake checks open non-reminder tasks for a
+near-duplicate of the proposed title. The check is internal and fail-open:
+errors, ambiguous matches, and unparseable responses all fall through to
+creating the task.
+
+When a match is confirmed, intake updates that existing page instead of
+creating a second page. If the user supplied a new deadline, the deadline is
+applied to that page and deadline reminders are scheduled against that page.
+
+Never ask the user to confirm a duplicate match. Never name candidate tasks
+other than the single confirmed match, and never mention how many candidates
+exist. Use neutral recognition and forward motion. Do not say "you already
+added that", "duplicate", or "again".
+
 ### Shame Prevention (Mandatory)
 
 - Never imply the user has failed, fallen short, or should have done better
