@@ -46,17 +46,23 @@ async def _clean_tables(conn: Any) -> None:
 
 @pytest.fixture()
 async def db_conn() -> Any:
-    """Provide a clean-state async DB connection for each test."""
+    """Provide a clean-state async DB connection for each test.
+
+    autocommit=True is required, not stylistic. The TRUNCATE below takes an
+    ACCESS EXCLUSIVE lock; held open in an uncommitted transaction it blocks
+    every other connection to these tables. The code under test (ops_alerts
+    .enqueue) opens its own connection, so the test would deadlock against
+    its own fixture and hang until killed.
+    """
     import psycopg
     import psycopg.rows
 
     conn_str = os.environ["DATABASE_URL"]
     async with await psycopg.AsyncConnection.connect(
-        conn_str, row_factory=psycopg.rows.dict_row
+        conn_str, row_factory=psycopg.rows.dict_row, autocommit=True
     ) as conn:
         await _clean_tables(conn)
         yield conn
-        await conn.rollback()
 
 
 # ---------------------------------------------------------------------------
@@ -65,28 +71,67 @@ async def db_conn() -> Any:
 
 @pytest.mark.asyncio
 async def test_notion_health_failure_enqueues_alert(db_conn: Any) -> None:
-    """When notion.health_check() returns False, an ops alert row is enqueued."""
-    from app.scheduler.jobs import check_notion_health
+    """A failed probe enqueues a critical alert carrying the failure reason.
 
-    with patch("app.tools.notion.health_check", new_callable=AsyncMock, return_value=False):
+    The reason must reach the alert body: it is the only copy the operator
+    sees over Signal, and the app logs holding the original exception may
+    have rotated or become unreachable by the time anyone investigates.
+    """
+    from app.scheduler.jobs import check_notion_health
+    from app.tools.notion import HealthCheckResult
+
+    failure = HealthCheckResult(ok=False, detail="HTTPStatusError: 401 Unauthorized")
+    with patch("app.tools.notion.health_check", new_callable=AsyncMock, return_value=failure):
         await check_notion_health()
 
     # Verify a pending ops alert exists.
     row = await db_conn.execute(
-        "SELECT alert_kind, severity, state FROM ops_alerts WHERE alert_kind = 'notion_health_failed'"
+        "SELECT alert_kind, severity, state, body FROM ops_alerts "
+        "WHERE alert_kind = 'notion_health_failed'"
     )
     alert = await row.fetchone()
     assert alert is not None, "Expected a pending ops alert for notion_health_failed"
     assert alert["state"] == "pending"
     assert alert["severity"] == "critical"
+    assert "401 Unauthorized" in alert["body"], (
+        "The probe's failure reason must appear in the alert body. Without it "
+        "the operator gets a generic 'verify key or reachability' string that "
+        "cannot distinguish an expired token from a network outage."
+    )
+
+
+@pytest.mark.asyncio
+async def test_notion_health_failure_without_detail_still_alerts(db_conn: Any) -> None:
+    """A failure carrying no detail must still produce an alert, not crash."""
+    from app.scheduler.jobs import check_notion_health
+    from app.tools.notion import HealthCheckResult
+
+    with patch(
+        "app.tools.notion.health_check",
+        new_callable=AsyncMock,
+        return_value=HealthCheckResult(ok=False),
+    ):
+        await check_notion_health()
+
+    row = await db_conn.execute(
+        "SELECT body FROM ops_alerts WHERE alert_kind = 'notion_health_failed'"
+    )
+    alert = await row.fetchone()
+    assert alert is not None
+    assert "no detail captured" in alert["body"]
 
 
 @pytest.mark.asyncio
 async def test_notion_health_ok_no_alert(db_conn: Any) -> None:
-    """When notion.health_check() returns True, no ops alert is created."""
+    """A successful probe creates no ops alert."""
     from app.scheduler.jobs import check_notion_health
+    from app.tools.notion import HealthCheckResult
 
-    with patch("app.tools.notion.health_check", new_callable=AsyncMock, return_value=True):
+    with patch(
+        "app.tools.notion.health_check",
+        new_callable=AsyncMock,
+        return_value=HealthCheckResult(ok=True),
+    ):
         await check_notion_health()
 
     row = await db_conn.execute(

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 
@@ -387,13 +387,36 @@ async def mark_reminder_scheduled(page_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def health_check() -> bool:
+#: Cap on the failure detail carried into an ops alert. The probe hits
+#: /users/me, so an exception string holds an HTTP status, a Notion API URL,
+#: or a transport error — never task content. The cap bounds a pathological
+#: exception repr rather than guarding privacy.
+_HEALTH_DETAIL_MAX_CHARS = 200
+
+
+class HealthCheckResult(NamedTuple):
+    """Outcome of a Notion connectivity probe.
+
+    `detail` carries the failure reason so the caller can surface it in an
+    ops alert. Without it the operator receives "check failed, verify your
+    key or reachability" — two unrelated causes and no way to tell them
+    apart once the logs have rotated or gone unreachable.
+    """
+
+    ok: bool
+    detail: str | None = None
+
+
+async def health_check() -> HealthCheckResult:
     """Probe Notion API connectivity via GET /v1/users/me.
 
-    Returns True on success, False on any HTTP or network error.
-    Caller is responsible for logging and raising ops alerts on failure.
-    Raises nothing — designed for scheduler job use where exceptions
-    would crash the job rather than mark it failed.
+    Returns `HealthCheckResult(ok=True)` on success, or `ok=False` with the
+    failure reason in `detail`. Raises nothing — designed for scheduler job
+    use where exceptions would crash the job rather than mark it failed.
+
+    Returns a result object rather than a bare bool so the reason survives
+    into the alert. Callers must branch on `.ok`: the result itself is a
+    tuple and therefore always truthy.
     """
     import structlog
 
@@ -404,7 +427,8 @@ async def health_check() -> bool:
             resp = await client.get("/users/me")
             resp.raise_for_status()
         _log.info("notion.health_check.ok", status=resp.status_code)
-        return True
+        return HealthCheckResult(ok=True)
     except Exception as exc:
-        _log.error("notion.health_check.failed", error=str(exc))
-        return False
+        detail = f"{type(exc).__name__}: {exc}"[:_HEALTH_DETAIL_MAX_CHARS]
+        _log.error("notion.health_check.failed", error=detail)
+        return HealthCheckResult(ok=False, detail=detail)
