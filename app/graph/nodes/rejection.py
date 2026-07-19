@@ -46,11 +46,15 @@ SHAME PREVENTION (MANDATORY):
 - Frame all difficulties as information, not shortcomings
 
 Response templates:
-- timing: "Got it — that one's too long right now. How about [shorter task]?"
-- mood_mismatch: "Fair enough — that tells me what kind of work fits right now. How about [task]?"
-- blocked: "I'll hold off on that one. In the meantime, try [task]?"
+- timing: "Got it — that one's too long right now. How about {task}?"
+- mood_mismatch: "Fair enough — that tells me what kind of work fits right now. How about {task}?"
+- blocked: "I'll hold off on that one. In the meantime, try {task}?"
 - already_done: "Oh nice, already done! Let me mark that off. Ready for another?"
-- general: "No problem — that helps me learn what works for you. Here's something different: [task]?"
+- general: "No problem — that helps me learn what works for you. Here's something different: {task}?"
+
+If alternative_task_id is non-null, write the literal token {task} wherever
+user_message refers to that alternative task. Do not write the task title
+yourself; the application substitutes it after selecting the task.
 
 OUTPUT (JSON):
 {{
@@ -60,7 +64,7 @@ OUTPUT (JSON):
     "rejection_note": "[timestamp] {reason}"
   }},
   "alternative_task_id": "..." or null,
-  "user_message": "conversational response with alternative"
+  "user_message": "conversational response with {task} if alternative_task_id is non-null"
 }}
 """
 
@@ -127,6 +131,11 @@ async def rejection_node(state: State) -> dict[str, Any]:
         response_text = str(response.content).strip()
 
         user_message, alternative_id = _parse_rejection_response(response_text)
+        user_message = _render_alternative_task_title(
+            user_message,
+            alternative_id=alternative_id,
+            remaining=remaining,
+        )
 
         # Update rejection count in Notion
         if rejected_page_id:
@@ -187,6 +196,33 @@ def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
         except json.JSONDecodeError:
             pass
     return response_text[:300] if response_text else "No problem. Want something different?", None
+
+
+def _render_alternative_task_title(
+    user_message: str,
+    *,
+    alternative_id: str | None,
+    remaining: list[dict[str, Any]],
+) -> str:
+    """Ensure a selected alternative task is named in the user-visible body."""
+    if not alternative_id:
+        return user_message
+
+    title_by_id = {
+        task.get("id"): task.get("title")
+        for task in remaining
+        if isinstance(task.get("id"), str) and isinstance(task.get("title"), str)
+    }
+    title = title_by_id.get(alternative_id)
+    if not title:
+        return user_message
+
+    if "{task}" in user_message:
+        return user_message.replace("{task}", title)
+
+    stripped = user_message.rstrip()
+    suffix = f" The task is: {title}."
+    return f"{stripped}{suffix}" if stripped else f"The task is: {title}."
 
 
 def _extract_title(props: dict[str, Any]) -> str:
