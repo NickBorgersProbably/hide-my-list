@@ -11,8 +11,8 @@ Design notes:
   file at import time. Pytest fixtures clear the lru_cache between runs.
 - Real LLM calls go through the LiteLLM proxy at `LLM_PROXY_BASE_URL`.
   Same proxy production uses; what we validate matches what users see.
-- The judge LLM is always Claude Sonnet 4.6 (per the rig spec), never
-  the model under test. Judge cache is in `tests/evals/.cache/`.
+- The judge LLM defaults to claude-sonnet-5 (per the rig spec; override via
+  EVAL_JUDGE_MODEL), never the model under test. Judge cache is in `tests/evals/.cache/`.
 - Cost gates: `ENABLE_LIVE_LLM_EVALS=true` required; `EVAL_BUDGET_USD`
   is a soft cap that aborts the run when projected spend exceeds it.
 
@@ -55,6 +55,7 @@ _COST_PER_MTOK_USD: dict[str, dict[str, float]] = {
     # model alias -> {input, output}
     "claude-opus-4-6": {"input": 15.0, "output": 75.0},
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
+    "claude-sonnet-5": {"input": 3.0, "output": 15.0},
     "claude-haiku-4-5": {"input": 0.80, "output": 4.0},
     "gemma4-small": {"input": 0.10, "output": 0.40},  # self-hosted estimate
 }
@@ -316,8 +317,8 @@ def evaluate_contracts(contracts: list[Contract], response: str) -> list[Contrac
 # ---------------------------------------------------------------------------
 
 
-_SELECT_PROPS = ("Work Type", "Energy Required", "Urgency")
-_NUMBER_PROPS = ("Time Estimate (min)", "Rejection Count")
+_SELECT_PROPS = ("Work Type", "Energy Required")
+_NUMBER_PROPS = ("Time Estimate (min)", "Rejection Count", "Urgency")
 
 
 def _as_notion_page(task: dict[str, Any]) -> dict[str, Any]:

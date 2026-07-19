@@ -213,7 +213,7 @@ node, keep that event name so the guard covers it.
 Contract kinds:
 - `regex_forbid` / `regex_require` — deterministic; no LLM
 - `json_schema` — pydantic validation of structured outputs (intake node)
-- `judge` — qualitative rubric scored by a stronger judge LLM (Sonnet 4.6)
+- `judge` — qualitative rubric scored by a stronger judge LLM (defaults to `claude-sonnet-5`; override via `EVAL_JUDGE_MODEL`)
 - `shame_safe` — judge with fixed ADHD-safety rubric from `design/adhd-priorities.md`
 
 Privacy invariant: all fixtures use placeholder values (`<test-peer>`,

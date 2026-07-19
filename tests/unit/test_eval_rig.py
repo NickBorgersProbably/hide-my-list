@@ -37,6 +37,7 @@ def test_as_notion_page_round_trips_through_node_extractors() -> None:
             "title": "Sort the recycling bins",
             "work_type": "Physical",
             "time_estimate": 30,
+            "urgency": 2,
         }
     )
     props = page["properties"]
@@ -44,6 +45,7 @@ def test_as_notion_page_round_trips_through_node_extractors() -> None:
     assert _extract_title(props) == "Sort the recycling bins"
     assert _extract_select(props, "Work Type") == "Physical"
     assert _extract_number(props, "Time Estimate (min)", 0) == 30
+    assert _extract_number(props, "Urgency", 0) == 2
 
 
 def test_as_notion_page_omits_unset_properties() -> None:
