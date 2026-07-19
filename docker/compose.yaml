@@ -63,8 +63,8 @@ services:
     # Image pinned by sha256 digest.
     # Lookup: docker pull bbernhard/signal-cli-rest-api:latest
     #         docker inspect bbernhard/signal-cli-rest-api:latest --format='{{index .RepoDigests 0}}'
-    # Pinned: 2025-05-15 against bbernhard/signal-cli-rest-api:latest
-    image: bbernhard/signal-cli-rest-api@sha256:96578363477d97cb1d8da303791b2ad686b374a255fce4d78c7c6f00ef56cba8
+    # Pinned: 2026-07-19 against bbernhard/signal-cli-rest-api:latest
+    image: bbernhard/signal-cli-rest-api@sha256:2399d449123cdad56c4d859277e3b9127e1a00c4d2ab4601c239882609286cf8
     environment:
       - MODE=json-rpc
     volumes:
