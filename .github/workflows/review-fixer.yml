@@ -403,6 +403,43 @@ jobs:
             ruff==0.15.13
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      # Auto-fix pass, scoped to the files the fixer actually touched.
+      # The fixer prompt forbids running ruff (see fixer.md) — lint is a
+      # CI gate step, not a fixer step — so the fixer has no way to catch
+      # its own mechanical lint slips. Without this pass, a single
+      # auto-fixable violation (an unused import left behind while
+      # rewriting a test) hard-fails the terminal gate below and discards
+      # the entire cycle's work, forcing a human to hand-apply fixes the
+      # tool can repair deterministically. Observed on PR #626: one F401
+      # cost a full reviewer fan-out plus fixer run.
+      #
+      # Scope is deliberate. Only paths that differ from HEAD are passed
+      # to `--fix`, so this repairs what the fixer wrote and never
+      # silently launders a pre-existing lint regression on main — those
+      # still hard-fail the full-tree gate below with their own message.
+      # `--exit-zero` keeps the non-auto-fixable case flowing through to
+      # that gate, which stays the single place a violation blocks a push.
+      - name: Ruff auto-fix (fixer-touched files)
+        working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        run: |
+          set -euo pipefail
+          if ! command -v ruff >/dev/null 2>&1; then
+            echo "::warning::ruff not found on host runner; skipping auto-fix pass"
+            exit 0
+          fi
+
+          mapfile -t CHANGED_PY < <(
+            git diff --name-only --diff-filter=d HEAD -- '*.py' | sort -u
+          )
+          if [ "${#CHANGED_PY[@]}" -eq 0 ]; then
+            echo "fixer touched no Python files; nothing to auto-fix"
+            exit 0
+          fi
+
+          echo "=== Ruff auto-fix on ${#CHANGED_PY[@]} fixer-touched file(s) ==="
+          printf '  %s\n' "${CHANGED_PY[@]}"
+          ruff check --fix --exit-zero -- "${CHANGED_PY[@]}"
+
       # Lint gate: run ruff against the full Python tree in the PR
       # workspace before committing. The pre-commit hook in .githooks/
       # only covers *staged* files, so it cannot catch violations that
