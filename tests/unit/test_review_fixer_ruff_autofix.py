@@ -110,6 +110,50 @@ def test_autofix_does_not_swallow_unfixable_violations() -> None:
     )
 
 
+def test_autofix_includes_untracked_python_files() -> None:
+    """The auto-fix scope must include untracked files, not only tracked changes.
+
+    The fixer leaves new files unstaged until the host commit step, so they
+    are invisible to `git diff HEAD`. Without `git ls-files --others`, a
+    fixer-authored Python file with auto-fixable lint still fails the terminal
+    gate, preserving the discard failure mode this step was added to prevent.
+    """
+    text = _workflow_text()
+    autofix_at = _step_index(text, _AUTOFIX_STEP)
+    gate_at = _step_index(text, _GATE_STEP)
+    block = text[autofix_at:gate_at]
+
+    assert "git ls-files --others --exclude-standard" in block, (
+        "The auto-fix step must include untracked Python files via "
+        "`git ls-files --others --exclude-standard` in addition to "
+        "`git diff HEAD`. Fixer-created files are unstaged until the host "
+        "commit step and would otherwise be missed."
+    )
+
+
+def test_autofix_skips_during_merge_conflict_repair() -> None:
+    """The auto-fix step must skip when MERGE_STATE=conflicts.
+
+    In the conflict-repair path HEAD is the frozen PR SHA while the working
+    tree also contains uncommitted main-side merge deltas. Running `ruff --fix`
+    in that state would modify main-side files before commit, laundering an
+    upstream lint regression into the PR's conflict-resolution commit.
+    """
+    text = _workflow_text()
+    autofix_at = _step_index(text, _AUTOFIX_STEP)
+    gate_at = _step_index(text, _GATE_STEP)
+    block = text[autofix_at:gate_at]
+
+    assert "MERGE_STATE" in block, (
+        "The auto-fix step must expose MERGE_STATE (from sync-main outputs) "
+        "so it can guard against running during conflict repair."
+    )
+    assert "conflicts" in block, (
+        "The auto-fix step must skip (exit 0) when MERGE_STATE=conflicts to "
+        "avoid laundering main-side lint regressions into the PR commit."
+    )
+
+
 def test_lint_gate_remains_terminal() -> None:
     """The full-tree gate must still hard-fail; auto-fix does not replace it."""
     text = _workflow_text()

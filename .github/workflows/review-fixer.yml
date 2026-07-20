@@ -421,15 +421,22 @@ jobs:
       # that gate, which stays the single place a violation blocks a push.
       - name: Ruff auto-fix (fixer-touched files)
         working-directory: ${{ env.PR_WORKSPACE_PATH }}
+        env:
+          MERGE_STATE: ${{ steps.sync-main.outputs.merge_state }}
         run: |
           set -euo pipefail
           if ! command -v ruff >/dev/null 2>&1; then
             echo "::warning::ruff not found on host runner; skipping auto-fix pass"
             exit 0
           fi
+          if [ "$MERGE_STATE" = "conflicts" ]; then
+            echo "merge conflict repair in progress; skipping ruff auto-fix because HEAD includes main-side merge deltas"
+            exit 0
+          fi
 
           mapfile -t CHANGED_PY < <(
-            git diff --name-only --diff-filter=d HEAD -- '*.py' | sort -u
+            { git diff --name-only --diff-filter=d HEAD -- '*.py'; \
+              git ls-files --others --exclude-standard -- '*.py'; } | sort -u
           )
           if [ "${#CHANGED_PY[@]}" -eq 0 ]; then
             echo "fixer touched no Python files; nothing to auto-fix"
