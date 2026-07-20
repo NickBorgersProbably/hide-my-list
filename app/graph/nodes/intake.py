@@ -176,6 +176,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 log.info("intake_node.due_at_parse_failed", has_due_at=True)
 
         duplicate_matched = False
+        dedup_match: DedupMatch | None = None
         if is_reminder and remind_at_str:
             notion_page = await _create_reminder(
                 peer=peer,
@@ -274,13 +275,14 @@ async def intake_node(state: State) -> dict[str, Any]:
             if summary:
                 confirmation_message = f"{confirmation_message} {summary}"
 
+        draft_task_title = dedup_match.title if duplicate_matched and dedup_match else task_title
         draft: OutboundDraft = {
             "recipient": peer,
             "body": confirmation_message,
             "notion_page_id": page_id,
         }
-        if task_title:
-            draft["notion_page_title"] = task_title
+        if draft_task_title:
+            draft["notion_page_title"] = draft_task_title
 
         if duplicate_matched:
             log.info(

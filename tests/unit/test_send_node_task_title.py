@@ -7,7 +7,9 @@ send a suggestion the user cannot act on.
 from __future__ import annotations
 
 import hashlib
+import inspect
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -134,3 +136,35 @@ async def test_idempotency_key_matches_sent_body(signal: _CapturingSignalClient)
     sent = signal.sent[0]
     expected = hashlib.sha256(f"<recipient>:{sent['message']}".encode()).hexdigest()[:32]
     assert sent["idempotency_key"] == expected
+
+
+@pytest.mark.asyncio
+async def test_send_message_kwargs_match_signature(monkeypatch: pytest.MonkeyPatch) -> None:
+    """send_node kwarg names must match signal_client.send_message's signature."""
+    from app.graph.nodes.send import send_node
+    from app.tools import signal_client
+
+    sig_params = set(inspect.signature(signal_client.send_message).parameters.keys())
+
+    mock = AsyncMock(return_value={"timestamp": 1})
+    monkeypatch.setattr(signal_client, "send_message", mock)
+
+    await send_node(
+        _state(
+            {
+                "recipient": "<recipient>",
+                "body": "How about {task}?",
+                "notion_page_id": "<page-id>",
+                "notion_page_title": "Placeholder selected task",
+            }
+        )
+    )
+
+    assert mock.called
+    called_kwargs = set(mock.call_args.kwargs.keys())
+    unknown = called_kwargs - sig_params
+    assert not unknown, f"send_node passed unknown kwargs to send_message: {unknown}"
+    assert "recipient" in called_kwargs
+    assert "message" in called_kwargs
+    assert "idempotency_key" in called_kwargs
+    assert "attachment_paths" not in called_kwargs

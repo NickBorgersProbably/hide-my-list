@@ -294,8 +294,8 @@ If task is too vague and clarification_count < 3:
 }
 
 CONFIRMATION MESSAGE FORMAT:
-- For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
-- For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
+- For inline steps: "Got it — {task}: [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
+- For hidden sub-tasks: "Got it — {task}: [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
 - For reminders: "Got it — I'll remind you Wednesday evening to {task}."
 
 The module writes the literal token `{task}` where the confirmation names the
