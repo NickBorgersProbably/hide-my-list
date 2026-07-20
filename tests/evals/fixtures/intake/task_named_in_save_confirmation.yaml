@@ -1,0 +1,28 @@
+---
+# Intake contract: the save confirmation must use the literal {task} token
+# wherever it names the saved task — for non-reminder saves (inline steps).
+# Catches regression to the old prompt examples that instructed the model
+# to write generic confirmations ("Got it — focus, ~30 min.") without naming
+# the task, which send_node then had to patch with a fallback sentence.
+id: intake-task-named-in-confirmation-001
+node: intake
+tier: medium
+peer: "<test-peer-intake-named>"
+inbound: "I need to finish the placeholder report"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)(remind|reminder|notify|notification|set\\s+a\\s+(notification|reminder|alert))"
+  - kind: judge
+    rubric: |
+      The save confirmation contains the literal token {task} where it
+      names the saved task. A confirmation that refers to the task only
+      by work type ("focus, ~30 min") or omits the task name entirely
+      scores 0.0. Score 1.0 if {task} is present.
+    threshold: 0.8

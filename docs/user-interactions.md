@@ -681,9 +681,9 @@ flowchart TD
     StillActive -->|No| Skip[Skip — clear active_task]
     StillActive -->|Yes| Count{check_in_count}
 
-    Count -->|0| Friendly["How's [task] going?"]
-    Count -->|1| Brief["Still working on [task]?"]
-    Count -->|2| Gentle["Want to take a break from [task]?<br/>No further check-ins"]
+    Count -->|0| Friendly["How's {task} going?"]
+    Count -->|1| Brief["Still working on {task}?"]
+    Count -->|2| Gentle["Want to take a break from {task}?<br/>No further check-ins"]
 
     Friendly --> Response
     Brief --> Response
@@ -715,9 +715,9 @@ flowchart TD
 
 | Scenario | AI Response |
 |----------|-------------|
-| 1st check-in | "How's [task] going? Still at it?" |
-| 2nd check-in | "Still working on [task]? No rush either way." |
-| 3rd check-in | "Want to take a break from [task]? Totally fine — I'll be here when you're ready." |
+| 1st check-in | "How's {task} going? Still at it?" |
+| 2nd check-in | "Still working on {task}? No rush either way." |
+| 3rd check-in | "Want to take a break from {task}? Totally fine — I'll be here when you're ready." |
 | User says done | "Nice! Marking that off. Ready for another?" |
 | User still working | "No rush — keep at it! I'll check back in a bit." |
 | User got distracted | "Happens to literally everyone. Want to jump back in, or try something else?" |

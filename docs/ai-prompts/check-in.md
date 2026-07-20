@@ -104,7 +104,7 @@ OUTPUT (JSON):
 
 | Scenario | Example Message |
 |----------|-----------------|
-| First check-in | "How's the quarterly report going? Still at it?" |
+| First check-in | "How's {task} going? Still at it?" |
 | User says done | "Nice! Marking that off. Ready for another?" |
 | User still working | "No rush — keep at it! I'll check back in a bit." |
 | User got distracted | "Happens to literally everyone. Want to jump back in, or try something else?" |

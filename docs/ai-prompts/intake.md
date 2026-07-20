@@ -226,7 +226,7 @@ Example:
   user says: "remind me in an hour" →
     is_reminder: true, title: "Set up your video call software for therapy",
     remind_at: "<now+1h ISO>",
-    confirmation_message: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
+    confirmation_message: "Got it — I'll remind you in about an hour to {task}."
 
 OUTPUT (JSON):
 
@@ -269,7 +269,7 @@ If task is too vague and clarification_count < 3:
 CONFIRMATION MESSAGE FORMAT:
 - For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
 - For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
-- For reminders: "Got it — I'll remind you Wednesday evening to set up your video call software for therapy."
+- For reminders: "Got it — I'll remind you Wednesday evening to {task}."
 
 The module writes the literal token `{task}` where the confirmation names the
 task being saved; the application substitutes the exact title it stored in

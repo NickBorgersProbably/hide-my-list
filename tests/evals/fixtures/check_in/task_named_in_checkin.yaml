@@ -1,0 +1,32 @@
+---
+# Check-in contract: the check-in message must use the literal {task} token
+# to refer to the active task, never a vague attribute-only reference.
+# Catches regression to the old behavior where the model wrote "this focus task"
+# or "your task" instead of {task}, which the application substitutes with the
+# exact stored title before delivery.
+id: check-in-task-named-001
+node: check_in
+tier: medium
+peer: "<test-peer-checkin-named>"
+inbound: "__CHECK_IN__"
+prior_state:
+  active_task:
+    notion_page_id: "<placeholder-page-id>"
+    title: "<placeholder-task>"
+    check_in_count: 0
+    time_estimate: 30
+  conversation_state: active
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)(this\\s+focus\\s+task|this\\s+task|your\\s+task|the\\s+task|that\\s+task)(?!\\s+is\\b)"
+  - kind: judge
+    rubric: |
+      The check-in message contains the literal token {task} where it
+      refers to the active task — not a vague description like "this
+      focus task" or "your task". Score 1.0 if {task} appears exactly;
+      0.0 if a vague reference replaces it.
+    threshold: 0.85

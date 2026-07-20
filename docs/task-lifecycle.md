@@ -498,7 +498,7 @@ flowchart TD
     CheckConfigured -->|Yes| ConfirmStatus{Task still `in_progress`?}
 
     ConfirmStatus -->|No| Cleanup[Clear checkpoint state, exit]
-    ConfirmStatus -->|Yes| AskUser["How's [task] going?"]
+    ConfirmStatus -->|Yes| AskUser["How's {task} going?"]
 
     AskUser --> Response{User response}
 
@@ -672,7 +672,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    LongGap([Gap > 24 hours]) --> Ask["Still working on [task],<br/>or should we put it back?"]
+    LongGap([Gap > 24 hours]) --> Ask["Still working on {task},<br/>or should we put it back?"]
 
     Ask --> UserChoice{User response}
 
