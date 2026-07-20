@@ -9,6 +9,14 @@ prior_state:
   conversation_state: idle
   user_prefs:
     timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Add the placeholder task to my list"
+    work_type: "focus"
+    time_estimate: 30
+    urgency: 50
+    status: "In Progress"
+    is_reminder: false
 contracts:
   - kind: regex_forbid
     pattern: "(?i)(you already added that|duplicate|again)"

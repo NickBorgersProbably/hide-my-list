@@ -188,12 +188,15 @@ async def intake_node(state: State) -> dict[str, Any]:
             log.info("intake_node.no_reminder", has_remind_at=bool(remind_at_str), is_reminder=is_reminder)
             dedup_match = await _find_existing_task_match(task_title)
             if dedup_match is not None:
-                duplicate_matched = True
                 if deadline_at is not None:
                     try:
                         await notion.update_property(
-                            dedup_match.page_id,
-                            {"properties": {"Due At": {"date": {"start": deadline_at.isoformat()}}}},
+                            page_id=dedup_match.page_id,
+                            prop_json={
+                                "properties": {
+                                    "Due At": {"date": {"start": deadline_at.isoformat()}}
+                                }
+                            },
                         )
                     except Exception:
                         log.exception(
@@ -201,17 +204,30 @@ async def intake_node(state: State) -> dict[str, Any]:
                             candidate_count=dedup_match.candidate_count,
                             matched=True,
                         )
-                notion_page = {"id": dedup_match.page_id}
-                if deadline_at is not None:
-                    confirmation_message = "That one's already on your list — I've added the deadline to it."
+                        dedup_match = None
+                if dedup_match is not None:
+                    duplicate_matched = True
+                    notion_page = {"id": dedup_match.page_id}
+                    if deadline_at is not None:
+                        confirmation_message = "That one's already on your list — I've added the deadline to it."
+                    else:
+                        confirmation_message = f"That one's already on your list — {dedup_match.title}."
+                    log.info(
+                        "intake_node.duplicate_detected",
+                        candidate_count=dedup_match.candidate_count,
+                        matched=True,
+                        has_due_at=deadline_at is not None,
+                    )
                 else:
-                    confirmation_message = f"That one's already on your list — {dedup_match.title}."
-                log.info(
-                    "intake_node.duplicate_detected",
-                    candidate_count=dedup_match.candidate_count,
-                    matched=True,
-                    has_due_at=deadline_at is not None,
-                )
+                    notion_page = await notion.create_task(
+                        title=task_title,
+                        work_type=work_type,
+                        urgency=urgency,
+                        time_estimate=time_estimate,
+                        energy_required=energy_required,
+                        inline_steps=inline_steps,
+                        due_at_iso=deadline_at.isoformat() if deadline_at else None,
+                    )
             else:
                 notion_page = await notion.create_task(
                     title=task_title,
@@ -232,6 +248,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 deadline_at=deadline_at,
                 urgency=urgency,
                 user_timezone=user_timezone,
+                refresh_existing_deadline=duplicate_matched,
             )
 
         # Create hidden sub-tasks if needed
@@ -646,15 +663,29 @@ async def _schedule_deadline_series(
     deadline_at: datetime,
     urgency: int,
     user_timezone: str,
+    refresh_existing_deadline: bool = False,
 ) -> list[tuple[str, datetime]]:
     """Schedule a deadline milestone series after a Notion task is created."""
     try:
-        from app.scheduler.reminder_scheduling import record_deadline_task_peer, schedule_for_task
+        from app.scheduler.reminder_scheduling import (
+            cancel_outbox_rows,
+            get_active_deadline_for_page,
+            record_deadline_task_peer,
+            schedule_for_task,
+            supersede_ledger_rows,
+        )
         from app.tools import notion
         from app.tools.db import get_db_conn
 
         async with get_db_conn() as conn:
             await record_deadline_task_peer(conn, notion_page_id=page_id, peer=peer)
+            if refresh_existing_deadline:
+                active_deadline = await get_active_deadline_for_page(conn, page_id)
+                if active_deadline is not None and _deadlines_match(active_deadline, deadline_at):
+                    return []
+                outbox_ids = await supersede_ledger_rows(conn, page_id)
+                await cancel_outbox_rows(conn, outbox_ids)
+                await conn.commit()
             scheduled, failures = await schedule_for_task(
                 conn,
                 notion_page_id=page_id,
@@ -679,6 +710,10 @@ async def _schedule_deadline_series(
     except Exception:
         log.exception("intake_node.deadline_series_failed", page_id=page_id)
         return []
+
+
+def _deadlines_match(a: datetime, b: datetime) -> bool:
+    return abs((a.astimezone(UTC) - b.astimezone(UTC)).total_seconds()) <= 1
 
 
 def _parse_intake_response(response_text: str) -> dict[str, Any] | None:

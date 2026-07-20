@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.graph.nodes.intake import _extract_checkbox
 from app.graph.nodes.rejection import _extract_number, _extract_select, _extract_title
 from tests.evals.runner import (
     _as_notion_page,
@@ -38,12 +39,16 @@ def test_as_notion_page_round_trips_through_node_extractors() -> None:
             "work_type": "Physical",
             "time_estimate": 30,
             "urgency": 2,
+            "status": "In Progress",
+            "is_reminder": False,
         }
     )
     props = page["properties"]
     assert page["id"] == "<placeholder-page-id-9>"
     assert _extract_title(props) == "Sort the recycling bins"
     assert _extract_select(props, "Work Type") == "Physical"
+    assert _extract_select(props, "Status") == "In Progress"
+    assert _extract_checkbox(props, "Is Reminder") is False
     assert _extract_number(props, "Time Estimate (min)", 0) == 30
     assert _extract_number(props, "Urgency", 0) == 2
 

@@ -317,8 +317,9 @@ def evaluate_contracts(contracts: list[Contract], response: str) -> list[Contrac
 # ---------------------------------------------------------------------------
 
 
-_SELECT_PROPS = ("Work Type", "Energy Required")
+_SELECT_PROPS = ("Work Type", "Energy Required", "Status")
 _NUMBER_PROPS = ("Time Estimate (min)", "Rejection Count", "Urgency")
+_CHECKBOX_PROPS = ("Is Reminder",)
 
 
 def _as_notion_page(task: dict[str, Any]) -> dict[str, Any]:
@@ -340,6 +341,10 @@ def _as_notion_page(task: dict[str, Any]) -> dict[str, Any]:
         key = prop.split(" (")[0].lower().replace(" ", "_")
         if key in task:
             props[prop] = {"number": task[key]}
+    for prop in _CHECKBOX_PROPS:
+        key = prop.lower().replace(" ", "_")
+        if key in task:
+            props[prop] = {"checkbox": bool(task[key])}
     return {"id": task.get("id", ""), "properties": props}
 
 

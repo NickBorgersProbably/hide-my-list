@@ -1,7 +1,7 @@
 # Bug 0617: Intake Duplicate Task Creation
 
 **Issue:** #617
-**Fix PR:** #617
+**Fix PR:** #619
 
 ## Bug Story
 
