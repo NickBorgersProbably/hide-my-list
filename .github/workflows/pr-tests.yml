@@ -51,6 +51,7 @@ jobs:
       docs_files: ${{ steps.filter.outputs.docs_files }}
       workflows: ${{ steps.filter.outputs.workflows }}
       devcontainer: ${{ steps.filter.outputs.devcontainer }}
+      docker: ${{ steps.filter.outputs.docker }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -88,6 +89,13 @@ jobs:
               - 'scripts/validate-workflow-refs.sh'
             devcontainer:
               - '.devcontainer/**'
+            docker:
+              - 'docker/Dockerfile'
+              - 'app/**'
+              - 'migrations/**'
+              - 'setup/**'
+              - 'pyproject.toml'
+              - '.github/workflows/app-image.yml'
 
   script-validation:
     name: Script Validation
@@ -181,10 +189,36 @@ jobs:
       - name: Validate devcontainer configuration
         run: npx -y @devcontainers/cli@0.85.0 build --workspace-folder .
 
+  docker-build-validation:
+    name: Docker Build Check
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build only — never push, and never write to the shared build cache.
+      # A PR branch must not be able to poison the cache the `App Image`
+      # publish workflow reads from.
+      - name: Build app image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: false
+          cache-from: type=gha
+
   all-tests-passed:
     name: All Required Tests
     runs-on: ubuntu-latest
-    needs: [changes, script-validation, doc-validation, workflow-validation, devcontainer-validation]
+    needs: [changes, script-validation, doc-validation, workflow-validation, devcontainer-validation, docker-build-validation]
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
@@ -213,6 +247,10 @@ jobs:
             echo "Devcontainer Build Check: ${{ needs.devcontainer-validation.result }}"
             failed=true
           fi
+          if ! check_result "${{ needs.docker-build-validation.result }}"; then
+            echo "Docker Build Check: ${{ needs.docker-build-validation.result }}"
+            failed=true
+          fi
 
           if [ "$failed" = true ]; then
             echo ""
@@ -227,3 +265,4 @@ jobs:
           echo "  Doc Validation: ${{ needs.doc-validation.result }}"
           echo "  Workflow Validation: ${{ needs.workflow-validation.result }}"
           echo "  Devcontainer Build Check: ${{ needs.devcontainer-validation.result }}"
+          echo "  Docker Build Check: ${{ needs.docker-build-validation.result }}"
