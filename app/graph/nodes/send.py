@@ -17,6 +17,7 @@ from typing import Any
 import structlog
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
+from app.graph.nodes._task_token import render_task_token
 from app.graph.state import State
 
 log = structlog.get_logger(__name__)
@@ -61,6 +62,20 @@ async def send_node(state: State) -> dict[str, Any]:
                 has_body=bool(body),
             )
             continue
+
+        # Enforce the naming invariant before hashing so the idempotency key
+        # matches what actually goes out. A draft that declares a task title is
+        # asserting the body names that task; if the model drifted and left it
+        # out, name it here rather than sending an unactionable suggestion.
+        rendered = render_task_token(body, title=draft.get("notion_page_title"))
+        if rendered != body:
+            log.warning(
+                "send_node.task_title_injected",
+                notion_page_id=notion_page_id,
+                # body and title are private — booleans only
+                had_task_token="{task}" in body,
+            )
+            body = rendered
 
         # Generate idempotency key from content hash for deduplication
         key_source = f"{recipient}:{body}"

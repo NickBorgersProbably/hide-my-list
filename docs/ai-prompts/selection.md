@@ -107,12 +107,27 @@ flowchart LR
 ```mermaid
 flowchart TD
     subgraph Templates["Message Confidence"]
-        High["Score > 0.8<br/>'Perfect timing - how about [task]?<br/>It matches your [time] and [mood].'"]
-        Medium["Score 0.5-0.8<br/>'I'd suggest [task].<br/>It's [urgency level] and fits your time.'"]
-        Low["Score < 0.5<br/>'Best I can find is [task].<br/>Not perfect, but might work?'"]
+        High["Score > 0.8<br/>'Perfect timing - how about {task}?<br/>It matches your [time] and [mood].'"]
+        Medium["Score 0.5-0.8<br/>'I'd suggest {task}.<br/>It's [urgency level] and fits your time.'"]
+        Low["Score < 0.5<br/>'Best I can find is {task}.<br/>Not perfect, but might work?'"]
         None["No match<br/>'Nothing quite fits right now.<br/>Want to add something quick?'"]
     end
 ```
+
+### Naming the Selected Task
+
+`{task}` is a literal token, not a description to paraphrase. The module writes
+it wherever `user_message` refers to the selected task; the application
+substitutes the exact stored title before the message is sent.
+
+Why this design: a suggestion that identifies the task only by attribute —
+"this focus task", "this 30-minute one" — gives the user nothing to act on. The
+attached page id is internal and never rendered to the user, so the title has to
+appear in the message text itself. Code owns the substitution so the wording
+cannot drift.
+
+The bracketed slots that remain (`[time]`, `[mood]`, `[urgency level]`) are
+prose the module writes itself.
 
 
 ---

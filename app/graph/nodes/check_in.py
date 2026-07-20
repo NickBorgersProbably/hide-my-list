@@ -18,39 +18,6 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
-_CHECK_IN_SYSTEM_PROMPT = """\
-The user accepted a task but the expected completion time has passed.
-Check in on their progress.
-
-ACTIVE TASK: {task_title}
-TIME ESTIMATE: {time_estimate} minutes
-TIME ELAPSED: {elapsed_minutes} minutes
-CHECK_IN_COUNT: {check_in_count}
-
-Generate a brief, friendly check-in message. Keep it casual and non-judgmental.
-The user may have:
-- Completed the task and forgot to say so
-- Still be working on it
-- Gotten distracted
-- Needed more time than estimated
-
-SHAME PREVENTION (MANDATORY):
-- Never imply the user has failed, fallen short, or should have done better
-- Tone: "friend checking in," not "manager following up"
-- Check-ins = potential shame trigger — keep them curious and warm
-
-TEMPLATES BY CHECK_IN_COUNT:
-- 0: "How's the [task] going? Still at it?"
-- 1: "Just checking in — how are you getting on with [task]?"
-- 2: "Hey, no pressure — still working on [task], or want to take a break?"
-
-OUTPUT (JSON):
-{{
-  "check_in_message": "..."
-}}
-"""
-
-
 async def check_in_node(state: State) -> dict[str, Any]:
     """CHECK_IN handler: system-initiated progress follow-up.
 
@@ -116,11 +83,16 @@ async def check_in_node(state: State) -> dict[str, Any]:
 
         user_message = _parse_check_in_response(response_text)
 
-        draft = {
+        draft: OutboundDraft = {
             "recipient": peer,
             "body": user_message,
             "notion_page_id": page_id,
         }
+        # Only assert naming when we have a real title — the "your task"
+        # fallback is prose, not a task name.
+        real_title = active_task.get("title")
+        if real_title:
+            draft["notion_page_title"] = real_title
 
         # Update check_in_count and check_in_due_at in active_task
         new_count = check_in_count + 1

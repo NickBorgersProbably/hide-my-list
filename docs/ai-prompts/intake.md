@@ -271,6 +271,10 @@ CONFIRMATION MESSAGE FORMAT:
 - For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
 - For reminders: "Got it — I'll remind you Wednesday evening to set up your video call software for therapy."
 
+The module writes the literal token `{task}` where the confirmation names the
+task being saved; the application substitutes the exact title it stored in
+Notion, so the confirmation always matches the record.
+
 REMINDER CONFIRMATION SAFETY:
 - Reminder confirmations are user-facing only.
 - Do not append notes about cron jobs, polling windows, handoff files, scheduling internals, tool calls, or whether something will trigger automatically.

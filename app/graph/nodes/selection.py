@@ -113,11 +113,20 @@ async def selection_node(state: State) -> dict[str, Any]:
         # Parse JSON response from LLM
         user_message, selected_page_id = _parse_selection_response(response_text, peer)
 
-        draft = {
+        # The prompt writes the literal {task} token; the title comes from the
+        # task list we scored, never from the model. send_node substitutes it.
+        selected_title = next(
+            (t["title"] for t in simplified if t["id"] == selected_page_id and t["title"]),
+            None,
+        )
+
+        draft: OutboundDraft = {
             "recipient": peer,
             "body": user_message,
             "notion_page_id": selected_page_id,
         }
+        if selected_title:
+            draft["notion_page_title"] = selected_title
 
         # Mark selected task In Progress and set active_task in state.
         # This is required for COMPLETE/reward to work correctly (psy-001):
@@ -206,8 +215,11 @@ def _parse_selection_response(response_text: str, peer: str) -> tuple[str, str |
     """Parse the LLM's JSON selection response. Returns (user_message, page_id)."""
     import re
 
-    # Try to extract JSON block
-    json_match = re.search(r"\{[^{}]+\}", response_text, re.DOTALL)
+    # Try to extract JSON block. The pattern must tolerate braces *inside* the
+    # payload — user_message carries the literal {task} token — so it cannot
+    # exclude brace characters. Greedy + DOTALL matches to the last brace,
+    # consistent with the other nodes' parsers.
+    json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
         try:
             loaded = json.loads(json_match.group())

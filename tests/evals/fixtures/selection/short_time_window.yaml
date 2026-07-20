@@ -24,3 +24,10 @@ contracts:
       It includes a brief why (e.g., energy fit, time fit, mood).
       Score 1.0 for all three, 0.5 for two, 0.0 for one or none.
     threshold: 0.7
+  - kind: judge
+    rubric: |
+      The response names the specific suggested task in the user-visible text.
+      A vague reference such as "this focus task", "this 30-minute task", or
+      "the next one" without a task name scores 0.0. If the response suggests
+      no task at all (nothing fits the window), score 1.0.
+    threshold: 0.8

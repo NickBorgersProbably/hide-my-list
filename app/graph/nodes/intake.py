@@ -91,12 +91,12 @@ async def intake_node(state: State) -> dict[str, Any]:
 
         if parsed.get("action") == "clarify":
             question = parsed.get("clarification_question", "Which task are you thinking of?")
-            draft = {
+            clarify_draft: OutboundDraft = {
                 "recipient": peer,
                 "body": question,
                 "notion_page_id": None,
             }
-            return {"pending_outbound": [draft]}
+            return {"pending_outbound": [clarify_draft]}
 
         # Action is "save"
         task_title = parsed.get("title", incoming[:200])
@@ -182,11 +182,13 @@ async def intake_node(state: State) -> dict[str, Any]:
             if summary:
                 confirmation_message = f"{confirmation_message} {summary}"
 
-        draft = {
+        draft: OutboundDraft = {
             "recipient": peer,
             "body": confirmation_message,
             "notion_page_id": page_id,
         }
+        if task_title:
+            draft["notion_page_title"] = task_title
 
         log.info(
             "intake_node.saved",

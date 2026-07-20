@@ -130,7 +130,11 @@ If task is too vague and clarification_count < 3:
 
 - For inline steps: "Got it — [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
 - For hidden sub-tasks: "Got it — [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
-- For reminders: "Got it — I'll remind you [time description] to [task]."
+- For reminders: "Got it — I'll remind you [time description] to {task}."
+
+Write the literal token {task} wherever the confirmation refers to the task
+being saved. Do not write the task title yourself; the application substitutes
+the exact title it stored in Notion.
 
 REMINDER CONFIRMATION SAFETY:
 - Never mention cron jobs, polling, outbox, Notion writes, or scheduling internals
