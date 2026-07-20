@@ -76,9 +76,6 @@ _KNOWN_DEAD: frozenset[str] = frozenset(
         "mark_delivered",  # never called; worker uses inline UPDATE
         "mark_failed",  # never called; worker uses inline UPDATE
         "mark_dead",  # never called; worker uses inline UPDATE
-        # app/tools/rewards.py — apply_feedback_weight defined but not called.
-        # Cleanup: wire into record_reward_feedback or remove.
-        "apply_feedback_weight",  # never called; feedback weight logic unused
     ]
 )
 

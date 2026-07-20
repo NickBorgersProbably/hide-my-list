@@ -228,6 +228,33 @@ Example:
     remind_at: "<now+1h ISO>",
     confirmation_message: "Got it — I'll remind you in about an hour to {task}."
 
+## Duplicate Task Detection
+
+Before creating a normal task, intake checks open non-reminder tasks for a
+near-duplicate of the proposed title. The check is internal and fail-open:
+Notion errors, model errors, timeouts, ambiguous matches, and unparseable
+responses all fall through to creating the task.
+
+The guard uses a two-stage process:
+
+1. A pure lexical prefilter normalizes titles, removes punctuation and common
+   stopwords, and keeps only the strongest small shortlist.
+2. A cheap model adjudicates the shortlist in one call and returns either one
+   high-confidence page id or no match.
+
+When the guard confirms a match, intake does not create a second Notion page.
+If the new turn supplies a deadline for an existing page, intake applies the
+deadline to that page and schedules the deadline reminder series against the
+same page id.
+
+The duplicate path never asks the user to confirm a match. It also never names
+candidate tasks other than the single confirmed match and never mentions how
+many candidates exist. Candidate confirmation would reveal hidden list contents
+and add a decision point during intake. The user-facing reply uses neutral
+recognition and forward motion, such as "That one's already on your list — I've
+added the deadline to it." It never uses correction framing such as "you already
+added that", "duplicate", or "again".
+
 OUTPUT (JSON):
 
 If task is clear enough to save:

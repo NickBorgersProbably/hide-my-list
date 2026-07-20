@@ -11,8 +11,8 @@ Design notes:
   file at import time. Pytest fixtures clear the lru_cache between runs.
 - Real LLM calls go through the LiteLLM proxy at `LLM_PROXY_BASE_URL`.
   Same proxy production uses; what we validate matches what users see.
-- The judge LLM is always Claude Sonnet 4.6 (per the rig spec), never
-  the model under test. Judge cache is in `tests/evals/.cache/`.
+- The judge LLM defaults to claude-sonnet-5 (per the rig spec; override via
+  EVAL_JUDGE_MODEL), never the model under test. Judge cache is in `tests/evals/.cache/`.
 - Cost gates: `ENABLE_LIVE_LLM_EVALS=true` required; `EVAL_BUDGET_USD`
   is a soft cap that aborts the run when projected spend exceeds it.
 
@@ -34,7 +34,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -55,6 +55,7 @@ _COST_PER_MTOK_USD: dict[str, dict[str, float]] = {
     # model alias -> {input, output}
     "claude-opus-4-6": {"input": 15.0, "output": 75.0},
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
+    "claude-sonnet-5": {"input": 3.0, "output": 15.0},
     "claude-haiku-4-5": {"input": 0.80, "output": 4.0},
     "gemma4-small": {"input": 0.10, "output": 0.40},  # self-hosted estimate
 }
@@ -84,6 +85,7 @@ class Fixture:
     inbound: str
     peer: str
     prior_state: dict[str, Any]
+    notion_tasks: list[dict[str, Any]]
     contracts: list[Contract]
     path: Path  # Source file (for error messages)
 
@@ -119,6 +121,7 @@ def discover_fixtures(fixtures_dir: Path = _FIXTURES_DIR) -> list[Fixture]:
                     inbound=raw.get("inbound", ""),
                     peer=raw.get("peer", "<test-peer>"),
                     prior_state=raw.get("prior_state", {}),
+                    notion_tasks=raw.get("notion_tasks", []),
                     contracts=contracts,
                     path=yaml_path,
                 )
@@ -314,6 +317,78 @@ def evaluate_contracts(contracts: list[Contract], response: str) -> list[Contrac
 # ---------------------------------------------------------------------------
 
 
+_SELECT_PROPS = ("Work Type", "Energy Required", "Status")
+_NUMBER_PROPS = ("Time Estimate (min)", "Rejection Count", "Urgency")
+_CHECKBOX_PROPS = ("Is Reminder",)
+
+
+def _as_notion_page(task: dict[str, Any]) -> dict[str, Any]:
+    """Build a Notion page payload from a fixture's shorthand task dict.
+
+    Fixtures declare tasks as flat `{id, title, work_type, time_estimate}`
+    mappings. Nodes read the nested Notion property shape, so translate
+    here rather than making every fixture author hand-write Notion JSON.
+    Property names must track `docs/notion-schema.md`.
+    """
+    props: dict[str, Any] = {
+        "Title": {"title": [{"plain_text": task.get("title", "")}]},
+    }
+    for prop in _SELECT_PROPS:
+        key = prop.lower().replace(" ", "_").replace("(", "").replace(")", "")
+        if key in task:
+            props[prop] = {"select": {"name": task[key]}}
+    for prop in _NUMBER_PROPS:
+        key = prop.split(" (")[0].lower().replace(" ", "_")
+        if key in task:
+            props[prop] = {"number": task[key]}
+    for prop in _CHECKBOX_PROPS:
+        key = prop.lower().replace(" ", "_")
+        if key in task:
+            props[prop] = {"checkbox": bool(task[key])}
+    return {"id": task.get("id", ""), "properties": props}
+
+
+def _install_notion_stub(fixture: Fixture) -> Callable[[], None]:
+    """Point the Notion client at the fixture's declared tasks.
+
+    Evals must score the model, not the state of a live Notion database.
+    Reads return the fixture's `notion_tasks`; writes are accepted and
+    discarded. Returns an undo callable.
+    """
+    from app.tools import notion  # noqa: PLC0415
+
+    pages = [_as_notion_page(t) for t in fixture.notion_tasks]
+
+    async def _read(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"results": pages}
+
+    async def _write(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    stubs: dict[str, Any] = {
+        "query_pending": _read,
+        "query_all": _read,
+        "query_due_reminders": _read,
+        "query_tasks_with_unscheduled_deadlines": _read,
+        "query_scheduled_tasks_with_deadlines": _read,
+        "update_property": _write,
+        "update_status": _write,
+        "create_task": _write,
+        "create_reminder": _write,
+        "complete_reminder": _write,
+        "mark_reminder_scheduled": _write,
+    }
+    original = {name: getattr(notion, name) for name in stubs}
+    for name, fn in stubs.items():
+        setattr(notion, name, fn)
+
+    def _undo() -> None:
+        for name, fn in original.items():
+            setattr(notion, name, fn)
+
+    return _undo
+
+
 def _invoke_node(node: str, fixture: Fixture) -> str:
     """Run the named graph node against the fixture and return its text response.
 
@@ -321,7 +396,16 @@ def _invoke_node(node: str, fixture: Fixture) -> str:
     import lazily and call the canonical `<node>_node(state)` function.
     The response we score is the body of the first `pending_outbound` draft
     the node populates — that's what the user actually sees.
+
+    Nodes wrap their body in a try/except that returns a hand-written
+    fallback message on any failure. Those fallbacks are shame-safe by
+    construction, so they satisfy most contracts without the model having
+    been consulted at all — a fixture scoring one is green while testing
+    nothing. We capture the node's terminal `<node>_node.error` event and
+    raise, so that case is reported as an error rather than a pass.
     """
+    from structlog.testing import capture_logs  # noqa: PLC0415
+
     from app.graph.state import State  # noqa: PLC0415
 
     state: State = {  # type: ignore[typeddict-item]
@@ -342,10 +426,24 @@ def _invoke_node(node: str, fixture: Fixture) -> str:
 
     import asyncio  # noqa: PLC0415
 
-    if asyncio.iscoroutinefunction(fn):
-        update = asyncio.run(fn(state))
-    else:
-        update = fn(state)
+    undo_notion = _install_notion_stub(fixture)
+    try:
+        with capture_logs() as captured:
+            if asyncio.iscoroutinefunction(fn):
+                update = asyncio.run(fn(state))
+            else:
+                update = fn(state)
+    finally:
+        undo_notion()
+
+    terminal_error = f"{node}_node.error"
+    for entry in captured:
+        if entry.get("event") == terminal_error:
+            raise RuntimeError(
+                f"{fn_name} took its exception fallback path — the returned body is a "
+                f"hand-written fallback, not model output, and scoring it would be "
+                f"meaningless. Fix the underlying error before trusting this fixture."
+            )
 
     if not isinstance(update, dict):
         raise RuntimeError(f"{fn_name} returned non-dict: {type(update).__name__}")
