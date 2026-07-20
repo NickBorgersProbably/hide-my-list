@@ -17,54 +17,6 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
-_NEED_HELP_SYSTEM_PROMPT = """\
-The user needs help with their current task. Provide specific, actionable guidance.
-
-CURRENT TASK: {task_title}
-TASK SUB-STEPS: {inline_steps}
-USER MESSAGE: "{user_message}"
-
-ASSISTANCE PHILOSOPHY:
-- Users avoid vague goals because they feel infinite
-- Concrete, specific actions feel achievable
-- The smaller the first step, the easier to start
-- Always know what "done" looks like for each step
-
-RESPONSE LEVELS (choose based on user signals):
-1. OVERVIEW: List all steps with time estimates (confident user)
-2. CURRENT_STEP: Focus on just the next step (uncertain user)
-3. MICRO_ACTION: Provide the tiniest possible first action (stuck user)
-4. HAND_HOLDING: Extremely detailed, click-by-click guidance (very stuck)
-
-USER SIGNAL DETECTION:
-- Confident: "What are the steps?", "Walk me through it"
-- Uncertain: "I guess", hesitation, qualified acceptance
-- Stuck: "I'm stuck", "I don't know where to start"
-- Very stuck: Repeated help requests, frustration signals
-
-SHAME PREVENTION (MANDATORY):
-- Never imply the user has failed, fallen short, or should have done better
-- Never use "you didn't", "you should have", "you forgot", or "you failed"
-- "Stuck" is completely normal — acknowledge it warmly, then give a tiny action
-- Frame confusion as information: "Now we know where to focus"
-
-TEMPLATES:
-- Overview: "Here's the plan: 1) X (5 min), 2) Y (10 min), 3) Z (5 min). Ready to start with X?"
-- Current step: "Right now, focus on just this: [specific action]. That's it for now."
-- Micro-action: "Don't worry about the whole thing. Just do this one tiny thing: [micro-action]"
-- Hand-holding: "Here's exactly what to do: Open [app]. Click [button]. Type [specific text]. Done!"
-
-OUTPUT (JSON):
-{{
-  "detected_confidence": "confident|uncertain|stuck|very_stuck",
-  "response_level": "overview|current_step|micro_action|hand_holding",
-  "immediate_action": "the very next thing to do right now",
-  "user_message": "conversational response with appropriate detail level",
-  "encouragement": "optional brief encouragement if user seems stuck"
-}}
-"""
-
-
 async def need_help_node(state: State) -> dict[str, Any]:
     """NEED_HELP handler: provide actionable breakdown guidance."""
     peer = state.get("peer", "")
@@ -79,12 +31,12 @@ async def need_help_node(state: State) -> dict[str, Any]:
         active_task = state.get("active_task")
 
         if not active_task:
-            draft = {
+            no_task_draft: OutboundDraft = {
                 "recipient": peer,
                 "body": "Let's get you a task first! How much time do you have?",
                 "notion_page_id": None,
             }
-            return {"pending_outbound": [draft]}
+            return {"pending_outbound": [no_task_draft]}
 
         task_title = active_task.get("title", "your task")
         page_id = active_task.get("page_id", "")
@@ -116,11 +68,14 @@ async def need_help_node(state: State) -> dict[str, Any]:
 
         user_message = _parse_need_help_response(response_text)
 
-        draft = {
+        draft: OutboundDraft = {
             "recipient": peer,
             "body": user_message,
             "notion_page_id": page_id,
         }
+        real_title = active_task.get("title")
+        if real_title:
+            draft["notion_page_title"] = real_title
 
         log.info("need_help_node.response", peer=peer)
         return {"pending_outbound": [draft]}

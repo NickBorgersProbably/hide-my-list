@@ -13,61 +13,10 @@ from typing import Any, cast
 
 import structlog
 
+from app.graph.nodes._task_token import render_task_token
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
-
-_REJECTION_SYSTEM_PROMPT = """\
-The user rejected the suggested task. Understand why and find an alternative.
-
-REJECTED TASK: {task_title}
-USER'S REASON: "{rejection_reason}"
-REMAINING TASKS: {remaining_tasks_json}
-USER CONTEXT: {available_minutes} minutes, {mood} mood
-
-REJECTION CATEGORIES:
-1. timing - "takes too long", "not enough time"
-2. mood_mismatch - "not in the mood", "too tired for that"
-3. blocked - "waiting on something", "can't do it yet"
-4. already_done - "already did that", "finished already"
-5. general - "just not feeling it", vague rejection
-
-ACTIONS BY CATEGORY:
-- timing: Suggest shorter task, note time preference
-- mood_mismatch: Suggest different work type, avoid this type now
-- blocked: Mark as blocked, don't suggest until unblocked
-- already_done: Mark as completed, celebrate!
-- general: Log rejection, try very different task
-
-SHAME PREVENTION (MANDATORY):
-- Never imply the user has failed, fallen short, or should have done better
-- Never use "you didn't", "you should have", "you forgot", or "you failed"
-- Rejection is the user helping you suggest better — say so explicitly
-- Frame all difficulties as information, not shortcomings
-
-Response templates:
-- timing: "Got it — that one's too long right now. How about {task}?"
-- mood_mismatch: "Fair enough — that tells me what kind of work fits right now. How about {task}?"
-- blocked: "I'll hold off on that one. In the meantime, try {task}?"
-- already_done: "Oh nice, already done! Let me mark that off. Ready for another?"
-- general: "No problem — that helps me learn what works for you. Here's something different: {task}?"
-
-If alternative_task_id is non-null, write the literal token {task} wherever
-user_message refers to that alternative task. Do not write the task title
-yourself; the application substitutes it after selecting the task.
-
-OUTPUT (JSON):
-{{
-  "rejection_category": "...",
-  "task_update": {{
-    "rejection_count_increment": 1,
-    "rejection_note": "[timestamp] {reason}"
-  }},
-  "alternative_task_id": "..." or null,
-  "user_message": "conversational response with {task} if alternative_task_id is non-null"
-}}
-"""
-
 
 async def rejection_node(state: State) -> dict[str, Any]:
     """REJECT handler: classify rejection and suggest alternative."""
@@ -131,11 +80,8 @@ async def rejection_node(state: State) -> dict[str, Any]:
         response_text = str(response.content).strip()
 
         user_message, alternative_id = _parse_rejection_response(response_text)
-        user_message = _render_alternative_task_title(
-            user_message,
-            alternative_id=alternative_id,
-            remaining=remaining,
-        )
+        alternative_title = _alternative_task_title(alternative_id, remaining)
+        user_message = render_task_token(user_message, title=alternative_title)
 
         # Update rejection count in Notion
         if rejected_page_id:
@@ -155,11 +101,13 @@ async def rejection_node(state: State) -> dict[str, Any]:
             except Exception:
                 log.exception("rejection_node.notion_update_failed", page_id=rejected_page_id)
 
-        draft = {
+        draft: OutboundDraft = {
             "recipient": peer,
             "body": user_message,
             "notion_page_id": alternative_id,
         }
+        if alternative_title:
+            draft["notion_page_title"] = alternative_title
 
         log.info("rejection_node.alternative", peer=peer, alternative_id=alternative_id)
         return {
@@ -198,31 +146,20 @@ def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
     return response_text[:300] if response_text else "No problem. Want something different?", None
 
 
-def _render_alternative_task_title(
-    user_message: str,
-    *,
+def _alternative_task_title(
     alternative_id: str | None,
     remaining: list[dict[str, Any]],
-) -> str:
-    """Ensure a selected alternative task is named in the user-visible body."""
+) -> str | None:
+    """Return the title the model selected as the alternative, if it exists."""
     if not alternative_id:
-        return user_message
+        return None
 
     title_by_id = {
         task.get("id"): task.get("title")
         for task in remaining
         if isinstance(task.get("id"), str) and isinstance(task.get("title"), str)
     }
-    title = title_by_id.get(alternative_id)
-    if not title:
-        return user_message
-
-    if "{task}" in user_message:
-        return user_message.replace("{task}", title)
-
-    stripped = user_message.rstrip()
-    suffix = f" The task is: {title}."
-    return f"{stripped}{suffix}" if stripped else f"The task is: {title}."
+    return title_by_id.get(alternative_id)
 
 
 def _extract_title(props: dict[str, Any]) -> str:

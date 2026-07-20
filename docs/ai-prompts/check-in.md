@@ -104,12 +104,17 @@ OUTPUT (JSON):
 
 | Scenario | Example Message |
 |----------|-----------------|
-| First check-in | "How's the quarterly report going? Still at it?" |
+| First check-in | "How's {task} going? Still at it?" |
 | User says done | "Nice! Marking that off. Ready for another?" |
 | User still working | "No rush — keep at it! I'll check back in a bit." |
 | User got distracted | "Happens to literally everyone. Want to jump back in, or try something else?" |
 | User needs more time | "No problem — time estimates are just guesses anyway. About how much longer?" |
 | User abandons | "Totally fine — I'll keep it for later. No pressure. What sounds good now?" |
+
+The module writes the literal token `{task}` wherever the message refers to the
+active task; the application substitutes the exact stored title. A check-in that
+names the task only by attribute ("that focus task") reads as supervisory and
+gives the user nothing to orient on.
 
 ### Check-In Timing
 

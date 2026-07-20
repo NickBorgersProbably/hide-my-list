@@ -17,58 +17,6 @@ from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
-_CANNOT_FINISH_SYSTEM_PROMPT = """\
-The user indicates they cannot finish the current task. Gather progress and break down remaining work.
-
-CURRENT TASK: {task_title}
-ORIGINAL TIME ESTIMATE: {time_estimate} minutes
-USER MESSAGE: "{user_message}"
-
-STEP 1: Ask what was accomplished
-Generate a brief, friendly question to understand their progress.
-
-STEP 2: Once progress is described, analyze remaining work
-- What did the user complete?
-- What specific work remains?
-- How can remaining work be broken into 15-90 minute chunks?
-
-STEP 3: Create sub-tasks for remaining work
-- Each sub-task must be specific and actionable
-- First sub-task should be the immediate next step
-- Sub-tasks are hidden from user
-
-SHAME PREVENTION (MANDATORY):
-- Never imply the user has failed, fallen short, or should have done better
-- Never use "you didn't", "you should have", "you forgot", or "you failed"
-- Frame this as progress: "Cannot finish = now we know more about this task"
-- Lead with what they accomplished, not what's left
-
-PROGRESS QUESTION TEMPLATES (shame-safe):
-- "No worries — you figured out it's bigger than it seemed. What did you get into?"
-- "Got it — you made real progress. What part did you get through?"
-- "That's totally fine — now we know more about this task. Where'd you get to?"
-- "Totally understand — this clearly needed to be broken down more. Tell me what you accomplished."
-
-OUTPUT (JSON):
-{{
-  "phase": "ask_progress",
-  "user_message": "...",
-  "progress_question": "..."
-}}
-
-Or after progress described:
-{{
-  "phase": "analyze_remaining",
-  "user_message": "...",
-  "completed_portion": "...",
-  "remaining_sub_tasks": [
-    {{"title": "...", "time_estimate_minutes": 0, "sequence": 1}}
-  ],
-  "next_sub_task_message": "..."
-}}
-"""
-
-
 async def cannot_finish_node(state: State) -> dict[str, Any]:
     """CANNOT_FINISH handler: gather progress and break down remaining work."""
     peer = state.get("peer", "")
@@ -111,11 +59,14 @@ async def cannot_finish_node(state: State) -> dict[str, Any]:
 
         user_message = _parse_cannot_finish_response(response_text)
 
-        draft = {
+        draft: OutboundDraft = {
             "recipient": peer,
             "body": user_message,
             "notion_page_id": page_id,
         }
+        real_title = active_task.get("title") if active_task else None
+        if real_title:
+            draft["notion_page_title"] = real_title
 
         log.info("cannot_finish_node.response", peer=peer, page_id=page_id)
         return {

@@ -48,10 +48,15 @@ Select the best task for the user based on their current context.
 
 ### Selection Message Templates
 
-Score > 0.8: "Perfect timing - how about [task]? It matches your [time] and [mood]."
-Score 0.5-0.8: "I'd suggest [task]. It's [urgency level] and fits your time."
-Score < 0.5: "Best I can find is [task]. Not perfect, but might work?"
+Score > 0.8: "Perfect timing - how about {task}? It matches your [time] and [mood]."
+Score 0.5-0.8: "I'd suggest {task}. It's [urgency level] and fits your time."
+Score < 0.5: "Best I can find is {task}. Not perfect, but might work?"
 No match: "Nothing quite fits right now. Want to add something quick?"
+
+When selected_task_id is non-null, write the literal token {task} wherever
+user_message refers to the selected task. Do not write the task title
+yourself; the application substitutes the exact selected title. Never refer to
+the task only by attribute ("this focus task", "this 30-minute task").
 
 ### Output Format (JSON)
 
@@ -59,7 +64,7 @@ No match: "Nothing quite fits right now. Want to add something quick?"
   "selected_task_id": "...",
   "score": 0.0,
   "reasoning": "brief explanation",
-  "user_message": "conversational suggestion"
+  "user_message": "conversational suggestion using {task} if selected_task_id is non-null"
 }
 
 If no tasks fit, explain why and suggest alternatives.

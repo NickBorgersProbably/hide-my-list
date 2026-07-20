@@ -49,11 +49,17 @@ class OutboundDraft(TypedDict, total=True):
     attachment_path is optional — set only for reward drafts that carry an image.
     The path is private (references the user's task via the manifest table);
     log attachment_count only, never the path itself.
+    notion_page_title is optional: set it whenever the body is meant to name the
+    task, and send_node guarantees the title appears in the sent text (see
+    app/graph/nodes/_task_token.py). Omit it when naming the task would not help
+    the user — a completion celebration, for example. The title is private; log
+    booleans only, never the title itself.
     """
     recipient: str
     body: str
     notion_page_id: str | None
     attachment_path: NotRequired[str]
+    notion_page_title: NotRequired[str]
 
 
 class UserPrefs(TypedDict, total=False):
