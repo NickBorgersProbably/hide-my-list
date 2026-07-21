@@ -56,8 +56,16 @@ def _target_from_active_task(
     if not page_id:
         return None
 
-    selected_at = _parse_checkpoint_datetime(active_task.get("selected_at"))
-    if selected_at is not None and now - selected_at > _ACTIVE_TASK_TTL:
+    selected_at_value = active_task.get("selected_at")
+    selected_at = _parse_checkpoint_datetime(selected_at_value)
+    if selected_at is None:
+        log.info(
+            "complete_node.active_task_missing_selected_at",
+            page_id=page_id,
+            has_selected_at=bool(selected_at_value),
+        )
+        return None
+    if now - selected_at > _ACTIVE_TASK_TTL:
         log.info(
             "complete_node.active_task_stale",
             page_id=page_id,
@@ -192,7 +200,9 @@ async def complete_node(state: State) -> dict[str, Any]:
                 active_page_id=active_target.page_id if active_target else None,
                 exc_info=True,
             )
-            return _clarify_completion_target(peer)
+            if not active_target:
+                return _clarify_completion_target(peer)
+            recent_target = None
 
         target = _choose_completion_target(
             active_target=active_target,
@@ -264,7 +274,7 @@ async def complete_node(state: State) -> dict[str, Any]:
         }
 
     except Exception:
-        log.exception("complete_node.error", peer=peer)
+        log.exception("complete_node.error")
         fallback: OutboundDraft = {
             "recipient": peer,
             "body": "Got it, marked done! Nice work.",

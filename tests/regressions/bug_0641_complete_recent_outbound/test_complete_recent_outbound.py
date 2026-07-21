@@ -1,6 +1,7 @@
 """Regression: COMPLETE resolves an unresolved reminder before stale active_task."""
 from __future__ import annotations
 
+import inspect
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -10,6 +11,20 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 _HAS_DB = bool(os.environ.get("DATABASE_URL", ""))
+
+
+def _assert_reward_kwargs_shape(kwargs: dict[str, Any]) -> None:
+    from app.tools import rewards
+
+    assert set(kwargs) <= set(inspect.signature(rewards.maybe_reward).parameters)
+    assert set(kwargs) == {
+        "peer",
+        "task_title",
+        "notion_page_id",
+        "streak",
+        "work_type",
+        "energy_required",
+    }
 
 
 @pytest.fixture()
@@ -90,8 +105,16 @@ async def test_complete_prefers_unresolved_recent_outbound_over_stale_active_tas
 
     update_status.assert_not_awaited()
     reward_mock.assert_awaited_once()
-    assert reward_mock.await_args.kwargs["notion_page_id"] == "<page_A>"
-    assert reward_mock.await_args.kwargs["task_title"] == "Test reminder"
+    reward_kwargs = reward_mock.await_args.kwargs
+    _assert_reward_kwargs_shape(reward_kwargs)
+    assert reward_kwargs == {
+        "peer": "<recipient>",
+        "task_title": "Test reminder",
+        "notion_page_id": "<page_A>",
+        "streak": 5,
+        "work_type": "",
+        "energy_required": "",
+    }
     clear_mock.assert_awaited_once_with("<recipient>", 123456789)
     assert result["active_task"] is None
     assert result["streak"] == 5
@@ -159,6 +182,76 @@ async def test_complete_reads_and_clears_recent_outbound_row(db_conn: Any) -> No
 
     assert row is not None
     assert row[0] is False
+
+
+@pytest.mark.asyncio
+async def test_complete_asks_when_active_task_has_no_selected_at() -> None:
+    from app.graph.nodes import complete as complete_module
+
+    active_task = {
+        "page_id": "<page_B>",
+        "title": "Test task",
+        "status": "In Progress",
+    }
+
+    with (
+        patch("app.tools.notion.update_status", new_callable=AsyncMock) as update_status,
+        patch("app.tools.rewards.maybe_reward", new_callable=AsyncMock) as reward_mock,
+        patch.object(
+            complete_module,
+            "_load_recent_outbound_target",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        result = await complete_module.complete_node(_state(active_task))  # type: ignore[arg-type]
+
+    update_status.assert_not_awaited()
+    reward_mock.assert_not_awaited()
+    assert result["active_task"] is None
+    assert result["pending_outbound"][0]["notion_page_id"] is None
+    assert "Which task" in result["pending_outbound"][0]["body"]
+
+
+@pytest.mark.asyncio
+async def test_complete_uses_fresh_active_task_when_recent_outbound_lookup_fails() -> None:
+    from app.graph.nodes import complete as complete_module
+
+    active_task = {
+        "page_id": "<page_B>",
+        "title": "Test task",
+        "status": "In Progress",
+        "selected_at": datetime.now(UTC).isoformat(),
+        "work_type": "focus",
+        "energy_required": "Medium",
+    }
+    reward_mock = AsyncMock(
+        return_value={"text": "Nice work!", "attachment_path": None}
+    )
+
+    with (
+        patch("app.tools.notion.update_status", new_callable=AsyncMock) as update_status,
+        patch("app.tools.rewards.maybe_reward", reward_mock),
+        patch.object(
+            complete_module,
+            "_load_recent_outbound_target",
+            AsyncMock(side_effect=RuntimeError("database unavailable")),
+        ),
+    ):
+        result = await complete_module.complete_node(_state(active_task))  # type: ignore[arg-type]
+
+    update_status.assert_awaited_once_with("<page_B>", "Completed")
+    reward_mock.assert_awaited_once()
+    reward_kwargs = reward_mock.await_args.kwargs
+    _assert_reward_kwargs_shape(reward_kwargs)
+    assert reward_kwargs == {
+        "peer": "<recipient>",
+        "task_title": "Test task",
+        "notion_page_id": "<page_B>",
+        "streak": 5,
+        "work_type": "focus",
+        "energy_required": "Medium",
+    }
+    assert result["pending_outbound"][0]["notion_page_id"] == "<page_B>"
 
 
 @pytest.mark.asyncio
