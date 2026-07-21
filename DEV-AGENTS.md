@@ -164,6 +164,21 @@ This rule applies to: `docs/ai-prompts/*.md`, `docs/architecture.md`, `docs/task
 
 It does **not** apply to `docs/agentic-pipeline-learnings.md` or other contributor/CI-only guidance, which legitimately carry historical context.
 
+## Filing an Issue Starts an Agent
+
+**Opening a GitHub issue in this repo dispatches an authoring agent immediately.** `.github/workflows/codex.yml` ("Issue Resolution Agent") triggers on `issues: [opened, reopened]` with no label, comment, or approval step. If the issue author is an `OWNER`, `MEMBER`, or `COLLABORATOR`, the agent checks out the repo, implements a fix, and opens a PR — typically within a few minutes.
+
+**There is no way to file an issue without starting an agent.** The workflow has no opt-out label and no approval gate, and its `Check for existing PR` step can only find a PR that already names the issue number — which a PR opened before the issue was filed cannot do. So the choice of lane has to be made *before* filing, not recovered afterward.
+
+Consequences for a local agent (Claude Code, Codex, or a human) working in a clone:
+
+- **Fixing it yourself? Do not file an issue.** Put the problem statement in the PR body instead. An issue buys nothing when the diff already exists, and filing one starts a second author on the same problem. Both PRs then run the full review pipeline.
+- **Want the pipeline to fix it? File the issue and stay off it.** Filing *is* the request to fix. Do not also start locally.
+- **Before starting local work on a known problem, check whether it is already claimed**: `gh issue list --search "<keywords>"` and `gh pr list --state open --search "<keywords>"`. An issue carrying `codex-started` or `claude-started` has an agent on it already.
+- **Filed an issue and then decided to fix it locally anyway?** The agent is already running; you cannot call it off. Let its PR land, and close whichever of the two is redundant once both exist.
+
+Re-dispatch is available on demand: comment `/autoresolve` (optionally `/autoresolve codex` or `/autoresolve claude`) on an open issue, or remove the `codex-started` / `claude-started` label. The agent choice also persists via an `agent:codex` / `agent:claude` label on the issue.
+
 ## Review Pipeline
 
 PRs reviewed by multi-agent review pipeline (Codex reviewers + fixer in v2). Roles same in both versions; orchestration differs.
