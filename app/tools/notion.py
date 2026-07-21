@@ -26,6 +26,7 @@ for Notion calls. All requests go through _client() to allow test injection.
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
 
@@ -34,7 +35,8 @@ import structlog
 
 NOTION_VERSION = "2022-06-28"
 API_BASE = "https://api.notion.com/v1"
-_NOTION_ERROR_BODY_MAX_CHARS = 1000
+_NOTION_ERROR_MESSAGE_MAX_CHARS = 300
+_QUOTED_TEXT_PATTERN = re.compile(r'"[^"]*"')
 
 log = structlog.get_logger(__name__)
 
@@ -60,16 +62,39 @@ def _database_id() -> str:
     return os.environ["NOTION_DATABASE_ID"]
 
 
+def _sanitize_notion_error_message(message: str) -> str:
+    """Keep Notion diagnostics while removing echoed user-authored strings."""
+    sanitized = _QUOTED_TEXT_PATTERN.sub('"<redacted>"', message)
+    return sanitized[:_NOTION_ERROR_MESSAGE_MAX_CHARS]
+
+
 def _raise_for_status(resp: httpx.Response) -> None:
-    """Log Notion's error payload before preserving httpx's exception type."""
+    """Log safe Notion error metadata before preserving httpx's exception type."""
     try:
         resp.raise_for_status()
     except httpx.HTTPStatusError:
-        log.error(
-            "notion.http_error",
-            status_code=resp.status_code,
-            response_body=resp.text[:_NOTION_ERROR_BODY_MAX_CHARS],
-        )
+        fields: dict[str, Any] = {"status_code": resp.status_code}
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+
+        if isinstance(body, dict):
+            code = body.get("code")
+            if isinstance(code, str):
+                fields["notion_error_code"] = code
+            status = body.get("status")
+            if isinstance(status, int | str):
+                fields["notion_error_status"] = status
+            message = body.get("message")
+            if isinstance(message, str):
+                fields["notion_error_message"] = _sanitize_notion_error_message(message)
+
+        request_id = resp.headers.get("x-request-id") or resp.headers.get("x-notion-request-id")
+        if request_id:
+            fields["notion_request_id"] = request_id
+
+        log.error("notion.http_error", **fields)
         raise
 
 

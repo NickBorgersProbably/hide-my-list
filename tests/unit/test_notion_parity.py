@@ -493,20 +493,24 @@ async def test_notion_sends_authorization_header(
 
 
 @pytest.mark.asyncio
-async def test_notion_http_error_logs_response_body(
+async def test_notion_http_error_logs_safe_response_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A Notion 4xx logs the response body while preserving HTTPStatusError."""
+    """A Notion 4xx logs safe diagnostics while preserving HTTPStatusError."""
     monkeypatch.setenv("NOTION_DATABASE_ID", "test-database-id")
     error_body = {
         "object": "error",
         "status": 400,
         "code": "validation_error",
-        "message": 'Property "Due At" does not exist.',
+        "message": 'Property "Private task title" does not exist.',
     }
 
     def _handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status_code=400, json=error_body)
+        return httpx.Response(
+            status_code=400,
+            json=error_body,
+            headers={"x-request-id": "notion-request-id"},
+        )
 
     def _test_client() -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -521,19 +525,31 @@ async def test_notion_http_error_logs_response_body(
 
     [error_log] = [event for event in captured if event["event"] == "notion.http_error"]
     assert error_log["status_code"] == 400
-    assert "validation_error" in error_log["response_body"]
-    assert "Due At" in error_log["response_body"]
+    assert error_log["notion_error_code"] == "validation_error"
+    assert error_log["notion_error_status"] == 400
+    assert error_log["notion_request_id"] == "notion-request-id"
+    assert "response_body" not in error_log
+    assert "Private task title" not in str(error_log)
+    assert '"<redacted>"' in error_log["notion_error_message"]
 
 
 @pytest.mark.asyncio
-async def test_notion_http_error_log_response_body_is_bounded(
+async def test_notion_http_error_log_message_is_bounded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The Notion error body log field has an explicit maximum length."""
-    long_body = "x" * (notion_module._NOTION_ERROR_BODY_MAX_CHARS + 50)
+    """The sanitized Notion message log field has an explicit maximum length."""
+    long_message = "x" * (notion_module._NOTION_ERROR_MESSAGE_MAX_CHARS + 50)
 
     def _handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status_code=500, content=long_body)
+        return httpx.Response(
+            status_code=500,
+            json={
+                "object": "error",
+                "status": 500,
+                "code": "internal_server_error",
+                "message": long_message,
+            },
+        )
 
     def _test_client() -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -547,4 +563,4 @@ async def test_notion_http_error_log_response_body_is_bounded(
         await notion_module.get_page("<page-id>")
 
     [error_log] = [event for event in captured if event["event"] == "notion.http_error"]
-    assert len(error_log["response_body"]) == notion_module._NOTION_ERROR_BODY_MAX_CHARS
+    assert len(error_log["notion_error_message"]) == notion_module._NOTION_ERROR_MESSAGE_MAX_CHARS
