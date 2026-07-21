@@ -145,6 +145,7 @@ async def selection_node(state: State) -> dict[str, Any]:
                 page_id=selected_page_id,
                 title=selected_simplified["title"] if selected_simplified else "",
                 status="In Progress",
+                selected_at=datetime.now(UTC).isoformat(),
                 work_type=selected_simplified["work_type"] if selected_simplified else "",
                 urgency=selected_simplified["urgency"] if selected_simplified else 50,
                 time_estimate=selected_simplified["time_estimate"] if selected_simplified else 30,
