@@ -71,7 +71,7 @@ async def db_conn() -> Any:
 
 @pytest.mark.asyncio
 async def test_notion_health_failure_enqueues_alert(db_conn: Any) -> None:
-    """A failed probe enqueues a critical alert carrying the failure reason.
+    """A failed probe enqueues a warning alert carrying the failure reason.
 
     The reason must reach the alert body: it is the only copy the operator
     sees over Signal, and the app logs holding the original exception may
@@ -92,7 +92,7 @@ async def test_notion_health_failure_enqueues_alert(db_conn: Any) -> None:
     alert = await row.fetchone()
     assert alert is not None, "Expected a pending ops alert for notion_health_failed"
     assert alert["state"] == "pending"
-    assert alert["severity"] == "critical"
+    assert alert["severity"] == "warning"
     assert "401 Unauthorized" in alert["body"], (
         "The probe's failure reason must appear in the alert body. Without it "
         "the operator gets a generic 'verify key or reachability' string that "
@@ -125,17 +125,22 @@ async def test_notion_health_failure_without_detail_still_alerts(db_conn: Any) -
 async def test_notion_health_ok_no_alert(db_conn: Any) -> None:
     """A successful probe creates no ops alert."""
     from app.scheduler.jobs import check_notion_health
-    from app.tools.notion import HealthCheckResult
+    from app.tools.notion import HealthCheckResult, SchemaCheckResult
 
     with patch(
         "app.tools.notion.health_check",
         new_callable=AsyncMock,
         return_value=HealthCheckResult(ok=True),
+    ), patch(
+        "app.tools.notion.verify_database_schema",
+        new_callable=AsyncMock,
+        return_value=SchemaCheckResult(ok=True),
     ):
         await check_notion_health()
 
     row = await db_conn.execute(
-        "SELECT COUNT(*) AS cnt FROM ops_alerts WHERE alert_kind = 'notion_health_failed'"
+        "SELECT COUNT(*) AS cnt FROM ops_alerts "
+        "WHERE alert_kind IN ('notion_health_failed', 'notion_schema_mismatch')"
     )
     result = await row.fetchone()
     assert result["cnt"] == 0
@@ -309,5 +314,3 @@ async def test_state_audit_idempotent(db_conn: Any) -> None:
     await run_state_audit()
     # Second run — should be a no-op.
     await run_state_audit()
-
-

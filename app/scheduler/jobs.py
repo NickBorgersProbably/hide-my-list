@@ -69,12 +69,13 @@ async def dispatch_due_reminders() -> None:
 
 
 async def check_notion_health() -> None:
-    """Ping Notion API every 15 min; enqueue notion_health_failed ops alert on failure.
+    """Validate Notion connectivity and task database schema every 15 minutes.
 
     Calls notion.health_check() which GETs /v1/users/me. On failure, enqueues a
-    'notion_health_failed' ops alert carrying the probe's failure reason; the
-    drain job delivers it to OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert
-    storms.
+    'notion_health_failed' ops alert carrying the probe's failure reason. When
+    connectivity succeeds, calls notion.verify_database_schema() which GETs the
+    configured task database and enqueues a 'notion_schema_mismatch' alert when
+    required properties are absent or have the wrong Notion type.
 
     The reason is in the alert body because that is what reaches the operator
     over Signal. An alert naming two unrelated candidate causes ("verify the
@@ -90,11 +91,25 @@ async def check_notion_health() -> None:
             await ops_alerts.enqueue(
                 kind="notion_health_failed",
                 body=f"Notion API health check failed: {detail}",
+                severity="warning",
+            )
+        except Exception as exc:
+            # If DB is also down, log and continue; don't crash the job.
+            log.error("notion_health.enqueue_alert_failed", error=str(exc))
+        return
+
+    schema_result = await notion.verify_database_schema()
+    if not schema_result.ok:
+        detail = schema_result.detail or "no detail captured"
+        try:
+            await ops_alerts.enqueue(
+                kind="notion_schema_mismatch",
+                body=f"Notion database schema check failed: {detail}",
                 severity="critical",
             )
         except Exception as exc:
-            # If DB is also down, log and continue — don't crash the job.
-            log.error("notion_health.enqueue_alert_failed", error=str(exc))
+            # If DB is also down, log and continue; don't crash the job.
+            log.error("notion_schema.enqueue_alert_failed", error=str(exc))
 
 
 async def send_pending_ops_alerts() -> None:

@@ -16,8 +16,9 @@ Plus deadline-reminder plumbing verbs:
   11. query_scheduled_tasks_with_deadlines
   12. mark_reminder_scheduled
 
-Plus:
-  health_check() — lightweight connectivity probe used by notion_health job.
+Plus health helpers used by notion_health:
+  health_check()
+  verify_database_schema()
 
 This module is the only authorised place that imports httpx.AsyncClient
 for Notion calls. All requests go through _client() to allow test injection.
@@ -33,6 +34,28 @@ import httpx
 
 NOTION_VERSION = "2022-06-28"
 API_BASE = "https://api.notion.com/v1"
+
+REQUIRED_DATABASE_PROPERTIES: dict[str, str] = {
+    "Title": "title",
+    "Status": "select",
+    "Work Type": "select",
+    "Urgency": "number",
+    "Time Estimate (min)": "number",
+    "Energy Required": "select",
+    "Rejection Count": "number",
+    "Steps Completed": "number",
+    "Resume Count": "number",
+    "Inline Steps": "rich_text",
+    "Parent Task": "relation",
+    "Sequence": "number",
+    "Due At": "date",
+    "Is Reminder": "checkbox",
+    "Remind At": "date",
+    "Reminder Status": "select",
+    "Completed At": "date",
+    "Started At": "date",
+    "Reminder Scheduled At": "date",
+}
 
 
 def _default_client() -> httpx.AsyncClient:
@@ -435,6 +458,117 @@ class HealthCheckResult(NamedTuple):
 
     ok: bool
     detail: str | None = None
+
+
+class SchemaTypeMismatch(NamedTuple):
+    """A Notion database property exists with an unexpected type."""
+
+    property_name: str
+    expected_type: str
+    actual_type: str
+
+
+class SchemaCheckResult(NamedTuple):
+    """Outcome of validating the task database properties used by the app."""
+
+    ok: bool
+    detail: str | None = None
+    missing_properties: tuple[str, ...] = ()
+    type_mismatches: tuple[SchemaTypeMismatch, ...] = ()
+
+
+def _format_schema_detail(
+    missing_properties: tuple[str, ...],
+    type_mismatches: tuple[SchemaTypeMismatch, ...],
+) -> str:
+    parts: list[str] = []
+    if missing_properties:
+        parts.append(
+            "missing properties: "
+            + ", ".join(
+                f"{name} ({REQUIRED_DATABASE_PROPERTIES[name]})"
+                for name in missing_properties
+            )
+        )
+    if type_mismatches:
+        parts.append(
+            "type mismatches: "
+            + ", ".join(
+                f"{item.property_name} expected {item.expected_type} got {item.actual_type}"
+                for item in type_mismatches
+            )
+        )
+    return "; ".join(parts)
+
+
+async def verify_database_schema() -> SchemaCheckResult:
+    """Validate that the configured task database has the properties the app uses.
+
+    The health job calls this after the connectivity probe. It catches schema
+    drift within the 15-minute health cadence instead of letting the next verb
+    that touches the missing property fail with an opaque Notion 400.
+    """
+    import structlog
+
+    _log = structlog.get_logger(__name__)
+
+    try:
+        async with _client_factory() as client:
+            resp = await client.get(f"/databases/{_database_id()}")
+            resp.raise_for_status()
+        database = resp.json()
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"[:_HEALTH_DETAIL_MAX_CHARS]
+        _log.error("notion.schema_check.failed", error=detail)
+        return SchemaCheckResult(ok=False, detail=detail)
+
+    raw_properties = database.get("properties", {})
+    properties = raw_properties if isinstance(raw_properties, dict) else {}
+
+    missing = tuple(
+        name
+        for name in REQUIRED_DATABASE_PROPERTIES
+        if name not in properties
+    )
+    mismatches: list[SchemaTypeMismatch] = []
+    for name, expected_type in REQUIRED_DATABASE_PROPERTIES.items():
+        prop = properties.get(name)
+        if not isinstance(prop, dict):
+            continue
+        actual_type = prop.get("type")
+        if actual_type != expected_type:
+            mismatches.append(
+                SchemaTypeMismatch(
+                    property_name=name,
+                    expected_type=expected_type,
+                    actual_type=str(actual_type),
+                )
+            )
+
+    type_mismatches = tuple(mismatches)
+    if missing or type_mismatches:
+        detail = _format_schema_detail(missing, type_mismatches)
+        _log.error(
+            "notion.schema_check.mismatch",
+            missing_properties=list(missing),
+            type_mismatches=[
+                {
+                    "property_name": item.property_name,
+                    "expected_type": item.expected_type,
+                    "actual_type": item.actual_type,
+                }
+                for item in type_mismatches
+            ],
+        )
+        return SchemaCheckResult(
+            ok=False,
+            detail=detail,
+            missing_properties=missing,
+            type_mismatches=type_mismatches,
+        )
+
+    _log.info("notion.schema_check.ok", property_count=len(REQUIRED_DATABASE_PROPERTIES))
+    return SchemaCheckResult(ok=True)
 
 
 async def health_check() -> HealthCheckResult:
