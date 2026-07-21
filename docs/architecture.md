@@ -116,7 +116,7 @@ duplicate delivery over loss.
 | Job | Interval | Function |
 |-----|----------|----------|
 | `reminder_dispatcher` | 30s | Claim + deliver due reminders |
-| `notion_health` | 15 min | Ping Notion API; enqueue ops alert on failure |
+| `notion_health` | 15 min | Check Notion API connectivity; enqueue warning `notion_health_failed` on connectivity failure; when connectivity succeeds, validate task database schema and enqueue critical `notion_schema_mismatch` for missing or mistyped required properties |
 | `ops_alerts_drain` | 5 min | Send pending ops alerts via Signal |
 | `check_in_dispatcher` | 10 min | Trigger CHECK_IN graph turns for due tasks |
 | `state_audit` | Daily 03:00 USER_TZ | VACUUM + prune `recent_outbound` (90-day retention) |

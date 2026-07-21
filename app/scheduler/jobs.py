@@ -72,10 +72,11 @@ async def check_notion_health() -> None:
     """Validate Notion connectivity and task database schema every 15 minutes.
 
     Calls notion.health_check() which GETs /v1/users/me. On failure, enqueues a
-    'notion_health_failed' ops alert carrying the probe's failure reason. When
-    connectivity succeeds, calls notion.verify_database_schema() which GETs the
-    configured task database and enqueues a 'notion_schema_mismatch' alert when
-    required properties are absent or have the wrong Notion type.
+    'notion_health_failed' warning ops alert carrying the probe's failure
+    reason. When connectivity succeeds, calls notion.verify_database_schema()
+    which GETs the configured task database and enqueues a critical
+    'notion_schema_mismatch' alert when required properties are absent or have
+    the wrong Notion type.
 
     The reason is in the alert body because that is what reaches the operator
     over Signal. An alert naming two unrelated candidate causes ("verify the

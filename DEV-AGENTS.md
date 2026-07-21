@@ -39,7 +39,7 @@ These are the authoritative behavioral contracts. The Python implementation in `
 
 The Python/LangGraph application. Safe to edit via PRs.
 
-- `app/tools/notion.py` — Notion API client (9 verbs + health_check)
+- `app/tools/notion.py` — Notion API client (12 verbs + health_check + verify_database_schema)
 - `app/tools/signal_client.py` — Signal bridge async client
 - `app/tools/signal_ingress_health.py` — Durable Signal ingress liveness marker; `record_inbound_message` upserts last-inbound timestamp, `check_inbound_silence` enqueues a critical ops alert when the threshold is exceeded
 - `app/tools/reminders.py` — Reminder outbox CRUD

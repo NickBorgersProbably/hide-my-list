@@ -1,12 +1,14 @@
 """Tests for Notion database schema health validation."""
 from __future__ import annotations
 
+import inspect
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 import app.tools.notion as notion_module
+from app.tools import ops_alerts
 
 
 class _Response:
@@ -154,6 +156,7 @@ async def test_check_notion_health_enqueues_schema_alert_with_property_names(
 
     await check_notion_health()
 
+    assert set(enqueued[0]) <= set(inspect.signature(ops_alerts.enqueue).parameters)
     assert enqueued == [
         {
             "kind": "notion_schema_mismatch",

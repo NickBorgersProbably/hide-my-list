@@ -146,6 +146,50 @@ async def test_notion_health_ok_no_alert(db_conn: Any) -> None:
     assert result["cnt"] == 0
 
 
+@pytest.mark.asyncio
+async def test_notion_health_schema_mismatch_enqueues_alert(db_conn: Any) -> None:
+    """A schema mismatch reaches the scheduled health flow and real ops alert table."""
+    from app.scheduler.jobs import check_notion_health
+    from app.tools.notion import HealthCheckResult, SchemaCheckResult, SchemaTypeMismatch
+
+    schema_check = AsyncMock(
+        return_value=SchemaCheckResult(
+            ok=False,
+            detail=(
+                "missing properties: Due At (date); type mismatches: "
+                "Urgency expected number got rich_text"
+            ),
+            missing_properties=("Due At",),
+            type_mismatches=(
+                SchemaTypeMismatch(
+                    property_name="Urgency",
+                    expected_type="number",
+                    actual_type="rich_text",
+                ),
+            ),
+        )
+    )
+
+    with patch(
+        "app.tools.notion.health_check",
+        new_callable=AsyncMock,
+        return_value=HealthCheckResult(ok=True),
+    ), patch("app.tools.notion.verify_database_schema", schema_check):
+        await check_notion_health()
+
+    schema_check.assert_awaited_once()
+    row = await db_conn.execute(
+        "SELECT alert_kind, severity, state, body FROM ops_alerts "
+        "WHERE alert_kind = 'notion_schema_mismatch'"
+    )
+    alert = await row.fetchone()
+    assert alert is not None, "Expected a pending ops alert for notion_schema_mismatch"
+    assert alert["state"] == "pending"
+    assert alert["severity"] == "critical"
+    assert "Due At (date)" in alert["body"]
+    assert "Urgency expected number got rich_text" in alert["body"]
+
+
 # ---------------------------------------------------------------------------
 # PR-C1: ops_alerts_drain sends via mocked signal client, marks delivered
 # ---------------------------------------------------------------------------
