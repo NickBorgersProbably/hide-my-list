@@ -190,20 +190,24 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
+      # Suppress dispatch when the issue is already claimed: an open PR closes
+      # it, a merged PR already resolved it, or the issue itself is closed.
+      # See scripts/issue-pr-claims.sh for why this does not use `gh pr list
+      # --search` (a bare `#N` citation reads as a claim under full-text search).
       - name: Check for existing PR
         id: check-existing
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
         run: |
-          ISSUE_NUM=${{ github.event.issue.number }}
-          # Search for open PRs whose body contains "Resolves #N", "Fixes #N", or "Closes #N"
-          EXISTING=$(gh pr list --state open --search "Resolves #${ISSUE_NUM} OR Fixes #${ISSUE_NUM} OR Closes #${ISSUE_NUM}" --json number --jq '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "PR #${EXISTING} already targets issue #${ISSUE_NUM}, skipping"
-            echo "skip=true" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          if REASON=$(./scripts/issue-pr-claims.sh is-claimed "${ISSUE_NUM}" --repo "${REPO}"); then
+            echo "Skipping dispatch: ${REASON}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "No existing PR found for issue #${ISSUE_NUM}"
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Label issue as <agent>-started
@@ -393,6 +397,56 @@ jobs:
           mkdir -p "${RUNNER_TEMP}"
           cp "$OUTPUT_STAGING/resolve-issue-conversation.jsonl" "${RUNNER_TEMP}/resolve-issue-conversation.jsonl" 2>/dev/null || true
           rm -rf "$OUTPUT_STAGING"
+
+      # The pre-flight check runs before the agent starts, so it cannot see a
+      # competing PR opened while the agent was working. Re-check afterwards and
+      # flag the overlap rather than leaving two PRs to each consume a full
+      # review-pipeline cycle. Advisory only: labels + one comment, no auto-close.
+      - name: Flag duplicate PRs opened during the run
+        if: steps.check-existing.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          MARKER="<!-- duplicate-author-check:${ISSUE_NUM} -->"
+
+          mapfile -t PRS < <(./scripts/issue-pr-claims.sh duplicates "${ISSUE_NUM}" --repo "${REPO}")
+          if [ "${#PRS[@]}" -le 1 ]; then
+            echo "No duplicate PRs for issue #${ISSUE_NUM} (${#PRS[@]} open)."
+            exit 0
+          fi
+
+          echo "::warning::${#PRS[@]} open PRs target issue #${ISSUE_NUM}: ${PRS[*]}"
+          gh label create "possible-duplicate" --color "d93f0b" \
+            --description "More than one open PR targets the same issue" \
+            --repo "${REPO}" 2>/dev/null || true
+          for PR in "${PRS[@]}"; do
+            gh pr edit "${PR}" --add-label "possible-duplicate" --repo "${REPO}" || true
+          done
+
+          # Comment once per issue so a re-dispatch does not repeat it.
+          if gh issue view "${ISSUE_NUM}" --repo "${REPO}" --json comments \
+               --jq '.comments[].body' | grep -qF "${MARKER}"; then
+            echo "Duplicate notice already posted on issue #${ISSUE_NUM}."
+            exit 0
+          fi
+
+          LIST=$(printf -- '- #%s\n' "${PRS[@]}")
+          gh issue comment "${ISSUE_NUM}" --repo "${REPO}" --body "$(cat <<EOF
+          ${MARKER}
+          **Multiple open PRs target this issue:**
+
+          ${LIST}
+
+          Filing an issue dispatches an authoring agent immediately, so a local
+          fix started in parallel produces a second PR. Both run the full review
+          pipeline. Close whichever is redundant; see \`DEV-AGENTS.md\` §"Filing
+          an Issue Starts an Agent".
+          EOF
+          )"
 
       - name: Validate author session persisted
         if: steps.check-existing.outputs.skip != 'true'
