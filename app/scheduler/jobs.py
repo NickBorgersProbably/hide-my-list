@@ -69,17 +69,34 @@ async def dispatch_due_reminders() -> None:
 
 
 async def check_notion_health() -> None:
-    """Ping Notion API every 15 min; enqueue notion_health_failed ops alert on failure.
+    """Check Notion connectivity and task-database schema every 15 min.
 
-    Calls notion.health_check() which GETs /v1/users/me. On failure, enqueues a
-    'notion_health_failed' ops alert carrying the probe's failure reason; the
-    drain job delivers it to OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert
-    storms.
+    Two probes, two distinct ops alerts:
+
+    - notion.health_check() GETs /v1/users/me. On failure, enqueues a
+      'notion_health_failed' alert carrying the probe's failure reason.
+    - notion.verify_schema() GETs the task database and compares its
+      properties against notion.REQUIRED_PROPERTIES. On mismatch, enqueues a
+      'notion_schema_mismatch' alert naming the offending properties.
+
+    The drain job delivers both to OPS_ALERT_SIGNAL_NUMBER; throttling is
+    per-kind, so a persistent schema mismatch cannot drown out a later
+    connectivity failure.
 
     The reason is in the alert body because that is what reaches the operator
     over Signal. An alert naming two unrelated candidate causes ("verify the
     key or reachability") is not actionable weeks later, when the app logs
     holding the real exception may have rotated or become unreachable.
+
+    The schema probe only runs when connectivity is healthy. During an outage
+    it could not read the schema anyway, and reporting a second failure would
+    describe the same root cause twice.
+
+    Severities differ by what the operator can do. A failed ping is 'critical':
+    the integration is down and may be transient, so it warrants waking someone.
+    A schema mismatch is 'warning': it is a persistent config error that blocks
+    specific verbs rather than the whole integration, it will not self-heal,
+    and it will still be true in the morning.
     """
     from app.tools import notion, ops_alerts
 
@@ -95,6 +112,18 @@ async def check_notion_health() -> None:
         except Exception as exc:
             # If DB is also down, log and continue — don't crash the job.
             log.error("notion_health.enqueue_alert_failed", error=str(exc))
+        return
+
+    schema = await notion.verify_schema()
+    if not schema.ok:
+        try:
+            await ops_alerts.enqueue(
+                kind="notion_schema_mismatch",
+                body=f"Notion task database schema mismatch — {schema.summary()}",
+                severity="warning",
+            )
+        except Exception as exc:
+            log.error("notion_schema.enqueue_alert_failed", error=str(exc))
 
 
 async def send_pending_ops_alerts() -> None:

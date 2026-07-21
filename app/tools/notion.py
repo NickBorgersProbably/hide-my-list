@@ -462,3 +462,130 @@ async def health_check() -> HealthCheckResult:
         detail = f"{type(exc).__name__}: {exc}"[:_HEALTH_DETAIL_MAX_CHARS]
         _log.error("notion.health_check.failed", error=detail)
         return HealthCheckResult(ok=False, detail=detail)
+
+
+# ---------------------------------------------------------------------------
+# Schema verification — used by notion_health APScheduler job
+# ---------------------------------------------------------------------------
+
+
+#: Every Notion property this module writes or filters on, mapped to the
+#: Notion property type it must have.
+#:
+#: This is the client's schema contract, and it is derived from the payloads
+#: above rather than from docs/notion-schema.md: the doc names some properties
+#: differently than the live database does, and the payloads are what actually
+#: reach the API. A name here that the database lacks produces a 400 on the
+#: verb that uses it — Notion rejects a filter naming an unknown property.
+#:
+#: update_property() takes a caller-supplied property name and so cannot be
+#: covered; it is the one verb whose target is not known statically.
+REQUIRED_PROPERTIES: dict[str, str] = {
+    "Title": "title",
+    "Status": "select",
+    "Work Type": "select",
+    "Urgency": "number",
+    "Time Estimate (min)": "number",
+    "Energy Required": "select",
+    "Rejection Count": "number",
+    "Steps Completed": "number",
+    "Resume Count": "number",
+    "Inline Steps": "rich_text",
+    "Parent Task": "relation",
+    "Sequence": "number",
+    "Is Reminder": "checkbox",
+    "Remind At": "date",
+    "Reminder Status": "select",
+    "Started At": "date",
+    "Completed At": "date",
+    "Due At": "date",
+    "Reminder Scheduled At": "date",
+}
+
+
+class SchemaCheckResult(NamedTuple):
+    """Outcome of validating the task database against REQUIRED_PROPERTIES.
+
+    `missing` and `mistyped` name the offending properties so the ops alert
+    is directly actionable — the operator can open the database and fix the
+    named columns without first reproducing the failure.
+
+    `detail` is set only when the check could not run at all (transport or
+    HTTP error). A check that ran and found problems reports them in the two
+    tuples with `detail` unset, so callers can distinguish "the schema is
+    wrong" from "we could not read the schema".
+    """
+
+    ok: bool
+    missing: tuple[str, ...] = ()
+    mistyped: tuple[str, ...] = ()
+    detail: str | None = None
+
+    def summary(self) -> str:
+        """One-line description of the mismatch, safe for an ops alert.
+
+        Contains property names and types only — never task content.
+        """
+        parts = []
+        if self.missing:
+            parts.append(f"missing: {', '.join(self.missing)}")
+        if self.mistyped:
+            parts.append(f"wrong type: {', '.join(self.mistyped)}")
+        if self.detail:
+            parts.append(self.detail)
+        return "; ".join(parts) if parts else "ok"
+
+
+async def verify_schema() -> SchemaCheckResult:
+    """Check the task database exposes every property this client depends on.
+
+    health_check() probes /users/me, which proves the token is valid and the
+    API is reachable but says nothing about the database being queried. A
+    database missing a property the client filters on stays invisible to that
+    probe and surfaces only when a verb touching the property runs — for the
+    nightly deadline scheduler, up to 24 hours after deploy.
+
+    Raises nothing, for the same reason health_check() does not: the caller is
+    a scheduler job, where an exception crashes the job instead of marking it
+    failed.
+    """
+    import structlog
+
+    _log = structlog.get_logger(__name__)
+
+    try:
+        async with _client_factory() as client:
+            resp = await client.get(f"/databases/{_database_id()}")
+            resp.raise_for_status()
+            schema = resp.json()
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc}"[:_HEALTH_DETAIL_MAX_CHARS]
+        _log.error("notion.verify_schema.unreadable", error=detail)
+        return SchemaCheckResult(ok=False, detail=detail)
+
+    live = schema.get("properties") or {}
+    missing: list[str] = []
+    mistyped: list[str] = []
+
+    for name, expected_type in REQUIRED_PROPERTIES.items():
+        prop = live.get(name)
+        if prop is None:
+            missing.append(name)
+            continue
+        actual_type = prop.get("type")
+        if actual_type != expected_type:
+            mistyped.append(f"{name} (expected {expected_type}, found {actual_type})")
+
+    if missing or mistyped:
+        result = SchemaCheckResult(
+            ok=False, missing=tuple(missing), mistyped=tuple(mistyped)
+        )
+        _log.error(
+            "notion.verify_schema.mismatch",
+            missing=list(missing),
+            mistyped=list(mistyped),
+        )
+        return result
+
+    _log.info("notion.verify_schema.ok", checked=len(REQUIRED_PROPERTIES))
+    return SchemaCheckResult(ok=True)
