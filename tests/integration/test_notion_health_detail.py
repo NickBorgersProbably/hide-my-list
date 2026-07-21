@@ -24,10 +24,20 @@ import app.tools.notion as notion_module
 
 
 @pytest.fixture()
-def notion_server(httpserver: HTTPServer, monkeypatch: pytest.MonkeyPatch) -> HTTPServer:
+def fake_db_id() -> str:
+    return "test-database-id"
+
+
+@pytest.fixture()
+def notion_server(
+    httpserver: HTTPServer,
+    fake_db_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> HTTPServer:
     """Point the Notion client at the local test server."""
     base_url = httpserver.url_for("/").rstrip("/")
     monkeypatch.setenv("NOTION_API_KEY", "test-api-key")
+    monkeypatch.setenv("NOTION_DATABASE_ID", fake_db_id)
 
     def _test_client() -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -44,15 +54,35 @@ def notion_server(httpserver: HTTPServer, monkeypatch: pytest.MonkeyPatch) -> HT
     return httpserver
 
 
+def _database_payload(
+    *,
+    due_at_type: str | None = "date",
+    reminder_scheduled_at_type: str | None = "date",
+) -> dict[str, object]:
+    properties: dict[str, object] = {}
+    if due_at_type is not None:
+        properties["Due At"] = {"id": "due", "type": due_at_type, due_at_type: {}}
+    if reminder_scheduled_at_type is not None:
+        properties["Reminder Scheduled At"] = {
+            "id": "scheduled",
+            "type": reminder_scheduled_at_type,
+            reminder_scheduled_at_type: {},
+        }
+    return {"object": "database", "properties": properties}
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_health_check_ok_reports_no_detail(notion_server: HTTPServer) -> None:
+async def test_health_check_ok_reports_no_detail(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
     """A 200 from /users/me yields ok=True and no failure detail."""
     notion_server.expect_request("/users/me").respond_with_json({"object": "user"})
+    notion_server.expect_request(f"/databases/{fake_db_id}").respond_with_json(_database_payload())
 
     result = await notion_module.health_check()
 
@@ -79,11 +109,65 @@ async def test_health_check_captures_auth_failure_reason(notion_server: HTTPServ
 
 
 @pytest.mark.asyncio
+async def test_health_check_captures_missing_deadline_schema(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
+    """A database missing deadline-reminder properties must fail health."""
+    notion_server.expect_request("/users/me").respond_with_json({"object": "user"})
+    notion_server.expect_request(f"/databases/{fake_db_id}").respond_with_json(
+        _database_payload(due_at_type=None, reminder_scheduled_at_type=None)
+    )
+
+    result = await notion_module.health_check()
+
+    assert result.ok is False
+    assert result.detail is not None
+    assert "Due At missing" in result.detail
+    assert "Reminder Scheduled At missing" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_health_check_captures_deadline_schema_type_mismatch(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
+    """The deadline-reminder properties must be Notion date fields."""
+    notion_server.expect_request("/users/me").respond_with_json({"object": "user"})
+    notion_server.expect_request(f"/databases/{fake_db_id}").respond_with_json(
+        _database_payload(due_at_type="rich_text")
+    )
+
+    result = await notion_module.health_check()
+
+    assert result.ok is False
+    assert result.detail is not None
+    assert "Due At expected date, got 'rich_text'" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_health_check_captures_database_retrieval_failure(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
+    """A failure retrieving the configured database must surface separately."""
+    notion_server.expect_request("/users/me").respond_with_json({"object": "user"})
+    notion_server.expect_request(f"/databases/{fake_db_id}").respond_with_json(
+        {"object": "error", "status": 404, "code": "object_not_found"},
+        status=404,
+    )
+
+    result = await notion_module.health_check()
+
+    assert result.ok is False
+    assert result.detail is not None
+    assert "404" in result.detail
+
+
+@pytest.mark.asyncio
 async def test_health_check_captures_transport_failure_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A transport error must surface as detail, distinct from an HTTP error."""
     monkeypatch.setenv("NOTION_API_KEY", "test-api-key")
+    monkeypatch.setenv("NOTION_DATABASE_ID", "test-database-id")
 
     class _FailingClient:
         async def __aenter__(self) -> _FailingClient:
@@ -109,6 +193,7 @@ async def test_health_check_captures_transport_failure_reason(
 async def test_health_check_detail_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     """A pathological exception repr must not produce an unbounded alert body."""
     monkeypatch.setenv("NOTION_API_KEY", "test-api-key")
+    monkeypatch.setenv("NOTION_DATABASE_ID", "test-database-id")
 
     class _ExplodingClient:
         async def __aenter__(self) -> _ExplodingClient:

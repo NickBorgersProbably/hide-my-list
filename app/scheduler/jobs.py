@@ -69,12 +69,12 @@ async def dispatch_due_reminders() -> None:
 
 
 async def check_notion_health() -> None:
-    """Ping Notion API every 15 min; enqueue notion_health_failed ops alert on failure.
+    """Probe Notion every 15 min; enqueue notion_health_failed ops alert on failure.
 
-    Calls notion.health_check() which GETs /v1/users/me. On failure, enqueues a
+    Calls notion.health_check() which verifies Notion API connectivity and the
+    required task database properties. On failure, enqueues a
     'notion_health_failed' ops alert carrying the probe's failure reason; the
-    drain job delivers it to OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert
-    storms.
+    drain job delivers it to OPS_ALERT_SIGNAL_NUMBER. Throttled to avoid alert storms.
 
     The reason is in the alert body because that is what reaches the operator
     over Signal. An alert naming two unrelated candidate causes ("verify the

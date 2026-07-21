@@ -17,7 +17,7 @@ Plus deadline-reminder plumbing verbs:
   12. mark_reminder_scheduled
 
 Plus:
-  health_check() — lightweight connectivity probe used by notion_health job.
+  health_check() — connectivity and task database schema probe used by notion_health job.
 
 This module is the only authorised place that imports httpx.AsyncClient
 for Notion calls. All requests go through _client() to allow test injection.
@@ -26,6 +26,7 @@ for Notion calls. All requests go through _client() to allow test injection.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
 
@@ -33,6 +34,11 @@ import httpx
 
 NOTION_VERSION = "2022-06-28"
 API_BASE = "https://api.notion.com/v1"
+
+_REQUIRED_TASK_DATABASE_PROPERTIES: Mapping[str, str] = {
+    "Due At": "date",
+    "Reminder Scheduled At": "date",
+}
 
 
 def _default_client() -> httpx.AsyncClient:
@@ -437,8 +443,28 @@ class HealthCheckResult(NamedTuple):
     detail: str | None = None
 
 
+def _task_database_schema_problems(database: Mapping[str, Any]) -> list[str]:
+    """Return operator-safe descriptions of missing/mistyped task DB fields."""
+    properties = database.get("properties")
+    if not isinstance(properties, Mapping):
+        return ["database response missing properties object"]
+
+    problems: list[str] = []
+    for name, expected_type in _REQUIRED_TASK_DATABASE_PROPERTIES.items():
+        prop = properties.get(name)
+        if not isinstance(prop, Mapping):
+            problems.append(f"{name} missing")
+            continue
+
+        actual_type = prop.get("type")
+        if actual_type != expected_type:
+            problems.append(f"{name} expected {expected_type}, got {actual_type!r}")
+
+    return problems
+
+
 async def health_check() -> HealthCheckResult:
-    """Probe Notion API connectivity via GET /v1/users/me.
+    """Probe Notion API connectivity and task database schema.
 
     Returns `HealthCheckResult(ok=True)` on success, or `ok=False` with the
     failure reason in `detail`. Raises nothing — designed for scheduler job
@@ -456,6 +482,14 @@ async def health_check() -> HealthCheckResult:
         async with _client_factory() as client:
             resp = await client.get("/users/me")
             resp.raise_for_status()
+            database_resp = await client.get(f"/databases/{_database_id()}")
+            database_resp.raise_for_status()
+            schema_problems = _task_database_schema_problems(database_resp.json())
+            if schema_problems:
+                detail = "Notion task database schema mismatch: " + ", ".join(schema_problems)
+                detail = detail[:_HEALTH_DETAIL_MAX_CHARS]
+                _log.error("notion.health_check.schema_failed", error=detail)
+                return HealthCheckResult(ok=False, detail=detail)
         _log.info("notion.health_check.ok", status=resp.status_code)
         return HealthCheckResult(ok=True)
     except Exception as exc:
