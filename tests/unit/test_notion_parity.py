@@ -27,8 +27,10 @@ import json
 import uuid
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from pytest_httpserver import HTTPServer
+from structlog.testing import capture_logs
 
 import app.tools.notion as notion_module
 
@@ -488,3 +490,77 @@ async def test_notion_sends_authorization_header(
     req = notion_server.log[0][0]
     assert req.headers.get("authorization") == "Bearer test-api-key"
     assert req.headers.get("notion-version") == "2022-06-28"
+
+
+@pytest.mark.asyncio
+async def test_notion_http_error_logs_safe_response_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Notion 4xx logs safe diagnostics while preserving HTTPStatusError."""
+    monkeypatch.setenv("NOTION_DATABASE_ID", "test-database-id")
+    error_body = {
+        "object": "error",
+        "status": 400,
+        "code": "validation_error",
+        "message": 'Property "Private task title" does not exist.',
+    }
+
+    def _handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=400,
+            json=error_body,
+            headers={"x-request-id": "notion-request-id"},
+        )
+
+    def _test_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url="https://api.notion.com/v1",
+            transport=httpx.MockTransport(_handler),
+        )
+
+    monkeypatch.setattr(notion_module, "_client_factory", _test_client)
+
+    with capture_logs() as captured, pytest.raises(httpx.HTTPStatusError):
+        await notion_module.query_pending()
+
+    [error_log] = [event for event in captured if event["event"] == "notion.http_error"]
+    assert error_log["status_code"] == 400
+    assert error_log["notion_error_code"] == "validation_error"
+    assert error_log["notion_error_status"] == 400
+    assert error_log["notion_request_id"] == "notion-request-id"
+    assert "response_body" not in error_log
+    assert "Private task title" not in str(error_log)
+    assert '"<redacted>"' in error_log["notion_error_message"]
+
+
+@pytest.mark.asyncio
+async def test_notion_http_error_log_message_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sanitized Notion message log field has an explicit maximum length."""
+    long_message = "x" * (notion_module._NOTION_ERROR_MESSAGE_MAX_CHARS + 50)
+
+    def _handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=500,
+            json={
+                "object": "error",
+                "status": 500,
+                "code": "internal_server_error",
+                "message": long_message,
+            },
+        )
+
+    def _test_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url="https://api.notion.com/v1",
+            transport=httpx.MockTransport(_handler),
+        )
+
+    monkeypatch.setattr(notion_module, "_client_factory", _test_client)
+
+    with capture_logs() as captured, pytest.raises(httpx.HTTPStatusError):
+        await notion_module.get_page("<page-id>")
+
+    [error_log] = [event for event in captured if event["event"] == "notion.http_error"]
+    assert len(error_log["notion_error_message"]) == notion_module._NOTION_ERROR_MESSAGE_MAX_CHARS

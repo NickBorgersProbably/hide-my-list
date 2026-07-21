@@ -26,13 +26,19 @@ for Notion calls. All requests go through _client() to allow test injection.
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
 
 import httpx
+import structlog
 
 NOTION_VERSION = "2022-06-28"
 API_BASE = "https://api.notion.com/v1"
+_NOTION_ERROR_MESSAGE_MAX_CHARS = 300
+_QUOTED_TEXT_PATTERN = re.compile(r'"[^"]*"')
+
+log = structlog.get_logger(__name__)
 
 
 def _default_client() -> httpx.AsyncClient:
@@ -54,6 +60,42 @@ _client_factory = _default_client
 
 def _database_id() -> str:
     return os.environ["NOTION_DATABASE_ID"]
+
+
+def _sanitize_notion_error_message(message: str) -> str:
+    """Keep Notion diagnostics while removing echoed user-authored strings."""
+    sanitized = _QUOTED_TEXT_PATTERN.sub('"<redacted>"', message)
+    return sanitized[:_NOTION_ERROR_MESSAGE_MAX_CHARS]
+
+
+def _raise_for_status(resp: httpx.Response) -> None:
+    """Log safe Notion error metadata before preserving httpx's exception type."""
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError:
+        fields: dict[str, Any] = {"status_code": resp.status_code}
+        try:
+            body = resp.json()
+        except ValueError:
+            body = None
+
+        if isinstance(body, dict):
+            code = body.get("code")
+            if isinstance(code, str):
+                fields["notion_error_code"] = code
+            status = body.get("status")
+            if isinstance(status, int | str):
+                fields["notion_error_status"] = status
+            message = body.get("message")
+            if isinstance(message, str):
+                fields["notion_error_message"] = _sanitize_notion_error_message(message)
+
+        request_id = resp.headers.get("x-request-id") or resp.headers.get("x-notion-request-id")
+        if request_id:
+            fields["notion_request_id"] = request_id
+
+        log.error("notion.http_error", **fields)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +150,7 @@ async def create_task(
     }
     async with _client_factory() as client:
         resp = await client.post("/pages", json=payload)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -147,7 +189,7 @@ async def create_reminder(
     }
     async with _client_factory() as client:
         resp = await client.post("/pages", json=payload)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -172,7 +214,7 @@ async def query_pending() -> dict[str, Any]:
     }
     async with _client_factory() as client:
         resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -191,7 +233,7 @@ async def query_all() -> dict[str, Any]:
     }
     async with _client_factory() as client:
         resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -223,7 +265,7 @@ async def query_due_reminders(before_iso: str | None = None) -> dict[str, Any]:
     }
     async with _client_factory() as client:
         resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -243,7 +285,7 @@ async def update_status(page_id: str, new_status: str) -> dict[str, Any]:
     # Fetch current page to check Started At
     async with _client_factory() as client:
         page_resp = await client.get(f"/pages/{page_id}")
-        page_resp.raise_for_status()
+        _raise_for_status(page_resp)
         page = page_resp.json()
 
     props: dict[str, Any] = {"Status": {"select": {"name": new_status}}}
@@ -263,7 +305,7 @@ async def update_status(page_id: str, new_status: str) -> dict[str, Any]:
 
     async with _client_factory() as client:
         resp = await client.patch(f"/pages/{page_id}", json={"properties": props})
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -293,7 +335,7 @@ async def complete_reminder(
     }
     async with _client_factory() as client:
         resp = await client.patch(f"/pages/{page_id}", json={"properties": props})
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -309,7 +351,7 @@ async def update_property(page_id: str, prop_json: dict[str, Any]) -> dict[str, 
     """
     async with _client_factory() as client:
         resp = await client.patch(f"/pages/{page_id}", json=prop_json)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -325,7 +367,7 @@ async def get_page(page_id: str) -> dict[str, Any]:
     """
     async with _client_factory() as client:
         resp = await client.get(f"/pages/{page_id}")
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -358,7 +400,7 @@ async def query_tasks_with_unscheduled_deadlines() -> dict[str, Any]:
     }
     async with _client_factory() as client:
         resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -387,7 +429,7 @@ async def query_scheduled_tasks_with_deadlines() -> dict[str, Any]:
     }
     async with _client_factory() as client:
         resp = await client.post(f"/databases/{_database_id()}/query", json=payload)
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -408,7 +450,7 @@ async def mark_reminder_scheduled(page_id: str) -> dict[str, Any]:
     }
     async with _client_factory() as client:
         resp = await client.patch(f"/pages/{page_id}", json={"properties": props})
-        resp.raise_for_status()
+        _raise_for_status(resp)
         return resp.json()  # type: ignore[no-any-return]
 
 
@@ -448,19 +490,15 @@ async def health_check() -> HealthCheckResult:
     into the alert. Callers must branch on `.ok`: the result itself is a
     tuple and therefore always truthy.
     """
-    import structlog
-
-    _log = structlog.get_logger(__name__)
-
     try:
         async with _client_factory() as client:
             resp = await client.get("/users/me")
-            resp.raise_for_status()
-        _log.info("notion.health_check.ok", status=resp.status_code)
+            _raise_for_status(resp)
+        log.info("notion.health_check.ok", status=resp.status_code)
         return HealthCheckResult(ok=True)
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"[:_HEALTH_DETAIL_MAX_CHARS]
-        _log.error("notion.health_check.failed", error=detail)
+        log.error("notion.health_check.failed", error=detail)
         return HealthCheckResult(ok=False, detail=detail)
 
 
