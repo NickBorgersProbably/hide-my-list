@@ -83,24 +83,7 @@ running outside the graph cannot mutate a checkpoint without invoking the graph.
 and directly write to checkpoint tables — coupling the worker to LangGraph internals.
 Storing it in a plain Postgres table decouples the worker completely.
 
-**Pattern (target — not yet implemented in Phase B classifier):**
-
-```python
-# Target pattern for classify_intent (Phase B classifier does not yet read this):
-async def classify_intent(state: State) -> dict:
-    peer = state["peer"]
-    # Read recent_outbound from Postgres — NOT from checkpoint state
-    async with get_db_conn() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM recent_outbound WHERE peer = $1 AND awaiting_reply = true "
-            "AND expires_at > now() ORDER BY sent_at DESC LIMIT 5",
-            peer
-        )
-    recent_outbound_context = build_context_string(rows)
-    # Use context to resolve ambiguous intents
-    intent = await llm_classify(state["incoming"], recent_outbound_context)
-    return {"intent": intent}
-```
+**Pattern:**
 
 The classifier in `app/graph/routing.py` reads a window of prior turns from
 `state["messages"]` — the checkpointed LangGraph channel populated by `send_node` — and
@@ -118,11 +101,14 @@ does not read `recent_outbound`; ADD_TASK and REJECT do not read `recent_outboun
 await conn.execute(
     """
     INSERT INTO recent_outbound
-      (peer, signal_timestamp, notion_page_id, title, reminder_type, sent_at, expires_at)
-    VALUES ($1, $2, $3, $4, 'reminder', now(), now() + interval '24 hours')
-    ON CONFLICT (peer, signal_timestamp) DO NOTHING
+      (peer, signal_timestamp, notion_page_id,
+       reminder_type, title, prompt_kind,
+       sent_at, awaiting_reply, expires_at)
+    VALUES (%s, %s, %s, 'reminder', %s, 'sent',
+            now(), true, now() + interval '24 hours')
+    ON CONFLICT DO NOTHING
     """,
-    peer, signal_ts, notion_page_id, task_title
+    (peer, signal_ts, notion_page_id, task_title),
 )
 ```
 

@@ -8,8 +8,9 @@ peer: "<test-peer-10>"
 inbound: "done!"
 prior_state:
   active_task:
-    notion_page_id: "<placeholder-page-id>"
+    page_id: "<placeholder-page-id>"
     title: "<placeholder-task>"
+    selected_at: "2025-01-15T10:00:00+00:00"
   streak: 3
   tasks_completed_today: 2
   conversation_state: active

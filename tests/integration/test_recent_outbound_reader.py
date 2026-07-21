@@ -169,3 +169,86 @@ async def test_clear_makes_the_row_unmatchable(peer: str) -> None:
     assert await load_awaiting_reply(peer) is None
     # Idempotent: clearing again reports no match rather than raising.
     assert await clear_awaiting_reply(peer=peer, signal_timestamp=7) is False
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: complete_node reads + clears via real Postgres
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_complete_node_reads_reminder_and_clears_row(peer: str) -> None:
+    """complete_node routes completion to the reminder page and clears the row.
+
+    This exercises the real load_awaiting_reply / clear_awaiting_reply path
+    (no mocking of app.tools.recent_outbound) against a real Postgres database,
+    verifying that the end-to-end plumbing between the worker write and the
+    graph read actually works.
+
+    Outbound effects (Notion update_status, maybe_reward) are mocked so the
+    test does not require external services; assertions check kwargs shape, not
+    exact reward text.
+
+    Private data: placeholder page IDs, peers, and titles only.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from app.graph.nodes.complete import complete_node
+    from app.graph.state import State
+
+    page_id = "<page-end-to-end-test>"
+    signal_ts = 9999
+
+    await _insert(
+        peer=peer,
+        page_id=page_id,
+        signal_timestamp=signal_ts,
+        sent_ago=timedelta(hours=1),
+        expires_in=timedelta(hours=23),
+    )
+
+    mock_update_status = AsyncMock()
+    mock_maybe_reward = AsyncMock(
+        return_value={"text": "Nice work!", "attachment_path": None}
+    )
+
+    state: State = {
+        "peer": peer,
+        "incoming": "done!",
+        "intent": "COMPLETE",
+        "messages": [],
+        "active_task": None,
+        "streak": 0,
+        "tasks_completed_today": 0,
+        "user_prefs": {},
+        "mood": None,
+        "available_minutes": None,
+        "conversation_state": "idle",
+        "pending_outbound": [],
+    }
+
+    with (
+        patch("app.tools.notion.update_status", mock_update_status),
+        patch("app.tools.rewards.maybe_reward", mock_maybe_reward),
+    ):
+        result = await complete_node(state)
+
+    # Reminder page id must be the reward target, not a stale checkpoint entry.
+    assert result["pending_outbound"], "completion reply must be drafted"
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] == page_id, (
+        "complete_node must reward the reminder page, not a different page"
+    )
+
+    # Notion must NOT be called: the reminder worker already completed the page.
+    mock_update_status.assert_not_called()
+
+    # maybe_reward must be called with the reminder page id.
+    mock_maybe_reward.assert_awaited_once()
+    reward_kwargs = mock_maybe_reward.call_args.kwargs
+    assert reward_kwargs["notion_page_id"] == page_id
+
+    # The row must be cleared so a second reply cannot match it.
+    assert await load_awaiting_reply(peer) is None, (
+        "complete_node must clear the matched recent_outbound row"
+    )

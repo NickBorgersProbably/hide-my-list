@@ -84,15 +84,6 @@ When a deadline phrase is detected:
 - Do not clear `is_reminder` or `remind_at` when a wall-clock reminder is also detected
 - Set `due_at` to null when no deadline phrase is present
 
-### Reschedule From Recent Outbound Context
-
-When recent_outbound_context contains an entry with awaiting_reply=true and
-type="reminder", and the user message is a bare time reference or explicit
-reschedule phrase:
-- Set is_reminder = true
-- Use the matched entry's title as the task title (do not re-ask)
-- Parse the new time reference and convert to ISO 8601
-
 ### Duplicate Task Detection
 
 Before creating a normal task, intake checks open non-reminder tasks for a

@@ -197,37 +197,6 @@ When a deadline phrase is detected:
 - Do not clear `is_reminder` or `remind_at` when a wall-clock reminder is also detected in the same message
 - Set `due_at` to null when no deadline phrase is present
 
-RESCHEDULE FROM RECENT OUTBOUND CONTEXT:
-When `recent_outbound_context` contains an entry with `awaiting_reply: true` and
-`type: "reminder"`, and the user message is a bare time reference or explicit reschedule
-phrase ("tomorrow at 9", "next week", "push it to 3pm", "later today"), treat as a
-reminder reschedule using the matched entry's title:
-
-- Set is_reminder = true
-- Use the matched `recent_outbound` entry's `title` as the task title (do not re-ask)
-- Parse the new time reference and convert to ISO 8601 with timezone offset (same rules as above)
-- Set urgency = 90
-- After saving: the matched `recent_outbound` entry must be cleared (set `awaiting_reply: false` or remove the entry)
-- The new `reminder_outbox` row is written by `app/graph/nodes/intake.py` — no additional scheduling step needed.
-- In this `recent_outbound` path, the prior reminder was already delivered, so its Notion row is already `Completed`. No separate cleanup of the old outbox row is needed.
-- Keep all of that bookkeeping internal. The user-facing reply for a reschedule
-  must be only the new reminder confirmation, in the same brief style as any
-  other reminder confirmation.
-
-Example:
-  recent_outbound entry: title "Call the dentist", awaiting_reply: true
-  user says: "tomorrow at 9" →
-    is_reminder: true, title: "Call the dentist", remind_at: "<tomorrow 09:00 ISO>",
-    confirmation_message: "Got it — I'll remind you around 9 tomorrow to call the dentist.",
-    then clear matched recent_outbound entry
-
-Example:
-  recent_outbound entry: title "Set up your video call software for therapy", awaiting_reply: true
-  user says: "remind me in an hour" →
-    is_reminder: true, title: "Set up your video call software for therapy",
-    remind_at: "<now+1h ISO>",
-    confirmation_message: "Got it — I'll remind you in about an hour to {task}."
-
 ## Duplicate Task Detection
 
 Before creating a normal task, intake checks open non-reminder tasks for a
