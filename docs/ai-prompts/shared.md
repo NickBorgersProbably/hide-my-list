@@ -155,8 +155,6 @@ Intent:
 `recent_outbound` carries reminder context across a rolled checkpoint window, so a reply that arrives in a later session still resolves to the reminder it answers. Intent classification itself reads the windowed `state["messages"]` history described above; `recent_outbound` resolves the *target* once the intent is known.
 
 - COMPLETE: the matched entry identifies the finished task. Its Notion page is already `Completed` (the reminder worker closes it at delivery), so completion acknowledges and rewards without a second Notion write, then marks the entry `awaiting_reply: false`. Where both a matched entry and an active task are live, the more recent context is the referent; where neither is, ask which task the user means rather than completing an unconfirmed one.
-- ADD_TASK (reschedule): matched `recent_outbound.title` seeds the new reminder title in `docs/ai-prompts/intake.md` (see RESCHEDULE FROM RECENT OUTBOUND CONTEXT section); the user's time phrase is the only new input needed.
-- REJECT (prior suggestion declined): matched `recent_outbound.title` populates REJECTED TASK in `docs/ai-prompts/rejection.md`; user message text (e.g. "not that one") is USER'S REASON. Clear or mark `awaiting_reply: false` on the matched entry after routing.
 
 An active task is live context only for a bounded window after it is selected. Past that window it is a leftover, not a referent, and cannot be completed without the user naming it.
 

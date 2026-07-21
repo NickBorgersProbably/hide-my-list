@@ -13,7 +13,7 @@ the checkpoint and completed the wrong Notion page. See issue #641.
 Private data discipline:
 - `title` is the reminder body (the user's own words). It is returned to callers
   for reward attribution but must NEVER be logged.
-- `peer` and `notion_page_id` are safe to log; the existing node logs do so.
+- `peer` is a recipient identifier and must not be logged. Only non-personal operational fields (e.g., `notion_page_id`, `signal_timestamp`) may be emitted in log events.
 """
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ async def load_awaiting_reply(peer: str) -> AwaitingReply | None:
 
     except Exception:
         # Log without the peer's message content.
-        log.exception("recent_outbound.load_failed", peer=peer)
+        log.exception("recent_outbound.load_failed")
         return None
 
 
@@ -111,12 +111,12 @@ async def clear_awaiting_reply(*, peer: str, signal_timestamp: int) -> bool:
             updated: int = cur.rowcount
 
         if updated:
-            log.info("recent_outbound.cleared", peer=peer)
+            log.info("recent_outbound.cleared")
             return True
 
-        log.info("recent_outbound.clear_no_match", peer=peer)
+        log.info("recent_outbound.clear_no_match")
         return False
 
     except Exception:
-        log.exception("recent_outbound.clear_failed", peer=peer)
+        log.exception("recent_outbound.clear_failed")
         return False

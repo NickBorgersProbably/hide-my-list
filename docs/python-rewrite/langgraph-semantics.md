@@ -102,12 +102,14 @@ async def classify_intent(state: State) -> dict:
     return {"intent": intent}
 ```
 
-The Phase B implementation in `app/graph/routing.py` reads a window of prior turns from
+The classifier in `app/graph/routing.py` reads a window of prior turns from
 `state["messages"]` — the checkpointed LangGraph channel populated by `send_node` — and
 includes them as a `Prior conversation:` block in the classifier prompt. This lets short
 follow-ups resolve against the active discussion without querying the `recent_outbound`
-table. DB-backed `recent_outbound` context remains the planned path for cross-session reply
-resolution (reminder follow-up via `awaiting_reply`) and is not yet wired in Phase B.
+table. After COMPLETE classification, `complete_node` reads the newest unresolved
+`recent_outbound` row for the peer to identify the finished task; where both a reminder row
+and an active task are live, the more recent context is the referent. The classifier itself
+does not read `recent_outbound`; ADD_TASK and REJECT do not read `recent_outbound` either.
 
 **Worker writes:**
 

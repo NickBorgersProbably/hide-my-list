@@ -150,7 +150,6 @@ async def complete_node(state: State) -> dict[str, Any]:
         # Page ids only; titles are private.
         log.info(
             "complete_node.target_resolved",
-            peer=peer,
             source=target["source"] if target else None,
             page_id=target["page_id"] if target else None,
             had_reminder_candidate=reminder is not None,
