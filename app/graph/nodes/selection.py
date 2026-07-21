@@ -13,7 +13,8 @@ from typing import Any, TypedDict, cast
 
 import structlog
 
-from app.graph.nodes._titles import nonblank_title
+from app.graph.nodes._task_token import TASK_TOKEN
+from app.graph.nodes._titles import _nonblank_title
 from app.graph.state import ActiveTask, OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -116,9 +117,31 @@ async def selection_node(state: State) -> dict[str, Any]:
 
         # The prompt writes the literal {task} token; the title comes from the
         # task list we scored, never from the model. send_node substitutes it.
-        selected_title = nonblank_title(
+        selected_title = _nonblank_title(
             next((t["title"] for t in simplified if t["id"] == selected_page_id), None)
         )
+
+        if selected_page_id and not selected_title:
+            body = (
+                "I found a task without a title, so I'm leaving it alone. "
+                "Try again after it has a title?"
+            )
+            log.warning(
+                "selection_node.skip_blank_title",
+                peer=peer,
+                notion_page_id=selected_page_id,
+                had_task_token=TASK_TOKEN in user_message,
+            )
+            draft: OutboundDraft = {
+                "recipient": peer,
+                "body": body,
+                "notion_page_id": None,
+            }
+            return {
+                "pending_outbound": [draft],
+                "active_task": None,
+                "conversation_state": "selection",
+            }
 
         draft: OutboundDraft = {
             "recipient": peer,
@@ -152,7 +175,7 @@ async def selection_node(state: State) -> dict[str, Any]:
                 ),
                 rejection_count=selected_simplified["rejection_count"] if selected_simplified else 0,
             )
-            active_title = nonblank_title(selected_simplified["title"] if selected_simplified else None)
+            active_title = _nonblank_title(selected_simplified["title"] if selected_simplified else None)
             if active_title:
                 active_task["title"] = active_title
 

@@ -11,7 +11,7 @@ from typing import Any
 
 import structlog
 
-from app.graph.nodes._titles import nonblank_title
+from app.graph.nodes._titles import _nonblank_title
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -35,7 +35,7 @@ async def complete_node(state: State) -> dict[str, Any]:
             return {"pending_outbound": [no_task_draft], "conversation_state": "idle"}
 
         page_id = active_task.get("page_id", "")
-        task_title = nonblank_title(active_task.get("title"), "task") or "task"
+        task_title = _nonblank_title(active_task.get("title"), "task") or "task"
 
         # Mark task completed in Notion
         if page_id:

@@ -260,9 +260,10 @@ await rewards.generate_reward_image(
 The function validates its reward inputs before generation:
 
 - `streak_count` must be the positive, post-completion current streak length.
-- When `streak_count` is `N`, the caller must provide exactly `N` task descriptions.
-- The first completion in a streak uses `streak_count` `1` and one task description.
-- Empty descriptions are rejected.
+- When `streak_count` is `N`, description lists longer than `N` are truncated.
+- The first completion in a streak uses `streak_count` `1`.
+- Blank descriptions are dropped. Image generation may proceed when no private
+  descriptions remain because the image prompt does not embed task text.
 
 Callers build the task-description list from the current completion session,
 ordered oldest to newest after the completed task has been counted. The list
@@ -281,11 +282,11 @@ Reward prompts are built from four layers:
 3. **Preference modifiers** - optional `user_prefs.rewards` values (Postgres) bias style, palette, and subject matter
 4. **Feedback weighting** - prior positive/negative reactions bias future theme-family, style, and palette selection
 
-Task descriptions are not copied blindly into the image prompt. The script first validates the count against the streak, classifies the completed tasks, and builds either:
+Task descriptions are not copied blindly into the image prompt. The script normalizes the count against the streak, drops blank descriptions, classifies any remaining completed tasks, and builds either:
 
 - **Literal motifs** for ordinary tasks: "glowing phone and confetti" for calls, "pages turning into stars" for writing
 - **Metaphorical motifs** for sensitive tasks: therapy/medical/personal/legal/financial tasks use abstract or symbolic celebration instead of literal depictions
-- **Generic progress imagery** when the title is too vague to trust
+- **Generic progress imagery** when the title is too vague to trust or no validated task motif remains
 
 #### Reward Delivery Contract
 

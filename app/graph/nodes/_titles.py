@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def nonblank_title(value: Any, fallback: str | None = None) -> str | None:
+def _nonblank_title(value: Any, fallback: str | None = None) -> str | None:
     """Return a stripped title, or a stripped fallback when the title is blank."""
     if isinstance(value, str):
         title = value.strip()

@@ -99,10 +99,10 @@ async def test_intake_rejects_blank_model_title(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
-async def test_selection_does_not_store_blank_active_title(
+async def test_selection_skips_blank_title_without_sending_task_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Selection treats blank Notion titles as absent in active_task."""
+    """Selection does not start a blank-title task or send an unresolved token."""
     from app import models as models_module
     from app.graph.nodes.selection import selection_node
     from app.tools import notion
@@ -113,7 +113,7 @@ async def test_selection_does_not_store_blank_active_title(
             "selected_task_id": page_id,
             "score": 0.9,
             "reasoning": "fits time",
-            "user_message": "How about this task?",
+            "user_message": "How about {task}?",
         }
     )
 
@@ -129,7 +129,11 @@ async def test_selection_does_not_store_blank_active_title(
 
     result = await selection_node(_state(intent="GET_TASK", incoming="what should I do?"))
 
-    assert "title" not in result["active_task"]
+    draft = result["pending_outbound"][0]
+    assert result["active_task"] is None
+    assert result["conversation_state"] == "selection"
+    assert draft["notion_page_id"] is None
+    assert "{task}" not in draft["body"]
 
 
 @pytest.mark.asyncio

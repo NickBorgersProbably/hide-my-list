@@ -26,7 +26,7 @@ from typing import Any, cast
 
 import structlog
 
-from app.graph.nodes._titles import nonblank_title
+from app.graph.nodes._titles import _nonblank_title
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -147,7 +147,7 @@ async def intake_node(state: State) -> dict[str, Any]:
             return {"pending_outbound": [clarify_draft]}
 
         # Action is "save"
-        task_title = nonblank_title(parsed.get("title"), incoming[:200]) or "Task"
+        task_title = _nonblank_title(parsed.get("title"), incoming[:200]) or "Task"
         work_type = str(parsed.get("work_type", "focus"))
         urgency = int(parsed.get("urgency", 50))
         time_estimate = int(parsed.get("time_estimate_minutes", 30))
