@@ -30,7 +30,8 @@ async def cannot_finish_node(state: State) -> dict[str, Any]:
         incoming = state.get("incoming", "")
         active_task = state.get("active_task")
 
-        task_title = active_task.get("title", "your task") if active_task else "your task"
+        task_title = (active_task.get("title") or "").strip() if active_task else ""
+        task_title = task_title or "your task"
         page_id = active_task.get("page_id", "") if active_task else ""
         time_estimate = active_task.get("time_estimate", 30) if active_task else 30
 

@@ -34,7 +34,12 @@ async def complete_node(state: State) -> dict[str, Any]:
             return {"pending_outbound": [no_task_draft], "conversation_state": "idle"}
 
         page_id = active_task.get("page_id", "")
-        task_title = active_task.get("title", "task")
+        # `.get(key, default)` only fires on a missing key, so a stored empty
+        # title used to reach the reward path verbatim. task_title is private
+        # data written to the manifest — pass the empty string through rather
+        # than fabricating a placeholder that would be stored as if it were the
+        # user's own words.
+        task_title = (active_task.get("title") or "").strip()
 
         # Mark task completed in Notion
         if page_id:

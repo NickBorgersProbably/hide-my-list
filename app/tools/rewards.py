@@ -501,11 +501,15 @@ async def generate_reward_image(
         # Truncate or pad to match streak
         task_descriptions = task_descriptions[:streak_count]
 
-    # Reject empty descriptions
+    # Blank descriptions are tolerated, not fatal. _build_image_prompt() never
+    # embeds task text (private data discipline) — the prompt is built from
+    # intensity, theme/style/palette, streak count, and user prefs alone — so a
+    # task that reaches us without a usable title still earns its image. Bailing
+    # here degraded every such completion to the text fallback while the guard
+    # protected nothing. See tests/regressions/bug_0632_reward_image_blank_title.
     task_descriptions = [d for d in task_descriptions if d.strip()]
     if not task_descriptions:
-        log.warning("generate_reward_image.empty_descriptions")
-        return None
+        log.info("generate_reward_image.no_usable_descriptions")
 
     _img_gen_start = time.monotonic()
     log.info("image_gen.start", intensity=intensity, streak_count=streak_count)

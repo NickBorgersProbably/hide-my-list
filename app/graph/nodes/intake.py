@@ -146,7 +146,20 @@ async def intake_node(state: State) -> dict[str, Any]:
             return {"pending_outbound": [clarify_draft]}
 
         # Action is "save"
-        task_title = str(parsed.get("title", incoming[:200]))
+        # A blank title is as unusable as a missing one: it propagates into the
+        # Notion page, active_task, and the reward manifest, leaving the user
+        # with a nameless task. Fall back to their own words, and treat a save
+        # we cannot name at all as a parse failure rather than writing a
+        # nameless page.
+        task_title = str(parsed.get("title") or "").strip() or incoming[:200].strip()
+        if not task_title:
+            log.warning("intake_node.blank_title")
+            blank_title_draft: OutboundDraft = {
+                "recipient": peer,
+                "body": "What should I call that one?",
+                "notion_page_id": None,
+            }
+            return {"pending_outbound": [blank_title_draft]}
         work_type = str(parsed.get("work_type", "focus"))
         urgency = int(parsed.get("urgency", 50))
         time_estimate = int(parsed.get("time_estimate_minutes", 30))

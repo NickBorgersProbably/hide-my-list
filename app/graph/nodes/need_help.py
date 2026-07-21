@@ -38,7 +38,7 @@ async def need_help_node(state: State) -> dict[str, Any]:
             }
             return {"pending_outbound": [no_task_draft]}
 
-        task_title = active_task.get("title", "your task")
+        task_title = (active_task.get("title") or "").strip() or "your task"
         page_id = active_task.get("page_id", "")
         # inline_steps may be stored in active_task or fetched from Notion
         inline_steps = active_task.get("inline_steps", "No steps recorded yet.")
