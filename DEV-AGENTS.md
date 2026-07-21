@@ -163,6 +163,19 @@ This rule applies to: `docs/ai-prompts/*.md`, `docs/architecture.md`, `docs/task
 
 It does **not** apply to `docs/agentic-pipeline-learnings.md` or other contributor/CI-only guidance, which legitimately carry historical context.
 
+## Filing an Issue Starts an Agent
+
+**Opening a GitHub issue in this repo dispatches an authoring agent immediately.** `.github/workflows/codex.yml` ("Issue Resolution Agent") triggers on `issues: [opened, reopened]` with no label, comment, or approval step. If the issue author is an `OWNER`, `MEMBER`, or `COLLABORATOR`, the agent checks out the repo, implements a fix, and opens a PR — typically within a few minutes.
+
+Consequences for a local agent (Claude Code, Codex, or a human) working in a clone:
+
+- **Do not file an issue as a handoff note, a TODO, or a bug record you then intend to fix yourself.** Filing it *is* the request to fix it. Two implementations of the same fix get authored and reviewed in parallel, and both burn review-pipeline budget.
+- **Before starting local work on a known problem, check whether an issue already exists and whether a PR already targets it**: `gh issue list --search "<keywords>"` and `gh pr list --state open --search "Resolves #<N> OR Fixes #<N> OR Closes #<N>"`.
+- **Choose one lane per problem, up front.** Either file the issue and let the pipeline author the PR, or fix it locally and open the PR yourself referencing the issue. Not both.
+- If a local fix is already in flight and an issue is warranted for tracking, open the PR *first*, then file the issue — the workflow's `Check for existing PR` step skips dispatch when an open PR body already says `Resolves #N` / `Fixes #N` / `Closes #N`. Filing the issue first leaves a window where both lanes start.
+
+Re-dispatch is available on demand: comment `/autoresolve` (optionally `/autoresolve codex` or `/autoresolve claude`) on an open issue, or remove the `codex-started` / `claude-started` label. The agent choice also persists via an `agent:codex` / `agent:claude` label on the issue.
+
 ## Review Pipeline
 
 PRs reviewed by multi-agent review pipeline (Codex reviewers + fixer in v2). Roles same in both versions; orchestration differs.
