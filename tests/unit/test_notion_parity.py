@@ -27,8 +27,10 @@ import json
 import uuid
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from pytest_httpserver import HTTPServer
+from structlog.testing import capture_logs
 
 import app.tools.notion as notion_module
 
@@ -488,3 +490,61 @@ async def test_notion_sends_authorization_header(
     req = notion_server.log[0][0]
     assert req.headers.get("authorization") == "Bearer test-api-key"
     assert req.headers.get("notion-version") == "2022-06-28"
+
+
+@pytest.mark.asyncio
+async def test_notion_http_error_logs_response_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Notion 4xx logs the response body while preserving HTTPStatusError."""
+    monkeypatch.setenv("NOTION_DATABASE_ID", "test-database-id")
+    error_body = {
+        "object": "error",
+        "status": 400,
+        "code": "validation_error",
+        "message": 'Property "Due At" does not exist.',
+    }
+
+    def _handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code=400, json=error_body)
+
+    def _test_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url="https://api.notion.com/v1",
+            transport=httpx.MockTransport(_handler),
+        )
+
+    monkeypatch.setattr(notion_module, "_client_factory", _test_client)
+
+    with capture_logs() as captured, pytest.raises(httpx.HTTPStatusError):
+        await notion_module.query_pending()
+
+    [error_log] = [event for event in captured if event["event"] == "notion.http_error"]
+    assert error_log["status_code"] == 400
+    assert "validation_error" in error_log["response_body"]
+    assert "Due At" in error_log["response_body"]
+
+
+@pytest.mark.asyncio
+async def test_notion_http_error_log_response_body_is_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Notion error body log field has an explicit maximum length."""
+    long_body = "x" * (notion_module._NOTION_ERROR_BODY_MAX_CHARS + 50)
+
+    def _handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code=500, content=long_body)
+
+    def _test_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url="https://api.notion.com/v1",
+            transport=httpx.MockTransport(_handler),
+        )
+
+    monkeypatch.setattr(notion_module, "_client_factory", _test_client)
+
+    with capture_logs() as captured, pytest.raises(httpx.HTTPStatusError):
+        await notion_module.get_page("<page-id>")
+
+    [error_log] = [event for event in captured if event["event"] == "notion.http_error"]
+    assert len(error_log["response_body"]) == notion_module._NOTION_ERROR_BODY_MAX_CHARS
