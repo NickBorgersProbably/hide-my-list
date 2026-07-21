@@ -60,7 +60,7 @@ _KNOWN_VIOLATIONS: frozenset[tuple[str, int]] = frozenset(
         # image generation from the reward delivery path.
         ("app/tools/rewards.py", 5),    # module docstring listing gpt-image-1
         ("app/tools/rewards.py", 460),  # function docstring referencing gpt-image-1
-        ("app/tools/rewards.py", 542),  # model="gpt-image-1" in generate_reward_image
+        ("app/tools/rewards.py", 541),  # model="gpt-image-1" in generate_reward_image
     ]
 )
 

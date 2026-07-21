@@ -13,6 +13,7 @@ from typing import Any, TypedDict, cast
 
 import structlog
 
+from app.graph.nodes._titles import nonblank_title
 from app.graph.state import ActiveTask, OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -115,9 +116,8 @@ async def selection_node(state: State) -> dict[str, Any]:
 
         # The prompt writes the literal {task} token; the title comes from the
         # task list we scored, never from the model. send_node substitutes it.
-        selected_title = next(
-            (t["title"] for t in simplified if t["id"] == selected_page_id and t["title"]),
-            None,
+        selected_title = nonblank_title(
+            next((t["title"] for t in simplified if t["id"] == selected_page_id), None)
         )
 
         draft: OutboundDraft = {
@@ -143,7 +143,6 @@ async def selection_node(state: State) -> dict[str, Any]:
             selected_simplified = next((t for t in simplified if t["id"] == selected_page_id), None)
             active_task = ActiveTask(
                 page_id=selected_page_id,
-                title=selected_simplified["title"] if selected_simplified else "",
                 status="In Progress",
                 work_type=selected_simplified["work_type"] if selected_simplified else "",
                 urgency=selected_simplified["urgency"] if selected_simplified else 50,
@@ -153,6 +152,9 @@ async def selection_node(state: State) -> dict[str, Any]:
                 ),
                 rejection_count=selected_simplified["rejection_count"] if selected_simplified else 0,
             )
+            active_title = nonblank_title(selected_simplified["title"] if selected_simplified else None)
+            if active_title:
+                active_task["title"] = active_title
 
         log.info("selection_node.suggestion", peer=peer, notion_page_id=selected_page_id)
         return {

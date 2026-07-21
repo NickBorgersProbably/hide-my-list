@@ -501,11 +501,10 @@ async def generate_reward_image(
         # Truncate or pad to match streak
         task_descriptions = task_descriptions[:streak_count]
 
-    # Reject empty descriptions
+    # Descriptions are private and are not embedded in the image prompt.
+    # Keep only nonblank values for future motif classifiers, but do not block
+    # image generation when the active task title is absent.
     task_descriptions = [d for d in task_descriptions if d.strip()]
-    if not task_descriptions:
-        log.warning("generate_reward_image.empty_descriptions")
-        return None
 
     _img_gen_start = time.monotonic()
     log.info("image_gen.start", intensity=intensity, streak_count=streak_count)
