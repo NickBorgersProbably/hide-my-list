@@ -123,19 +123,103 @@ async def test_notion_health_failure_without_detail_still_alerts(db_conn: Any) -
 
 @pytest.mark.asyncio
 async def test_notion_health_ok_no_alert(db_conn: Any) -> None:
-    """A successful probe creates no ops alert."""
+    """A healthy probe and a healthy schema create no ops alert."""
     from app.scheduler.jobs import check_notion_health
-    from app.tools.notion import HealthCheckResult
+    from app.tools.notion import HealthCheckResult, SchemaCheckResult
 
-    with patch(
-        "app.tools.notion.health_check",
-        new_callable=AsyncMock,
-        return_value=HealthCheckResult(ok=True),
+    with (
+        patch(
+            "app.tools.notion.health_check",
+            new_callable=AsyncMock,
+            return_value=HealthCheckResult(ok=True),
+        ),
+        patch(
+            "app.tools.notion.verify_schema",
+            new_callable=AsyncMock,
+            return_value=SchemaCheckResult(ok=True),
+        ),
+    ):
+        await check_notion_health()
+
+    row = await db_conn.execute("SELECT COUNT(*) AS cnt FROM ops_alerts")
+    result = await row.fetchone()
+    assert result["cnt"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Notion schema mismatch → distinct ops alert
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_notion_schema_mismatch_enqueues_alert_naming_properties(
+    db_conn: Any,
+) -> None:
+    """A schema mismatch alerts under its own kind, naming the properties.
+
+    The property names must reach the alert body: it is the only copy the
+    operator sees over Signal, and an alert saying merely "schema mismatch"
+    forces them to reproduce the check by hand before they can act.
+    """
+    from app.scheduler.jobs import check_notion_health
+    from app.tools.notion import HealthCheckResult, SchemaCheckResult
+
+    mismatch = SchemaCheckResult(
+        ok=False,
+        missing=("Due At", "Reminder Scheduled At"),
+    )
+    with (
+        patch(
+            "app.tools.notion.health_check",
+            new_callable=AsyncMock,
+            return_value=HealthCheckResult(ok=True),
+        ),
+        patch(
+            "app.tools.notion.verify_schema",
+            new_callable=AsyncMock,
+            return_value=mismatch,
+        ),
     ):
         await check_notion_health()
 
     row = await db_conn.execute(
-        "SELECT COUNT(*) AS cnt FROM ops_alerts WHERE alert_kind = 'notion_health_failed'"
+        "SELECT alert_kind, severity, state, body FROM ops_alerts "
+        "WHERE alert_kind = 'notion_schema_mismatch'"
+    )
+    alert = await row.fetchone()
+    assert alert is not None, "Expected a pending ops alert for notion_schema_mismatch"
+    assert alert["state"] == "pending"
+    assert alert["severity"] == "warning"
+    assert "Due At" in alert["body"]
+    assert "Reminder Scheduled At" in alert["body"]
+
+
+@pytest.mark.asyncio
+async def test_connectivity_failure_skips_schema_probe(db_conn: Any) -> None:
+    """When the API is unreachable the schema probe does not run.
+
+    It could not read the schema during an outage anyway, and a second alert
+    would describe the same root cause twice — doubling the noise at exactly
+    the moment the operator needs a clear signal.
+    """
+    from app.scheduler.jobs import check_notion_health
+    from app.tools.notion import HealthCheckResult
+
+    verify = AsyncMock()
+    with (
+        patch(
+            "app.tools.notion.health_check",
+            new_callable=AsyncMock,
+            return_value=HealthCheckResult(ok=False, detail="ConnectError: unreachable"),
+        ),
+        patch("app.tools.notion.verify_schema", verify),
+    ):
+        await check_notion_health()
+
+    verify.assert_not_awaited()
+
+    row = await db_conn.execute(
+        "SELECT COUNT(*) AS cnt FROM ops_alerts WHERE alert_kind = 'notion_schema_mismatch'"
     )
     result = await row.fetchone()
     assert result["cnt"] == 0
