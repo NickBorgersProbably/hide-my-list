@@ -1,0 +1,127 @@
+name: App Image
+
+# Builds and pushes the runtime app image defined in `docker/Dockerfile` to
+# GHCR so deployments pull a published artifact instead of building on the
+# host. This is the production runtime image, distinct from the CI agent image
+# published by `ci-image.yml` and from the devcontainer image used for human
+# IDE workflows.
+#
+# Security: matches the ci-image property — pushes only happen from `main`,
+# never from PR branches. The PR-side build (no push) lives in `pr-tests.yml`
+# as the `Docker Build Check` job, so a broken Dockerfile is caught before it
+# reaches this workflow.
+#
+# amd64 only: the builder stage compiles against libpq with gcc, so an arm64
+# leg would run under QEMU emulation and cost several minutes per push. The
+# deployment target is x86_64.
+#
+# Package visibility: the image is intended to be public. GHCR creates new
+# packages as private and `GITHUB_TOKEN` cannot change that, so this is a
+# one-time manual step after the first successful publish:
+#   gh api -X PATCH /orgs/NickBorgersProbably/packages/container/hide-my-list \
+#     -f visibility=public
+# (needs a PAT with `write:packages`, or use the package settings UI).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/Dockerfile'
+      - 'app/**'
+      - 'migrations/**'
+      - 'setup/**'
+      - 'pyproject.toml'
+      - '.github/workflows/app-image.yml'
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Push to GHCR after build'
+        type: boolean
+        default: true
+      tag:
+        description: 'Image tag (default: latest)'
+        type: string
+        default: latest
+
+concurrency:
+  group: app-image-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/nickborgersprobably/hide-my-list
+
+jobs:
+  build:
+    name: Build + push app image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve tag
+        id: tag
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+        run: |
+          set -eux
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            case "$TAG_INPUT" in
+              ""|*[!A-Za-z0-9_.-]*) printf 'Invalid tag\n' >&2; exit 1 ;;
+            esac
+            printf 'tag=%s\n' "$TAG_INPUT" >> "$GITHUB_OUTPUT"
+          else
+            printf 'tag=latest\n' >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            {
+              echo 'cache_to<<CACHE_EOF'
+              echo 'type=gha,mode=max'
+              printf 'type=registry,ref=%s:buildcache,mode=max\n' "$IMAGE_NAME"
+              echo 'CACHE_EOF'
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo 'cache_to=' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build + push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.push)) }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
+          cache-to: ${{ steps.tag.outputs.cache_to }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### App image build"
+            echo ""
+            echo "- Image: \`${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}\`"
+            echo "- SHA: \`${{ env.IMAGE_NAME }}:${{ github.sha }}\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- Platform: \`linux/amd64\`"
+          } >> "$GITHUB_STEP_SUMMARY"
