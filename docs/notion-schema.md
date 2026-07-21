@@ -108,7 +108,7 @@ stateDiagram-v2
 
 ---
 
-### WorkType (select)
+### Work Type (select)
 
 Categorizes work nature.
 
@@ -182,7 +182,7 @@ flowchart LR
 
 ---
 
-### TimeEstimate (number)
+### Time Estimate (min) (number)
 
 Estimated minutes to complete.
 
@@ -211,7 +211,7 @@ flowchart LR
 
 ---
 
-### EnergyRequired (select)
+### Energy Required (select)
 
 Cognitive/physical energy needed.
 
@@ -391,7 +391,7 @@ Format:
 
 **Used for:** Understanding remaining work, creating accurate sub-tasks, context on resume.
 
-### StartedAt (date)
+### Started At (date)
 
 Set when user accepts and begins task. Used for:
 - Actual duration calc (with CompletedAt)
@@ -435,7 +435,7 @@ See [task-lifecycle.md Phase 5.1](./task-lifecycle.md#phase-51-resume-detection)
 
 ---
 
-### IsReminder (checkbox)
+### Is Reminder (checkbox)
 
 Flags task as time-specific reminder, not normal work item. Not surfaced in normal task selection. At intake, the agent creates the Notion reminder row and writes a `reminder_outbox` row for delivery by the APScheduler reminder worker at `remind_at`.
 
@@ -448,7 +448,7 @@ Flags task as time-specific reminder, not normal work item. Not surfaced in norm
 
 ---
 
-### RemindAt (date)
+### Remind At (date)
 
 Wall-clock time reminder becomes due. Full ISO 8601 with timezone for comparison against current time.
 
@@ -462,7 +462,7 @@ Format: ISO 8601 with timezone (e.g., 2025-01-04T18:00:00-06:00)
 
 ---
 
-### ReminderStatus (select)
+### Reminder Status (select)
 
 Tracks reminder delivery.
 
@@ -752,10 +752,10 @@ sequenceDiagram
 **Required on Create:**
 - Title
 - Status: `pending`
-- WorkType
+- Work Type
 - Urgency
-- TimeEstimate
-- EnergyRequired
+- Time Estimate (min)
+- Energy Required
 - CreatedAt
 
 ---
@@ -908,7 +908,7 @@ flowchart TD
     end
 ```
 
-| Title | WorkType | Urgency | Time | Energy | Status | Parent |
+| Title | Work Type | Urgency | Time | Energy | Status | Parent |
 |-------|----------|---------|------|--------|--------|--------|
 | Review Sarah's proposal | focus | 65 | 30 | medium | pending | — |
 | Call mom | social | 25 | 15 | low | pending | — |
@@ -936,7 +936,7 @@ flowchart TD
     P --> S4
 ```
 
-| Title | WorkType | Urgency | Time | Energy | Status | Parent | Seq |
+| Title | Work Type | Urgency | Time | Energy | Status | Parent | Seq |
 |-------|----------|---------|------|--------|--------|--------|-----|
 | Complete Q4 report | focus | 70 | 165 | high | has_subtasks | — | — |
 | Draft outline | focus | 70 | 30 | medium | pending | Q4 report | 1 |
