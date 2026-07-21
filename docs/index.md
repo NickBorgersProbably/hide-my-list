@@ -46,3 +46,8 @@ Per-file inventory of all CI and infrastructure files lives in [DEV-AGENTS.md](.
 - `update-ai-clis.yml` — refreshes Claude Code and Codex CLI pins weekly and re-vendors the upstream security audit prompt
 - `nightly-evals.yml` — cron 09:00 UTC; runs LLM behavior evals against current model tiers on the homelab runner
 - `model-swap.yml` — `workflow_dispatch` only; side-by-side baseline vs. candidate model comparison before tier changes
+
+Published container images (both push from `main` only, never from PR branches):
+
+- `ghcr.io/nickborgersprobably/hide-my-list` — runtime app image, built from `docker/Dockerfile` by `app-image.yml`
+- `ghcr.io/nickborgersprobably/hide-my-list-ci` — CI agent image, built from `.github/ci/Dockerfile` by `ci-image.yml`
