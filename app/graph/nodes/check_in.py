@@ -39,7 +39,7 @@ async def check_in_node(state: State) -> dict[str, Any]:
         from app.models import llm
         from app.prompts.loader import render_with_defaults
 
-        task_title = active_task.get("title", "your task")
+        task_title = (active_task.get("title") or "").strip() or "your task"
         time_estimate = active_task.get("time_estimate", 30)
         page_id = active_task.get("page_id", "")
 

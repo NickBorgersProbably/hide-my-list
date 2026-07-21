@@ -34,7 +34,8 @@ async def rejection_node(state: State) -> dict[str, Any]:
         available_minutes = state.get("available_minutes") or 30
         mood = state.get("mood") or "neutral"
 
-        task_title = active_task.get("title", "the suggested task") if active_task else "the suggested task"
+        task_title = (active_task.get("title") or "").strip() if active_task else ""
+        task_title = task_title or "the suggested task"
         rejected_page_id = active_task.get("page_id", "") if active_task else ""
 
         # Fetch remaining tasks for alternative suggestion

@@ -260,9 +260,8 @@ await rewards.generate_reward_image(
 The function validates its reward inputs before generation:
 
 - `streak_count` must be the positive, post-completion current streak length.
-- When `streak_count` is `N`, the caller must provide exactly `N` task descriptions.
-- The first completion in a streak uses `streak_count` `1` and one task description.
-- Empty descriptions are rejected.
+- Task descriptions are private input — classified for metadata purposes, never embedded verbatim in the image prompt.
+- Blank or missing task descriptions are tolerated and do not abort image generation; the prompt falls back to generic progress imagery driven by intensity and theme selection alone.
 
 Callers build the task-description list from the current completion session,
 ordered oldest to newest after the completed task has been counted. The list
@@ -274,18 +273,13 @@ Output: `app/tools/rewards.py` generates a PNG, stores it in the reward artifact
 
 #### Prompt Personalization Pipeline
 
-Reward prompts are built from four layers:
+Reward prompts are built from three layers:
 
-1. **Intensity theme pool** - low/medium/high/epic still control the overall celebration scale
-2. **Task motif extraction** - validated task descriptions become safe visual motifs (call, writing, setup, cleanup, etc.)
-3. **Preference modifiers** - optional `user_prefs.rewards` values (Postgres) bias style, palette, and subject matter
-4. **Feedback weighting** - prior positive/negative reactions bias future theme-family, style, and palette selection
+1. **Intensity theme pool** — low/medium/high/epic control the overall celebration scale; the theme-family, style, and palette are selected from the matching pool
+2. **Preference modifiers** — optional `user_prefs.rewards` values (Postgres) bias style, palette, and subject matter
+3. **Feedback weighting** — prior positive/negative reactions bias future theme-family, style, and palette selection
 
-Task descriptions are not copied blindly into the image prompt. The script first validates the count against the streak, classifies the completed tasks, and builds either:
-
-- **Literal motifs** for ordinary tasks: "glowing phone and confetti" for calls, "pages turning into stars" for writing
-- **Metaphorical motifs** for sensitive tasks: therapy/medical/personal/legal/financial tasks use abstract or symbolic celebration instead of literal depictions
-- **Generic progress imagery** when the title is too vague to trust
+Task descriptions are private. They are passed to the image-generation call for metadata and sensitivity classification, but `_build_image_prompt()` does not embed task text into the prompt. The prompt is assembled from the selected theme-family, style, palette, streak marker count, humor level, and feedback guidance only. Generic progress imagery is used regardless of whether task text is available.
 
 #### Reward Delivery Contract
 
