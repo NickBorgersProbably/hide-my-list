@@ -150,12 +150,15 @@ Intent:
 
 **Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder classify from the windowed `state["messages"]` history that `send_node` writes — the same `Prior conversation` block surfaced above.
 
-### Cross-Session Reply Resolution (target — not yet wired in Phase B)
+### Cross-Session Reply Resolution
 
-DB-backed `recent_outbound` resolution remains the planned path for reminder follow-ups that arrive after a checkpoint window has rolled. Phase B does not consult the `recent_outbound` table for classification; the runtime contract above is the source of truth. When that path is wired, the matched entry's context threads into downstream modules as follows:
+`recent_outbound` carries reminder context across a rolled checkpoint window, so a reply that arrives in a later session still resolves to the reminder it answers. Intent classification itself reads the windowed `state["messages"]` history described above; `recent_outbound` resolves the *target* once the intent is known.
 
+- COMPLETE: the matched entry identifies the finished task. Its Notion page is already `Completed` (the reminder worker closes it at delivery), so completion acknowledges and rewards without a second Notion write, then marks the entry `awaiting_reply: false`. Where both a matched entry and an active task are live, the more recent context is the referent; where neither is, ask which task the user means rather than completing an unconfirmed one.
 - ADD_TASK (reschedule): matched `recent_outbound.title` seeds the new reminder title in `docs/ai-prompts/intake.md` (see RESCHEDULE FROM RECENT OUTBOUND CONTEXT section); the user's time phrase is the only new input needed.
 - REJECT (prior suggestion declined): matched `recent_outbound.title` populates REJECTED TASK in `docs/ai-prompts/rejection.md`; user message text (e.g. "not that one") is USER'S REASON. Clear or mark `awaiting_reply: false` on the matched entry after routing.
+
+An active task is live context only for a bounded window after it is selected. Past that window it is a leftover, not a referent, and cannot be completed without the user naming it.
 
 ### Intent Detection Examples
 

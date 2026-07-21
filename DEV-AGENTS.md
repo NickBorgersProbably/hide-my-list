@@ -43,6 +43,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/tools/signal_client.py` — Signal bridge async client
 - `app/tools/signal_ingress_health.py` — Durable Signal ingress liveness marker; `record_inbound_message` upserts last-inbound timestamp, `check_inbound_silence` enqueues a critical ops alert when the threshold is exceeded
 - `app/tools/reminders.py` — Reminder outbox CRUD
+- `app/tools/recent_outbound.py` — `recent_outbound` reader; `load_awaiting_reply` returns the newest unresolved, unexpired reminder for a peer and `clear_awaiting_reply` marks it resolved, so a completion reply arriving in a later session resolves to the reminder it answers
 - `app/tools/rewards.py` — Reward delivery (emoji + image; v1 scope)
 - `app/tools/ops_alerts.py` — Ops alert enqueue + drain
 - `app/tools/time_context.py` — Timezone helper
@@ -57,7 +58,7 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/graph/nodes/cannot_finish.py` — CANNOT_FINISH intent node
 - `app/graph/nodes/need_help.py` — NEED_HELP intent node
 - `app/graph/nodes/check_in.py` — CHECK_IN intent node
-- `app/graph/nodes/complete.py` — COMPLETE intent node
+- `app/graph/nodes/complete.py` — COMPLETE intent node; resolves the finished task from the newer of an unresolved `recent_outbound` reminder and a non-stale `active_task`, and asks the user rather than completing an unconfirmed task
 - `app/graph/nodes/send.py` — Terminal send node; enforces the task-naming invariant on every draft carrying `notion_page_title`
 - `app/graph/nodes/_task_token.py` — Shared `{task}` token substitution; prompts write the literal token and the application fills in the exact stored title
 - `app/scheduler/scheduler.py` — APScheduler v3 wiring with PostgresJobStore

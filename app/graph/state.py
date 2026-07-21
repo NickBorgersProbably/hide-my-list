@@ -2,7 +2,9 @@
 
 The State TypedDict is the checkpoint unit: one state per (peer, thread_id).
 recent_outbound is NOT in State — it lives in the Postgres recent_outbound
-table, written by the reminder worker, read by graph nodes at turn start.
+table, written by the reminder worker and read at turn start via
+app/tools/recent_outbound.py, so a reply that arrives in a later session can
+still be matched to the reminder it answers.
 """
 from __future__ import annotations
 
@@ -29,7 +31,14 @@ ConversationState = Literal[
 
 
 class ActiveTask(TypedDict, total=False):
-    """Rehydrated from Notion each turn; Notion is authoritative."""
+    """Rehydrated from Notion each turn; Notion is authoritative.
+
+    selected_at is the ISO 8601 UTC timestamp of the selection turn that set
+    this entry. `complete_node` uses it to decide whether the entry is still
+    live context: nothing clears active_task except completion and rejection,
+    so without an age a task offered weeks ago stays a valid completion target
+    and can be closed by an unrelated "done".
+    """
     page_id: str
     title: str
     status: str
@@ -38,6 +47,7 @@ class ActiveTask(TypedDict, total=False):
     time_estimate: int
     energy_required: str
     started_at: str
+    selected_at: str
     check_in_count: int
     rejection_count: int
 

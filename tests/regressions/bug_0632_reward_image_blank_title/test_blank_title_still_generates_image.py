@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import os
 import tempfile
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -124,11 +125,21 @@ async def test_complete_node_does_not_fabricate_a_title(
         return_value={"text": "Nice work!", "attachment_path": None}
     )
 
+    # selection_node stamps selected_at; complete_node treats an unaged entry
+    # as stale and refuses to complete it (see issue #641).
+    active_task = {**active_task, "selected_at": datetime.now(UTC).isoformat()}
     state = {"peer": "+10000000000", "active_task": active_task, "streak": 1}
 
-    with patch("app.tools.rewards.maybe_reward", maybe_reward_mock):
-        with patch("app.tools.notion.update_status", new_callable=AsyncMock):
-            await complete_node(state)  # type: ignore[arg-type]
+    with (
+        patch("app.tools.rewards.maybe_reward", maybe_reward_mock),
+        patch("app.tools.notion.update_status", new_callable=AsyncMock),
+        patch(
+            "app.tools.recent_outbound.load_awaiting_reply",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        await complete_node(state)  # type: ignore[arg-type]
 
     maybe_reward_mock.assert_awaited_once()
     assert maybe_reward_mock.await_args.kwargs["task_title"] == "", (

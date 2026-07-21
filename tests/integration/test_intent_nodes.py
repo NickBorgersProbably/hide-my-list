@@ -41,6 +41,10 @@ def _active_task(title: str = "Placeholder active task", page_id: str = "") -> d
         "urgency": 60,
         "time_estimate": 45,
         "energy_required": "Medium",
+        # selection_node stamps this on every entry it creates. complete_node
+        # treats an entry with no age as stale, so omitting it here would not
+        # model a real selection.
+        "selected_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -369,6 +373,11 @@ async def test_complete_node_marks_task_done_and_rewards() -> None:
 
     with (
         patch("app.tools.notion.update_status", new_callable=AsyncMock),
+        patch(
+            "app.tools.recent_outbound.load_awaiting_reply",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
         patch(
             "app.tools.rewards.maybe_reward",
             new_callable=AsyncMock,

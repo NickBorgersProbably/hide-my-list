@@ -143,6 +143,9 @@ async def selection_node(state: State) -> dict[str, Any]:
             selected_simplified = next((t for t in simplified if t["id"] == selected_page_id), None)
             active_task = ActiveTask(
                 page_id=selected_page_id,
+                # Stamped so complete_node can tell live context from a
+                # leftover: nothing else ages this entry out.
+                selected_at=datetime.now(UTC).isoformat(),
                 title=selected_simplified["title"] if selected_simplified else "",
                 status="In Progress",
                 work_type=selected_simplified["work_type"] if selected_simplified else "",
