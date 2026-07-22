@@ -120,6 +120,8 @@ Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude
 - `scripts/check-doc-links.sh` — Internal doc link validator for local hooks + CI doc checks
 - `scripts/ci-session-store.sh` — Path-naming, pack/unpack, and trailer-parse helper for the per-(agent, issue, run-id) author-session store (job-local under `${RUNNER_TEMP}/ci-sessions/<agent>/<issue>/<run-id>/`); used by both `resolve-issue` (pack + upload) and v2 review-fixer (download + unpack)
 - `scripts/test-ci-session-store.sh` — Self-contained unit tests for `ci-session-store.sh`; invoked by `review-fixer-resume-smoke.yml`
+- `scripts/issue-pr-claims.sh` — Determines whether an issue already has work in flight, so the Issue Resolution Agent does not author a PR alongside a human or local agent already fixing the same thing. `is-claimed` (pre-flight dispatch suppression), `duplicates` (post-run overlap detection), `issue-state`. Matches PR bodies with an explicit closing-keyword regex rather than `gh pr list --search`, which treats a bare `#N` citation as a claim.
+- `scripts/test-issue-pr-claims.sh` — Unit tests for `issue-pr-claims.sh`; runs in `run-required-checks.sh ci-scripts` (no network, no docker, no LLM)
 - `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, and workflow validations (no OpenClaw config mode)
 - `scripts/security-update.sh` — Security update automation
 - `scripts/validate-gh-cli-usage.sh` — GitHub CLI workflow usage validation

@@ -131,6 +131,14 @@ run_script_validation() {
   mapfile -t executable_targets < <(filter_existing_files scripts/*.sh .githooks/install-hooks.sh .githooks/pre-commit .githooks/pre-push)
   run_shellcheck "${script_targets[@]}"
   run_executable_check "${executable_targets[@]}"
+  run_shell_unit_tests
+}
+
+# Self-contained shell unit tests: no network, no docker, no LLM.
+run_shell_unit_tests() {
+  require_command jq
+  echo "=== Running shell unit tests ==="
+  "$REPO_ROOT/scripts/test-issue-pr-claims.sh"
 }
 
 run_doc_link_check() {

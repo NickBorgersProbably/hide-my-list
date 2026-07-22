@@ -20,6 +20,6 @@ IMPORTANT RULES FOR THIS REPOSITORY:
 
 Complete the user's request. If you make changes, create a branch, commit them, and open a PR.
 BEFORE creating a new PR, check if one already exists for this issue:
-  gh pr list --state open --search 'Resolves #${ISSUE_NUMBER} OR Fixes #${ISSUE_NUMBER} OR Closes #${ISSUE_NUMBER}'
+  ./scripts/issue-pr-claims.sh duplicates ${ISSUE_NUMBER} --repo ${REPO}
 If a PR already exists, push changes to that PR's branch instead of creating a new one.
 Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'
