@@ -135,7 +135,11 @@ def _call_judge_llm(
         model=model,
         api_key=api_key,
         base_url=base_url,
-        max_tokens=256,
+        # Thinking tokens count against max_tokens on the proxy path. A tight
+        # cap starves the visible output: the judge returns empty or
+        # mid-sentence-truncated JSON, which strict parsing then reports as a
+        # contract error — indistinguishable in the report from a real failure.
+        max_tokens=2000,
         timeout=timeout_seconds,
     )
     response = chat.invoke([HumanMessage(content=prompt)])
