@@ -33,6 +33,7 @@ class ActiveTask(TypedDict, total=False):
     page_id: str
     title: str
     status: str
+    selected_at: str
     work_type: str
     urgency: int
     time_estimate: int

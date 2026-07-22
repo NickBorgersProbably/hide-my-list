@@ -37,6 +37,7 @@ def _active_task(title: str = "Placeholder active task", page_id: str = "") -> d
         "page_id": page_id or str(uuid.uuid4()),
         "title": title,
         "status": "In Progress",
+        "selected_at": datetime.now(UTC).isoformat(),
         "work_type": "focus",
         "urgency": 60,
         "time_estimate": 45,

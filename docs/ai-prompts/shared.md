@@ -150,9 +150,26 @@ Intent:
 
 **Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder classify from the windowed `state["messages"]` history that `send_node` writes — the same `Prior conversation` block surfaced above.
 
-### Cross-Session Reply Resolution (target — not yet wired in Phase B)
+### Cross-Session Reply Resolution
 
-DB-backed `recent_outbound` resolution remains the planned path for reminder follow-ups that arrive after a checkpoint window has rolled. Phase B does not consult the `recent_outbound` table for classification; the runtime contract above is the source of truth. When that path is wired, the matched entry's context threads into downstream modules as follows:
+Intent classification uses the checkpointed conversation window in
+`state["messages"]`; it does not query `recent_outbound` during routing.
+After a message routes to COMPLETE, `complete_node` resolves the completion
+target by comparing:
+
+- the newest unresolved `recent_outbound` row for the peer where
+  `awaiting_reply = true` and `expires_at > now()`
+- the checkpointed `active_task`, when it has a parseable, unexpired
+  `selected_at`
+
+The more recent context wins. If the reminder row wins, the node rewards the
+matched `notion_page_id`, skips the Notion status write because reminder
+delivery already completes the reminder page, and marks the matched
+`recent_outbound` row `awaiting_reply = false`. If no confident target exists,
+the node asks which task the user means instead of completing a checkpointed
+task by default.
+
+Other shorthand follow-up paths thread matched context as follows:
 
 - ADD_TASK (reschedule): matched `recent_outbound.title` seeds the new reminder title in `docs/ai-prompts/intake.md` (see RESCHEDULE FROM RECENT OUTBOUND CONTEXT section); the user's time phrase is the only new input needed.
 - REJECT (prior suggestion declined): matched `recent_outbound.title` populates REJECTED TASK in `docs/ai-prompts/rejection.md`; user message text (e.g. "not that one") is USER'S REASON. Clear or mark `awaiting_reply: false` on the matched entry after routing.
