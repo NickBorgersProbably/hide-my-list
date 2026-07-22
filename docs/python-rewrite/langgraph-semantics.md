@@ -83,31 +83,37 @@ running outside the graph cannot mutate a checkpoint without invoking the graph.
 and directly write to checkpoint tables — coupling the worker to LangGraph internals.
 Storing it in a plain Postgres table decouples the worker completely.
 
-**Pattern (target — not yet implemented in Phase B classifier):**
+**Pattern:**
 
 ```python
-# Target pattern for classify_intent (Phase B classifier does not yet read this):
-async def classify_intent(state: State) -> dict:
+async def complete_node(state: State) -> dict:
     peer = state["peer"]
-    # Read recent_outbound from Postgres — NOT from checkpoint state
+    active_target = target_from_active_task(state.get("active_task"))
+    # Read recent_outbound from Postgres — NOT from checkpoint state.
     async with get_db_conn() as conn:
         rows = await conn.fetch(
             "SELECT * FROM recent_outbound WHERE peer = $1 AND awaiting_reply = true "
-            "AND expires_at > now() ORDER BY sent_at DESC LIMIT 5",
+            "AND expires_at > now() ORDER BY sent_at DESC LIMIT 1",
             peer
         )
-    recent_outbound_context = build_context_string(rows)
-    # Use context to resolve ambiguous intents
-    intent = await llm_classify(state["incoming"], recent_outbound_context)
-    return {"intent": intent}
+    recent_target = target_from_recent_outbound(rows)
+    target = choose_newest_context(active_target, recent_target)
+    return await complete_target(target)
 ```
 
 The Phase B implementation in `app/graph/routing.py` reads a window of prior turns from
 `state["messages"]` — the checkpointed LangGraph channel populated by `send_node` — and
 includes them as a `Prior conversation:` block in the classifier prompt. This lets short
-follow-ups resolve against the active discussion without querying the `recent_outbound`
-table. DB-backed `recent_outbound` context remains the planned path for cross-session reply
-resolution (reminder follow-up via `awaiting_reply`) and is not yet wired in Phase B.
+follow-ups classify against the active discussion without querying the `recent_outbound`
+table during routing.
+
+After a turn routes to COMPLETE, `app/graph/nodes/complete.py` queries
+`recent_outbound` for the peer, filters to unresolved, unexpired rows, and compares that
+context with `active_task.selected_at`. The newest confident context wins. When the
+`recent_outbound` reminder context wins, the node skips the Notion status write because the
+reminder worker already completes the reminder page at delivery time, rewards the matched
+page, and clears the matched row with `awaiting_reply = false`. When no confident context
+exists, the node asks for clarification instead of completing stale checkpoint context.
 
 **Worker writes:**
 

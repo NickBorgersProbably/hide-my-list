@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import os
 import tempfile
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -98,11 +99,20 @@ def test_prompt_never_contains_task_text() -> None:
     "active_task",
     [
         pytest.param(
-            {"page_id": "<page_id>", "title": "", "status": "In Progress"},
+            {
+                "page_id": "<page_id>",
+                "title": "",
+                "status": "In Progress",
+                "selected_at": datetime.now(UTC).isoformat(),
+            },
             id="blank-title",
         ),
         pytest.param(
-            {"page_id": "<page_id>", "status": "In Progress"},
+            {
+                "page_id": "<page_id>",
+                "status": "In Progress",
+                "selected_at": datetime.now(UTC).isoformat(),
+            },
             id="missing-title",
         ),
     ],

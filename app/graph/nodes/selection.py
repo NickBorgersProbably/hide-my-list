@@ -145,6 +145,7 @@ async def selection_node(state: State) -> dict[str, Any]:
                 page_id=selected_page_id,
                 title=selected_simplified["title"] if selected_simplified else "",
                 status="In Progress",
+                selected_at=datetime.now(UTC).isoformat(),
                 work_type=selected_simplified["work_type"] if selected_simplified else "",
                 urgency=selected_simplified["urgency"] if selected_simplified else 50,
                 time_estimate=selected_simplified["time_estimate"] if selected_simplified else 30,
@@ -154,7 +155,7 @@ async def selection_node(state: State) -> dict[str, Any]:
                 rejection_count=selected_simplified["rejection_count"] if selected_simplified else 0,
             )
 
-        log.info("selection_node.suggestion", peer=peer, notion_page_id=selected_page_id)
+        log.info("selection_node.suggestion", notion_page_id=selected_page_id)
         return {
             "pending_outbound": [draft],
             "active_task": active_task,
@@ -162,7 +163,7 @@ async def selection_node(state: State) -> dict[str, Any]:
         }
 
     except Exception:
-        log.exception("selection_node.error", peer=peer)
+        log.exception("selection_node.error")
         fallback: OutboundDraft = {
             "recipient": peer,
             "body": "Having trouble finding a task right now. Try again in a moment?",
