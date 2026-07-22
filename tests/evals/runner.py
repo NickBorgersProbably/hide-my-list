@@ -413,6 +413,41 @@ def _invoke_node(node: str, fixture: Fixture) -> str:
         "incoming": fixture.inbound,
         **fixture.prior_state,
     }
+    # Fixtures declare prior messages as `{role, content}` YAML mappings, but
+    # nodes read LangChain message objects via getattr — a plain dict silently
+    # yields empty strings, dropping the fixture's conversational context.
+    raw_messages: list[Any] = list(state.get("messages") or [])
+    if raw_messages:
+        from langchain_core.messages import AIMessage, HumanMessage  # noqa: PLC0415
+
+        state["messages"] = [
+            AIMessage(content=str(m.get("content", "")))
+            if m.get("role") == "assistant"
+            else HumanMessage(content=str(m.get("content", "")))
+            for m in raw_messages
+            if isinstance(m, dict)
+        ]
+
+    import asyncio  # noqa: PLC0415
+
+    if node == "classify_intent":
+        # Intent classification lives in app/graph/routing.py, not under
+        # app/graph/nodes/, and returns {"intent": <label>} rather than a
+        # pending_outbound draft. The label string is the scored response.
+        from app.graph.routing import classify_intent  # noqa: PLC0415
+
+        with capture_logs() as captured:
+            classified = asyncio.run(classify_intent(state))
+        for entry in captured:
+            if entry.get("event") == "classify_intent.error":
+                raise RuntimeError(
+                    "classify_intent took its exception fallback path — the returned "
+                    "label is the hand-written CHAT default, not model output, and "
+                    "scoring it would be meaningless. Fix the underlying error before "
+                    "trusting this fixture."
+                )
+        return str(classified.get("intent") or "")
+
     module_path = f"app.graph.nodes.{node}"
     import importlib  # noqa: PLC0415
 
@@ -423,8 +458,6 @@ def _invoke_node(node: str, fixture: Fixture) -> str:
         raise RuntimeError(
             f"{module_path}.{fn_name} not found — fixture targets a node that has no handler"
         )
-
-    import asyncio  # noqa: PLC0415
 
     undo_notion = _install_notion_stub(fixture)
     try:

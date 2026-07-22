@@ -23,6 +23,11 @@ dependencies = [
     "anyio==4.13.0",
     "jinja2==3.1.6",
     "openai==2.37.0",
+    # zoneinfo needs an IANA database. Hosts without system tzdata (minimal
+    # containers, some self-hosted CI runners) otherwise raise
+    # ZoneInfoNotFoundError in app/tools/time_context.py, which silently
+    # degrades intake to its exception-fallback reply.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
