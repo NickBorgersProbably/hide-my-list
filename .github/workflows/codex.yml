@@ -202,12 +202,18 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if REASON=$(./scripts/issue-pr-claims.sh is-claimed "${ISSUE_NUM}" --repo "${REPO}"); then
+          REASON=""
+          EXIT_CODE=0
+          REASON=$(./scripts/issue-pr-claims.sh is-claimed "${ISSUE_NUM}" --repo "${REPO}") || EXIT_CODE=$?
+          if [ "${EXIT_CODE}" -eq 0 ]; then
             echo "Skipping dispatch: ${REASON}"
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "${EXIT_CODE}" -eq 1 ]; then
             echo "No existing PR found for issue #${ISSUE_NUM}"
             echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Claim check failed with exit ${EXIT_CODE}: ${REASON}" >&2
+            exit "${EXIT_CODE}"
           fi
 
       - name: Label issue as <agent>-started
@@ -413,9 +419,20 @@ jobs:
           set -euo pipefail
           MARKER="<!-- duplicate-author-check:${ISSUE_NUM} -->"
 
+          ISSUE_STATE=$(./scripts/issue-pr-claims.sh issue-state "${ISSUE_NUM}" --repo "${REPO}")
           mapfile -t PRS < <(./scripts/issue-pr-claims.sh duplicates "${ISSUE_NUM}" --repo "${REPO}")
-          if [ "${#PRS[@]}" -le 1 ]; then
+
+          # No flagging needed when few open PRs and the issue is still open.
+          # A closed issue signals that a competing PR merged while the agent ran,
+          # making the agent's PR redundant even if it is the only open one.
+          if [ "${#PRS[@]}" -le 1 ] && [ "${ISSUE_STATE}" != "CLOSED" ]; then
             echo "No duplicate PRs for issue #${ISSUE_NUM} (${#PRS[@]} open)."
+            exit 0
+          fi
+
+          # Issue closed but no open PRs to label; nothing to do.
+          if [ "${#PRS[@]}" -eq 0 ]; then
+            echo "Issue #${ISSUE_NUM} is ${ISSUE_STATE} with no open PRs; skipping."
             exit 0
           fi
 
