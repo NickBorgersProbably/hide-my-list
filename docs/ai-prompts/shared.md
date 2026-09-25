@@ -196,8 +196,8 @@ only "could not tell", and context still resolves.
 
 The question is recorded in `state["pending_clarification"]`: its kind, when it
 was asked, how many times it has been asked, and the options it named.
-`classify_intent` owns that key's lifecycle, since it is the only node that
-runs on every turn.
+`classify_intent` owns that key's lifecycle, since it performs clarification
+resolution and clearing on every classified turn, after `hydrate_context`.
 
 | Rule | Value |
 |------|-------|
