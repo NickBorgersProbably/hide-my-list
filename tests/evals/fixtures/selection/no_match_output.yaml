@@ -1,0 +1,36 @@
+---
+# The selection prompt now states an exact no-match response contract:
+# when selected_task_id is null, user_message must be exactly
+# "Nothing quite fits right now. Want to add something quick?"
+# An empty notion_tasks pool guarantees no task can be selected, so any
+# model output that deviates from the required phrase fails this fixture.
+# The previous prompt wording had no such exact-phrase requirement, so a
+# judge or regex_require contract here fails against the prior prompt.
+id: selection-no-match-output-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-no-match>"
+inbound: "give me something to do"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: null
+  mood: null
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks: []
+contracts:
+  - kind: regex_require
+    pattern: "Nothing quite fits right now\\. Want to add something quick\\?"
+  - kind: regex_forbid
+    pattern: "\\{task\\}"
+  - kind: judge
+    rubric: |
+      The pending task list is empty so no task can be selected. The
+      selection prompt requires that when nothing fits, user_message is
+      exactly "Nothing quite fits right now. Want to add something quick?"
+      and selected_task_id is null. Score 1.0 when the response contains
+      exactly that phrase and does not name or imply a task. Score 0.0
+      when the response invents a task, lists tasks, uses different wording,
+      or claims it will help find something without the required phrase.
+    threshold: 0.8

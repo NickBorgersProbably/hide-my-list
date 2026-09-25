@@ -34,8 +34,8 @@ REJECTION CATEGORIES:
 ACTIONS BY CATEGORY:
 - timing: Suggest shorter task, note time preference
 - mood_mismatch: Suggest different work type, avoid this type now
-- blocked: Mark as blocked, don't suggest until unblocked
-- already_done: Mark as completed, celebrate!
+- blocked: Suggest a different alternative; note the task is waiting on something
+- already_done: Celebrate the completion; suggest another task
 - general: Log rejection, try very different task
 
 OUTPUT (JSON):
@@ -77,7 +77,7 @@ though the user had picked the task.
 | timing | "Got it — that one's too long right now. How about {task}?" |
 | mood_mismatch | "Fair enough — that tells me what kind of work fits right now. How about {task}?" |
 | blocked | "I'll hold off on that one. In the meantime, try {task}?" |
-| already_done | "Oh nice, already done! Let me mark that off. Ready for another?" |
+| already_done | "Oh nice, already done! Ready for another?" |
 | general | "No problem — that helps me learn what works for you. Here's something different: {task}?" |
 
 ### Escalation After Multiple Rejections (Shame-Aware)
