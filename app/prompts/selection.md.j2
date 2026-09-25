@@ -18,19 +18,11 @@ Select the best task for the user based on their current context.
 
 User's message: "{{ user_message | default('') }}"
 
-Recent conversation:
-{{ conversation_context | default('No prior context.') }}
-
-When available time or mood says "not stated", read them from the user's
-message above ("I've got 2 hours", "I'm wiped", "feeling sharp"). Read
-available time and mood from that current message only. The recent
-conversation tells you what the user is referring to; it is never a source
-of available time or mood, even when an earlier turn stated them. If the
-current message does not say how much time they have, available time is
-unknown: do not assume a number and do not apply the Time Fit exclusion.
-Score on urgency, energy, and work type instead, and prefer the shorter task
-when two tasks score the same. If the message does not say how they feel,
-treat mood as neutral.
+When available time or mood says "not stated", take them from the user's
+message ("I've got 2 hours", "I'm wiped"). If the message gives no duration,
+score Time Fit as 1.0 for every task and exclude nothing on time. If it gives
+no mood, treat mood as neutral. Do not work through every task in detail —
+pick the best one and answer.
 
 ### Pending Tasks
 
@@ -38,7 +30,7 @@ treat mood as neutral.
 
 ### Scoring Rules
 
-1. Time Fit (30% weight; only when available time is known):
+1. Time Fit (30% weight; 1.0 for every task when available time is not stated):
    - Task fits with buffer: 1.0
    - Tight fit (within 10%): 0.5
    - Doesn't fit: 0.0 (EXCLUDE)

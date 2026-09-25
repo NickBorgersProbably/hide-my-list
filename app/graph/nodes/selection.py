@@ -13,7 +13,7 @@ from typing import Any, TypedDict, cast
 
 import structlog
 
-from app.graph.context import record_task_event, render_history
+from app.graph.context import record_task_event
 from app.graph.nodes._task_token import TASK_TOKEN
 from app.graph.state import ActiveTask, OutboundDraft, State
 
@@ -116,7 +116,6 @@ async def selection_node(state: State) -> dict[str, Any]:
             "time_of_day": time_of_day,
             "tasks_json": tasks_json,
             "user_message": incoming,
-            "conversation_context": render_history(state.get("messages", [])),
         }
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 

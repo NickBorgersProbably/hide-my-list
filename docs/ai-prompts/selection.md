@@ -41,24 +41,17 @@ USER CONTEXT:
 
 User's message: "{user_message}"
 
-Recent conversation:
-{conversation_context}
-
-When available time or mood says "not stated", read them from the user's
-message above. Read available time and mood from that current message only.
-The recent conversation tells you what the user is referring to; it is never
-a source of available time or mood, even when an earlier turn stated them.
-If the current message does not say how much time they have, available time
-is unknown: do not assume a number and do not apply the Time Fit exclusion.
-Score on urgency, energy, and work type instead, and prefer the shorter task
-when two tasks score the same. If the message does not say how they feel,
-treat mood as neutral.
+When available time or mood says "not stated", take them from the user's
+message ("I've got 2 hours", "I'm wiped"). If the message gives no duration,
+score Time Fit as 1.0 for every task and exclude nothing on time. If it gives
+no mood, treat mood as neutral. Do not work through every task in detail —
+pick the best one and answer.
 
 PENDING TASKS:
 {tasks_json}
 
 SCORING RULES:
-1. Time Fit (30% weight; only when available time is known):
+1. Time Fit (30% weight; 1.0 for every task when available time is not stated):
    - Task fits with buffer: 1.0
    - Tight fit (within 10%): 0.5
    - Doesn't fit: 0.0 (EXCLUDE)
@@ -152,19 +145,17 @@ prose the module writes itself.
 
 ### User Context Inputs
 
-The selection prompt receives the incoming message and the last 8 messages of
-conversation history alongside the scored task list. Available time and mood
-come from state when a node has set them; otherwise the prompt shows "not
-stated" and the module reads both from the user's current message ("I've got
-2 hours", "I'm wiped"). When the current message states no duration either,
-available time stays unknown: the module applies no Time Fit exclusion,
-scores on urgency, energy, and work type, and prefers the shorter task on a
-tie. A fabricated duration would exclude tasks that fit the time the user
-actually has, or offer a task longer than the time they have. The recent
-conversation is context for what the user is referring to, never a source of
-available time or mood: a "2 hours" or "feeling sharp" from an earlier turn
-may no longer be true, and a task sized to stale capacity sets the user up to
-stall.
+The selection prompt receives the incoming message alongside the scored task
+list. Available time and mood come from state when a node has set them;
+otherwise the prompt shows "not stated" and the module reads both from the
+user's current message ("I've got 2 hours", "I'm wiped"). When the current
+message states no duration either, Time Fit scores 1.0 for every task and
+nothing is excluded on time, so the ranking rests on mood match, urgency, and
+history. A fabricated duration would exclude tasks that fit the time the user
+actually has, or offer a task longer than the time they have. Conversation
+history stays out of this prompt: an earlier turn's "2 hours" or "feeling
+sharp" may no longer be true, and every extra line lengthens a reasoning-tier
+deliberation.
 
 ### Unknown Selection Guard
 

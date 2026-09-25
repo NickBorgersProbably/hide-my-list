@@ -900,7 +900,7 @@ async def test_selection_node_blank_title_is_not_suggested() -> None:
 
 
 @pytest.mark.asyncio
-async def test_selection_prompt_carries_the_user_message_and_history() -> None:
+async def test_selection_prompt_carries_the_user_message_only() -> None:
     """The model reads available time from the message when state has none."""
     from langchain_core.messages import AIMessage, HumanMessage
 
@@ -923,7 +923,9 @@ async def test_selection_prompt_carries_the_user_message_and_history() -> None:
 
     system_prompt = model.ainvoke.await_args.args[0][0].content
     assert "I have 2 hours and feel sharp" in system_prompt
-    assert "assistant: Morning!" in system_prompt
+    # History stays out of the selection prompt: it is never a source of time or
+    # mood, and every extra line lengthens a reasoning-tier deliberation.
+    assert "assistant: Morning!" not in system_prompt
     assert "not stated" in system_prompt
 
 
