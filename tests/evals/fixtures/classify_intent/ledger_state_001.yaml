@@ -1,0 +1,25 @@
+id: classify-intent-ledger-state-001
+node: classify_intent
+peer: "<test-peer-2>"
+inbound: "just finished it"
+prior_state:
+  messages: []
+  recent_tasks:
+    - page_id: "<page-expense>"
+      title: "Submit expense report"
+      kind: task
+      event: reminded
+      at: "2026-09-25T08:00:00+00:00"
+tier: cheap
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)CHAT"
+  - kind: judge
+    rubric: >
+      The classifier sees a Recent tasks ledger entry for "Submit expense
+      report" (event: reminded). The follow-up "just finished it" should
+      classify as COMPLETE, not CHAT, because the ledger supplies the task
+      reference that resolves the pronoun "it". Without the ledger context
+      block in the prompt the classifier lacks an anchor and cannot resolve
+      the pronoun.
+    threshold: 0.85

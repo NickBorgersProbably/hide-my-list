@@ -555,8 +555,8 @@ reach a prompt.
 Chat reads the ledger two ways:
 
 - **"What task?"** When the user asks which task was just discussed, chat
-  names the current task when there is one, and otherwise the title of the
-  newest entry.
+  names the title of the newest titled ledger entry first, and falls back to
+  the current task only when no titled entry exists.
 - **Acceptance.** When the user accepts a suggestion ("sure", "ok, that one"),
   chat names the current task. When there is no current task, it names the
   newest `suggested` entry: rejection records the alternative it offers as

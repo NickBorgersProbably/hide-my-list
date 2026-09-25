@@ -33,17 +33,29 @@ def test_section_anchors_present() -> None:
 
 
 def test_recall_instruction_names_the_ordering() -> None:
-    """The recall rule must say Current task first, then the first Recent
-    Tasks line — word for word, since that phrase is the contract the model
-    is graded against.
+    """The recall rule must put the newest titled Recent Tasks entry first and
+    Current task as fallback — word for word, since that phrase is the contract
+    the model is graded against.
     """
     rendered = _render_chat_prompt()
-    assert "Current task first" in rendered
+    assert "Newest titled Recent Tasks entry first" in rendered
+    assert "Current task as fallback" in rendered
     flattened = " ".join(rendered.split())
-    assert (
-        "name the title of the first line under Recent Tasks, word for word"
-        in flattened
+    assert "name its title word for word" in flattened
+
+
+def test_recall_precedence_active_and_recent_both_present() -> None:
+    """When both an active task and a titled recent entry exist, the rendered
+    prompt names the Recent Tasks ordering rule first (not Current task first).
+    """
+    rendered = _render_chat_prompt(
+        recent_tasks='- "Water the plants" — suggested just now',
+        active_task_title="Book the eye appointment",
     )
+    assert "Newest titled Recent Tasks entry first" in rendered
+    assert "Current task as fallback" in rendered
+    assert '"Water the plants"' in rendered
+    assert "Book the eye appointment" in rendered
 
 
 def test_acceptance_rule_mentions_newest_suggested_line() -> None:
