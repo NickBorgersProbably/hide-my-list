@@ -80,3 +80,16 @@ Two rules that are easy to get wrong:
 
 The invariants in `tests/support/invariants.py` run after every turn
 automatically. A scenario only needs to state what is specific to itself.
+
+### Stacked messages
+
+`SignalListener` coalesces same-peer messages that arrive within
+`message_debounce_seconds` of each other into one graph turn (`\n`-joined).
+The default `conversation` fixture sets that debounce to 0 so every other
+scenario's `say()` maps one-to-one onto one graph call. To test coalescing
+itself, use the `conversation_debounced` fixture (2s debounce) with
+`Conversation.say_stacked(["first message", "second message"], gap_seconds=1.0)`,
+which sends each message through the same `SignalListener` entry path as
+`say()`, waits for exactly one turn to complete, and asserts the graph's call
+count grew by exactly 1 rather than by the number of messages sent. See
+`tests/e2e/scenarios/test_loop_stacked_messages.py`.

@@ -326,6 +326,17 @@ a later COMPLETE turn resolves against; a fixture `INSERT` in a test would keep
 passing with that production INSERT deleted, which is exactly the pre-#641 state
 of the world.
 
+**Stacked messages coalesce through the real debounce path.**
+`Conversation.say_stacked(texts, gap_seconds=...)` enqueues each text through
+the same `SignalListener` entry path `say()` uses, spaced `gap_seconds` apart,
+then asserts the graph was invoked exactly once for the whole batch —
+`SignalListener`'s `_InboundMessageBuffer`/`_process_messages` join same-peer
+messages received inside `message_debounce_seconds` into one `\n`-joined
+turn. The shared `conversation` fixture hardcodes a 0-second debounce so
+every other scenario gets one graph call per `say()`; only the
+`conversation_debounced` fixture (`tests/e2e/conftest.py`, 2s debounce)
+exercises coalescing.
+
 **The clock is never faked.** `complete_node` reads `datetime.now(UTC)` while
 Postgres reads `now()`; faking one invents a skew that exists in no deployment.
 Staleness is produced by writing backdated values — `age_active_task` through

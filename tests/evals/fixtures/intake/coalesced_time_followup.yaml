@@ -1,0 +1,29 @@
+# Loop 7 surface: two Signal messages sent a second apart inside
+# SignalListener's debounce window are joined by "\n" into one inbound turn
+# (app/ingress/signal_listener.py::_invoke_graph_for_messages). This fixture
+# is the node-level half of that coverage — the e2e half lives in
+# tests/e2e/scenarios/test_loop_stacked_messages.py, which proves the two
+# real Signal sends actually coalesce into one graph call before this text
+# ever reaches intake. Here the model only has to prove it attaches the
+# second line's time to the first line's task rather than treating "at 5pm"
+# as an orphan fragment.
+id: intake-coalesced-time-followup-001
+node: intake
+tier: medium
+peer: "<test-peer-coalesced>"
+inbound: "remind me to call mom\nat 5pm"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+contracts:
+  - kind: regex_require
+    pattern: "(?i)5\\s*pm"
+  - kind: judge
+    rubric: |
+      The reminder confirmation attaches 5pm (the second line) to calling
+      mom (the first line) — one reminder, one time, not a task with no
+      time or a reminder that ignores who to call. Score 0.0 if the two
+      lines are not connected into a single reminder.
+    threshold: 0.85
