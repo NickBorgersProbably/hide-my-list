@@ -1,7 +1,12 @@
 """LangGraph graph definition for hide-my-list.
 
 Topology:
-  classify_intent -> [conditional route by intent] -> <intent node> -> send -> END
+  hydrate_context -> classify_intent -> [conditional route by intent]
+    -> <intent node> -> send -> END
+
+  hydrate_context merges the peer's recent reminder deliveries into the
+  recent-task ledger and resets turn_actions before the classifier runs
+  (app/graph/context.py). It is fail-soft and never routes anywhere else.
 
 Checkpointer lifecycle:
   AsyncPostgresSaver is an async context manager that must be entered before the
@@ -17,6 +22,7 @@ from typing import Any
 
 from langgraph.graph import StateGraph
 
+from app.graph.context import hydrate_context
 from app.graph.routing import build_routing_map, classify_intent, route_intent
 from app.graph.state import State
 
@@ -71,7 +77,10 @@ def build_graph(checkpointer: Any = None) -> Any:
 
     builder: StateGraph[State] = StateGraph(State)
 
-    # Intent classifier (entry point)
+    # Turn-start context hydration (entry point)
+    builder.add_node("hydrate_context", hydrate_context)
+
+    # Intent classifier
     builder.add_node("classify_intent", classify_intent)
 
     # Intent handler nodes
@@ -87,8 +96,9 @@ def build_graph(checkpointer: Any = None) -> Any:
     # Terminal send node
     builder.add_node("send", send_node)
 
-    # Entry point
-    builder.set_entry_point("classify_intent")
+    # Entry point: hydrate the ledger, then classify
+    builder.set_entry_point("hydrate_context")
+    builder.add_edge("hydrate_context", "classify_intent")
 
     # Conditional routing from classifier to intent nodes
     routing_map = build_routing_map()

@@ -222,7 +222,7 @@ class Conversation:
         infer which node an update came from and raises InvalidUpdateError.
         Attributing the write to the terminal `send` node leaves the thread with
         no pending next step, so the following `ainvoke` starts a fresh run at
-        `classify_intent` rather than resuming mid-graph.
+        the entry node (`hydrate_context`) rather than resuming mid-graph.
         """
         await self.graph.aupdate_state(self._config, values, as_node="send")
 
