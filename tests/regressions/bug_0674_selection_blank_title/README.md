@@ -15,9 +15,11 @@ active task then leaked into the next turn's COMPLETE and reward paths.
 ## Fix
 
 A selection counts only when the id names a scored task with a non-empty title.
-Anything else is treated as no selection. There is no In Progress write and no
-`active_task`, and the user gets a neutral retry reply ("Couldn't land on one
-just now — ask me again in a sec?") rather than an offer to add a task. The
+An invalid first answer triggers one internal model retry with a reminder to
+return a valid id. A valid second answer proceeds normally. Only a second
+invalid answer is treated as no selection: there is no In Progress write and
+no `active_task`, and the user gets a neutral retry reply ("Couldn't land on
+one just now — ask me again in a sec?") rather than an offer to add a task. The
 node logs `selection_node.unknown_page_id` with booleans and a candidate count
 only; the model-supplied id is free text and is never logged. A body that
 writes `{task}` with a `null` selection gets the no-match reply. The spec lives in

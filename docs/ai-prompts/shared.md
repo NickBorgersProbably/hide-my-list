@@ -480,12 +480,13 @@ stateDiagram-v2
 
     Intake --> Idle: Task saved (after inference or up to 3 questions)
 
-    Selection --> Active: Task accepted + initiation reward
-    Selection --> Selection: Task rejected
+    Selection --> Active: Task offered + initiation reward
+    Selection --> Active: Alternative accepted
     Selection --> Idle: No suitable task
 
     Active --> Active: First sub-step done + reward
     Active --> Idle: Task completed + celebration
+    Active --> Selection: Task rejected (alternative suggested)
     Active --> Selection: Task abandoned
     Active --> CheckingIn: Timer expires
     Idle --> Active: Resume detected (in_progress task + gap ≥ 15 min)

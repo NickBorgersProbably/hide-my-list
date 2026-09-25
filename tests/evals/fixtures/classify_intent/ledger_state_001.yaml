@@ -9,7 +9,6 @@ prior_state:
       title: "Submit expense report"
       kind: task
       event: reminded
-      at: "2026-09-25T08:00:00+00:00"
 tier: cheap
 contracts:
   - kind: regex_forbid

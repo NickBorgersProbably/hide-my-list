@@ -40,7 +40,7 @@ def test_recall_instruction_names_the_ordering() -> None:
     ordering is the contract the model is graded against.
     """
     flattened = " ".join(_render_chat_prompt().split())
-    reminder_rule = "If the newest entry in Recent Tasks is a [reminder] or [nudged] event"
+    reminder_rule = "If the newest entry in Recent Tasks has event `reminded` or `nudged`"
     titled_rule = "Otherwise, if Recent Tasks has a titled entry"
     fallback_rule = "Current task as fallback"
     for phrase in (reminder_rule, titled_rule, fallback_rule):
