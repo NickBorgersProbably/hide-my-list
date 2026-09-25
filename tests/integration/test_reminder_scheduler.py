@@ -1,11 +1,14 @@
 """Integration-style tests for the deadline scheduler backstop."""
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+
+from app.scheduler.reminder_scheduling import schedule_for_task as _real_schedule_for_task
 
 
 def _page(
@@ -19,6 +22,27 @@ def _page(
             "Urgency": {"number": urgency},
         },
     }
+
+
+def _assert_schedule_call(
+    conn: Any, kwargs: dict[str, Any], *, deadline_at: datetime, title: str
+) -> None:
+    """Bind a captured schedule_for_task call against the real signature (clause 10).
+
+    The backstop swallows scheduling errors into an ops alert, so a renamed or
+    removed parameter would degrade to a logged failure rather than a crash.
+    Every keyword is pinned, not only the ones this test cares about.
+    """
+    params = inspect.signature(_real_schedule_for_task).parameters
+    inspect.signature(_real_schedule_for_task).bind(conn, **kwargs)
+    assert set(kwargs) == {name for name in params if name != "conn"}
+    assert kwargs["notion_page_id"] == "<page-id>"
+    assert kwargs["peer"] == "<recipient>"
+    assert kwargs["deadline_at"] == deadline_at
+    assert kwargs["urgency"] == 50
+    assert kwargs["user_tz"] == "America/Chicago"
+    assert isinstance(kwargs["now"], datetime) and kwargs["now"].tzinfo is not None
+    assert kwargs["title"] == title
 
 
 @pytest.mark.asyncio
@@ -39,7 +63,8 @@ async def test_orphan_catchup_schedules_and_marks(monkeypatch: pytest.MonkeyPatc
     from app.scheduler import reminder_scheduler
     from app.tools import notion
 
-    page = _page("<page-id>", datetime.now(UTC) + timedelta(days=5))
+    due = (datetime.now(UTC) + timedelta(days=5)).replace(microsecond=0)
+    page = _page("<page-id>", due)
     monkeypatch.setattr(
         notion,
         "query_tasks_with_unscheduled_deadlines",
@@ -54,8 +79,10 @@ async def test_orphan_catchup_schedules_and_marks(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(notion, "mark_reminder_scheduled", mark_scheduled)
 
     scheduled_calls: list[dict[str, Any]] = []
+    scheduled_conns: list[Any] = []
 
     async def fake_schedule_for_task(conn: Any, **kwargs: Any) -> tuple[list[Any], list[str]]:
+        scheduled_conns.append(conn)
         scheduled_calls.append(kwargs)
         return [type("Scheduled", (), {"label": "3d", "assigned_at": datetime.now(UTC)})()], []
 
@@ -85,7 +112,9 @@ async def test_orphan_catchup_schedules_and_marks(monkeypatch: pytest.MonkeyPatc
     assert len(scheduled_calls) == 1
     assert scheduled_calls[0]["notion_page_id"] == "<page-id>"
     # The backstop names its nudges too, from the page's own title.
-    assert scheduled_calls[0]["title"] == "Placeholder deadline task"
+    _assert_schedule_call(
+        scheduled_conns[0], scheduled_calls[0], deadline_at=due, title="Placeholder deadline task"
+    )
     mark_scheduled.assert_awaited_once_with("<page-id>")
 
 
@@ -96,7 +125,7 @@ async def test_deadline_edit_detection_supersedes_and_reschedules(
     from app.scheduler import reminder_scheduler
     from app.tools import notion
 
-    current_deadline = datetime.now(UTC) + timedelta(days=8)
+    current_deadline = (datetime.now(UTC) + timedelta(days=8)).replace(microsecond=0)
     page = _page("<page-id>", current_deadline)
     monkeypatch.setattr(
         notion,
@@ -127,8 +156,10 @@ async def test_deadline_edit_detection_supersedes_and_reschedules(
     monkeypatch.setattr(reminder_scheduler, "cancel_outbox_rows", cancel)
 
     rescheduled: list[dict[str, Any]] = []
+    rescheduled_conns: list[Any] = []
 
     async def fake_schedule_for_task(conn: Any, **kwargs: Any) -> tuple[list[Any], list[str]]:
+        rescheduled_conns.append(conn)
         rescheduled.append(kwargs)
         return [type("Scheduled", (), {"label": "3d", "assigned_at": datetime.now(UTC)})()], []
 
@@ -151,7 +182,13 @@ async def test_deadline_edit_detection_supersedes_and_reschedules(
 
     supersede.assert_awaited_once()
     cancel.assert_awaited_once()
-    assert [call["title"] for call in rescheduled] == ["Placeholder deadline task"]
+    assert len(rescheduled) == 1
+    _assert_schedule_call(
+        rescheduled_conns[0],
+        rescheduled[0],
+        deadline_at=current_deadline,
+        title="Placeholder deadline task",
+    )
     mark_scheduled.assert_awaited_once_with("<page-id>")
 
 

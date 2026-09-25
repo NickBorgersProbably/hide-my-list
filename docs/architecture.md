@@ -114,7 +114,14 @@ The app container runs four concurrent async tasks:
    not. When the user completes a reminder page before it fires,
    `complete_node` marks its pending and scheduled `kind='reminder'` rows
    `dead` with `last_error='completed by user'`, so the worker never claims
-   them.
+   them. That cancellation is retried once; when it still fails, the
+   completion stands (the Notion write already happened) and an ops alert of
+   kind `reminder_cancel_failed` goes to the operator. The worker's pre-send
+   check covers the surviving row: before sending a `kind='reminder'` row it
+   reads the page, and when the page is already `Completed` it marks the row
+   `dead` with `last_error='page already completed'` and sends nothing. A
+   failed page read sends anyway — a missed reminder costs the user more than
+   a redundant one.
 
 ## Reminder Delivery
 

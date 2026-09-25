@@ -276,7 +276,7 @@ async def test_done_after_a_deadline_nudge_writes_completed() -> None:
         patch("app.tools.notion.get_page", get_page),
         patch("app.tools.rewards.maybe_reward", AsyncMock(return_value=_REWARD)),
         patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=nudge)),
-        patch.object(complete_module, "_clear_recent_outbound", clear),
+        patch("app.tools.reminders.resolve_recent_outbound", clear),
     ):
         result = await complete_module.complete_node(_state("done"))
 
@@ -360,3 +360,163 @@ async def test_a_bare_done_after_two_ledger_tasks_offers_both() -> None:
     assert [c["page_id"] for c in pending["candidates"]] == ["<page_A>", "<page_B>"]
     body = result["pending_outbound"][0]["body"]
     assert "Take the recycling out" in body and "Drop off the return package" in body
+
+
+# ---------------------------------------------------------------------------
+# Tools-layer Postgres access and durable reminder cancellation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_DB, reason="DATABASE_URL not set")
+@pytest.mark.asyncio
+async def test_done_after_a_delivered_nudge_loads_and_resolves_it_in_postgres(
+    db_conn: Any,
+) -> None:
+    """`load_recent_outbound` feeds the target; `resolve_recent_outbound` clears it.
+
+    Both run for real here: the nudge row is written to Postgres, complete_node
+    reads it through the tools layer, and the row is no longer awaiting a
+    reply afterwards — including a sibling nudge for the same page.
+    """
+    from app.tools import reminders
+
+    page = str(uuid.uuid4())
+    peer = f"<recipient-{uuid.uuid4().hex[:8]}>"
+    for signal_ts, minutes_ago in ((1001, 30), (1002, 1)):
+        await db_conn.execute(
+            """
+            INSERT INTO recent_outbound
+              (peer, signal_timestamp, notion_page_id, reminder_type, title,
+               prompt_kind, sent_at, awaiting_reply, expires_at)
+            VALUES (%s, %s, %s, 'deadline', 'Test message', 'sent',
+                    now() - make_interval(mins => %s), true, now() + interval '1 day')
+            """,
+            (peer, signal_ts, page, minutes_ago),
+        )
+    await db_conn.commit()
+
+    loaded = await reminders.load_recent_outbound(peer)
+    assert loaded is not None
+    assert set(loaded) == {"signal_timestamp", "notion_page_id", "title", "sent_at", "reminder_type"}
+    assert (loaded["signal_timestamp"], loaded["notion_page_id"], loaded["reminder_type"]) == (
+        1002, page, "deadline",
+    )
+
+    update_status = AsyncMock(return_value={})
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.get_page", AsyncMock(return_value=_notion_page(page, "Renew it"))),
+        patch("app.tools.rewards.maybe_reward", AsyncMock(return_value=_REWARD)),
+    ):
+        result = await complete_module.complete_node(_state("done", peer=peer))
+
+    # A deadline nudge's task is still open, so "done" writes it.
+    _assert_completed_write(update_status, page)
+    assert result["pending_outbound"][0]["notion_page_title"] == "Renew it"
+    async with db_conn.cursor() as cur:
+        await cur.execute(
+            "SELECT count(*) FROM recent_outbound WHERE peer = %s AND awaiting_reply", (peer,)
+        )
+        live = await cur.fetchone()
+    assert live == (0,), "a nudge for the completed page is still awaiting a reply"
+    assert await reminders.load_recent_outbound(peer) is None
+    assert await reminders.resolve_recent_outbound(
+        peer, signal_timestamp=1002, notion_page_id=page
+    ) == 0
+
+
+def _reminder_state(page: str) -> State:
+    return _state(
+        "Done!",
+        recent_tasks=[
+            _ledger(page, "Take the bins out", kind="reminder", event="added", minutes_ago=1)
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_cancellation_call_matches_the_tool_signature() -> None:
+    """Clause 10: the cancel runs inside a swallow, so its call shape is pinned here."""
+    from app.tools import reminders
+
+    real_params = inspect.signature(reminders.cancel_pending_reminders).parameters
+    cancel = AsyncMock(return_value=1)
+    with (
+        patch("app.tools.notion.update_status", AsyncMock(return_value={})),
+        patch("app.tools.rewards.maybe_reward", AsyncMock(return_value=_REWARD)),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.tools.reminders.cancel_pending_reminders", cancel),
+    ):
+        await complete_module.complete_node(_reminder_state("<page_R>"))
+
+    cancel.assert_awaited_once()
+    call = cancel.await_args
+    assert call is not None
+    assert call.args == ()
+    assert call.kwargs == {"peer": "<recipient>", "notion_page_id": "<page_R>"}
+    assert set(call.kwargs) == set(real_params)
+    inspect.signature(reminders.cancel_pending_reminders).bind(*call.args, **call.kwargs)
+
+
+@pytest.mark.asyncio
+async def test_a_cancellation_that_fails_once_is_retried() -> None:
+    cancel = AsyncMock(side_effect=[RuntimeError("db blip"), 1])
+    alert = AsyncMock()
+    with (
+        patch("app.tools.notion.update_status", AsyncMock(return_value={})),
+        patch("app.tools.rewards.maybe_reward", AsyncMock(return_value=_REWARD)),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.tools.reminders.cancel_pending_reminders", cancel),
+        patch("app.tools.ops_alerts.enqueue", alert),
+    ):
+        result = await complete_module.complete_node(_reminder_state("<page_R>"))
+
+    assert cancel.await_count == 2
+    alert.assert_not_awaited()
+    assert result["pending_outbound"][0]["notion_page_title"] == "Take the bins out"
+
+
+@pytest.mark.asyncio
+async def test_a_cancellation_that_keeps_failing_alerts_and_still_completes() -> None:
+    """The Notion write happened; the completion stands and the operator hears about it.
+
+    The worker's pre-send check (tests/unit/test_reminder_worker.py) is what
+    keeps the surviving outbox row from reaching the user.
+    """
+    from structlog.testing import capture_logs
+
+    from app.tools import ops_alerts
+
+    real_alert_params = set(inspect.signature(ops_alerts.enqueue).parameters)
+    update_status = AsyncMock(return_value={})
+    cancel = AsyncMock(side_effect=RuntimeError("db down"))
+    alert = AsyncMock()
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.rewards.maybe_reward", AsyncMock(return_value=_REWARD)),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.tools.reminders.cancel_pending_reminders", cancel),
+        patch("app.tools.ops_alerts.enqueue", alert),
+        capture_logs() as logs,
+    ):
+        result = await complete_module.complete_node(_reminder_state("<page_R>"))
+
+    _assert_completed_write(update_status, "<page_R>")
+    assert cancel.await_count == 2
+    alert.assert_awaited_once()
+    call = alert.await_args
+    assert call is not None and call.args == ()
+    assert set(call.kwargs) == {"kind", "body", "severity"} <= real_alert_params
+    assert call.kwargs["kind"] == "reminder_cancel_failed"
+    assert call.kwargs["severity"] == "warning"
+    assert "<page_id>" in call.kwargs["body"] and "<page_R>" not in call.kwargs["body"]
+
+    failed = [e for e in logs if e["event"] == "complete_node.reminder_cancel_failed"]
+    assert len(failed) == 1
+    assert failed[0]["page_id"] == "<page_R>"
+    assert failed[0]["error_type"] == "RuntimeError"
+    assert not any(e["event"] == "complete_node.error" for e in logs)
+
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_title"] == "Take the bins out"
+    assert result["recent_tasks"][0]["event"] == "completed"

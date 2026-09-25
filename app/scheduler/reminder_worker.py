@@ -89,6 +89,32 @@ async def _throttled_ops_alert(
     await ops_alerts.enqueue(kind=alert_kind, body=message, severity="critical")
 
 
+async def _page_already_completed(notion_page_id: str, reminder_id: uuid.UUID) -> bool:
+    """Whether a reminder's Notion page is already Completed.
+
+    A user can finish a reminder before it fires, and COMPLETE cancels its
+    outbox rows. When that cancellation failed, this check is what keeps the
+    reminder from going out anyway. Fail-open: a Notion read failure returns
+    False and the reminder is sent, because a missed reminder costs the user
+    more than a redundant one.
+    """
+    try:
+        from app.tools import notion
+
+        page = await notion.get_page(page_id=notion_page_id)
+    except Exception as exc:
+        log.warning(
+            "reminder_worker.presend_check_failed",
+            reminder_id=str(reminder_id),
+            error_type=type(exc).__name__,
+        )
+        return False
+    props = page.get("properties") if isinstance(page, dict) else None
+    status = props.get("Status") if isinstance(props, dict) else None
+    select = status.get("select") if isinstance(status, dict) else None
+    return isinstance(select, dict) and select.get("name") == "Completed"
+
+
 async def _claim_due_reminders(
     conn: psycopg.AsyncConnection[Any],
     worker_id: str,
@@ -151,6 +177,24 @@ async def dispatch_due_reminders(
         idempotency_key = row["idempotency_key"]
         attempt = row["attempt"] + 1
         kind = row.get("kind") or "reminder"
+
+        if kind == "reminder" and await _page_already_completed(notion_page_id, rid):
+            # The user finished it before it fired. Sending now would remind
+            # them of something done — and the dead row is never claimed again.
+            await conn.execute(
+                """
+                UPDATE reminder_outbox
+                   SET state = 'dead',
+                       last_error = 'page already completed',
+                       locked_until = NULL,
+                       worker_id = NULL
+                 WHERE id = %s
+                """,
+                (str(rid),),
+            )
+            await conn.commit()
+            log.info("reminder_worker.skipped_completed_page", reminder_id=str(rid))
+            continue
 
         log.info(
             "reminder_worker.delivering",

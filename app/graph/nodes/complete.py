@@ -22,7 +22,6 @@ stop the others from running.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -378,27 +377,10 @@ def _ledger_options(
 
 
 async def _load_recent_outbound_target(peer: str) -> _CompletionTarget | None:
-    if not peer or not os.environ.get("DATABASE_URL"):
-        return None
+    """The newest delivery awaiting a reply, as a completion target."""
+    from app.tools import reminders
 
-    from app.tools.db import get_db_conn
-
-    async with get_db_conn() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                SELECT signal_timestamp, notion_page_id, title, sent_at, reminder_type
-                  FROM recent_outbound
-                 WHERE peer = %s
-                   AND awaiting_reply = true
-                   AND expires_at > now()
-                 ORDER BY sent_at DESC, signal_timestamp DESC
-                 LIMIT 1
-                """,
-                (peer,),
-            )
-            row = await cur.fetchone()
-
+    row = await reminders.load_recent_outbound(peer)
     if not row:
         return None
 
@@ -731,62 +713,52 @@ def _title_target(
     )
 
 
-async def _clear_recent_outbound(
-    peer: str, signal_timestamp: int, notion_page_id: str = ""
-) -> None:
-    """Resolve the reminder rows this completion answers.
+# Attempts at cancelling a finished reminder's outbox rows before giving up.
+_REMINDER_CANCEL_ATTEMPTS = 2
 
-    Scoped by page, not by the single delivery the user replied to. A task can
-    have several reminders in flight — migration 0007 dropped the UNIQUE on
-    `reminder_outbox.notion_page_id` so deadline milestones could stack — and
-    each delivery writes its own `recent_outbound` row. Clearing only the row
-    matching `signal_timestamp` leaves the siblings live for their full 24h
-    window, where a later unrelated "done" resolves one of them: the wrong task
-    marked complete, and a reward celebrating work that was already finished
-    and already celebrated. `docs/reward-system.md` ties rewards to actual
-    completion, so that is a spec violation, not merely untidy state.
 
-    Runs for every completion source, not only recent_outbound: a task finished
-    by name or from the ledger may still have a delivered nudge awaiting a
-    reply. `signal_timestamp` stays in the predicate as a fallback so a target
-    that somehow carries no page id still resolves the row it came from.
+async def _cancel_pending_reminders(peer: str, page_id: str) -> None:
+    """Stop a reminder the user already finished from firing.
+
+    Tries twice. When both attempts fail the completion still stands — the
+    Notion write already happened, and taking back the celebration would
+    punish the user for a database hiccup. The failure is logged and raised to
+    the operator as an ops alert, and the delivery worker's pre-send check
+    (`reminder_worker`) skips a reminder whose page is already Completed, so a
+    surviving outbox row still does not reach the user.
     """
-    if not peer or not os.environ.get("DATABASE_URL"):
-        return
+    from app.tools import ops_alerts, reminders
 
-    from app.tools.db import get_db_conn
+    last_error: Exception | None = None
+    for _ in range(_REMINDER_CANCEL_ATTEMPTS):
+        try:
+            await reminders.cancel_pending_reminders(peer=peer, notion_page_id=page_id)
+            return
+        except Exception as exc:
+            last_error = exc
 
-    async with get_db_conn() as conn:
-        await conn.execute(
-            """
-            UPDATE recent_outbound
-               SET awaiting_reply = false
-             WHERE peer = %s
-               AND awaiting_reply = true
-               AND (
-                     signal_timestamp = %s
-                     OR (%s <> '' AND notion_page_id = %s)
-                   )
-            """,
-            (peer, signal_timestamp, notion_page_id, notion_page_id),
+    log.warning(
+        "complete_node.reminder_cancel_failed",
+        page_id=page_id,
+        error_type=type(last_error).__name__,
+        attempts=_REMINDER_CANCEL_ATTEMPTS,
+    )
+    try:
+        # Placeholder only: an ops alert body never carries a page id or title.
+        await ops_alerts.enqueue(
+            kind="reminder_cancel_failed",
+            body=(
+                "Reminder cancellation failed after the user completed <page_id>; "
+                "the worker's pre-send check is the remaining guard."
+            ),
+            severity="warning",
         )
-        await conn.commit()
-
-
-async def _cancel_pending_reminders(peer: str, notion_page_id: str) -> int:
-    """Kill the outbox rows of a reminder the user finished before it fired."""
-    if not peer or not notion_page_id or not os.environ.get("DATABASE_URL"):
-        return 0
-
-    from app.tools.db import get_db_conn
-    from app.tools.reminders import cancel_pending_for_page
-
-    async with get_db_conn() as conn:
-        cancelled = await cancel_pending_for_page(
-            conn, notion_page_id=notion_page_id, peer=peer
+    except Exception as exc:
+        log.warning(
+            "complete_node.reminder_cancel_alert_failed",
+            page_id=page_id,
+            error_type=type(exc).__name__,
         )
-        await conn.commit()
-    return cancelled
 
 
 def _merge_same_page(group: list[_CompletionTarget]) -> _CompletionTarget:
@@ -1068,7 +1040,7 @@ async def complete_node(state: State) -> dict[str, Any]:
     peer = state.get("peer", "")
 
     try:
-        from app.tools import notion
+        from app.tools import notion, reminders
         from app.tools.rewards import maybe_reward
 
         active_task = state.get("active_task")
@@ -1200,14 +1172,7 @@ async def complete_node(state: State) -> dict[str, Any]:
 
         if kind == "reminder":
             # A reminder finished before it fired must not fire afterwards.
-            try:
-                await _cancel_pending_reminders(peer, page_id)
-            except Exception as exc:
-                log.warning(
-                    "complete_node.reminder_cancel_failed",
-                    page_id=page_id,
-                    error_type=type(exc).__name__,
-                )
+            await _cancel_pending_reminders(peer, page_id)
 
         streak = state.get("streak", 0) + 1
         tasks_today = state.get("tasks_completed_today", 0) + 1
@@ -1224,7 +1189,9 @@ async def complete_node(state: State) -> dict[str, Any]:
         )
 
         try:
-            await _clear_recent_outbound(
+            # Scoped by page, for every source: a task finished by name or from
+            # the ledger may still have a delivered nudge awaiting a reply.
+            await reminders.resolve_recent_outbound(
                 peer=peer,
                 signal_timestamp=target.signal_timestamp or 0,
                 notion_page_id=page_id,

@@ -142,7 +142,6 @@ async def rejection_node(state: State) -> dict[str, Any]:
 
         log.info(
             "rejection_node.alternative",
-            peer=peer,
             alternative_id=alternative_id,
             alternative_recorded=bool(alternative_id and alternative_title),
         )

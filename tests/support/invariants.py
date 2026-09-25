@@ -159,8 +159,8 @@ def _assert_no_unoffered_write(conv: Conversation, result: TurnResult) -> None:
 def _assert_awaiting_reply_resolution(result: TurnResult) -> None:
     """A COMPLETE turn must resolve the rows for the page it completed.
 
-    When source is recent_outbound, _clear_recent_outbound resolves by page —
-    migration 0007 dropped the UNIQUE on reminder_outbox.notion_page_id so
+    When source is recent_outbound, reminders.resolve_recent_outbound resolves
+    by page — migration 0007 dropped the UNIQUE on reminder_outbox.notion_page_id so
     deadline milestones can stack, each delivery writing its own row. Any row
     left behind for that page is an orphan a later unrelated "done" can be
     misattributed to: the wrong task completed, and a reward celebrating work

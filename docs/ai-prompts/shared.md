@@ -193,7 +193,10 @@ target is written `Completed`: a task from any source, a reminder the user
 finishes before it fires, and the task behind a deadline nudge
 (`recent_outbound.reminder_type = 'deadline'`), which delivery never
 completes. Completing a reminder page also cancels its pending outbox rows,
-so a reminder already done does not fire. For every source, the node marks
+so a reminder already done does not fire. A cancellation that fails twice
+leaves the completion standing and raises an ops alert; the delivery worker
+skips any reminder whose page is already `Completed`, so the surviving row
+still does not reach the user. For every source, the node marks
 every live `recent_outbound` row for that peer and `notion_page_id`
 `awaiting_reply = false` (`signal_timestamp` is the fallback when no page id
 is available).

@@ -17,7 +17,9 @@ treating the nudge like a reminder page that delivery had already completed.
 
 - COMPLETE matches against open reminder pages as well as tasks. Finishing a
   reminder before it fires writes Completed and cancels its pending outbox rows
-  (`reminders.cancel_pending_for_page`).
+  (`reminders.cancel_pending_reminders`). A cancellation that fails twice
+  still completes and raises a `reminder_cancel_failed` ops alert; the
+  delivery worker skips any reminder whose page is already Completed.
 - A bare "done" anchors to the recent-task ledger. Two different tasks touched
   within 15 minutes of each other are ambiguous, and the agent names both.
 - An answer to "which task?" that types a title back nearly verbatim resolves
@@ -33,9 +35,14 @@ treating the nudge like a reminder page that delivery had already completed.
 ## Regression Tests
 
 - `test_complete_reminder_and_nudge.py` covers each shape above, including a
-  `rejection_node` → `complete_node` chain. The first test uses real Postgres to prove the reminder's outbox row is dead after the
-  completion.
+  `rejection_node` → `complete_node` chain. Two tests use real Postgres: the
+  reminder's outbox row is dead after the completion, and a delivered nudge
+  is loaded (`reminders.load_recent_outbound`) and resolved
+  (`reminders.resolve_recent_outbound`) through the tools layer. The
+  cancellation call is bound against the tool's signature, and the retry and
+  alert paths are pinned.
 
 Related coverage: `tests/integration/test_outbox.py::test_cancel_pending_for_page_kills_only_pending_reminder_rows`,
-`tests/unit/test_complete_task_reference.py`, and the e2e loops
+`tests/unit/test_complete_task_reference.py`,
+`tests/unit/test_reminder_worker.py` (the pre-send check), and the e2e loops
 `tests/e2e/scenarios/test_loop_*.py`.

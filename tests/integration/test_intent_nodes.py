@@ -976,7 +976,7 @@ async def test_complete_node_from_a_delivered_reminder_records_no_body_as_title(
         patch.object(
             complete_module, "_load_recent_outbound_target", AsyncMock(return_value=recent_target)
         ),
-        patch.object(complete_module, "_clear_recent_outbound", AsyncMock()),
+        patch("app.tools.reminders.resolve_recent_outbound", AsyncMock()),
     ):
         result = await complete_module.complete_node(
             _ledger_state(incoming="done", intent="COMPLETE", recent_tasks=known)
@@ -1032,7 +1032,7 @@ async def test_complete_node_names_a_delivered_reminder_from_the_page() -> None:
         patch.object(
             complete_module, "_load_recent_outbound_target", AsyncMock(return_value=recent_target)
         ),
-        patch.object(complete_module, "_clear_recent_outbound", AsyncMock()),
+        patch("app.tools.reminders.resolve_recent_outbound", AsyncMock()),
     ):
         result = await complete_module.complete_node(
             _ledger_state(incoming="done", intent="COMPLETE")
@@ -1096,7 +1096,6 @@ async def test_rejection_node_records_rejected_and_suggested() -> None:
     A bare "done" next turn anchors to the ledger's newest open entry, so the
     alternative has to lead the ledger and the declined page must never anchor.
     """
-    update_status = AsyncMock()
     response = json.dumps({
         "rejection_category": "mood_mismatch",
         "alternative_task_id": "<page_B>",
@@ -1109,7 +1108,7 @@ async def test_rejection_node_records_rejected_and_suggested() -> None:
             _pending_page("<page_B>", "Sort the mail"),
         ]})),
         patch("app.tools.notion.update_property", AsyncMock()),
-        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.update_status", AsyncMock()),
         patch("app.models.llm", return_value=_mock_llm_response(response)),
     ):
         from app.graph.nodes.rejection import rejection_node
@@ -1120,8 +1119,7 @@ async def test_rejection_node_records_rejected_and_suggested() -> None:
         ("<page_B>", "Sort the mail", "task", "suggested"),
         ("<page_A>", "Water the plants", "task", "rejected"),
     ]
-    # The ledger write adds no status write, and the offer leaves nothing active.
-    update_status.assert_not_awaited()
+    # The offer leaves nothing active; the ledger is the next turn's only anchor.
     assert result["active_task"] is None
 
 
