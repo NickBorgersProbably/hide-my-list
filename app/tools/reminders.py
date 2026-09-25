@@ -144,6 +144,46 @@ async def mark_failed(
     )
 
 
+async def cancel_pending_for_page(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    notion_page_id: str,
+    peer: str,
+) -> int:
+    """Kill the undelivered reminder rows for a page the user already finished.
+
+    A reminder completed before its time must not fire afterwards. Only
+    `kind='reminder'` rows still waiting to go out (`pending` or `scheduled`)
+    are touched: a `delivering` row is already in the worker's hands,
+    delivered rows are history, and `kind='deadline'` rows belong to the
+    deadline series. Scoped to `peer` so one conversation never cancels
+    another's rows. The caller commits.
+
+    Returns the number of rows cancelled.
+    """
+    cursor = await conn.execute(
+        """
+        UPDATE reminder_outbox
+           SET state = 'dead',
+               last_error = 'completed by user',
+               locked_until = NULL,
+               worker_id = NULL
+         WHERE notion_page_id = %s
+           AND peer = %s
+           AND kind = 'reminder'
+           AND state IN ('pending', 'scheduled')
+        """,
+        (notion_page_id, peer),
+    )
+    cancelled = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+    log.info(
+        "reminders.cancelled_for_page",
+        notion_page_id=notion_page_id,
+        cancelled_count=cancelled,
+    )
+    return cancelled
+
+
 async def mark_dead(
     conn: psycopg.AsyncConnection[Any],
     *,

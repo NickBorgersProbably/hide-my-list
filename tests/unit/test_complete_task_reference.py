@@ -14,14 +14,31 @@ Pure functions only — no mocks, no LLM, no Notion.
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import pytest
 
-from app.graph.nodes._task_match import DedupCandidate, dice_coefficient
+from app.graph.nodes._task_match import (
+    DedupCandidate,
+    dice_coefficient,
+    open_non_reminder_tasks,
+    open_tasks,
+)
 from app.graph.nodes.complete import (
     _build_completion_match_prompt,
+    _celebration_body,
     _choose_completion_target,
+    _clarification_body,
+    _clarification_candidates,
     _CompletionTarget,
+    _deterministic_answer,
+    _ledger_options,
+    _ledger_targets,
+    _parse_unlisted_completion,
+    _target_from_ledger,
     _task_reference_tokens,
+    _TitleMatch,
 )
 
 
@@ -177,12 +194,51 @@ def test_no_title_match_leaves_existing_precedence_untouched() -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
-    ("source", "expected"),
-    [("active_task", True), ("title_match", True), ("recent_outbound", False)],
+    ("source", "kind", "event", "reminder_type", "expected"),
+    [
+        # Tasks always need the write, whichever source found them.
+        ("active_task", "task", "suggested", None, True),
+        ("title_match", "task", None, None, True),
+        ("recent_tasks", "task", "added", None, True),
+        ("recent_tasks", "task", "suggested", None, True),
+        # A deadline nudge points at a task delivery never completes.
+        ("recent_outbound", None, "nudged", "deadline", True),
+        ("recent_tasks", "task", "nudged", None, True),
+        # A reminder finished before it fired is still Pending in Notion.
+        ("title_match", "reminder", None, None, True),
+        ("recent_tasks", "reminder", "added", None, True),
+        # Only a delivered reminder is exempt: delivery completed its page.
+        ("recent_outbound", None, "reminded", "reminder", False),
+        ("recent_outbound", None, None, None, False),
+        ("recent_tasks", "reminder", "reminded", None, False),
+    ],
 )
-def test_needs_notion_write_is_derived_from_the_source(source: str, expected: bool) -> None:
-    """Reminder pages are already Completed at delivery; every other source writes."""
-    assert _target(source, "<page_A>").needs_notion_write is expected
+def test_needs_notion_write_is_derived_from_the_source(
+    source: str,
+    kind: str | None,
+    event: str | None,
+    reminder_type: str | None,
+    expected: bool,
+) -> None:
+    """Only a delivered reminder page skips the write; everything else writes.
+
+    The delivery worker completes a reminder page when it sends it. A reminder
+    the user finishes before it fires, and any task a deadline nudge points at,
+    are still open and must be written — otherwise the user is congratulated
+    and the task stays on the list.
+    """
+    target = _CompletionTarget(
+        source=source,  # type: ignore[arg-type]
+        page_id="<page_A>",
+        task_title="",
+        work_type="",
+        energy_required="",
+        context_at=None,
+        kind=kind,  # type: ignore[arg-type]
+        event=event,  # type: ignore[arg-type]
+        reminder_type=reminder_type,
+    )
+    assert target.needs_notion_write is expected
 
 
 # ---------------------------------------------------------------------------
@@ -213,3 +269,271 @@ def test_prompt_uses_no_bracketed_placeholder_slots() -> None:
     )
     assert "[task]" not in prompt
     assert "[title]" not in prompt
+
+
+def test_only_a_standalone_prompt_may_report_an_unlisted_completion() -> None:
+    """An answer to "which task?" chooses among tasks in play; it never adds one."""
+    candidates = [DedupCandidate(page_id="<page_A>", title="Wash the dishes", score=0.9)]
+    standalone = _build_completion_match_prompt("paid the gas bill", candidates)
+    answering = _build_completion_match_prompt(
+        "paid the gas bill", candidates, answering_clarification=True
+    )
+    assert "unlisted_completion_title" in standalone
+    assert "unlisted_completion_title" not in answering
+
+
+# ---------------------------------------------------------------------------
+# Recent-task ledger anchor
+# ---------------------------------------------------------------------------
+
+_NOW = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+
+
+def _entry(page_id: str, event: str, minutes_ago: float | None, **extra: Any) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "page_id": page_id,
+        "title": extra.pop("title", f"Title {page_id}"),
+        "kind": extra.pop("kind", "task"),
+        "event": event,
+    }
+    if minutes_ago is not None:
+        entry["at"] = (_NOW - timedelta(minutes=minutes_ago)).isoformat()
+    entry.update(extra)
+    return entry
+
+
+def test_a_bare_done_anchors_to_the_task_just_added() -> None:
+    """The F1 shape: a reminder added a minute ago, nothing else in context."""
+    ledger = [_entry("<page_R>", "added", 1, kind="reminder", title="Take the bins out")]
+    target = _target_from_ledger(ledger, now=_NOW)
+    assert target is not None
+    assert target.page_id == "<page_R>"
+    assert target.source == "recent_tasks"
+    assert target.task_title == "Take the bins out"
+    # Added, not delivered: the reminder page is still Pending and must be written.
+    assert target.needs_notion_write is True
+
+
+@pytest.mark.parametrize("event", ["completed", "rejected"])
+def test_a_completion_or_rejection_is_the_last_word(event: str) -> None:
+    """A second "done" right after one is an echo, not news about an older task."""
+    ledger = [_entry("<page_A>", event, 1), _entry("<page_B>", "added", 30)]
+    assert _target_from_ledger(ledger, now=_NOW) is None
+
+
+def test_an_entry_older_than_a_day_anchors_nothing() -> None:
+    ledger = [_entry("<page_A>", "added", 25 * 60)]
+    assert _target_from_ledger(ledger, now=_NOW) is None
+
+
+def test_a_missing_timestamp_reads_as_now_and_a_bad_one_is_dropped() -> None:
+    """Static eval fixtures cannot carry a fresh `at`; checkpoints always do."""
+    undated = [_entry("<page_A>", "added", None)]
+    target = _target_from_ledger(undated, now=_NOW)
+    assert target is not None and target.context_at == _NOW
+
+    garbled = [_entry("<page_A>", "added", None, at="not-a-time")]
+    assert _target_from_ledger(garbled, now=_NOW) is None
+
+
+def _ledger_choice(ledger: list[dict[str, Any]], **sources: Any) -> _CompletionTarget | None:
+    return _choose_completion_target(
+        active_target=sources.get("active"),
+        recent_target=sources.get("recent"),
+        title_target=sources.get("title"),
+        ledger_targets=_ledger_targets(ledger, now=_NOW),
+    )
+
+
+def test_the_ledger_anchor_outranks_an_older_active_task() -> None:
+    """A task added a minute ago is the likelier referent than one handed over an hour ago."""
+    active = _CompletionTarget(
+        source="active_task",
+        page_id="<page_A>",
+        task_title="Water the plants",
+        work_type="",
+        energy_required="",
+        context_at=_NOW - timedelta(hours=1),
+    )
+    chosen = _ledger_choice([_entry("<page_R>", "added", 1)], active=active)
+    assert chosen is not None and chosen.page_id == "<page_R>"
+
+
+def test_two_tasks_touched_minutes_apart_are_ambiguous() -> None:
+    """Loop 5: neither of two tasks added three minutes apart is a safe guess."""
+    ledger = [_entry("<page_A>", "added", 2), _entry("<page_B>", "added", 5)]
+    assert _ledger_choice(ledger) is None
+
+
+def test_ambiguity_spans_sources() -> None:
+    """A task suggested five minutes before a reminder was added is just as live."""
+    active = _CompletionTarget(
+        source="active_task",
+        page_id="<page_A>",
+        task_title="Water the plants",
+        work_type="",
+        energy_required="",
+        context_at=_NOW - timedelta(minutes=6),
+    )
+    assert _ledger_choice([_entry("<page_R>", "added", 1)], active=active) is None
+
+
+def test_the_same_page_from_two_sources_is_one_candidate() -> None:
+    """A delivery merged into the ledger is still one task, not an ambiguity."""
+    recent = _CompletionTarget(
+        source="recent_outbound",
+        page_id="<page_R>",
+        task_title="Reminder body placeholder",
+        work_type="",
+        energy_required="",
+        context_at=_NOW,
+        signal_timestamp=1,
+        event="reminded",
+        reminder_type="reminder",
+    )
+    ledger = [_entry("<page_R>", "reminded", 0.5, kind="reminder")]
+    chosen = _ledger_choice(ledger, recent=recent)
+    assert chosen is not None
+    assert chosen.source == "recent_outbound"
+    assert chosen.needs_notion_write is False
+
+
+def test_a_named_task_still_outranks_the_ledger() -> None:
+    title = _target("title_match", "<page_B>", "Wash the dishes")
+    chosen = _ledger_choice([_entry("<page_A>", "added", 1)], title=title)
+    assert chosen is not None and chosen.page_id == "<page_B>"
+
+
+# ---------------------------------------------------------------------------
+# Deterministic acceptance of an answer
+# ---------------------------------------------------------------------------
+
+_OPEN = [
+    {"id": "<page_R>", "title": "Take the bins out", "kind": "reminder"},
+    {"id": "<page_A>", "title": "Water the garden", "kind": "task"},
+    {"id": "<page_B>", "title": "Water the lawn", "kind": "task"},
+]
+
+
+def test_an_answer_typed_back_verbatim_is_accepted_without_the_model() -> None:
+    residue = _task_reference_tokens("take the bins out")
+    match = _deterministic_answer(residue, _OPEN)
+    assert match is not None and match["id"] == "<page_R>"
+
+
+def test_an_answer_that_fits_two_titles_is_left_to_the_model() -> None:
+    assert _deterministic_answer(_task_reference_tokens("the water one"), _OPEN) is None
+
+
+def test_a_partial_answer_is_left_to_the_model() -> None:
+    assert _deterministic_answer(_task_reference_tokens("the garden one"), _OPEN) is None
+
+
+# ---------------------------------------------------------------------------
+# Clarification options and wording
+# ---------------------------------------------------------------------------
+
+def test_clarification_options_lead_with_the_ledger_and_cap_at_three() -> None:
+    ledger = [
+        _entry("<page_A>", "added", 1),
+        _entry("<page_B>", "suggested", 5),
+        # A delivered reminder is already Completed; it cannot be an answer.
+        _entry("<page_R>", "reminded", 6, kind="reminder"),
+        _entry("<page_C>", "completed", 7),
+    ]
+    shortlist = _TitleMatch(
+        target=None,
+        candidate_count=2,
+        confidence=None,
+        candidates=(
+            DedupCandidate("<page_A>", "Title <page_A>", 0.9),
+            DedupCandidate("<page_D>", "Title <page_D>", 0.5),
+            DedupCandidate("<page_E>", "Title <page_E>", 0.4),
+        ),
+    )
+    options, from_context = _clarification_candidates(
+        _ledger_options(ledger, now=_NOW), shortlist
+    )
+    assert [option.page_id for option in options] == ["<page_A>", "<page_B>", "<page_D>"]
+    assert from_context is True
+
+
+def test_a_widened_scan_adds_no_options_even_with_a_ledger() -> None:
+    widened = _TitleMatch(
+        target=None,
+        candidate_count=1,
+        confidence=None,
+        candidates=(DedupCandidate("<page_D>", "Title <page_D>", 0.0),),
+        widened=True,
+    )
+    options, _ = _clarification_candidates([], widened)
+    assert options == ()
+
+
+def test_every_ask_family_words_its_two_attempts_differently() -> None:
+    options = (DedupCandidate("<page_A>", "Water the garden", 1.0),)
+    bodies = {
+        _clarification_body(attempt, options, offerable=offerable, from_context=context)
+        for attempt in (0, 1)
+        for offerable, context in ((True, True), (True, False), (False, False))
+    }
+    assert len(bodies) == 6
+
+
+# ---------------------------------------------------------------------------
+# Celebration body and unlisted completions
+# ---------------------------------------------------------------------------
+
+def test_the_celebration_names_the_task_first() -> None:
+    assert _celebration_body("Take the bins out", "Nice work! ✨") == "{task} — done. Nice work! ✨"
+
+
+def test_a_muted_reward_follows_the_name_without_saying_done_twice() -> None:
+    assert _celebration_body("Placeholder task", "Done. That mattered.") == (
+        "{task} — Done. That mattered."
+    )
+
+
+def test_an_unknown_title_sends_the_reward_text_alone() -> None:
+    assert _celebration_body("", "Nice work! ✨") == "Nice work! ✨"
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        (
+            '{"matched_page_id": null, "unlisted_completion_title": "Pay the gas bill", '
+            '"confidence": 0.95}',
+            ("Pay the gas bill", 0.95),
+        ),
+        ('{"matched_page_id": "<page_A>", "unlisted_completion_title": "X", "confidence": 1}', None),
+        ('{"matched_page_id": null, "unlisted_completion_title": null, "confidence": 0.9}', None),
+        ('{"matched_page_id": null, "unlisted_completion_title": "  ", "confidence": 0.9}', None),
+        ("not json", None),
+    ],
+)
+def test_unlisted_completion_parsing(response: str, expected: tuple[str, float] | None) -> None:
+    assert _parse_unlisted_completion(response) == expected
+
+
+def test_open_tasks_includes_reminders_only_when_asked() -> None:
+    def page(page_id: str, *, reminder: bool, status: str = "Pending") -> dict[str, Any]:
+        return {
+            "id": page_id,
+            "properties": {
+                "Title": {"title": [{"plain_text": f"Title {page_id}"}]},
+                "Status": {"select": {"name": status}},
+                "Is Reminder": {"checkbox": reminder},
+            },
+        }
+
+    response = {"results": [
+        page("<page_A>", reminder=False),
+        page("<page_R>", reminder=True),
+        page("<page_D>", reminder=True, status="Completed"),
+    ]}
+    assert [(t["id"], t["kind"]) for t in open_tasks(response, include_reminders=True)] == [
+        ("<page_A>", "task"),
+        ("<page_R>", "reminder"),
+    ]
+    assert [t["id"] for t in open_non_reminder_tasks(response)] == ["<page_A>"]

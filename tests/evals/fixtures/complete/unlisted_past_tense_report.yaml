@@ -1,0 +1,40 @@
+---
+# Complete scenario: a past-tense report of something that was never on the
+# list. No open task matches, so "which task did you mean?" has no right
+# answer. The node logs it as a new, already-completed task and says so
+# plainly, so the user can tell a new entry from a match.
+id: complete-unlisted-past-tense-001
+node: complete
+tier: cheap
+peer: "<test-peer-23>"
+inbound: "I also paid the gas bill!"
+prior_state:
+  streak: 1
+  tasks_completed_today: 1
+  conversation_state: idle
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Book the dentist"
+    status: "Pending"
+    work_type: "Independent"
+  - id: "<placeholder-page-id-2>"
+    title: "Email the landlord about the lease"
+    status: "Pending"
+    work_type: "Independent"
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)which\\s+task"
+  - kind: regex_require
+    pattern: "(?i)wasn't on your list"
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user reported paying the gas bill, which was not on their list. The
+      response says it was not on the list, names a gas-bill task as logged
+      and done, and celebrates it. Score 1.0 when it names the gas bill and
+      celebrates, 0.0 when it asks which task was meant, names the dentist or
+      landlord task, or claims one of those is done.
+    threshold: 0.8

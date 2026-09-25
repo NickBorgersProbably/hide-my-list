@@ -118,8 +118,17 @@ def normalize_title_tokens(title: str) -> set[str]:
     return tokens
 
 
-def open_non_reminder_tasks(query_all_response: Mapping[str, Any]) -> list[Mapping[str, str]]:
-    """Extract open, non-reminder task ids and titles from a Notion query response."""
+def open_tasks(
+    query_all_response: Mapping[str, Any], *, include_reminders: bool
+) -> list[Mapping[str, str]]:
+    """Extract open tasks as `{id, title, kind}` from a Notion query response.
+
+    `kind` is `"reminder"` for an `Is Reminder` page and `"task"` otherwise.
+    An open reminder page is one the worker has not delivered yet — delivery
+    completes it — so including reminders lets COMPLETE reach a reminder the
+    user finished before it fired. Intake's duplicate check excludes them: a
+    reminder is a notification, not a task a new capture could duplicate.
+    """
     results = query_all_response.get("results", [])
     if not isinstance(results, list):
         return []
@@ -132,13 +141,20 @@ def open_non_reminder_tasks(query_all_response: Mapping[str, Any]) -> list[Mappi
             continue
         status = extract_select(props, "Status")
         is_reminder = extract_checkbox(props, "Is Reminder")
-        if status not in OPEN_TASK_STATUSES or is_reminder:
+        if status not in OPEN_TASK_STATUSES or (is_reminder and not include_reminders):
             continue
         page_id = page.get("id", "")
         title = extract_title(props)
         if isinstance(page_id, str) and page_id and title:
-            tasks.append({"id": page_id, "title": title})
+            tasks.append(
+                {"id": page_id, "title": title, "kind": "reminder" if is_reminder else "task"}
+            )
     return tasks
+
+
+def open_non_reminder_tasks(query_all_response: Mapping[str, Any]) -> list[Mapping[str, str]]:
+    """Extract open, non-reminder task ids and titles from a Notion query response."""
+    return open_tasks(query_all_response, include_reminders=False)
 
 
 def parse_match_response(

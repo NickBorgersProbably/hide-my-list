@@ -8,10 +8,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 
-def _page(page_id: str, due_at: datetime, urgency: int = 50) -> dict[str, Any]:
+def _page(
+    page_id: str, due_at: datetime, urgency: int = 50, title: str = "Placeholder deadline task"
+) -> dict[str, Any]:
     return {
         "id": page_id,
         "properties": {
+            "Title": {"title": [{"plain_text": title}]},
             "Due At": {"date": {"start": due_at.isoformat()}},
             "Urgency": {"number": urgency},
         },
@@ -81,6 +84,8 @@ async def test_orphan_catchup_schedules_and_marks(monkeypatch: pytest.MonkeyPatc
 
     assert len(scheduled_calls) == 1
     assert scheduled_calls[0]["notion_page_id"] == "<page-id>"
+    # The backstop names its nudges too, from the page's own title.
+    assert scheduled_calls[0]["title"] == "Placeholder deadline task"
     mark_scheduled.assert_awaited_once_with("<page-id>")
 
 
@@ -121,7 +126,10 @@ async def test_deadline_edit_detection_supersedes_and_reschedules(
     monkeypatch.setattr(reminder_scheduler, "supersede_ledger_rows", supersede)
     monkeypatch.setattr(reminder_scheduler, "cancel_outbox_rows", cancel)
 
+    rescheduled: list[dict[str, Any]] = []
+
     async def fake_schedule_for_task(conn: Any, **kwargs: Any) -> tuple[list[Any], list[str]]:
+        rescheduled.append(kwargs)
         return [type("Scheduled", (), {"label": "3d", "assigned_at": datetime.now(UTC)})()], []
 
     monkeypatch.setattr(reminder_scheduler, "schedule_for_task", fake_schedule_for_task)
@@ -143,6 +151,7 @@ async def test_deadline_edit_detection_supersedes_and_reschedules(
 
     supersede.assert_awaited_once()
     cancel.assert_awaited_once()
+    assert [call["title"] for call in rescheduled] == ["Placeholder deadline task"]
     mark_scheduled.assert_awaited_once_with("<page-id>")
 
 

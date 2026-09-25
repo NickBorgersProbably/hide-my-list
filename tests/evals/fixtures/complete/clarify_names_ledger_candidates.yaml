@@ -1,0 +1,50 @@
+---
+# Complete scenario: two tasks were added moments apart and a bare "done"
+# fits either. Neither is a safe guess, so the node asks — and the question
+# names both tasks from the recent-task ledger rather than asking an open
+# "which task?" the user has to answer from memory.
+# Entries omit `at`; complete_node reads an undated entry as happening now.
+id: complete-clarify-ledger-candidates-001
+node: complete
+tier: cheap
+peer: "<test-peer-21>"
+inbound: "done"
+prior_state:
+  streak: 0
+  tasks_completed_today: 0
+  conversation_state: idle
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Take the recycling out"
+      kind: task
+      event: added
+    - page_id: "<placeholder-page-id-2>"
+      title: "Drop off the return package"
+      kind: task
+      event: added
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Take the recycling out"
+    status: "Pending"
+    work_type: "Physical"
+  - id: "<placeholder-page-id-2>"
+    title: "Drop off the return package"
+    status: "Pending"
+    work_type: "Physical"
+contracts:
+  - kind: regex_require
+    pattern: "(?i)which task"
+  - kind: regex_require
+    pattern: "Take the recycling out"
+  - kind: regex_require
+    pattern: "Drop off the return package"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The response asks which task was finished and offers the two specific
+      named options ("Take the recycling out", "Drop off the return package")
+      rather than an open question. Score 1.0 when both are named as choices,
+      0.5 when one is named, 0.0 for a bare "which task?" or when it claims
+      either task is done.
+    threshold: 0.75

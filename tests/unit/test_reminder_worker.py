@@ -166,3 +166,60 @@ async def test_dispatch_treats_missing_kind_as_reminder(
     await reminder_worker.dispatch_due_reminders(conn, signal_send_fn=signal_send)
 
     complete_reminder.assert_awaited_once_with("<page-id>", "sent")
+
+
+@pytest.mark.parametrize("kind", ["reminder", "deadline"])
+@pytest.mark.asyncio
+async def test_dispatch_records_the_row_kind_as_reminder_type(
+    monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """recent_outbound.reminder_type is the outbox row's kind, never a constant.
+
+    A deadline nudge recorded as 'reminder' reads downstream as a reminder page
+    the worker already completed, so a "done" after the nudge skipped the
+    task's Completed write.
+    """
+    from app.scheduler import reminder_worker
+    from app.tools import notion
+
+    row = {
+        "id": uuid.uuid4(),
+        "peer": "<peer>",
+        "body": "Test reminder",
+        "notion_page_id": "<page-id>",
+        "idempotency_key": str(uuid.uuid4()),
+        "attempt": 0,
+        "due_at": datetime.now(UTC) - timedelta(seconds=1),
+        "kind": kind,
+    }
+
+    async def fake_claim_due_reminders(conn: Any, worker_id: str) -> list[dict[str, Any]]:
+        return [row]
+
+    monkeypatch.setattr(reminder_worker, "_claim_due_reminders", fake_claim_due_reminders)
+    monkeypatch.setattr(notion, "complete_reminder", AsyncMock(return_value={}))
+
+    conn = FakeConnection()
+    await reminder_worker.dispatch_due_reminders(
+        conn, signal_send_fn=AsyncMock(return_value={"timestamp": 12345})
+    )
+
+    inserts = [
+        params for query, params in conn.executed if "INSERT INTO recent_outbound" in query
+    ]
+    assert len(inserts) == 1
+    assert inserts[0] is not None
+    # (peer, signal_timestamp, notion_page_id, reminder_type, title)
+    assert inserts[0][:4] == ("<peer>", 12345, "<page-id>", kind)
+
+
+def test_deadline_body_names_the_task() -> None:
+    """The nudge names its task; a page with no readable title stays generic."""
+    from app.scheduler.reminder_scheduling import _deadline_body
+
+    assert _deadline_body("3d", title="  Placeholder task ") == (
+        "Deadline nudge: Placeholder task. Want one tiny next step?"
+    )
+    assert _deadline_body("3d", title="") == (
+        "Deadline nudge for this task. Want one tiny next step?"
+    )

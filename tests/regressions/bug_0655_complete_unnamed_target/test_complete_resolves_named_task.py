@@ -285,6 +285,50 @@ async def test_a_bare_completion_reads_neither_notion_nor_the_model() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_bare_completion_with_a_ledger_anchor_reads_neither_notion_nor_the_model() -> None:
+    """The ledger is a context source like the active task: it costs no lookup.
+
+    Sibling of the test above for a checkpoint whose recent-task ledger, not an
+    active task, supplies the anchor. The ledger carries the stored title, so
+    the celebration is named without a Notion read either.
+    """
+    query_all = AsyncMock()
+    get_page = AsyncMock()
+    llm_factory = MagicMock()
+    update_status = AsyncMock()
+    state = _state("done!")
+    state["recent_tasks"] = [{
+        "page_id": "<page_A>",
+        "title": "Wash the dishes",
+        "kind": "task",
+        "event": "added",
+        "at": datetime.now(UTC).isoformat(),
+    }]
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.notion.get_page", get_page),
+        patch(
+            "app.tools.rewards.maybe_reward",
+            new_callable=AsyncMock,
+            return_value={"text": "Nice work!", "attachment_path": None},
+        ),
+        patch.object(
+            complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
+        ),
+        patch("app.models.llm", llm_factory),
+    ):
+        result = await complete_module.complete_node(state)
+
+    query_all.assert_not_awaited()
+    get_page.assert_not_awaited()
+    llm_factory.assert_not_called()
+    _assert_write_kwargs_shape(update_status, "<page_A>")
+    assert result["pending_outbound"][0]["notion_page_title"] == "Wash the dishes"
+
+
+@pytest.mark.asyncio
 async def test_active_task_overlap_does_not_complete_when_message_says_still_pending() -> None:
     """Active task overlaps message residue but the user says the task is NOT done.
 

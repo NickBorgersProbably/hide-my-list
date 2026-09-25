@@ -1,0 +1,44 @@
+---
+# Complete scenario: the node has asked which task twice and the answer still
+# identifies nothing. It stops asking and leaves both tasks open — without
+# implying the user was unclear.
+id: complete-giveup-shame-safe-001
+node: complete
+tier: cheap
+peer: "<test-peer-24>"
+inbound: "you know the one"
+prior_state:
+  streak: 0
+  tasks_completed_today: 0
+  conversation_state: idle
+  pending_clarification:
+    kind: complete_target
+    asked_at: "2026-01-01T00:00:00+00:00"
+    attempts: 2
+    candidates:
+      - page_id: "<placeholder-page-id-1>"
+        title: "Sort the recycling bins"
+      - page_id: "<placeholder-page-id-2>"
+        title: "Return the library book"
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Sort the recycling bins"
+    status: "Pending"
+    work_type: "Physical"
+  - id: "<placeholder-page-id-2>"
+    title: "Return the library book"
+    status: "Pending"
+    work_type: "Independent"
+contracts:
+  - kind: shame_safe
+    threshold: 0.9
+  - kind: regex_forbid
+    pattern: "(?i)which\\s+task"
+  - kind: judge
+    rubric: |
+      After two unanswered questions the response stops asking, leaves both
+      tasks open, and does not blame the user for being unclear. Score 1.0
+      when it closes the question warmly without asking again or claiming a
+      task is done, 0.0 when it asks again, marks a task done, or implies the
+      user failed to answer.
+    threshold: 0.8

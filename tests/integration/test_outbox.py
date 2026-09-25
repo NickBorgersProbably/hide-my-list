@@ -358,3 +358,125 @@ async def test_dead_reminder_triggers_ops_alert(db_conn: Any, monkeypatch: pytes
         count = (await cur.fetchone())[0]
 
     assert count == 1, "the throttle should have suppressed the second dead-reminder alert"
+
+
+# ---------------------------------------------------------------------------
+# cancel_pending_for_page — completing a reminder before it fires
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_cancel_pending_for_page_kills_only_pending_reminder_rows(
+    db_conn: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Completing a reminder page kills its undelivered rows and nothing else.
+
+    A reminder completed before its time must not fire afterwards. Delivered
+    rows are history, deadline rows belong to the deadline series, and another
+    peer's rows are not this conversation's to touch.
+    """
+    from app.scheduler.reminder_worker import dispatch_due_reminders
+    from app.tools import notion, reminders
+
+    monkeypatch.setattr(notion, "complete_reminder", AsyncMock(return_value={}))
+
+    page = str(uuid.uuid4())
+    future = datetime.now(UTC) + timedelta(hours=2)
+
+    delivered_id = await reminders.enqueue(
+        db_conn, **{**_make_reminder(peer="<peer>"), "notion_page_id": page}
+    )
+    await db_conn.commit()
+    await dispatch_due_reminders(db_conn, signal_send_fn=_mock_signal(signal_ts=777))
+
+    pending_id = await reminders.enqueue(
+        db_conn,
+        **{**_make_reminder(peer="<peer>"), "notion_page_id": page, "due_at": future},
+    )
+    scheduled_id = await reminders.enqueue(
+        db_conn,
+        **{**_make_reminder(peer="<peer>"), "notion_page_id": page, "due_at": future},
+    )
+    await db_conn.execute(
+        "UPDATE reminder_outbox SET state = 'scheduled' WHERE id = %s", (str(scheduled_id),)
+    )
+    deadline_id = await reminders.enqueue(
+        db_conn,
+        **{**_make_reminder(peer="<peer>"), "notion_page_id": page, "due_at": future},
+        kind="deadline",
+    )
+    other_peer_id = await reminders.enqueue(
+        db_conn,
+        **{**_make_reminder(peer="<other-peer>"), "notion_page_id": page, "due_at": future},
+    )
+    other_page_id = await reminders.enqueue(
+        db_conn, **{**_make_reminder(peer="<peer>"), "due_at": future}
+    )
+    await db_conn.commit()
+
+    cancelled = await reminders.cancel_pending_for_page(
+        db_conn, notion_page_id=page, peer="<peer>"
+    )
+    await db_conn.commit()
+
+    assert cancelled == 2
+
+    async with db_conn.cursor() as cur:
+        await cur.execute("SELECT id, state, last_error FROM reminder_outbox")
+        rows = {str(row[0]): (row[1], row[2]) for row in await cur.fetchall()}
+
+    assert rows[str(pending_id)] == ("dead", "completed by user")
+    assert rows[str(scheduled_id)] == ("dead", "completed by user")
+    assert rows[str(delivered_id)][0] == "delivered"
+    assert rows[str(deadline_id)][0] == "pending"
+    assert rows[str(other_peer_id)][0] == "pending"
+    assert rows[str(other_page_id)][0] == "pending"
+
+    # A dead row is never claimed again, even once its due time passes.
+    await db_conn.execute(
+        "UPDATE reminder_outbox SET due_at = now() - interval '1 minute' "
+        "WHERE notion_page_id = %s AND state = 'dead'",
+        (page,),
+    )
+    await db_conn.commit()
+    signal = _mock_signal(signal_ts=778)
+    await dispatch_due_reminders(db_conn, signal_send_fn=signal)
+    signal.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_worker_records_the_outbox_kind_as_reminder_type(
+    db_conn: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """recent_outbound.reminder_type carries the outbox row's kind.
+
+    hydrate_context reads it to tell a reminder delivery from a deadline
+    nudge, and complete_node reads it to decide whether the page still needs
+    its Completed write. A deadline row labelled 'reminder' made a nudged task
+    look already completed.
+    """
+    from app.scheduler.reminder_worker import dispatch_due_reminders
+    from app.tools import notion, reminders
+
+    monkeypatch.setattr(notion, "complete_reminder", AsyncMock(return_value={}))
+
+    reminder_page = str(uuid.uuid4())
+    deadline_page = str(uuid.uuid4())
+    await reminders.enqueue(
+        db_conn, **{**_make_reminder(peer="<peer>"), "notion_page_id": reminder_page}
+    )
+    await reminders.enqueue(
+        db_conn,
+        **{**_make_reminder(peer="<peer>"), "notion_page_id": deadline_page},
+        kind="deadline",
+    )
+    await db_conn.commit()
+
+    timestamps = iter([901, 902])
+    signal = AsyncMock(side_effect=lambda **_: {"timestamp": next(timestamps)})
+    await dispatch_due_reminders(db_conn, signal_send_fn=signal)
+
+    async with db_conn.cursor() as cur:
+        await cur.execute("SELECT notion_page_id, reminder_type FROM recent_outbound")
+        types = {row[0]: row[1] for row in await cur.fetchall()}
+
+    assert types == {reminder_page: "reminder", deadline_page: "deadline"}

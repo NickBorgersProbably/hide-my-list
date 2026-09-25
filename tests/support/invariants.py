@@ -47,6 +47,8 @@ _EXPECTED_TIERS: dict[str, str] = {
     "classify": "cheap",
     "complete_title_match": "cheap",
     "intake_dedup": "cheap",
+    # app/tools/rewards.py classify_task_motif: labels the completed task on the cheap tier.
+    "reward_motif": "cheap",
     "selection": "expensive",
 }
 _DEFAULT_TIER = "medium"

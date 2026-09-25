@@ -36,8 +36,13 @@ async def schedule_for_task(
     urgency: int,
     now: datetime,
     user_tz: str,
+    title: str = "",
 ) -> tuple[list[ScheduledMilestone], list[str]]:
-    """Plan, enqueue, and ledger a deadline reminder series for one task."""
+    """Plan, enqueue, and ledger a deadline reminder series for one task.
+
+    `title` is the task's stored title; every nudge in the series names it.
+    It is private — it reaches the outbox body and nothing else here logs it.
+    """
     milestones = plan_milestones(deadline_at, urgency=urgency, now=now, user_tz=user_tz)
     if not milestones:
         return [], []
@@ -72,6 +77,7 @@ async def schedule_for_task(
                 due_at=assigned_at,
                 deadline_at=deadline_at,
                 milestone_label=milestone.label,
+                title=title,
             )
             await _insert_ledger_row(
                 conn,
@@ -248,6 +254,7 @@ async def _enqueue_deadline_row(
     due_at: datetime,
     deadline_at: datetime,
     milestone_label: str,
+    title: str = "",
 ) -> uuid.UUID:
     outbox_id = uuid.uuid4()
     idempotency_key = (
@@ -264,7 +271,7 @@ async def _enqueue_deadline_row(
             str(outbox_id),
             notion_page_id,
             peer,
-            _deadline_body(milestone_label),
+            _deadline_body(milestone_label, title=title),
             due_at,
             idempotency_key,
         ),
@@ -302,5 +309,14 @@ async def _insert_ledger_row(
     )
 
 
-def _deadline_body(milestone_label: str) -> str:
-    return "Deadline nudge for this task. Want one tiny next step?"
+def _deadline_body(milestone_label: str, *, title: str = "") -> str:
+    """Compose a nudge that names its task.
+
+    The nudge is the message a later "done" replies to, so an unnamed one
+    leaves the user guessing which task it meant. A page whose title could not
+    be read still gets a sendable, generic body.
+    """
+    name = title.strip()
+    if not name:
+        return "Deadline nudge for this task. Want one tiny next step?"
+    return f"Deadline nudge: {name}. Want one tiny next step?"

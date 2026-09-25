@@ -1,0 +1,50 @@
+---
+# Complete scenario: a reminder was added a moment ago and has not fired, so
+# neither an active task nor a delivered reminder points at it — only the
+# recent-task ledger does. A bare "Done!" must complete that reminder and name
+# it, not ask which task was meant.
+# The ledger entry omits `at`: static fixtures cannot carry a fresh timestamp,
+# and complete_node reads an undated entry as happening now.
+id: complete-bare-done-ledger-001
+node: complete
+tier: cheap
+peer: "<test-peer-20>"
+inbound: "Done!"
+prior_state:
+  streak: 0
+  tasks_completed_today: 0
+  conversation_state: idle
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Take the bins out"
+      kind: reminder
+      event: added
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Take the bins out"
+    status: "Pending"
+    is_reminder: true
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 5
+  - id: "<placeholder-page-id-2>"
+    title: "Book the dentist appointment"
+    status: "Pending"
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 10
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)which\\s+task"
+  # The body names the task through the token; send_node fills in the title.
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The response celebrates finishing "Take the bins out" and names that
+      task. Score 1.0 when it names the task and celebrates it, 0.5 when it
+      celebrates without naming it, 0.0 when it asks which task the user
+      meant or names a different task.
+    threshold: 0.8

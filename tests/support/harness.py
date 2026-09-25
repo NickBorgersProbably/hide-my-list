@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -215,6 +215,32 @@ class Conversation:
         active_task["selected_at"] = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
         await self._write_state({"active_task": active_task})
 
+    async def seed_recent_tasks(self, *entries: Mapping[str, Any]) -> None:
+        """Write the recent-task ledger directly into the checkpoint.
+
+        Entries are given newest first, like the ledger itself. An entry with
+        no `at` is stamped now; `hydrate_context` drops undated entries, so a
+        seeded ledger always carries timestamps. Every page is marked offered,
+        mirroring `seed_active_task`: the ledger only holds pages the peer has
+        been shown or had created for them.
+        """
+        now = datetime.now(UTC).isoformat()
+        ledger = [{"at": now, **entry} for entry in entries]
+        for entry in ledger:
+            page_id = str(entry.get("page_id") or "")
+            if page_id:
+                self.offered.add(page_id)
+        await self._write_state({"recent_tasks": ledger})
+
+    async def age_recent_tasks(self, hours: float) -> None:
+        """Backdate every ledger entry by `hours`, keeping their order."""
+        current = await self.state()
+        ledger = [dict(entry) for entry in current.get("recent_tasks") or []]
+        for entry in ledger:
+            at = datetime.fromisoformat(str(entry["at"]))
+            entry["at"] = (at - timedelta(hours=hours)).isoformat()
+        await self._write_state({"recent_tasks": ledger})
+
     async def _write_state(self, values: dict[str, Any]) -> None:
         """Write checkpoint values as if the graph had just finished a turn.
 
@@ -262,6 +288,20 @@ class Conversation:
             row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
+    async def outbox_state(self, page_id: str) -> list[str]:
+        """States of this peer's `reminder_outbox` rows for `page_id`, oldest first."""
+        async with self.db() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT state FROM reminder_outbox
+                 WHERE peer = %s AND notion_page_id = %s
+                 ORDER BY created_at ASC, due_at ASC
+                """,
+                (self.peer, page_id),
+            )
+            rows = await cursor.fetchall()
+        return [str(row[0]) for row in rows]
+
     async def expire_recent_outbound(self) -> None:
         async with self.db() as conn:
             await conn.execute(
@@ -272,7 +312,12 @@ class Conversation:
     # -- reminders ---------------------------------------------------------
 
     async def deliver_reminder(
-        self, *, page_id: str, body: str, due_at: datetime | None = None
+        self,
+        *,
+        page_id: str,
+        body: str,
+        due_at: datetime | None = None,
+        kind: str = "reminder",
     ) -> ReminderDelivery:
         """Enqueue a reminder and dispatch it through the real worker.
 
@@ -281,6 +326,9 @@ class Conversation:
         fixture `INSERT INTO recent_outbound` here would keep passing with that
         INSERT deleted — which is precisely the pre-#641 state of the world — so
         the reminder has to travel through production code.
+
+        `kind="deadline"` sends a deadline nudge instead: the worker leaves the
+        task page open and records the delivery as `reminder_type='deadline'`.
         """
         import psycopg
 
@@ -298,6 +346,7 @@ class Conversation:
                 body=body,
                 due_at=due_at or (datetime.now(UTC) - timedelta(minutes=1)),
                 idempotency_key=f"e2e-{uuid.uuid4()}",
+                kind=kind,
             )
             await conn.commit()
             await dispatch_due_reminders(conn, signal_send_fn=self.signal.send_message)

@@ -319,10 +319,13 @@ async def test_fake_notion_due_at_parseable_by_reminder_scheduler() -> None:
 
     result = _parse_page(page)
     assert result is not None, "reminder_scheduler._parse_page returned None for a page with Due At"
-    returned_id, deadline, urgency = result
+    returned_id, deadline, urgency, title = result
     assert returned_id == page_id
     assert deadline.isoformat().startswith("2026-09-01")
     assert urgency == 80
+    # The backstop names its nudges after the page, so the fake's title must
+    # round-trip through the same extractor.
+    assert title == "Submit report"
 
 
 async def test_fake_notion_create_task_returns_a_usable_page_id() -> None:

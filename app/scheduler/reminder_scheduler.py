@@ -67,7 +67,7 @@ async def _schedule_page(page: dict[str, Any], *, user_tz: str, mark_scheduled: 
     if parsed is None:
         log.warning("reminder_scheduler.page_skipped", has_due_at=False)
         return
-    page_id, deadline_at, urgency = parsed
+    page_id, deadline_at, urgency, title = parsed
 
     async with get_db_conn() as conn:
         peer = await get_peer_for_task(conn, page_id)
@@ -90,6 +90,7 @@ async def _schedule_page(page: dict[str, Any], *, user_tz: str, mark_scheduled: 
                 urgency=urgency,
                 now=datetime.now(UTC),
                 user_tz=user_tz,
+                title=title,
             )
     if mark_scheduled and (scheduled or already_scheduled) and not failures:
         await notion.mark_reminder_scheduled(page_id)
@@ -108,7 +109,7 @@ async def _refresh_page_if_deadline_changed(page: dict[str, Any], *, user_tz: st
     parsed = _parse_page(page)
     if parsed is None:
         return
-    page_id, current_deadline, urgency = parsed
+    page_id, current_deadline, urgency, title = parsed
 
     from app.tools import notion
     from app.tools.db import get_db_conn
@@ -132,6 +133,7 @@ async def _refresh_page_if_deadline_changed(page: dict[str, Any], *, user_tz: st
             urgency=urgency,
             now=datetime.now(UTC),
             user_tz=user_tz,
+            title=title,
         )
         await conn.commit()
 
@@ -164,7 +166,7 @@ async def _alert_missing_peer(page_id: str) -> None:
     )
 
 
-def _parse_page(page: dict[str, Any]) -> tuple[str, datetime, int] | None:
+def _parse_page(page: dict[str, Any]) -> tuple[str, datetime, int, str] | None:
     page_id = str(page.get("id", ""))
     props = page.get("properties", {})
     if not page_id or not isinstance(props, dict):
@@ -174,7 +176,21 @@ def _parse_page(page: dict[str, Any]) -> tuple[str, datetime, int] | None:
     if deadline is None:
         return None
     urgency = _extract_number(props.get("Urgency")) or 50
-    return page_id, deadline, urgency
+    return page_id, deadline, urgency, _extract_title(props.get("Title"))
+
+
+def _extract_title(prop: Any) -> str:
+    """Plain-text title, or "" when the page carries none the nudge can name."""
+    if not isinstance(prop, dict):
+        return ""
+    items = prop.get("title")
+    if not isinstance(items, list):
+        return ""
+    return "".join(
+        item["plain_text"]
+        for item in items
+        if isinstance(item, dict) and isinstance(item.get("plain_text"), str)
+    ).strip()
 
 
 def _extract_date(prop: Any) -> datetime | None:

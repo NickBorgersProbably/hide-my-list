@@ -1,0 +1,46 @@
+---
+# Complete scenario: the node asked "which task did you mean?" and the user
+# answered by typing the title back. That is an answer, not a new question:
+# it must complete the reminder and name it, not ask again.
+# The reminder page is still Pending (it has not fired), so it is only
+# reachable because COMPLETE matches open reminder pages too.
+id: complete-verbatim-answer-001
+node: complete
+tier: cheap
+peer: "<test-peer-22>"
+inbound: "take the bins out"
+prior_state:
+  streak: 0
+  tasks_completed_today: 0
+  conversation_state: idle
+  pending_clarification:
+    kind: complete_target
+    asked_at: "2026-01-01T00:00:00+00:00"
+    attempts: 1
+    candidates: []
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Take the bins out"
+    status: "Pending"
+    is_reminder: true
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 5
+  - id: "<placeholder-page-id-2>"
+    title: "Water the garden"
+    status: "Pending"
+    work_type: "Physical"
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)which\\s+task"
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user answered a "which task?" question by naming "Take the bins
+      out". The response confirms that task is done and names it. Score 1.0
+      when it names and celebrates "Take the bins out", 0.0 when it asks
+      again or names a different task.
+    threshold: 0.8

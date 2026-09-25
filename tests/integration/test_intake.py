@@ -326,6 +326,8 @@ async def test_deadline_task_schedules_inline_series() -> None:
     assert create_task_calls[0]["due_at_iso"] == "2026-06-06T22:00:00+00:00"
     record_deadline_task_peer.assert_awaited_once()
     schedule_for_task.assert_awaited_once()
+    # The nudge body names the task, so intake hands the series its title.
+    assert schedule_for_task.await_args.kwargs["title"] == "Placeholder deadline task"
     mark_scheduled.assert_awaited_once_with(page_id)
     assert "I'll ping you" in result["pending_outbound"][0]["body"]
 
@@ -489,6 +491,8 @@ async def test_dedup_deadline_updates_existing_and_schedules_series(
     record_deadline_task_peer.assert_awaited_once()
     schedule_for_task.assert_awaited_once()
     assert schedule_for_task.await_args.kwargs["notion_page_id"] == matched_page_id
+    # A duplicate's series is named after the existing page, not the new phrasing.
+    assert schedule_for_task.await_args.kwargs["title"] == "Placeholder deadline task"
     mark_scheduled.assert_awaited_once_with(matched_page_id)
     draft = result["pending_outbound"][0]
     assert draft["notion_page_id"] == matched_page_id

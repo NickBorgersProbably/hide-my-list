@@ -9,6 +9,7 @@ Covers:
 """
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -398,7 +399,9 @@ async def test_complete_node_marks_task_done_and_rewards() -> None:
     assert result["pending_outbound"]
     draft = result["pending_outbound"][0]
     assert draft["recipient"] == "<test-complete>"
-    assert "✨" in draft["body"] or "work" in draft["body"].lower() or "nice" in draft["body"].lower()
+    # The celebration names the task: send_node fills {task} from the title.
+    assert draft["body"] == "{task} — done. Nice work! ✨"
+    assert draft["notion_page_title"] == "Placeholder completed task"
 
     # State updated
     assert result.get("active_task") is None
@@ -999,3 +1002,83 @@ async def test_complete_node_clarify_records_the_question() -> None:
     update_status.assert_not_awaited()
     assert result["pending_clarification"] is not None
     assert result.get("recent_tasks", []) == []
+
+
+@pytest.mark.asyncio
+async def test_complete_node_names_a_delivered_reminder_from_the_page() -> None:
+    """An untitled ledger entry is named from Notion, never from the sent body."""
+    from app.graph.nodes import complete as complete_module
+    from app.tools import notion
+
+    recent_target = complete_module._CompletionTarget(
+        source="recent_outbound",
+        page_id="<page_R>",
+        task_title="Reminder body placeholder",
+        work_type="",
+        energy_required="",
+        context_at=datetime.now(UTC),
+        signal_timestamp=1,
+    )
+    get_page = AsyncMock(return_value=_notion_task_page("<page_R>", "Take the bins out"))
+    with (
+        patch("app.tools.notion.update_status", new_callable=AsyncMock) as update_status,
+        patch("app.tools.notion.get_page", get_page),
+        patch(
+            "app.tools.rewards.maybe_reward",
+            new_callable=AsyncMock,
+            return_value={"text": "Nice work!", "attachment_path": None},
+        ),
+        patch.object(
+            complete_module, "_load_recent_outbound_target", AsyncMock(return_value=recent_target)
+        ),
+        patch.object(complete_module, "_clear_recent_outbound", AsyncMock()),
+    ):
+        result = await complete_module.complete_node(
+            _ledger_state(incoming="done", intent="COMPLETE")
+        )
+
+    update_status.assert_not_awaited()
+    call = get_page.await_args
+    assert inspect.signature(notion.get_page).bind(*call.args, **call.kwargs).arguments == {
+        "page_id": "<page_R>"
+    }
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_title"] == "Take the bins out"
+    assert "Reminder body placeholder" not in draft["body"]
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_R>", "Take the bins out", "reminder", "completed"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_complete_node_title_lookup_failure_still_completes_unnamed() -> None:
+    """The name is a courtesy; a Notion read failure must not cost the completion."""
+    from app.graph.nodes import complete as complete_module
+
+    ledger = [{
+        "page_id": "<page_A>",
+        "title": "",
+        "kind": "task",
+        "event": "nudged",
+        "at": datetime.now(UTC).isoformat(),
+    }]
+    with (
+        patch("app.tools.notion.update_status", new_callable=AsyncMock) as update_status,
+        patch("app.tools.notion.get_page", AsyncMock(side_effect=RuntimeError("Notion down"))),
+        patch(
+            "app.tools.rewards.maybe_reward",
+            new_callable=AsyncMock,
+            return_value={"text": "Nice work!", "attachment_path": None},
+        ),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        capture_logs() as logs,
+    ):
+        result = await complete_module.complete_node(
+            _ledger_state(incoming="done", intent="COMPLETE", recent_tasks=ledger)
+        )
+
+    update_status.assert_awaited_once_with(page_id="<page_A>", new_status="Completed")
+    draft = result["pending_outbound"][0]
+    assert draft["body"] == "Nice work!"
+    assert "notion_page_title" not in draft
+    assert "complete_node.title_lookup_failed" in {entry["event"] for entry in logs}

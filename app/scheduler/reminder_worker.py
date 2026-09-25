@@ -182,8 +182,12 @@ async def dispatch_due_reminders(
                 (signal_ts, attempt, str(rid)),
             )
             # Record in recent_outbound for graph turn awareness.
-            # title and reminder_type are carried from the outbox row so graph nodes
-            # can classify terse replies (e.g. "I did it") without re-asking the user.
+            # reminder_type is the outbox row's kind: a 'reminder' row's page is
+            # completed below, while a 'deadline' row's task stays open, so a
+            # later "done" still has to write it. hydrate_context and
+            # complete_node both read the distinction from this column.
+            # title carries the sent body so terse replies (e.g. "I did it")
+            # can be classified without re-asking the user.
             # expires_at uses 24h for reminders to minimise stale-context misclassification.
             if signal_ts:
                 reminder_title = row.get("body", "")[:200]  # truncate body to 200 chars for title proxy
