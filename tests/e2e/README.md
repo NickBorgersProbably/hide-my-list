@@ -83,8 +83,9 @@ automatically. A scenario only needs to state what is specific to itself.
 
 ### Stacked messages
 
-`SignalListener` coalesces same-peer messages that arrive within
-`message_debounce_seconds` of each other into one graph turn (`\n`-joined).
+`SignalListener` coalesces into one graph turn (`\n`-joined) same-peer messages
+that are already queued when the fixed debounce delay from the first message
+expires.
 The default `conversation` fixture sets that debounce to 0 so every other
 scenario's `say()` maps one-to-one onto one graph call. To test coalescing
 itself, use the `conversation_debounced` fixture (2s debounce) with

@@ -29,6 +29,7 @@ async def test_stacked_messages_coalesce_into_one_add_task(
 ) -> None:
     conversation = conversation_debounced
 
+    notion_cursor = conversation.notion.mark()
     result = await conversation.say_stacked(
         ["remind me to call mom", "at 5pm"],
         expect=Expect(
@@ -38,10 +39,27 @@ async def test_stacked_messages_coalesce_into_one_add_task(
         ),
     )
 
-    created = conversation.notion.written_pages("create_reminder")
-    assert len(created) == 1, (
+    assert result.state.get("incoming") == "remind me to call mom\nat 5pm", (
+        f"checkpoint did not receive the newline-joined input; got "
+        f"{result.state.get('incoming')!r}"
+    )
+
+    reminder_writes = [
+        w for w in conversation.notion.writes[notion_cursor:]
+        if w.op == "create_reminder"
+    ]
+    assert len(reminder_writes) == 1, (
         f"expected exactly one reminder created from the coalesced turn, got "
-        f"{len(created)}: {sorted(created)}"
+        f"{len(reminder_writes)}: {[w.page_id for w in reminder_writes]}"
+    )
+    write = reminder_writes[0]
+    assert "mom" in write.payload.get("title", "").lower(), (
+        f"reminder title {write.payload.get('title')!r} does not derive from "
+        f"the first message fragment ('remind me to call mom')"
+    )
+    assert write.payload.get("remind_at"), (
+        "create_reminder payload has no remind_at — the second fragment ('at 5pm') "
+        "was not parsed into a reminder time"
     )
 
     coalesced_events = [

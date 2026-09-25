@@ -330,9 +330,9 @@ of the world.
 `Conversation.say_stacked(texts, gap_seconds=...)` enqueues each text through
 the same `SignalListener` entry path `say()` uses, spaced `gap_seconds` apart,
 then asserts the graph was invoked exactly once for the whole batch —
-`SignalListener`'s `_InboundMessageBuffer`/`_process_messages` join same-peer
-messages received inside `message_debounce_seconds` into one `\n`-joined
-turn. The shared `conversation` fixture hardcodes a 0-second debounce so
+`SignalListener`'s `_InboundMessageBuffer`/`_process_messages` join into one
+`\n`-joined turn same-peer messages that are already queued when the fixed
+debounce delay from the first message expires. The shared `conversation` fixture hardcodes a 0-second debounce so
 every other scenario gets one graph call per `say()`; only the
 `conversation_debounced` fixture (`tests/e2e/conftest.py`, 2s debounce)
 exercises coalescing.
