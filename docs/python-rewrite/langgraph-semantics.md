@@ -166,16 +166,27 @@ entirely and resolves from context only.
 
 ```python
 # In app/scheduler/reminder_worker.py, after successful Signal send:
+reminder_title = row.get("body", "")[:200]  # truncated sent body as title proxy
 await conn.execute(
     """
     INSERT INTO recent_outbound
-      (peer, signal_timestamp, notion_page_id, title, reminder_type, sent_at, expires_at)
-    VALUES ($1, $2, $3, $4, 'reminder', now(), now() + interval '24 hours')
-    ON CONFLICT (peer, signal_timestamp) DO NOTHING
+      (peer, signal_timestamp, notion_page_id,
+       reminder_type, title, prompt_kind,
+       sent_at, awaiting_reply, expires_at)
+    VALUES (%s, %s, %s, %s, %s, 'sent',
+            now(), true, now() + interval '24 hours')
+    ON CONFLICT DO NOTHING
     """,
-    peer, signal_ts, notion_page_id, task_title
+    (peer, signal_ts, notion_page_id, kind, reminder_title),
 )
 ```
+
+`reminder_type` is the outbox row's `kind` column (`'reminder'` or `'deadline'`), not a
+hardcoded constant — `hydrate_context` uses it to classify each delivery as a `reminded`
+or `nudged` ledger entry. `title` is a 200-character truncation of the sent message body,
+used as a fallback proxy; `hydrate_context` reads the stored Notion page title via
+`notion.get_page` and replaces the proxy before placing delivery context in prompts.
+`awaiting_reply = true` marks the row as live until the peer replies.
 
 **Tested in:** `tests/spike/test_worker_graph_read.py` — verifies that a row written
 directly to `recent_outbound` (simulating the worker) is visible to the graph node on the
