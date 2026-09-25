@@ -16,6 +16,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from structlog.testing import capture_logs
 
 from app.graph.state import State
 
@@ -737,3 +738,429 @@ def test_check_in_dispatcher_runs_on_interval() -> None:
     assert isinstance(job.trigger, IntervalTrigger), (
         "check_in_dispatcher must use IntervalTrigger (fires every N minutes)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Recent-task ledger and turn_actions deltas
+#
+# Every writer returns the full new `recent_tasks` list (plain replace, no
+# reducer) and the `turn_actions` it performed this turn. These tests pin the
+# delta each node writes, so a node that stops recording what it did — the
+# reason a bare "done" or "what task?" had nothing to anchor to — fails here.
+# ---------------------------------------------------------------------------
+
+
+def _pending_page(page_id: str, title: str, *, minutes: int = 20) -> dict[str, Any]:
+    return {
+        "id": page_id,
+        "properties": {
+            "Title": {"title": [{"plain_text": title}]},
+            "Status": {"select": {"name": "Pending"}},
+            "Work Type": {"select": {"name": "Independent"}},
+            "Energy Required": {"select": {"name": "Low"}},
+            "Urgency": {"number": 50},
+            "Time Estimate (min)": {"number": minutes},
+            "Rejection Count": {"number": 0},
+        },
+    }
+
+
+def _ledger_state(**overrides: Any) -> State:
+    state: dict[str, Any] = {
+        "peer": "<test-ledger>",
+        "incoming": "",
+        "intent": None,
+        "messages": [],
+        "active_task": None,
+        "streak": 0,
+        "tasks_completed_today": 0,
+        "user_prefs": {},
+        "mood": None,
+        "available_minutes": None,
+        "conversation_state": "idle",
+        "pending_outbound": [],
+        "recent_tasks": [],
+        "turn_actions": [],
+    }
+    state.update(overrides)
+    return state  # type: ignore[return-value]
+
+
+def _ledger_view(ledger: list[dict[str, Any]]) -> list[tuple[str, str, str, str]]:
+    """Ledger entries without the timestamp, which the node stamps itself."""
+    for entry in ledger:
+        assert isinstance(entry["at"], str) and entry["at"], "every entry carries an ISO timestamp"
+    return [(e["page_id"], e["title"], e["kind"], e["event"]) for e in ledger]
+
+
+@pytest.mark.asyncio
+async def test_selection_node_records_suggested_task() -> None:
+    import inspect
+
+    from app.tools import notion
+
+    update_status = AsyncMock()
+    response = json.dumps({
+        "selected_task_id": "<page_A>",
+        "score": 0.9,
+        "reasoning": "fits",
+        "user_message": "How about {task}?",
+    })
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
+            _pending_page("<page_A>", "Water the plants"),
+            _pending_page("<page_B>", "Sort the mail"),
+        ]})),
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.models.llm", return_value=_mock_llm_response(response)),
+    ):
+        from app.graph.nodes.selection import selection_node
+
+        result = await selection_node(_ledger_state(incoming="what should I do?", intent="GET_TASK"))
+
+    update_status.assert_awaited_once()
+    call = update_status.await_args
+    bound = inspect.signature(notion.update_status).bind(*call.args, **call.kwargs)
+    assert bound.arguments == {"page_id": "<page_A>", "new_status": "In Progress"}
+
+    assert result["active_task"]["page_id"] == "<page_A>"
+    assert result["active_task"]["title"] == "Water the plants"
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_A>", "Water the plants", "task", "suggested"),
+    ]
+    assert result["turn_actions"] == [
+        {"action": "notion.update_status", "page_id": "<page_A>"},
+        {"action": "suggest", "page_id": "<page_A>"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_selection_node_unknown_page_id_is_not_suggested() -> None:
+    """A selected id outside the scored list is no selection at all.
+
+    The model named a page the node never offered it. Treating that as a
+    suggestion wrote In Progress to an unknown page and built an ActiveTask with
+    an empty title, so the user was offered "this focus task" with no name.
+    """
+    update_status = AsyncMock()
+    response = json.dumps({
+        "selected_task_id": "<page_unknown>",
+        "score": 0.9,
+        "reasoning": "fits",
+        "user_message": "How about this focus task?",
+    })
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
+            _pending_page("<page_A>", "Water the plants"),
+        ]})),
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.models.llm", return_value=_mock_llm_response(response)),
+        capture_logs() as logs,
+    ):
+        from app.graph.nodes.selection import selection_node
+
+        result = await selection_node(_ledger_state(incoming="anything I can knock out?"))
+
+    update_status.assert_not_awaited()
+    assert result["active_task"] is None
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] is None
+    assert "notion_page_title" not in draft
+    assert "focus task" not in draft["body"]
+    assert "Nothing quite fits" in draft["body"]
+    assert result["recent_tasks"] == []
+    assert result["turn_actions"] == []
+    unknown = [e for e in logs if e.get("event") == "selection_node.unknown_page_id"]
+    assert len(unknown) == 1
+    assert unknown[0]["notion_page_id"] == "<page_unknown>"
+    assert "selection_node.error" not in {e.get("event") for e in logs}
+
+
+@pytest.mark.asyncio
+async def test_selection_node_blank_title_is_not_suggested() -> None:
+    """A page that is in the list but has no title cannot be named, so it is not offered."""
+    update_status = AsyncMock()
+    response = json.dumps({
+        "selected_task_id": "<page_blank>",
+        "score": 0.9,
+        "reasoning": "fits",
+        "user_message": "How about {task}?",
+    })
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
+            _pending_page("<page_blank>", "   "),
+        ]})),
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.models.llm", return_value=_mock_llm_response(response)),
+    ):
+        from app.graph.nodes.selection import selection_node
+
+        result = await selection_node(_ledger_state(incoming="what now?"))
+
+    update_status.assert_not_awaited()
+    assert result["active_task"] is None
+    assert "{task}" not in result["pending_outbound"][0]["body"]
+    assert result["pending_outbound"][0]["notion_page_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_selection_prompt_carries_the_user_message_and_history() -> None:
+    """The model reads available time from the message when state has none."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    model = _mock_llm_response(json.dumps({
+        "selected_task_id": None,
+        "score": 0.0,
+        "reasoning": "",
+        "user_message": "Nothing quite fits right now.",
+    }))
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": []})),
+        patch("app.models.llm", return_value=model),
+    ):
+        from app.graph.nodes.selection import selection_node
+
+        await selection_node(_ledger_state(
+            incoming="I have 2 hours and feel sharp",
+            messages=[HumanMessage(content="morning"), AIMessage(content="Morning!")],
+        ))
+
+    system_prompt = model.ainvoke.await_args.args[0][0].content
+    assert "I have 2 hours and feel sharp" in system_prompt
+    assert "assistant: Morning!" in system_prompt
+    assert "not stated" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_rejection_node_records_rejected_and_suggested() -> None:
+    update_property = AsyncMock()
+    response = json.dumps({
+        "rejection_category": "mood_mismatch",
+        "alternative_task_id": "<page_B>",
+        "user_message": "Fair — how about {task} instead?",
+    })
+    active = _active_task("Water the plants", page_id="<page_A>")
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
+            _pending_page("<page_A>", "Water the plants"),
+            _pending_page("<page_B>", "Sort the mail"),
+        ]})),
+        patch("app.tools.notion.update_property", update_property),
+        patch("app.models.llm", return_value=_mock_llm_response(response)),
+    ):
+        from app.graph.nodes.rejection import rejection_node
+
+        result = await rejection_node(_ledger_state(incoming="not that one", active_task=active))
+
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_B>", "Sort the mail", "task", "suggested"),
+        ("<page_A>", "Water the plants", "task", "rejected"),
+    ]
+    assert result["turn_actions"] == [
+        {"action": "notion.update_property", "page_id": "<page_A>"},
+        {"action": "suggest", "page_id": "<page_B>"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rejection_node_unknown_alternative_is_not_recorded() -> None:
+    response = json.dumps({
+        "alternative_task_id": "<page_unknown>",
+        "user_message": "Want something else?",
+    })
+    active = _active_task("Water the plants", page_id="<page_A>")
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": []})),
+        patch("app.tools.notion.update_property", AsyncMock()),
+        patch("app.models.llm", return_value=_mock_llm_response(response)),
+    ):
+        from app.graph.nodes.rejection import rejection_node
+
+        result = await rejection_node(_ledger_state(incoming="nah", active_task=active))
+
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_A>", "Water the plants", "task", "rejected"),
+    ]
+    assert {"action": "suggest", "page_id": "<page_unknown>"} not in result["turn_actions"]
+
+
+def _intake_response(
+    *, title: str, is_reminder: bool = False, remind_at: str | None = None
+) -> str:
+    return json.dumps({
+        "action": "save",
+        "title": title,
+        "work_type": "independent",
+        "urgency": 50,
+        "time_estimate_minutes": 10,
+        "energy_required": "Low",
+        "is_reminder": is_reminder,
+        "remind_at": remind_at,
+        "due_at": None,
+        "use_hidden_subtasks": False,
+        "sub_tasks": [],
+        "inline_steps": "",
+        "confirmation_message": "Got it — {task}.",
+    })
+
+
+@pytest.mark.asyncio
+async def test_intake_node_records_added_task() -> None:
+    create_task = AsyncMock(return_value={"id": "<page_new>"})
+    with (
+        patch("app.tools.notion.query_all", AsyncMock(return_value={"results": []})),
+        patch("app.tools.notion.create_task", create_task),
+        patch(
+            "app.models.llm",
+            return_value=_mock_llm_response(_intake_response(title="Sort the mail")),
+        ),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_ledger_state(incoming="I need to sort the mail"))
+
+    create_task.assert_awaited_once()
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_new>", "Sort the mail", "task", "added"),
+    ]
+    assert result["turn_actions"] == [{"action": "notion.create_task", "page_id": "<page_new>"}]
+
+
+@pytest.mark.asyncio
+async def test_intake_node_records_added_reminder() -> None:
+    create_reminder = AsyncMock(return_value={"id": "<page_rem>"})
+    conn_ctx = AsyncMock()
+    conn_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+    conn_ctx.__aexit__ = AsyncMock(return_value=None)
+    with (
+        patch("app.tools.notion.create_reminder", create_reminder),
+        patch("app.tools.db.get_db_conn", return_value=conn_ctx),
+        patch("app.tools.reminders.enqueue", AsyncMock(return_value=uuid.uuid4())),
+        patch("app.models.llm", return_value=_mock_llm_response(_intake_response(
+            title="Take the bins out",
+            is_reminder=True,
+            remind_at="2026-01-02T20:00:00-06:00",
+        ))),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(
+            _ledger_state(incoming="remind me to take the bins out at 8pm")
+        )
+
+    create_reminder.assert_awaited_once()
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_rem>", "Take the bins out", "reminder", "added"),
+    ]
+    assert result["turn_actions"] == [
+        {"action": "notion.create_reminder", "page_id": "<page_rem>"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_intake_node_clarify_records_the_question_only() -> None:
+    existing = [{
+        "page_id": "<page_old>",
+        "title": "Sort the mail",
+        "kind": "task",
+        "event": "added",
+        "at": datetime.now(UTC).isoformat(),
+    }]
+    response = json.dumps({"action": "clarify", "clarification_question": "Which one?"})
+    with patch("app.models.llm", return_value=_mock_llm_response(response)):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(
+            _ledger_state(incoming="add that thing", recent_tasks=existing)
+        )
+
+    assert result["turn_actions"] == [{"action": "clarify", "page_id": None}]
+    assert result.get("recent_tasks", existing) == existing
+
+
+@pytest.mark.asyncio
+async def test_complete_node_records_completed_task() -> None:
+    from app.graph.nodes import complete as complete_module
+
+    active = _active_task("Water the plants", page_id="<page_A>")
+    with (
+        patch("app.tools.notion.update_status", new_callable=AsyncMock),
+        patch(
+            "app.tools.rewards.maybe_reward",
+            new_callable=AsyncMock,
+            return_value={"text": "Nice work!", "attachment_path": None},
+        ),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+    ):
+        result = await complete_module.complete_node(
+            _ledger_state(incoming="done!", intent="COMPLETE", active_task=active)
+        )
+
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_A>", "Water the plants", "task", "completed"),
+    ]
+    assert result["turn_actions"] == [
+        {"action": "notion.update_status", "page_id": "<page_A>"},
+        {"action": "reward", "page_id": "<page_A>"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_complete_node_from_a_delivered_reminder_records_no_body_as_title() -> None:
+    """A recent_outbound target's title is the sent reminder body; the ledger never stores it."""
+    from app.graph.nodes import complete as complete_module
+
+    recent_target = complete_module._CompletionTarget(
+        source="recent_outbound",
+        page_id="<page_R>",
+        task_title="Reminder body placeholder",
+        work_type="",
+        energy_required="",
+        context_at=datetime.now(UTC),
+        signal_timestamp=1,
+    )
+    known = [{
+        "page_id": "<page_R>",
+        "title": "Take the bins out",
+        "kind": "reminder",
+        "event": "reminded",
+        "at": (datetime.now(UTC) - timedelta(minutes=5)).isoformat(),
+    }]
+    with (
+        patch("app.tools.notion.update_status", new_callable=AsyncMock) as update_status,
+        patch(
+            "app.tools.rewards.maybe_reward",
+            new_callable=AsyncMock,
+            return_value={"text": "Nice work!", "attachment_path": None},
+        ),
+        patch.object(
+            complete_module, "_load_recent_outbound_target", AsyncMock(return_value=recent_target)
+        ),
+        patch.object(complete_module, "_clear_recent_outbound", AsyncMock()),
+    ):
+        result = await complete_module.complete_node(
+            _ledger_state(incoming="done", intent="COMPLETE", recent_tasks=known)
+        )
+
+    update_status.assert_not_awaited()
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_R>", "Take the bins out", "reminder", "completed"),
+    ]
+    assert result["turn_actions"] == [{"action": "reward", "page_id": "<page_R>"}]
+
+
+@pytest.mark.asyncio
+async def test_complete_node_clarify_records_the_question() -> None:
+    from app.graph.nodes import complete as complete_module
+
+    with (
+        patch("app.tools.notion.update_status", new_callable=AsyncMock) as update_status,
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+    ):
+        result = await complete_module.complete_node(
+            _ledger_state(incoming="done!", intent="COMPLETE")
+        )
+
+    update_status.assert_not_awaited()
+    assert result["turn_actions"] == [{"action": "clarify", "page_id": None}]
+    assert result.get("recent_tasks", []) == []

@@ -11,9 +11,20 @@ Select the best task for the user based on their current context.
 
 ### User Context
 
-- Available time: {{ available_minutes | default(30) }} minutes
-- Current mood: {{ mood | default('neutral') }} (maps to: {{ preferred_work_type | default('any') }})
+- Available time (minutes): {{ available_minutes | default('not stated') }}
+- Current mood: {{ mood | default('not stated') }} (maps to: {{ preferred_work_type | default('any') }})
 - Time of day: {{ time_of_day | default('unknown') }}
+
+User's message: "{{ user_message | default('') }}"
+
+Recent conversation:
+{{ conversation_context | default('No prior context.') }}
+
+When available time or mood says "not stated", read them from the user's
+message and the recent conversation ("I've got 2 hours", "I'm wiped",
+"feeling sharp"). Use what the user said over any default. If the message
+does not say how much time they have, assume 30 minutes; if it does not say
+how they feel, treat mood as neutral.
 
 ### Pending Tasks
 

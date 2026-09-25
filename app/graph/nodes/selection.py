@@ -13,9 +13,18 @@ from typing import Any, TypedDict, cast
 
 import structlog
 
+from app.graph.context import record_task_event, record_turn_action, render_history
+from app.graph.nodes._task_token import TASK_TOKEN
 from app.graph.state import ActiveTask, OutboundDraft, State
 
 log = structlog.get_logger(__name__)
+
+# Shown to the prompt for a context field nothing has filled in.
+_NOT_STATED = "not stated"
+
+# The prompt's own no-match template. Used when the model's selection cannot
+# be honored, so the user gets the same reply a no-match turn would give.
+_NOTHING_FITS = "Nothing quite fits right now. Want to add something quick?"
 
 class _SimplifiedTask(TypedDict):
     id: str
@@ -65,10 +74,15 @@ async def selection_node(state: State) -> dict[str, Any]:
         from app.models import llm
         from app.tools import notion
 
-        available_minutes = state.get("available_minutes") or 30
+        # Nothing writes these fields yet, so they are usually null. The prompt
+        # gets "not stated" rather than a fabricated default and reads time and
+        # mood from the user's own message instead.
+        available_minutes = state.get("available_minutes")
         mood = state.get("mood")
         preferred_work_type = _mood_to_work_type(mood)
         time_of_day = _time_of_day()
+        incoming = state.get("incoming") or ""
+        now = datetime.now(UTC)
 
         # Fetch pending tasks from Notion
         tasks_raw = await notion.query_pending()
@@ -93,11 +107,13 @@ async def selection_node(state: State) -> dict[str, Any]:
         # Load and render the selection prompt
         from app.prompts.loader import render_with_defaults
         prompt_context = {
-            "available_minutes": available_minutes,
-            "mood": mood or "neutral",
+            "available_minutes": available_minutes if available_minutes else _NOT_STATED,
+            "mood": mood or _NOT_STATED,
             "preferred_work_type": preferred_work_type,
             "time_of_day": time_of_day,
             "tasks_json": tasks_json,
+            "user_message": incoming,
+            "conversation_context": render_history(state.get("messages", [])),
         }
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 
@@ -115,44 +131,76 @@ async def selection_node(state: State) -> dict[str, Any]:
 
         # The prompt writes the literal {task} token; the title comes from the
         # task list we scored, never from the model. send_node substitutes it.
-        selected_title = next(
-            (t["title"] for t in simplified if t["id"] == selected_page_id and t["title"]),
+        # A selection counts only when it resolves to a scored task with a
+        # title: an id the node never offered, or a page with no name, would
+        # mark an unknown page In Progress and suggest a task the user cannot
+        # identify. Either is treated as no selection.
+        selected = next(
+            (t for t in simplified if selected_page_id and t["id"] == selected_page_id),
             None,
         )
+        selected_title = selected["title"].strip() if selected else ""
+        if selected_page_id and not (selected and selected_title):
+            log.warning(
+                "selection_node.unknown_page_id",
+                notion_page_id=selected_page_id,
+                in_candidates=selected is not None,
+            )
+            selected = None
+            selected_page_id = None
+            user_message = _NOTHING_FITS
+        elif not selected_page_id and TASK_TOKEN in user_message:
+            # A body that refers to a task with no task behind it cannot be
+            # rendered; fall back to the no-match reply.
+            user_message = _NOTHING_FITS
 
         draft: OutboundDraft = {
             "recipient": peer,
             "body": user_message,
             "notion_page_id": selected_page_id,
         }
-        if selected_title:
+        if selected_title and selected is not None:
             draft["notion_page_title"] = selected_title
+
+        recent_tasks = list(state.get("recent_tasks") or [])
+        turn_actions = list(state.get("turn_actions") or [])
 
         # Mark selected task In Progress and set active_task in state.
         # This is required for COMPLETE/reward to work correctly (psy-001):
         # without active_task set here, the complete node skips Notion completion
         # and maybe_reward, breaking the dopamine timing loop.
         active_task: ActiveTask | None = None
-        if selected_page_id:
+        if selected is not None and selected_page_id:
             try:
                 await notion.update_status(selected_page_id, "In Progress")
+                turn_actions = record_turn_action(
+                    turn_actions,
+                    {"action": "notion.update_status", "page_id": selected_page_id},
+                )
             except Exception:
                 log.exception("selection_node.mark_in_progress_failed", notion_page_id=selected_page_id)
 
-            # Build a minimal ActiveTask from the simplified task list
-            selected_simplified = next((t for t in simplified if t["id"] == selected_page_id), None)
             active_task = ActiveTask(
                 page_id=selected_page_id,
-                title=selected_simplified["title"] if selected_simplified else "",
+                title=selected_title,
                 status="In Progress",
-                selected_at=datetime.now(UTC).isoformat(),
-                work_type=selected_simplified["work_type"] if selected_simplified else "",
-                urgency=selected_simplified["urgency"] if selected_simplified else 50,
-                time_estimate=selected_simplified["time_estimate"] if selected_simplified else 30,
-                energy_required=(
-                    selected_simplified["energy_required"] if selected_simplified else "Medium"
-                ),
-                rejection_count=selected_simplified["rejection_count"] if selected_simplified else 0,
+                selected_at=now.isoformat(),
+                work_type=selected["work_type"],
+                urgency=selected["urgency"],
+                time_estimate=selected["time_estimate"],
+                energy_required=selected["energy_required"],
+                rejection_count=selected["rejection_count"],
+            )
+            recent_tasks = record_task_event(
+                recent_tasks,
+                page_id=selected_page_id,
+                title=selected_title,
+                kind="task",
+                event="suggested",
+                now=now,
+            )
+            turn_actions = record_turn_action(
+                turn_actions, {"action": "suggest", "page_id": selected_page_id}
             )
 
         log.info("selection_node.suggestion", notion_page_id=selected_page_id)
@@ -160,6 +208,8 @@ async def selection_node(state: State) -> dict[str, Any]:
             "pending_outbound": [draft],
             "active_task": active_task,
             "conversation_state": "active" if active_task else "selection",
+            "recent_tasks": recent_tasks,
+            "turn_actions": turn_actions,
         }
 
     except Exception:

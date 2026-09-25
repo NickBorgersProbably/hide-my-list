@@ -25,6 +25,7 @@ from typing import Any, cast
 
 import structlog
 
+from app.graph.context import record_task_event, record_turn_action
 from app.graph.nodes._task_match import (
     DedupCandidate,
     open_non_reminder_tasks,
@@ -109,7 +110,10 @@ async def intake_node(state: State) -> dict[str, Any]:
         if parsed is None:
             # Unparseable model output (e.g. truncated mid-JSON). Do not fake a
             # success: preserve capture, alert the operator, tell the truth.
-            return await _handle_parse_failure(peer=peer, incoming=incoming)
+            return await _handle_parse_failure(peer=peer, incoming=incoming, state=state)
+
+        turn_actions = list(state.get("turn_actions") or [])
+        clarify_actions = record_turn_action(turn_actions, {"action": "clarify", "page_id": None})
 
         if parsed.get("action") == "clarify":
             question = parsed.get("clarification_question", "Which task are you thinking of?")
@@ -118,7 +122,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 "body": question,
                 "notion_page_id": None,
             }
-            return {"pending_outbound": [clarify_draft]}
+            return {"pending_outbound": [clarify_draft], "turn_actions": clarify_actions}
 
         # Action is "save"
         # A blank title is as unusable as a missing one: it propagates into the
@@ -134,7 +138,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 "body": "What should I call that one?",
                 "notion_page_id": None,
             }
-            return {"pending_outbound": [blank_title_draft]}
+            return {"pending_outbound": [blank_title_draft], "turn_actions": clarify_actions}
         work_type = str(parsed.get("work_type", "focus"))
         urgency = int(parsed.get("urgency", 50))
         time_estimate = int(parsed.get("time_estimate_minutes", 30))
@@ -165,6 +169,7 @@ async def intake_node(state: State) -> dict[str, Any]:
 
         duplicate_matched = False
         dedup_match: DedupMatch | None = None
+        created_reminder = bool(is_reminder and remind_at_str)
         if is_reminder and remind_at_str:
             notion_page = await _create_reminder(
                 peer=peer,
@@ -272,6 +277,33 @@ async def intake_node(state: State) -> dict[str, Any]:
         if draft_task_title:
             draft["notion_page_title"] = draft_task_title
 
+        # Record the task this turn is about so the next turn has an anchor:
+        # a bare "done" or "what task?" a minute later resolves against it.
+        recent_tasks = list(state.get("recent_tasks") or [])
+        if page_id:
+            recent_tasks = record_task_event(
+                recent_tasks,
+                page_id=page_id,
+                title=draft_task_title,
+                kind="reminder" if created_reminder else "task",
+                event="added",
+                now=datetime.now(UTC),
+            )
+            if not duplicate_matched:
+                turn_actions = record_turn_action(
+                    turn_actions,
+                    {
+                        "action": (
+                            "notion.create_reminder" if created_reminder else "notion.create_task"
+                        ),
+                        "page_id": page_id,
+                    },
+                )
+            elif deadline_at is not None:
+                turn_actions = record_turn_action(
+                    turn_actions, {"action": "notion.update_property", "page_id": page_id}
+                )
+
         if duplicate_matched:
             log.info(
                 "intake_node.saved",
@@ -292,6 +324,8 @@ async def intake_node(state: State) -> dict[str, Any]:
         return {
             "pending_outbound": [draft],
             "conversation_state": "idle",
+            "recent_tasks": recent_tasks,
+            "turn_actions": turn_actions,
         }
 
     except Exception:
@@ -372,7 +406,9 @@ def _build_dedup_prompt(proposed_title: str, candidates: list[DedupCandidate]) -
     )
 
 
-async def _handle_parse_failure(*, peer: str, incoming: str) -> dict[str, Any]:
+async def _handle_parse_failure(
+    *, peer: str, incoming: str, state: State | None = None
+) -> dict[str, Any]:
     """Handle an unparseable intake LLM response without faking success.
 
     Preserves capture by saving the user's raw message as a plain task — titled
@@ -420,7 +456,26 @@ async def _handle_parse_failure(*, peer: str, incoming: str) -> dict[str, Any]:
         ),
         "notion_page_id": page_id,
     }
-    return {"pending_outbound": [draft], "conversation_state": "idle"}
+    recent_tasks = list(state.get("recent_tasks") or []) if state else []
+    turn_actions = list(state.get("turn_actions") or []) if state else []
+    if page_id:
+        recent_tasks = record_task_event(
+            recent_tasks,
+            page_id=page_id,
+            title=incoming[:200],
+            kind="task",
+            event="added",
+            now=datetime.now(UTC),
+        )
+        turn_actions = record_turn_action(
+            turn_actions, {"action": "notion.create_task", "page_id": page_id}
+        )
+    return {
+        "pending_outbound": [draft],
+        "conversation_state": "idle",
+        "recent_tasks": recent_tasks,
+        "turn_actions": turn_actions,
+    }
 
 
 async def _create_reminder(

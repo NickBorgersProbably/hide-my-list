@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import structlog
 
+from app.graph.context import record_task_event, record_turn_action
 from app.graph.nodes._task_token import render_task_token
 from app.graph.state import OutboundDraft, State
 
@@ -84,6 +86,21 @@ async def rejection_node(state: State) -> dict[str, Any]:
         alternative_title = _alternative_task_title(alternative_id, remaining)
         user_message = render_task_token(user_message, title=alternative_title)
 
+        now = datetime.now(UTC)
+        recent_tasks = list(state.get("recent_tasks") or [])
+        turn_actions = list(state.get("turn_actions") or [])
+        if rejected_page_id:
+            recent_tasks = record_task_event(
+                recent_tasks,
+                page_id=rejected_page_id,
+                # Only the stored title; the "the suggested task" stand-in the
+                # prompt receives is not a name.
+                title=(active_task.get("title") or "").strip() if active_task else "",
+                kind="task",
+                event="rejected",
+                now=now,
+            )
+
         # Update rejection count in Notion
         if rejected_page_id:
             try:
@@ -99,6 +116,10 @@ async def rejection_node(state: State) -> dict[str, Any]:
                         }
                     },
                 )
+                turn_actions = record_turn_action(
+                    turn_actions,
+                    {"action": "notion.update_property", "page_id": rejected_page_id},
+                )
             except Exception:
                 log.exception("rejection_node.notion_update_failed", page_id=rejected_page_id)
 
@@ -109,12 +130,28 @@ async def rejection_node(state: State) -> dict[str, Any]:
         }
         if alternative_title:
             draft["notion_page_title"] = alternative_title
+            # Recorded only when the alternative resolves to a named task the
+            # node actually offered; an unknown id names nothing.
+            if alternative_id:
+                recent_tasks = record_task_event(
+                    recent_tasks,
+                    page_id=alternative_id,
+                    title=alternative_title,
+                    kind="task",
+                    event="suggested",
+                    now=now,
+                )
+                turn_actions = record_turn_action(
+                    turn_actions, {"action": "suggest", "page_id": alternative_id}
+                )
 
         log.info("rejection_node.alternative", peer=peer, alternative_id=alternative_id)
         return {
             "pending_outbound": [draft],
             "active_task": None,
             "conversation_state": "selection",
+            "recent_tasks": recent_tasks,
+            "turn_actions": turn_actions,
         }
 
     except Exception:
