@@ -118,6 +118,18 @@ async def test_dispatch_skips_complete_reminder_for_deadline_kind(
     assert kwargs["idempotency_key"] == row["idempotency_key"]
     complete_reminder.assert_not_awaited()
 
+    # reminder_type='deadline' must cross the recent_outbound INSERT so
+    # hydrate_context can classify the delivery as nudged, not reminded.
+    insert_params = [
+        params
+        for sql, params in conn.executed
+        if params is not None and "INSERT INTO recent_outbound" in sql
+    ]
+    assert insert_params, "Expected a recent_outbound INSERT for the deadline delivery"
+    assert insert_params[0][3] == "deadline", (
+        f"Expected reminder_type='deadline' in recent_outbound INSERT, got {insert_params[0][3]!r}"
+    )
+
 
 @pytest.mark.asyncio
 async def test_dispatch_treats_missing_kind_as_reminder(

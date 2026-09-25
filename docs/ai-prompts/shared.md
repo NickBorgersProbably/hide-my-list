@@ -135,8 +135,13 @@ Categories:
 - CHECK_IN: System-initiated follow-up (triggered by APScheduler `check_in_dispatcher`, not by a user message)
 - CHAT: General conversation or questions
 
-Prior conversation (last ~5 turns from conversation history):
+Prior conversation (last 8 messages from conversation history, 400 characters each):
 {prior_conversation}
+
+Recent tasks:
+{recent_tasks}
+
+Conversation state: {conversation_state}; awaiting clarification: {yes|no}
 
 If the prior conversation shows an in-progress task discussion, treat short
 follow-ups (deadlines, clarifications, pronouns like "it") as continuations of
@@ -148,7 +153,7 @@ Message: "{user_message}"
 Intent:
 ```
 
-**Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder classify from the windowed `state["messages"]` history that `send_node` writes — the same `Prior conversation` block surfaced above.
+**Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Reminder delivery does not write `state["messages"]`. A short reply like "I did it" after a just-sent reminder classifies with that delivery visible in the `Recent tasks:` block above: `hydrate_context` merges the peer's `recent_outbound` rows into the ledger before classification. `classify_intent` itself does not query `recent_outbound`.
 
 ### Cross-Session Reply Resolution
 
@@ -497,6 +502,60 @@ stateDiagram-v2
 | Selection | Current task context |
 | Active | Active task ID, start time, check-in count |
 | CheckingIn | Active task ID, elapsed time, check-in count |
+
+### Recent Task Ledger
+
+The checkpoint carries `recent_tasks`: the tasks this conversation touched
+recently, newest first. It is the conversation's working memory of "the task
+we just talked about". The intent classifier sees it as context, and the chat
+module uses it to answer "what task?" even when the previous reply did not
+repeat the title. The COMPLETE module does not resolve its completion target
+from the ledger; it writes to the ledger after resolving a target through the
+sources in Cross-Session Reply Resolution.
+
+Each entry holds:
+
+| Field | Meaning |
+|-------|---------|
+| `page_id` | Notion page the event is about |
+| `title` | The stored task title, or empty when the entry came from a reminder delivery whose page could not be read. Never a sent message body. |
+| `kind` | `task` or `reminder` |
+| `event` | `added`, `suggested`, `completed`, `reminded`, or `nudged` |
+| `at` | ISO-8601 UTC time of the event |
+
+Writers:
+
+- **Intake** records `added` for the page it created (kind `reminder` when it
+  created a reminder) or the existing page a duplicate matched.
+- **Selection** records `suggested` for the task it offered.
+- **Complete** records `completed` for the page it resolved.
+- **`hydrate_context`**, the graph's entry node, merges the peer's
+  `recent_outbound` rows from the last 7 days at the start of every turn: a
+  reminder delivery becomes `reminded`, a deadline delivery becomes `nudged`.
+  A merged entry keeps the title the ledger already has for that page.
+  Otherwise merged entries carry the stored title when the page can be read:
+  `hydrate_context` reads each untitled delivery page from Notion, newest
+  first, at most 3 per turn. A failed read leaves that entry untitled and
+  the turn continues. A Postgres error keeps the existing ledger and the
+  turn continues.
+
+Rules: one entry per page, and the newest event wins — an older event never
+replaces a newer one, and a known title is kept when the newer event carries
+none. Entries older than 7 days are pruned and the ledger holds at most 8.
+
+The ledger reaches prompts as one line per entry — title (or `(untitled)`),
+`[reminder]` for a reminder, the event, and a relative age — under
+`Recent tasks:` in the intent classifier and `### Recent Tasks` in the chat
+prompt. Each title is flattened to a single line and capped at 120
+characters, so one entry is always exactly one rendered line. Page ids never
+reach a prompt.
+
+Chat reads the ledger to answer **"what task?"**: when the user asks which
+task was just discussed, chat names the title of the newest ledger entry word
+for word. A reminder that just went out is that newest entry. When the newest
+entry is untitled, chat says it is not sure which task the user means and asks
+them to name it rather than naming an older entry. When the ledger is empty,
+chat names the current task, or asks when there is none.
 
 ---
 

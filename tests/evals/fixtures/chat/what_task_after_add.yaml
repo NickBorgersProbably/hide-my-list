@@ -1,0 +1,43 @@
+---
+# The user added a reminder, the confirmation did not repeat the title, and
+# the next message asks which task that was. The windowed history carries no
+# title at all, so the only source for the answer is the recent-task ledger
+# (`recent_tasks`), which the chat prompt renders under "Recent Tasks". A chat
+# prompt without the ledger has nothing to name and fails both the regex and
+# the judge contract.
+id: chat-what-task-after-add-001
+node: chat
+tier: medium
+peer: "<test-peer-ledger-1>"
+inbound: "What task was that?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  messages:
+    - role: user
+      content: "add one for tonight at 8"
+    - role: assistant
+      content: "Got it — I'll ping you at 8pm."
+  # `at` is omitted: a static fixture cannot carry a fresh timestamp, and the
+  # renderer lists an entry without an age rather than guessing one.
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Take the bins out"
+      kind: reminder
+      event: added
+contracts:
+  - kind: regex_require
+    pattern: "(?i)bins"
+  - kind: regex_forbid
+    pattern: "(?i)(which|what) task (do|did) you mean"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user asked which task was just discussed. The correct answer names
+      the task "Take the bins out" (exact wording or a close paraphrase that
+      clearly identifies it). The response is brief and conversational, does
+      not ask the user to repeat themselves, and does not claim it does not
+      know. Score 1.0 when the task is named plainly, 0.0 when the response
+      asks the user which task they mean or names no task.
+    threshold: 0.7

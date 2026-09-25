@@ -13,6 +13,7 @@ from typing import Any, TypedDict, cast
 
 import structlog
 
+from app.graph.context import record_task_event
 from app.graph.state import ActiveTask, OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -133,6 +134,7 @@ async def selection_node(state: State) -> dict[str, Any]:
         # without active_task set here, the complete node skips Notion completion
         # and maybe_reward, breaking the dopamine timing loop.
         active_task: ActiveTask | None = None
+        recent_tasks = list(state.get("recent_tasks") or [])
         if selected_page_id:
             try:
                 await notion.update_status(selected_page_id, "In Progress")
@@ -154,12 +156,21 @@ async def selection_node(state: State) -> dict[str, Any]:
                 ),
                 rejection_count=selected_simplified["rejection_count"] if selected_simplified else 0,
             )
+            recent_tasks = record_task_event(
+                recent_tasks,
+                page_id=selected_page_id,
+                title=selected_title or "",
+                kind="task",
+                event="suggested",
+                now=datetime.now(UTC),
+            )
 
         log.info("selection_node.suggestion", notion_page_id=selected_page_id)
         return {
             "pending_outbound": [draft],
             "active_task": active_task,
             "conversation_state": "active" if active_task else "selection",
+            "recent_tasks": recent_tasks,
         }
 
     except Exception:

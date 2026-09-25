@@ -73,8 +73,13 @@ Categories:
 - CHECK_IN: System-initiated follow-up (never inferred from user messages)
 - CHAT: General conversation or questions
 
-Prior conversation (last ~5 turns from conversation history):
+Prior conversation (last 8 messages from conversation history, 400 characters each):
 {{ prior_conversation | default('No prior context.') }}
+
+Recent tasks:
+{{ recent_tasks | default('None yet.') }}
+
+Conversation state: {{ conversation_state | default('idle') }}; awaiting clarification: {{ awaiting_clarification | default('no') }}
 
 If the prior conversation shows an in-progress task discussion, treat short
 follow-ups (deadlines, clarifications, pronouns like "it") as continuations of

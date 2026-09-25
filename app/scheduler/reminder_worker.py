@@ -193,11 +193,11 @@ async def dispatch_due_reminders(
                       (peer, signal_timestamp, notion_page_id,
                        reminder_type, title, prompt_kind,
                        sent_at, awaiting_reply, expires_at)
-                    VALUES (%s, %s, %s, 'reminder', %s, 'sent',
+                    VALUES (%s, %s, %s, %s, %s, 'sent',
                             now(), true, now() + interval '24 hours')
                     ON CONFLICT DO NOTHING
                     """,
-                    (peer, signal_ts, notion_page_id, reminder_title),
+                    (peer, signal_ts, notion_page_id, kind, reminder_title),
                 )
             await conn.commit()
 

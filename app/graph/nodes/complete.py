@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 import structlog
 
+from app.graph.context import ledger_entry, record_task_event
 from app.graph.nodes._task_match import (
     DedupCandidate,
     normalize_title_tokens,
@@ -675,6 +676,7 @@ async def complete_node(state: State) -> dict[str, Any]:
         active_task = state.get("active_task")
         now = datetime.now(UTC)
         active_target = _target_from_active_task(active_task, now=now)
+        recent_tasks = list(state.get("recent_tasks") or [])
 
         # Attempts already spent on this question. Absent for a first "done",
         # present when this turn is the answer to a clarification classify_intent
@@ -818,6 +820,21 @@ async def complete_node(state: State) -> dict[str, Any]:
         if reward_result["attachment_path"]:
             reward_draft["attachment_path"] = reward_result["attachment_path"]
 
+        # A recent_outbound target's title is the sent reminder body, not the
+        # task title, so it is never written to the ledger; the ledger keeps
+        # whatever title it already has for the page.
+        known = ledger_entry(recent_tasks, page_id)
+        recent_tasks = record_task_event(
+            recent_tasks,
+            page_id=page_id,
+            title="" if target.source == "recent_outbound" else task_title,
+            kind=known["kind"] if known else (
+                "reminder" if target.source == "recent_outbound" else "task"
+            ),
+            event="completed",
+            now=now,
+        )
+
         log.info(
             "complete_node.done",
             page_id=page_id,
@@ -831,6 +848,7 @@ async def complete_node(state: State) -> dict[str, Any]:
             "tasks_completed_today": tasks_today,
             "conversation_state": "idle",
             "pending_clarification": None,
+            "recent_tasks": recent_tasks,
         }
 
     except Exception:

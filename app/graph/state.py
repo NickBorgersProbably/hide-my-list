@@ -88,6 +88,32 @@ class PendingClarification(TypedDict, total=False):
     candidates: list[ClarificationCandidate]
 
 
+RecentTaskKind = Literal["task", "reminder"]
+
+RecentTaskEvent = Literal[
+    "added", "suggested", "completed", "reminded", "nudged"
+]
+
+
+class RecentTaskEntry(TypedDict):
+    """One task the conversation touched recently.
+
+    The ledger is the conversation's working memory of "the task we just talked
+    about": intake, selection, and complete record what they did to a page,
+    and `hydrate_context` merges reminder deliveries at turn start.
+
+    `title` is the stored Notion title when a node knew it, or "" when the
+    entry came from a delivery the ledger had not seen before. It is never a
+    sent message body. `at` is an ISO-8601 UTC timestamp. The title is private;
+    log ids and counts only.
+    """
+    page_id: str
+    title: str
+    kind: RecentTaskKind
+    event: RecentTaskEvent
+    at: str
+
+
 class UserPrefs(TypedDict, total=False):
     """User personalization preferences, ported from state.json.user_preferences."""
     timezone: str
@@ -119,6 +145,12 @@ class State(TypedDict):
     # true, classify_intent has already produced the user-facing fallback draft,
     # so the graph routes straight to send instead of invoking a second LLM node.
     classification_error_fallback: NotRequired[bool]
+
+    # Recent-task ledger, newest first. Absent on checkpoints written before
+    # the key existed, so readers use .get() and treat missing as empty.
+    # Writers return the full new list (plain replace, no reducer); the
+    # helpers in app/graph/context.py own dedupe, prune, and cap.
+    recent_tasks: NotRequired[list[RecentTaskEntry]]
 
     # Typing for extra keys accepted by LangGraph but not declared above
     __pydantic_extra__: Any
