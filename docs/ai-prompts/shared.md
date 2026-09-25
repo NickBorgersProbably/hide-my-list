@@ -158,9 +158,7 @@ Intent:
 ### Cross-Session Reply Resolution
 
 Intent classification uses the checkpointed conversation window in
-`state["messages"]` and the `Recent tasks:` ledger block that
-`hydrate_context` builds before classification; `classify_intent` itself does
-not query `recent_outbound`.
+`state["messages"]`; it does not query `recent_outbound` during routing.
 After a message routes to COMPLETE, `complete_node` resolves the completion
 target from three sources, in this order of authority:
 
@@ -196,8 +194,8 @@ only "could not tell", and context still resolves.
 
 The question is recorded in `state["pending_clarification"]`: its kind, when it
 was asked, how many times it has been asked, and the options it named.
-`classify_intent` owns that key's lifecycle, since it performs clarification
-resolution and clearing on every classified turn, after `hydrate_context`.
+`classify_intent` owns that key's lifecycle, since it is the only node that
+runs on every turn.
 
 | Rule | Value |
 |------|-------|
@@ -480,12 +478,12 @@ stateDiagram-v2
 
     Intake --> Idle: Task saved (after inference or up to 3 questions)
 
-    Selection --> Active: Task offered (marked In Progress)
-    Selection --> Selection: No suitable task
+    Selection --> Active: Task accepted + initiation reward
+    Selection --> Selection: Task rejected
+    Selection --> Idle: No suitable task
 
     Active --> Active: First sub-step done + reward
     Active --> Idle: Task completed + celebration
-    Active --> Selection: Task rejected (alternative suggested)
     Active --> Selection: Task abandoned
     Active --> CheckingIn: Timer expires
     Idle --> Active: Resume detected (in_progress task + gap ≥ 15 min)
@@ -495,21 +493,14 @@ stateDiagram-v2
     CheckingIn --> Selection: Task abandoned
 ```
 
-A selection suggestion is marked In Progress in Notion and is the active task
-from the reply that names it, so the conversation is `active`. A selection
-that names no task leaves the conversation in `selection`. After a rejection
-no task is active and the conversation is in `selection`; a named alternative
-in the rejection reply is recorded in the recent-task ledger as `suggested`
-and stays Pending.
-
 ### State Data
 
 | State | Data Stored |
 |-------|-------------|
 | Idle | None |
 | Intake | Partial task data, conversation history, clarification_count |
-| Selection | No active task; a rejection alternative is in the recent-task ledger as `suggested` |
-| Active | Active task ID (In Progress in Notion), start time, check-in count |
+| Selection | Current task context |
+| Active | Active task ID, start time, check-in count |
 | CheckingIn | Active task ID, elapsed time, check-in count |
 
 ### Recent Task Ledger
@@ -518,10 +509,9 @@ The checkpoint carries `recent_tasks`: the tasks this conversation touched
 recently, newest first. It is the conversation's working memory of "the task
 we just talked about". The intent classifier sees it as context, and the chat
 module uses it to answer "what task?" even when the previous reply did not
-repeat the title. The COMPLETE
-module does not resolve its completion target from the ledger; it writes to
-the ledger after resolving a target through the sources in Cross-Session
-Reply Resolution.
+repeat the title. The COMPLETE module does not resolve its completion target
+from the ledger; it writes to the ledger after resolving a target through the
+sources in Cross-Session Reply Resolution.
 
 Each entry holds:
 
@@ -530,7 +520,7 @@ Each entry holds:
 | `page_id` | Notion page the event is about |
 | `title` | The stored task title, or empty when the entry came from a reminder delivery whose page could not be read. Never a sent message body. |
 | `kind` | `task` or `reminder` |
-| `event` | `added`, `suggested`, `completed`, `reminded`, `nudged`, or `rejected` |
+| `event` | `added`, `suggested`, `completed`, `reminded`, or `nudged` |
 | `at` | ISO-8601 UTC time of the event |
 
 Writers:
@@ -538,9 +528,6 @@ Writers:
 - **Intake** records `added` for the page it created (kind `reminder` when it
   created a reminder) or the existing page a duplicate matched.
 - **Selection** records `suggested` for the task it offered.
-- **Rejection** records `rejected` for the declined task and `suggested` for
-  the named alternative it offers. The alternative stays Pending and no task
-  is active.
 - **Complete** records `completed` for the page it resolved.
 - **`hydrate_context`**, the graph's entry node, merges the peer's
   `recent_outbound` rows from the last 7 days at the start of every turn: a
@@ -601,3 +588,5 @@ sequenceDiagram
     U->>R: "Need something more engaging"
     R->>S: Re-score with "engaging" preference
     S->>U: "Try replying to that email from Jake? Social, quick."
+    U->>S: "Sure"
+    S->>U: "It's yours. Let me know when done!"

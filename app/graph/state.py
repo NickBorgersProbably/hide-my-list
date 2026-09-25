@@ -91,7 +91,7 @@ class PendingClarification(TypedDict, total=False):
 RecentTaskKind = Literal["task", "reminder"]
 
 RecentTaskEvent = Literal[
-    "added", "suggested", "completed", "reminded", "nudged", "rejected"
+    "added", "suggested", "completed", "reminded", "nudged"
 ]
 
 
@@ -99,8 +99,8 @@ class RecentTaskEntry(TypedDict):
     """One task the conversation touched recently.
 
     The ledger is the conversation's working memory of "the task we just talked
-    about": intake, selection, complete, and rejection record what they did to
-    a page, and `hydrate_context` merges reminder deliveries at turn start.
+    about": intake, selection, and complete record what they did to a page,
+    and `hydrate_context` merges reminder deliveries at turn start.
 
     `title` is the stored Notion title when a node knew it, or "" when the
     entry came from a delivery the ledger had not seen before. It is never a

@@ -5,25 +5,15 @@
 - **Never show the user their full task list.** The task JSON below is for internal
   scoring only — it must never be presented, summarized, or listed for the user.
   The only user-visible output is `user_message` in the JSON response.
-- **One task at most.** Suggest exactly one task, or none when nothing fits.
-  Never suggest multiple.
+- **One task only.** Always suggest exactly one task. Never suggest multiple.
 
 Select the best task for the user based on their current context.
 
 ### User Context
 
-- Available time (minutes): {{ available_minutes | default('not stated') }}
-- Current mood: {{ mood | default('not stated') }} (maps to: {{ preferred_work_type | default('any') }})
+- Available time: {{ available_minutes | default(30) }} minutes
+- Current mood: {{ mood | default('neutral') }} (maps to: {{ preferred_work_type | default('any') }})
 - Time of day: {{ time_of_day | default('unknown') }}
-
-User's message: "{{ user_message | default('') }}"
-
-When available time or mood says "not stated", take them from the user's
-message ("I've got 2 hours", "I'm wiped"). If the message gives no duration,
-score Time Fit by the task's own time_estimate — 15 min or less: 1.0; 30 or
-less: 0.75; 60 or less: 0.5; over 60: 0.25 — and exclude nothing on time. If
-it gives no mood, treat mood as neutral. Do not work through every task in
-detail — pick the best one and answer.
 
 ### Pending Tasks
 
@@ -31,7 +21,7 @@ detail — pick the best one and answer.
 
 ### Scoring Rules
 
-1. Time Fit (30% weight; when no duration is stated, use the task-length scale above instead):
+1. Time Fit (30% weight):
    - Task fits with buffer: 1.0
    - Tight fit (within 10%): 0.5
    - Doesn't fit: 0.0 (EXCLUDE)
@@ -77,13 +67,7 @@ the task only by attribute ("this focus task", "this 30-minute task").
   "user_message": "conversational suggestion using {task} if selected_task_id is non-null"
 }
 
-`selected_task_id` is either `null` or exactly one `id` copied from Pending
-Tasks, for a task whose title is non-empty. Never invent, shorten, or alter
-an id, and never put a title or any other text in this field.
-
-If no task fits, set `selected_task_id` to `null` and set `user_message` to
-exactly: "Nothing quite fits right now. Want to add something quick?" Never
-write `{task}` when `selected_task_id` is `null`.
+If no tasks fit, explain why and suggest alternatives.
 
 ### Shame Prevention
 

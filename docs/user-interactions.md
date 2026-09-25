@@ -160,10 +160,7 @@ flowchart TD
     FetchTasks --> HasTasks{Any tasks?}
 
     HasTasks -->|No| NoTasks["Your slate is clear!<br/>Want to add something?"]
-    HasTasks -->|Yes| KnownTime{Duration stated?}
-    KnownTime -->|Yes| FilterTime[Filter by time constraint]
-    KnownTime -->|No| ShortBias[Bias toward short tasks<br/>exclude nothing on time]
-    ShortBias --> ScoreTasks
+    HasTasks -->|Yes| FilterTime[Filter by time constraint]
 
     FilterTime --> HasMatches{Any fit time?}
     HasMatches -->|No| NoFit["Nothing fits that timeframe.<br/>Got more time?"]

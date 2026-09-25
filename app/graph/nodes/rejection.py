@@ -1,10 +1,7 @@
 """REJECT node: shame-safe rejection handling.
 
 When the user rejects a suggested task, classifies the reason, updates
-rejection count in Notion, and suggests an alternative. An alternative that
-resolves to a named pending task is recorded in the ledger as `suggested` and
-named in the reply. It stays Pending and no task is active afterwards: the
-user has not chosen it.
+rejection count in Notion, and suggests an alternative.
 
 Implements docs/ai-prompts/rejection.md behavior.
 """
@@ -12,12 +9,10 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import UTC, datetime
 from typing import Any, cast
 
 import structlog
 
-from app.graph.context import record_task_event
 from app.graph.nodes._task_token import render_task_token
 from app.graph.state import OutboundDraft, State
 
@@ -89,20 +84,6 @@ async def rejection_node(state: State) -> dict[str, Any]:
         alternative_title = _alternative_task_title(alternative_id, remaining)
         user_message = render_task_token(user_message, title=alternative_title)
 
-        now = datetime.now(UTC)
-        recent_tasks = list(state.get("recent_tasks") or [])
-        if rejected_page_id:
-            recent_tasks = record_task_event(
-                recent_tasks,
-                page_id=rejected_page_id,
-                # Only the stored title; the "the suggested task" stand-in the
-                # prompt receives is not a name.
-                title=(active_task.get("title") or "").strip() if active_task else "",
-                kind="task",
-                event="rejected",
-                now=now,
-            )
-
         # Update rejection count in Notion
         if rejected_page_id:
             try:
@@ -129,31 +110,11 @@ async def rejection_node(state: State) -> dict[str, Any]:
         if alternative_title:
             draft["notion_page_title"] = alternative_title
 
-        # The alternative counts only when it resolves to a named task the node
-        # actually offered; an unknown id names nothing. An offered alternative
-        # is a suggestion, not a commitment: it stays Pending and no task is
-        # active.
-        offered = _offered_alternative(alternative_id, alternative_title, remaining)
-        if offered is not None and alternative_id and alternative_title:
-            recent_tasks = record_task_event(
-                recent_tasks,
-                page_id=alternative_id,
-                title=alternative_title,
-                kind="task",
-                event="suggested",
-                now=now,
-            )
-
-        log.info(
-            "rejection_node.alternative",
-            alternative_id=alternative_id,
-            has_alternative=offered is not None,
-        )
+        log.info("rejection_node.alternative", peer=peer, alternative_id=alternative_id)
         return {
             "pending_outbound": [draft],
             "active_task": None,
             "conversation_state": "selection",
-            "recent_tasks": recent_tasks,
         }
 
     except Exception:
@@ -164,17 +125,6 @@ async def rejection_node(state: State) -> dict[str, Any]:
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
-
-
-def _offered_alternative(
-    alternative_id: str | None,
-    alternative_title: str | None,
-    remaining: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    """Return the remaining-task entry the model offered, if it has a name."""
-    if not alternative_id or not (alternative_title or "").strip():
-        return None
-    return next((t for t in remaining if t.get("id") == alternative_id), None)
 
 
 def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:

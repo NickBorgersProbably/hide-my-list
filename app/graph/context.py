@@ -63,7 +63,7 @@ _UNDATED = "1970-01-01T00:00:00+00:00"
 
 _KINDS: frozenset[str] = frozenset({"task", "reminder"})
 _EVENTS: frozenset[str] = frozenset(
-    {"added", "suggested", "completed", "reminded", "nudged", "rejected"}
+    {"added", "suggested", "completed", "reminded", "nudged"}
 )
 _ROLE_LABELS = {"human": "user", "ai": "assistant"}
 

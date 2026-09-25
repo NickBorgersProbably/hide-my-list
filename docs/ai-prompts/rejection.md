@@ -34,8 +34,8 @@ REJECTION CATEGORIES:
 ACTIONS BY CATEGORY:
 - timing: Suggest shorter task, note time preference
 - mood_mismatch: Suggest different work type, avoid this type now
-- blocked: Suggest a different alternative; note the task is waiting on something
-- already_done: Celebrate the completion; suggest another task
+- blocked: Mark as blocked, don't suggest until unblocked
+- already_done: Mark as completed, celebrate!
 - general: Log rejection, try very different task
 
 OUTPUT (JSON):
@@ -54,20 +54,6 @@ When `alternative_task_id` is non-null, `user_message` uses the literal token
 `{task}` wherever it refers to the alternative task. The application substitutes
 the exact selected title before sending the message.
 
-### Task Status After a Rejection
-
-After a rejection no task is active and the conversation is in `selection`.
-
-When `alternative_task_id` names a pending task with a title, the reply names
-it and the recent-task ledger records it as `suggested`. The alternative stays
-Pending and is not the active task: offering a task after a "no" is not the
-user choosing it.
-
-Why this design: the rejection moment carries the highest shame risk. Turning
-an offer into a commitment before the user says yes adds pressure at exactly
-that moment, and makes later help, completion, or another rejection act as
-though the user had picked the task.
-
 ### Rejection Response Templates (Shame-Safe)
 
 > **Shame Prevention:** Every rejection response must reinforce that rejecting tasks is helpful, not failure. User gives info about what works. Say so.
@@ -77,7 +63,7 @@ though the user had picked the task.
 | timing | "Got it — that one's too long right now. How about {task}?" |
 | mood_mismatch | "Fair enough — that tells me what kind of work fits right now. How about {task}?" |
 | blocked | "I'll hold off on that one. In the meantime, try {task}?" |
-| already_done | "Oh nice, already done! Ready for another?" |
+| already_done | "Oh nice, already done! Let me mark that off. Ready for another?" |
 | general | "No problem — that helps me learn what works for you. Here's something different: {task}?" |
 
 ### Escalation After Multiple Rejections (Shame-Aware)
