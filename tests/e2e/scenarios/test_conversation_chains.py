@@ -125,12 +125,15 @@ async def test_a_follow_up_turn_reads_the_previous_one(
 async def test_redelivering_a_reminder_completes_it_once(
     conversation: Conversation,
 ) -> None:
-    """Scenario 10 — two live reminders for one page, then a single "done".
+    """Scenario 10 — two live deadline nudges for one page, then a single "done".
 
-    A page can legitimately have several reminders in flight: migration 0007
+    A page can legitimately have several nudges in flight: migration 0007
     dropped the UNIQUE on `reminder_outbox.notion_page_id` so deadline milestones
     could stack. Each delivery writes its own `recent_outbound` row keyed on its
-    own signal_timestamp.
+    own signal_timestamp. Deadline nudges are the case that stacks: their task
+    stays open after delivery. A reminder page is completed by its own delivery,
+    and the worker skips any later row for a page that is already Completed, so
+    two reminder rows for one page can no longer both fire.
 
     One "done" finishes the task once, so it has to resolve *every* live row for
     that page. Clearing only the delivery the user replied to leaves the sibling
@@ -145,12 +148,14 @@ async def test_redelivering_a_reminder_completes_it_once(
     page = conversation.notion.seed_task(
         title="Pick up the prescription",
         work_type="Independent",
-        is_reminder=True,
-        reminder_status="pending",
     )
 
-    first = await conversation.deliver_reminder(page_id=page, body="Reminder: pick up the prescription")
-    second = await conversation.deliver_reminder(page_id=page, body="Reminder: pick up the prescription")
+    first = await conversation.deliver_reminder(
+        page_id=page, body="Deadline nudge: pick up the prescription.", kind="deadline"
+    )
+    second = await conversation.deliver_reminder(
+        page_id=page, body="Deadline nudge: pick up the prescription.", kind="deadline"
+    )
     assert second.signal_timestamp != first.signal_timestamp
 
     async with conversation.db() as conn:
@@ -165,7 +170,13 @@ async def test_redelivering_a_reminder_completes_it_once(
     )
 
     result = await conversation.say(
-        "done", expect=Expect(intent="COMPLETE", db_awaiting_reply=0, sent_count=1)
+        "done",
+        expect=Expect(
+            intent="COMPLETE",
+            notion_status={page: "Completed"},
+            db_awaiting_reply=0,
+            sent_count=1,
+        ),
     )
 
     async with conversation.db() as conn:
