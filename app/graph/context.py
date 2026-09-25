@@ -222,6 +222,9 @@ def _renderable(raw: object) -> tuple[RecentTaskEntry, datetime | None] | None:
     return (entry, _parse_at(entry["at"])) if entry else None
 
 
+RECENT_TASK_TITLE_CHARS = 120
+
+
 def render_recent_tasks(entries: Iterable[object] | None, *, now: datetime) -> str:
     """Render the ledger as one line per entry, in stored (newest-first) order.
 
@@ -235,7 +238,12 @@ def render_recent_tasks(entries: Iterable[object] | None, *, now: datetime) -> s
         if renderable is None:
             continue
         entry, at = renderable
-        title = f'"{entry["title"]}"' if entry["title"] else "(untitled)"
+        # One entry is always exactly one rendered line: a stored title with a
+        # line break would otherwise read as several ledger entries.
+        flat = " ".join(entry["title"].split())
+        if len(flat) > RECENT_TASK_TITLE_CHARS:
+            flat = flat[: RECENT_TASK_TITLE_CHARS - 1].rstrip() + "…"
+        title = f'"{flat}"' if flat else "(untitled)"
         marker = " [reminder]" if entry["kind"] == "reminder" else ""
         age = f" {_relative_age(at, now)}" if at is not None else ""
         lines.append(f"- {title}{marker} — {entry['event']}{age}")

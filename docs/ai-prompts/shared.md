@@ -153,12 +153,14 @@ Message: "{user_message}"
 Intent:
 ```
 
-**Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Short replies like "I did it" after a just-sent reminder classify from the windowed `state["messages"]` history that `send_node` writes — the same `Prior conversation` block surfaced above.
+**Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Reminder delivery does not write `state["messages"]`. A short reply like "I did it" after a just-sent reminder classifies with that delivery visible in the `Recent tasks:` block above: `hydrate_context` merges the peer's `recent_outbound` rows into the ledger before classification. `classify_intent` itself does not query `recent_outbound`.
 
 ### Cross-Session Reply Resolution
 
 Intent classification uses the checkpointed conversation window in
-`state["messages"]`; it does not query `recent_outbound` during routing.
+`state["messages"]` and the `Recent tasks:` ledger block that
+`hydrate_context` builds before classification; `classify_intent` itself does
+not query `recent_outbound`.
 After a message routes to COMPLETE, `complete_node` resolves the completion
 target from three sources, in this order of authority:
 
@@ -507,9 +509,12 @@ stateDiagram-v2
 
 The checkpoint carries `recent_tasks`: the tasks this conversation touched
 recently, newest first. It is the conversation's working memory of "the task
-we just talked about", so a short follow-up — "what task?", "sure" —
-has something to anchor to even when the previous reply did not repeat the
-title.
+we just talked about". The intent classifier sees it as context, and the chat
+module uses it to answer "what task?" and to anchor a short acceptance such
+as "sure" even when the previous reply did not repeat the title. The COMPLETE
+module does not resolve its completion target from the ledger; it writes to
+the ledger after resolving a target through the sources in Cross-Session
+Reply Resolution.
 
 Each entry holds:
 
@@ -543,8 +548,20 @@ none. Entries older than 7 days are pruned and the ledger holds at most 8.
 The ledger reaches prompts as one line per entry — title (or `(untitled)`),
 `[reminder]` for a reminder, the event, and a relative age — under
 `Recent tasks:` in the intent classifier and `### Recent Tasks` in the chat
-prompt. Page ids never reach a prompt. When the user asks which task was just
-discussed, chat answers with the title of the newest entry.
+prompt. Each title is flattened to a single line and capped at 120
+characters, so one entry is always exactly one rendered line. Page ids never
+reach a prompt.
+
+Chat reads the ledger two ways:
+
+- **"What task?"** When the user asks which task was just discussed, chat
+  names the current task when there is one, and otherwise the title of the
+  newest entry.
+- **Acceptance.** When the user accepts a suggestion ("sure", "ok, that one"),
+  chat names the current task. When there is no current task, it names the
+  newest `suggested` entry: rejection records the alternative it offers as
+  `suggested` while leaving no active task, so that entry is what the user is
+  accepting.
 
 `turn_actions` records what the nodes did during the current turn
 (`notion.create_task`, `notion.create_reminder`, `notion.update_status`,

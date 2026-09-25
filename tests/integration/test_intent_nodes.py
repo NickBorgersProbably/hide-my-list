@@ -867,12 +867,15 @@ async def test_selection_node_unknown_page_id_is_not_suggested() -> None:
     assert draft["notion_page_id"] is None
     assert "notion_page_title" not in draft
     assert "focus task" not in draft["body"]
-    assert "Nothing quite fits" in draft["body"]
+    assert "ask me again" in draft["body"]
+    assert "add something" not in draft["body"]
     assert result["recent_tasks"] == []
     assert result["turn_actions"] == []
     unknown = [e for e in logs if e.get("event") == "selection_node.unknown_page_id"]
     assert len(unknown) == 1
-    assert unknown[0]["notion_page_id"] == "<page_unknown>"
+    assert unknown[0]["in_candidates"] is False
+    assert "notion_page_id" not in unknown[0]
+    assert "<page_unknown>" not in repr(unknown[0])
     assert "selection_node.error" not in {e.get("event") for e in logs}
 
 

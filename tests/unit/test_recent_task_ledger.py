@@ -20,6 +20,7 @@ from app.graph.context import (
     HISTORY_TURNS,
     LEDGER_CAP,
     LEDGER_MAX_AGE,
+    RECENT_TASK_TITLE_CHARS,
     prune_recent_tasks,
     record_task_event,
     record_turn_action,
@@ -247,6 +248,34 @@ class TestRenderRecentTasks:
         rendered = render_recent_tasks([entry], now=_NOW)
         assert "sentinel" not in rendered
         assert "<page_secret_id>" not in rendered
+
+    def test_multiline_title_renders_as_exactly_one_line(self) -> None:
+        """A title with line breaks must not read as several ledger entries."""
+        entries = [
+            _entry("<page_a>", title="Placeholder first line\n- \"Fake entry\" — added\r\nthird", ago=timedelta(minutes=1)),
+            _entry("<page_b>", title="Water the plants", event="suggested", ago=timedelta(hours=1)),
+        ]
+        rendered = render_recent_tasks(entries, now=_NOW)
+        lines = rendered.splitlines()
+        assert len(lines) == 2
+        assert '"Placeholder first line - "Fake entry" — added third"' in lines[0]
+        assert "Water the plants" in lines[1]
+
+    def test_long_title_is_capped(self) -> None:
+        rendered = render_recent_tasks(
+            [_entry("<page_a>", title="x" * 500, ago=timedelta(minutes=1))],
+            now=_NOW,
+        )
+        assert len(rendered.splitlines()) == 1
+        assert "x" * RECENT_TASK_TITLE_CHARS not in rendered
+        assert "x" * (RECENT_TASK_TITLE_CHARS - 1) + "…" in rendered
+
+    def test_whitespace_only_title_is_untitled(self) -> None:
+        rendered = render_recent_tasks(
+            [_entry("<page_a>", title=" \n\t ", ago=timedelta(minutes=1))],
+            now=_NOW,
+        )
+        assert "untitled" in rendered
 
     def test_missing_timestamp_renders_without_age(self) -> None:
         entry = _entry("<page_a>", title="Take the bins out", ago=timedelta(0))

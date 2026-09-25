@@ -100,8 +100,16 @@ async def test_unknown_selected_id_is_not_suggested() -> None:
     _assert_no_selection(result, update_status)
     events = [e for e in logs if e.get("event") == "selection_node.unknown_page_id"]
     assert len(events) == 1
-    assert events[0]["notion_page_id"] == "<page_not_listed>"
+    assert events[0]["has_selection"] is True
     assert events[0]["in_candidates"] is False
+    assert events[0]["blank_title"] is False
+    assert events[0]["candidate_count"] == 1
+    # The id is model-supplied free text: never logged verbatim.
+    assert "notion_page_id" not in events[0]
+    assert "<page_not_listed>" not in repr(events[0])
+    body = result["pending_outbound"][0]["body"]
+    assert body == "Couldn't land on one just now — ask me again in a sec?"
+    assert "add something" not in body
 
 
 @pytest.mark.asyncio
@@ -119,6 +127,9 @@ async def test_listed_page_with_blank_title_is_not_suggested() -> None:
     events = [e for e in logs if e.get("event") == "selection_node.unknown_page_id"]
     assert len(events) == 1
     assert events[0]["in_candidates"] is True
+    assert events[0]["blank_title"] is True
+    assert "<page_blank>" not in repr(events[0])
+    assert "ask me again" in result["pending_outbound"][0]["body"]
 
 
 @pytest.mark.asyncio

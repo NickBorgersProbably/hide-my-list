@@ -25,6 +25,9 @@ _NOT_STATED = "not stated"
 # The prompt's own no-match template. Used when the model's selection cannot
 # be honored, so the user gets the same reply a no-match turn would give.
 _NOTHING_FITS = "Nothing quite fits right now. Want to add something quick?"
+# Invalid model output (unknown id, blank-titled page) is not an empty fit, so
+# it gets a neutral retry line instead of an offer to grow the list.
+_SELECTION_RETRY = "Couldn't land on one just now — ask me again in a sec?"
 
 class _SimplifiedTask(TypedDict):
     id: str
@@ -141,14 +144,17 @@ async def selection_node(state: State) -> dict[str, Any]:
         )
         selected_title = selected["title"].strip() if selected else ""
         if selected_page_id and not (selected and selected_title):
+            # The id is model-supplied free text; log shape only, never value.
             log.warning(
                 "selection_node.unknown_page_id",
-                notion_page_id=selected_page_id,
+                has_selection=True,
                 in_candidates=selected is not None,
+                blank_title=selected is not None and not selected_title,
+                candidate_count=len(simplified),
             )
             selected = None
             selected_page_id = None
-            user_message = _NOTHING_FITS
+            user_message = _SELECTION_RETRY
         elif not selected_page_id and TASK_TOKEN in user_message:
             # A body that refers to a task with no task behind it cannot be
             # rendered; fall back to the no-match reply.

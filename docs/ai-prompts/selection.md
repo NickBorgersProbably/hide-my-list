@@ -45,8 +45,10 @@ Recent conversation:
 {conversation_context}
 
 When available time or mood says "not stated", read them from the user's
-message and the recent conversation. Use what the user said over any
-default. If the message does not say how much time they have, assume 30
+message above. Read available time and mood from that current message only.
+The recent conversation tells you what the user is referring to; it is never
+a source of available time or mood, even when an earlier turn stated them.
+If the current message does not say how much time they have, assume 30
 minutes; if it does not say how they feel, treat mood as neutral.
 
 PENDING TASKS:
@@ -85,7 +87,13 @@ OUTPUT (JSON):
   "user_message": "conversational suggestion"
 }
 
-If no tasks fit, explain why and suggest alternatives.
+selected_task_id is either null or exactly one id copied from PENDING TASKS,
+for a task whose title is non-empty. Never invent, shorten, or alter an id,
+and never put a title or any other text in this field.
+
+If no task fits, set selected_task_id to null and set user_message to
+exactly: "Nothing quite fits right now. Want to add something quick?" Never
+write {task} when selected_task_id is null.
 ```
 
 ### Mood to Work Type Affinity
@@ -144,21 +152,29 @@ prose the module writes itself.
 The selection prompt receives the incoming message and the last 8 messages of
 conversation history alongside the scored task list. Available time and mood
 come from state when a node has set them; otherwise the prompt shows "not
-stated" and the module reads both from what the user wrote ("I've got 2
-hours", "I'm wiped"), because a fabricated default excludes tasks that fit
-the time the user actually has.
+stated" and the module reads both from the user's current message ("I've got
+2 hours", "I'm wiped"), because a fabricated default excludes tasks that fit
+the time the user actually has. The recent conversation is context for what
+the user is referring to, never a source of available time or mood: a "2
+hours" or "feeling sharp" from an earlier turn may no longer be true, and a
+task sized to stale capacity sets the user up to stall.
 
 ### Unknown Selection Guard
 
 A selection counts only when `selected_task_id` names a task in the scored
 list and that task has a non-empty title. Any other id is treated as no
 selection: no task is marked In Progress, no active task is set, nothing is
-recorded in the recent-task ledger, and the user receives the no-match reply
-("Nothing quite fits right now. Want to add something quick?"). A reply that
-writes `{task}` without a selected task gets the same no-match reply.
+recorded in the recent-task ledger, and the user receives a neutral retry
+reply ("Couldn't land on one just now — ask me again in a sec?"). A genuine
+`null` selection, and a reply that writes `{task}` with a `null` selection,
+receive the no-match reply ("Nothing quite fits right now. Want to add
+something quick?").
 
 Why this design: an id outside the list, or a page with no name, would mark an
-unknown page In Progress and suggest a task the user cannot identify.
+unknown page In Progress and suggest a task the user cannot identify. That
+case is invalid model output, not an empty fit, so the reply invites a retry
+rather than a new task: offering to add a task there grows the list and adds a
+decision the user does not need.
 
 
 ---

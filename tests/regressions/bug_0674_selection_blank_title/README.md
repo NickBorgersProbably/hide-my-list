@@ -16,16 +16,19 @@ active task then leaked into the next turn's COMPLETE and reward paths.
 
 A selection counts only when the id names a scored task with a non-empty title.
 Anything else is treated as no selection. There is no In Progress write and no
-`active_task`, and the user gets the no-match reply. The node logs
-`selection_node.unknown_page_id` with the id only. A body that writes `{task}`
-without a selected task also gets the no-match reply. The spec lives in
+`active_task`, and the user gets a neutral retry reply ("Couldn't land on one
+just now — ask me again in a sec?") rather than an offer to add a task. The
+node logs `selection_node.unknown_page_id` with booleans and a candidate count
+only; the model-supplied id is free text and is never logged. A body that
+writes `{task}` with a `null` selection gets the no-match reply. The spec lives in
 `docs/ai-prompts/selection.md` under "Unknown Selection Guard".
 
 ## Regression Tests
 
 - `test_selection_blank_title.py` replays the reported shape (an unknown id
   with an attribute-only body) and a listed page with a blank title. It asserts
-  no Notion write, no active task, no ledger entry, and a delivered body with no
-  unfilled token.
+  no Notion write, no active task, no ledger entry, a delivered body with no
+  unfilled token, the retry reply, and a log event that never carries the raw
+  id.
 
 Related coverage: `tests/integration/test_intent_nodes.py::test_selection_node_unknown_page_id_is_not_suggested`.

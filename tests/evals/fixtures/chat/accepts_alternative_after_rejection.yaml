@@ -1,0 +1,46 @@
+---
+# The user passed on a suggestion; rejection offered an alternative, recorded
+# it in the ledger as `suggested`, and left no active task. The user's "sure"
+# accepts that alternative. With Current task "None", the chat prompt anchors
+# the acceptance to the newest `suggested` ledger entry, so the confirmation
+# names the alternative rather than the rejected task or asking which one.
+id: chat-accepts-alternative-after-rejection-001
+node: chat
+tier: medium
+peer: "<test-peer-ledger-2>"
+inbound: "sure"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  messages:
+    - role: user
+      content: "not that one"
+    - role: assistant
+      content: "No problem. Want to try a different one instead?"
+  # `at` is omitted: a static fixture cannot carry a fresh timestamp.
+  recent_tasks:
+    - page_id: "<placeholder-page-id-2>"
+      title: "Water the plants"
+      kind: task
+      event: suggested
+    - page_id: "<placeholder-page-id-1>"
+      title: "Sort the recycling"
+      kind: task
+      event: rejected
+contracts:
+  - kind: regex_require
+    pattern: "(?i)water the plants"
+  - kind: regex_forbid
+    pattern: "(?i)(which|what) task (do|did) you mean"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user said "sure" to the alternative that was offered after they
+      passed on a task. The correct reply confirms the alternative by name,
+      "Water the plants", briefly and warmly. It does not name "Sort the
+      recycling" as the accepted task, does not ask which task they mean, and
+      does not ask them to repeat themselves. Score 1.0 when the alternative
+      is named as the accepted task, 0.0 when it names the rejected task or no
+      task.
+    threshold: 0.7
