@@ -117,7 +117,11 @@ def peer() -> str:
 
 @asynccontextmanager
 async def _live_conversations(
-    peers: list[str], database_url: str, call_meter: _CallMeter
+    peers: list[str],
+    database_url: str,
+    call_meter: _CallMeter,
+    *,
+    debounce_seconds: float = 0,
 ) -> AsyncIterator[list[Conversation]]:
     """Stand up one listener, one graph, and one faked world for `peers`.
 
@@ -125,6 +129,13 @@ async def _live_conversations(
     one signal-cli account, one single-tenant Notion database, one checkpointer.
     Only `thread_id` — the peer E.164 — separates the conversations, which is
     exactly the property scenario 7 is testing.
+
+    `debounce_seconds` defaults to 0 so every existing fixture keeps its
+    one-message-in-one-graph-call behavior. `SignalListener` only enters its
+    same-peer coalescing window when this is > 0
+    (`app/ingress/signal_listener.py::_process_messages`), so the stacked-
+    message loop needs a separate fixture with a nonzero value rather than a
+    change to the shared default.
     """
     from app.graph.graph import build_graph, build_postgres_checkpointer
     from app.ingress import signal_listener as listener_module
@@ -152,7 +163,7 @@ async def _live_conversations(
                 account="+15550009999",
                 graph=observed,
                 authorized_peers=frozenset(peers),
-                message_debounce_seconds=0,
+                message_debounce_seconds=debounce_seconds,
             )
             runner = asyncio.create_task(listener.run())
             try:
@@ -198,3 +209,26 @@ async def conversation_pair(
     second = f"+1555{uuid.uuid4().int % 10_000_000:07d}"
     async with _live_conversations([peer, second], database_url, call_meter) as conversations:
         yield conversations[0], conversations[1]
+
+
+# Debounce window for `conversation_debounced`. Long enough that two messages
+# sent ~1s apart both land inside the same coalescing window with margin for
+# scheduler jitter, short enough not to pad every stacked-message test with
+# dead wall-clock time.
+_DEBOUNCED_SECONDS = 2.0
+
+
+@pytest.fixture()
+async def conversation_debounced(
+    peer: str, database_url: str, call_meter: _CallMeter
+) -> AsyncIterator[Conversation]:
+    """A live conversation with `SignalListener`'s same-peer coalescing enabled.
+
+    Only scenarios that specifically test message coalescing (`say_stacked`)
+    should use this fixture; every other scenario wants the `conversation`
+    fixture's 0-second debounce so one `say()` is one graph call.
+    """
+    async with _live_conversations(
+        [peer], database_url, call_meter, debounce_seconds=_DEBOUNCED_SECONDS
+    ) as conversations:
+        yield conversations[0]

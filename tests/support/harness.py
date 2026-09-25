@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -351,9 +351,41 @@ class Conversation:
     async def say(self, text: str, *, expect: Expect | None = None) -> TurnResult:
         """Send one inbound message and wait for the turn to complete."""
         return await self._turn(
-            self._envelope(text, peer=self.peer),
+            [self._envelope(text, peer=self.peer)],
             expect_graph_call=True,
             expect=expect or Expect(),
+        )
+
+    async def say_stacked(
+        self,
+        texts: Sequence[str],
+        *,
+        gap_seconds: float = 1.0,
+        expect: Expect | None = None,
+    ) -> TurnResult:
+        """Send several messages a few seconds apart and expect ONE graph turn.
+
+        Exercises `SignalListener`'s same-peer debounce/coalescing window
+        (`_InboundMessageBuffer.collect_peer`, `_process_messages`): messages
+        sent within `message_debounce_seconds` of the first one are joined
+        with `\\n` and invoke the graph exactly once, rather than once per
+        message. Requires a conversation built with a nonzero debounce (the
+        `conversation_debounced` fixture) — against the default `conversation`
+        fixture (debounce 0) every message invokes the graph on its own and
+        this method's call-count assertion fails by design.
+
+        Each text goes through the same entry path `say()` uses — enqueued as
+        its own signal-cli envelope via `self._enqueue`, so the auth gate and
+        `thread_id` derivation in `SignalListener` are exercised for every
+        message, not just the first.
+        """
+        envelopes = [self._envelope(text, peer=self.peer) for text in texts]
+        return await self._turn(
+            envelopes,
+            expect_graph_call=True,
+            expect=expect or Expect(),
+            gap_seconds=gap_seconds,
+            expected_call_delta=1,
         )
 
     async def unauthorized(self, text: str, *, peer: str) -> TurnResult:
@@ -363,11 +395,17 @@ class Conversation:
         to wait on — settle briefly and assert on the absence.
         """
         return await self._turn(
-            self._envelope(text, peer=peer), expect_graph_call=False, expect=Expect()
+            [self._envelope(text, peer=peer)], expect_graph_call=False, expect=Expect()
         )
 
     async def _turn(
-        self, envelope: dict[str, Any], *, expect_graph_call: bool, expect: Expect
+        self,
+        envelopes: list[dict[str, Any]],
+        *,
+        expect_graph_call: bool,
+        expect: Expect,
+        gap_seconds: float = 0.0,
+        expected_call_delta: int = 1,
     ) -> TurnResult:
         from tests.support.invariants import assert_expectations, assert_turn_invariants
 
@@ -378,7 +416,10 @@ class Conversation:
         self._observed.done.clear()
 
         with structlog.testing.capture_logs() as logs:
-            self._enqueue(envelope)
+            for index, envelope in enumerate(envelopes):
+                if index > 0:
+                    await asyncio.sleep(gap_seconds)
+                self._enqueue(envelope)
             if expect_graph_call:
                 try:
                     await asyncio.wait_for(
@@ -401,6 +442,12 @@ class Conversation:
         graph_invoked = self._observed.call_count > calls_before
         if expect_graph_call and not graph_invoked:
             raise AssertionError("the listener never invoked the graph for this turn")
+        call_delta = self._observed.call_count - calls_before
+        if expect_graph_call and call_delta != expected_call_delta:
+            raise AssertionError(
+                f"expected {expected_call_delta} graph invocation(s) for this turn, "
+                f"got {call_delta} — messages did not coalesce as expected"
+            )
 
         sent = self.signal.since(sent_cursor)
         state = await self.state() if graph_invoked else {}
