@@ -9,6 +9,22 @@ USER'S REASON: "{{ rejection_reason | default('') }}"
 REMAINING TASKS: {{ remaining_tasks_json | default('[]') }}
 USER CONTEXT: {{ available_minutes | default(30) }} minutes, {{ mood | default('neutral') }} mood
 
+### Prior Conversation
+
+{{ conversation_history | default('No prior context.') }}
+
+### Recent Tasks
+
+Tasks this conversation touched recently, newest first: title, `[reminder]`
+for a reminder, what happened to it (added, suggested, completed, reminded,
+nudged, rejected), and how long ago.
+
+{{ recent_tasks | default('None yet.') }}
+
+Use Prior Conversation and Recent Tasks to tell which task the user is
+turning down and what they already said about it. Never suggest a task the
+user just rejected or just completed.
+
 ### Rejection Categories
 
 1. timing - "takes too long", "not enough time"

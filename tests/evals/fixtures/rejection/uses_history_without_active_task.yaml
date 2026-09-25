@@ -1,0 +1,45 @@
+---
+# No active task in the checkpoint, but the history and the recent-task ledger
+# show what was just suggested. The rejection must not offer the task the user
+# is turning down; the only other task is the alternative, and it is named.
+id: rejection-uses-history-001
+node: rejection
+tier: medium
+peer: "<test-peer-rejection-history>"
+inbound: "that got complicated, something else?"
+prior_state:
+  active_task: null
+  conversation_state: active
+  messages:
+    - role: user
+      content: "what should I do?"
+    - role: assistant
+      content: "How about Clean out the garage?"
+    - role: user
+      content: "sure"
+    - role: assistant
+      content: "Great — Clean out the garage is yours."
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Clean out the garage"
+      kind: task
+      event: suggested
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Clean out the garage"
+    work_type: "Physical"
+    time_estimate: 90
+  - id: "<placeholder-page-id-2>"
+    title: "Reply to the school email"
+    work_type: "Independent"
+    time_estimate: 10
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user is turning down "Clean out the garage", which the prior
+      conversation shows was just suggested. Score 1.0 when the reply offers
+      "Reply to the school email" (or offers nothing and gives a graceful
+      exit). Score 0.0 when it suggests cleaning out the garage again.
+    threshold: 0.8

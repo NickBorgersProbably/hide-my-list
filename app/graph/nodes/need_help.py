@@ -3,19 +3,56 @@
 When the user needs help starting or continuing a task, provides specific,
 actionable guidance matched to their confidence level.
 
+The task to help with is the checkpointed `active_task`. With none, it is the
+newest task the recent-task ledger shows as just added or just suggested — a
+"how do I start?" right after adding a task is about that task, not a request
+to pick a new one. Only with neither does the node ask to find a task first.
+
 Implements docs/ai-prompts/breakdown.md behavior.
 """
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
+from app.graph.context import render_history, render_recent_tasks
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
+
+# Ledger events that make a task the one "how do I start?" is about. A task
+# that was completed, rejected, or only reminded is not one the user is
+# about to start.
+_HELPABLE_EVENTS = frozenset({"added", "suggested"})
+
+
+def _ledger_task(entries: Iterable[object] | None) -> tuple[str, str] | None:
+    """Return `(page_id, title)` of the newest added/suggested ledger entry.
+
+    The ledger is stored newest first with one entry per page, so the first
+    entry whose latest event is added or suggested is the task the user most
+    recently took on. An entry with no title is skipped: help that cannot name
+    its task is the failure this fallback exists to avoid.
+    """
+    for raw in entries or []:
+        if not isinstance(raw, Mapping):
+            continue
+        page_id = raw.get("page_id")
+        title = raw.get("title")
+        if raw.get("event") not in _HELPABLE_EVENTS:
+            continue
+        if not isinstance(page_id, str) or not page_id:
+            continue
+        if not isinstance(title, str) or not title.strip():
+            continue
+        return page_id, title.strip()
+    return None
+
 
 async def need_help_node(state: State) -> dict[str, Any]:
     """NEED_HELP handler: provide actionable breakdown guidance."""
@@ -30,18 +67,25 @@ async def need_help_node(state: State) -> dict[str, Any]:
         incoming = state.get("incoming", "")
         active_task = state.get("active_task")
 
-        if not active_task:
-            no_task_draft: OutboundDraft = {
-                "recipient": peer,
-                "body": "Let's get you a task first! How much time do you have?",
-                "notion_page_id": None,
-            }
-            return {"pending_outbound": [no_task_draft]}
+        if active_task:
+            real_title: str | None = active_task.get("title")
+            page_id = active_task.get("page_id", "")
+            # inline_steps may be stored in active_task or fetched from Notion
+            inline_steps = active_task.get("inline_steps", "No steps recorded yet.")
+        else:
+            ledger_task = _ledger_task(state.get("recent_tasks"))
+            if ledger_task is None:
+                no_task_draft: OutboundDraft = {
+                    "recipient": peer,
+                    "body": "Let's get you a task first! How much time do you have?",
+                    "notion_page_id": None,
+                }
+                return {"pending_outbound": [no_task_draft]}
+            page_id, real_title = ledger_task
+            inline_steps = "No steps recorded yet."
+            log.info("need_help_node.ledger_task", has_page_id=bool(page_id))
 
-        task_title = (active_task.get("title") or "").strip() or "your task"
-        page_id = active_task.get("page_id", "")
-        # inline_steps may be stored in active_task or fetched from Notion
-        inline_steps = active_task.get("inline_steps", "No steps recorded yet.")
+        task_title = (real_title or "").strip() or "your task"
 
         prompt_text = render_with_defaults(
             "need_help.md.j2",
@@ -49,11 +93,17 @@ async def need_help_node(state: State) -> dict[str, Any]:
                 "task_title": task_title,
                 "inline_steps": inline_steps,
                 "user_message": incoming,
+                "conversation_history": render_history(state.get("messages")),
+                "recent_tasks": render_recent_tasks(
+                    state.get("recent_tasks"), now=datetime.now(UTC)
+                ),
             },
             defaults={
                 "task_title": "your task",
                 "inline_steps": "No steps available.",
                 "user_message": "",
+                "conversation_history": "No prior context.",
+                "recent_tasks": "None yet.",
             },
         )
 
@@ -73,7 +123,6 @@ async def need_help_node(state: State) -> dict[str, Any]:
             "body": user_message,
             "notion_page_id": page_id,
         }
-        real_title = active_task.get("title")
         if real_title:
             draft["notion_page_title"] = real_title
 

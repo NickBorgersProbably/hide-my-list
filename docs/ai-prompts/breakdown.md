@@ -10,7 +10,9 @@ When user signals need help starting or continuing a task, agent provides specif
 flowchart TD
     NeedHelp(["User: #quot;How do I start?#quot;"]) --> CheckActive{Has active task?}
     CheckActive -->|Yes| AnalyzeState[Determine where user is]
-    CheckActive -->|No| SuggestTask[Suggest getting a task first]
+    CheckActive -->|No| CheckLedger{Ledger has a task<br/>just added or suggested?}
+    CheckLedger -->|Yes| AnalyzeState
+    CheckLedger -->|No| SuggestTask[Suggest getting a task first]
 
     AnalyzeState --> GenerateSteps[Generate concrete next steps]
     GenerateSteps --> DetermineLevel{User confidence level?}
@@ -28,7 +30,18 @@ The user needs help with their current task. Provide specific, actionable guidan
 CURRENT TASK: {task_title}
 TASK SUB-STEPS: {inline_steps or sub_tasks}
 USER MESSAGE: "{user_message}"
-CONVERSATION CONTEXT: {recent_messages}
+PRIOR CONVERSATION: {conversation_history}
+RECENT TASKS: {recent_tasks}
+
+CURRENT TASK is the checkpointed active task. With no active task, it is the
+newest recent-task ledger entry whose latest event is added or suggested and
+that has a title: a "how do I start?" right after adding a task is about that
+task. Only with neither does the module suggest getting a task first.
+
+PRIOR CONVERSATION is the last 8 messages (400 characters each); RECENT TASKS
+is the recent-task ledger (see `docs/ai-prompts/shared.md`, Recent Task
+Ledger). Use them to see what the user already tried; do not repeat a step
+already given.
 
 ASSISTANCE PHILOSOPHY:
 - Users avoid vague goals because they feel infinite

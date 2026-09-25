@@ -8,6 +8,21 @@ CURRENT TASK: {{ task_title | default('your task') }}
 ORIGINAL TIME ESTIMATE: {{ time_estimate | default(30) }} minutes
 USER MESSAGE: "{{ user_message | default('') }}"
 
+### Prior Conversation
+
+{{ conversation_history | default('No prior context.') }}
+
+### Recent Tasks
+
+Tasks this conversation touched recently, newest first: title, `[reminder]`
+for a reminder, what happened to it (added, suggested, completed, reminded,
+nudged, rejected), and how long ago.
+
+{{ recent_tasks | default('None yet.') }}
+
+Use Prior Conversation to see what the user already said about their
+progress. Do not ask again for something they already told you.
+
 ### Cannot Finish Prompt
 
 STEP 1: Ask what was accomplished

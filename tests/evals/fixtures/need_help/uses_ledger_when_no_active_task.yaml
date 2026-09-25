@@ -1,0 +1,34 @@
+---
+# "How do I start?" right after adding a task, with no active task in the
+# checkpoint. The help is about the newest task the recent-task ledger shows
+# as added — not a redirect to "let's get you a task first".
+id: need-help-uses-ledger-001
+node: need_help
+tier: medium
+peer: "<test-peer-need-help-ledger>"
+inbound: "how do I even start?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  messages:
+    - role: user
+      content: "I need to renew my library card"
+    - role: assistant
+      content: "Got it — Renew my library card."
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Renew my library card"
+      kind: task
+      event: added
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)get you a task first"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The reply helps the user start renewing their library card with one to
+      three concrete first steps, and the delivered text names the library
+      card task. Score 1.0 for that. Score 0.0 when it asks the user to pick
+      a task, asks how much time they have, or gives no concrete step.
+    threshold: 0.8

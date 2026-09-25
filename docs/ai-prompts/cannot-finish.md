@@ -24,6 +24,13 @@ The user indicates they cannot finish the current task. Gather progress and brea
 CURRENT TASK: {task_title}
 ORIGINAL TIME ESTIMATE: {time_estimate} minutes
 USER MESSAGE: "{user_message}"
+PRIOR CONVERSATION: {conversation_history}
+RECENT TASKS: {recent_tasks}
+
+PRIOR CONVERSATION is the last 8 messages (400 characters each); RECENT TASKS
+is the recent-task ledger (see `docs/ai-prompts/shared.md`, Recent Task
+Ledger). Use them to see what the user already said about their progress. Do
+not ask again for something they already told you.
 
 STEP 1: Ask what was accomplished
 Generate a brief, friendly question to understand their progress.

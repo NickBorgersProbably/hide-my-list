@@ -9,6 +9,22 @@ CURRENT TASK: {{ task_title | default('your task') }}
 TASK SUB-STEPS: {{ inline_steps | default('No steps available.') }}
 USER MESSAGE: "{{ user_message | default('') }}"
 
+### Prior Conversation
+
+{{ conversation_history | default('No prior context.') }}
+
+### Recent Tasks
+
+Tasks this conversation touched recently, newest first: title, `[reminder]`
+for a reminder, what happened to it (added, suggested, completed, reminded,
+nudged, rejected), and how long ago.
+
+{{ recent_tasks | default('None yet.') }}
+
+Use Prior Conversation to see what the user already tried, and do not repeat
+a step you already gave. CURRENT TASK is the task to help with, even when the
+user's message does not name it.
+
 ### Breakdown Assistance Prompt
 
 ASSISTANCE PHILOSOPHY:
