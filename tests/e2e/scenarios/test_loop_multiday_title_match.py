@@ -19,8 +19,14 @@ async def test_naming_a_task_days_later_completes_it(conversation: Conversation)
         "add a task: book the dentist appointment",
         expect=Expect(intent="ADD_TASK", sent_count=1),
     )
-    created = conversation.notion.written_pages("create_task")
-    assert len(created) == 1, f"expected one task page, got {sorted(created)}"
+    # Intake may also file hidden sub-tasks under the page; the parent is the
+    # one page created without a parent.
+    created = {
+        page_id
+        for page_id in conversation.notion.written_pages("create_task")
+        if not conversation.notion.pages[page_id].get("parent_id")
+    }
+    assert len(created) == 1, f"expected one top-level task page, got {sorted(created)}"
     page = next(iter(created))
 
     # Two days pass. Nothing in the checkpoint or Postgres points at the task.

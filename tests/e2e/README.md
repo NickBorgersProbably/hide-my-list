@@ -73,10 +73,14 @@ Two rules that are easy to get wrong:
   fixture `INSERT INTO recent_outbound`. That INSERT in `reminder_worker` is the
   table's only writer and the row a later COMPLETE resolves against; a fixture
   insert would keep passing with the production INSERT deleted, which is
-  precisely the pre-#641 state of the world.
-- **Seed preconditions with `seed_active_task()` / `age_active_task()`**, not by
-  running extra live turns. It keeps the assertion pointed at the seam and cuts
-  the LLM calls a scenario costs.
+  precisely the pre-#641 state of the world. Pass `kind="deadline"` for a
+  deadline nudge; the worker then leaves the task open and records
+  `reminder_type='deadline'`.
+- **Seed preconditions with `seed_active_task()` / `age_active_task()` and
+  `seed_recent_tasks()` / `age_recent_tasks()`**, not by running extra live
+  turns. It keeps the assertion pointed at the seam and cuts the LLM calls a
+  scenario costs. `outbox_state(page_id)` reads a page's `reminder_outbox`
+  states when a scenario needs to prove a reminder will or will not fire.
 
 The invariants in `tests/support/invariants.py` run after every turn
 automatically. A scenario only needs to state what is specific to itself.

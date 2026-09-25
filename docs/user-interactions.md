@@ -204,13 +204,13 @@ flowchart LR
 
 ### Completion Target Resolution
 
-"Done" does not say which task. The agent resolves the target from three
-sources, in this order:
+"Done" does not say which task. The agent resolves the target in this order:
 
 1. **A task named in the message.** When the message carries words beyond the
    completion phrase itself — "done with the dishes", "finally called the
-   dentist" — those words are matched against open, non-reminder tasks and the
-   model confirms which one the message reports as finished.
+   dentist" — those words are matched against open tasks, reminders that have
+   not fired yet included, and the model confirms which one the message
+   reports as finished.
 
    Word overlap ranks that candidate list; it does not decide who is on it.
    When no open task shares enough words with the message to rank above the
@@ -219,11 +219,24 @@ sources, in this order:
    quote the title they filed it under, and a shared-word count cannot tell the
    difference between "unrelated" and "phrased differently". Only the model can,
    so the model is the one asked.
-2. **The most recent context source** — whichever is newer between the
-   unresolved reminder the agent last sent (from `recent_outbound`) and the
-   active task handed to the user by selection. If only one exists, it is used
-   directly.
-3. **Clarification** — if no source resolves, the agent asks which task was
+2. **The most recent context** — whichever is newest among the tasks this
+   conversation just touched (the recent-task ledger: tasks added, suggested,
+   reminded, or nudged in the last day), the unresolved reminder the agent
+   last sent (from `recent_outbound`), and the active task handed to the user
+   by selection. "Remind me to take the bins out at 8pm" followed a minute
+   later by "Done!" completes that reminder, even though it has not fired. When
+   the newest two are different tasks touched within 15 minutes of each other,
+   the agent does not guess: it names both and asks. Right after a completion
+   the ledger anchors nothing, so a repeated "done" asks rather than
+   completing an older task.
+3. **An unlisted completion** — a message that clearly reports finishing
+   something that is on none of the open tasks ("I also paid the gas bill!")
+   is logged as a new task, already completed, and the reply says so: "That
+   wasn't on your list — logged it as done: Pay the gas bill." Asking "which
+   task?" about a task that does not exist has no right answer. A bare "done",
+   an answer to a clarification, a message whose words reach an existing task,
+   and anything the model is unsure of never create a task.
+4. **Clarification** — if nothing resolves, the agent asks which task was
    meant, and remembers having asked.
 
    The question is held in conversation state, so the reply that answers it
@@ -234,12 +247,12 @@ sources, in this order:
    asked for, and an unanswered question expires rather than binding a much
    later reply.
 
-   An unresolved turn names up to three candidates when the user's own words
-   reached them, because recognizing a task costs less than recalling one. When
-   nothing on the list matched those words, the question stays open instead:
-   the ranked whole list is not a shortlist, and offering its first three
-   entries would dress a guess up as a suggestion. Each ask is worded
-   differently from the last either way. After the second the agent stops
+   An unresolved turn names up to three candidates, because recognizing a
+   task costs less than recalling one: first the tasks the conversation just
+   touched, then the tasks the user's own words reached. When neither exists,
+   the question stays open instead: the ranked whole list is not a shortlist,
+   and offering its first three entries would dress a guess up as a
+   suggestion. Each ask is worded differently from the last either way. After the second the agent stops
    asking and leaves the tasks open — a question that has not landed twice does
    not land on the third try, and asking again spends attention the user came
    here to conserve.
@@ -257,30 +270,37 @@ sources, in this order:
    mom" from completing "Call mom". A reply to a clarification asserts nothing
    and never will: the completion was claimed on the previous turn, and this
    message only says which task it was about. So the match is made on which
-   task the answer identifies, not on whether it repeats the claim.
+   task the answer identifies, not on whether it repeats the claim. An answer
+   that types a task's title back nearly word for word resolves to that task
+   without a model call; only an answer can take that shortcut.
 
    Holding the question steers which handler reads the next message and how
    that message is read; it grants that handler nothing on the message side.
-   When the answer names a task, the same 0.90 confidence threshold applies.
-   When it does not, context sources (`recent_outbound`, `active_task`) resolve
-   as they would on a first-turn completion.
+   When the answer names a task and is not a near-verbatim title, the same
+   0.90 confidence threshold applies. When it does not name one, context
+   sources resolve as they would on a first-turn completion.
 
-A task named in the message outranks both context sources, including an active
+A task named in the message outranks every context source, including an active
 task pointing somewhere else — the user naming a task is a stronger signal than
 an inference about which task they are on.
 
-The named-task search covers every open, non-reminder task in the database, not
-only tasks the agent has recently mentioned. That is the intended scope: the
+The celebration names what was finished: "Take the bins out — done. Nice work!
+✨". Naming it closes the loop the user opened — a celebration that says only
+"Conquered!" leaves them asking what was conquered.
+
+The named-task search covers every open task in the database, reminders that
+have not fired included, not only tasks the agent has recently mentioned. That is the intended scope: the
 database holds one person's tasks and has no owner column, so the whole open
 list is the whole of the user's list. See **Scope and Ownership** in
 `docs/notion-schema.md`. Completion is the one place this is worth stating
 plainly, because it is the only resolution path that writes to a page no
 context source pointed at.
 
-Why this design: the two context sources expire, and when they both have, nothing
+Why this design: the context sources expire, and when they all have, nothing
 else can connect "finished the dishes" to a page. The message is also the only
-source the user can steer. When both context sources are live, the more recent
-one is more likely to reflect the user's current work.
+source the user can steer. When context sources are live, the most recent one
+is the likeliest to reflect the user's current work — unless two were touched
+moments apart, when a guess would be a coin toss with a write attached.
 
 The model confirms a named match against the open-task list before anything is
 written. A match it is not confident in resolves to a question rather than a
@@ -304,18 +324,18 @@ sequenceDiagram
     U->>AI: "Done!" or "done with the dishes"
 
     alt Message names a task
-        AI->>N: Read open tasks
+        AI->>N: Read open tasks and reminders
         AI->>AI: Confirm which named task is finished
     else Message names no task
-        AI->>AI: Resolve from reminder context or active task
+        AI->>AI: Resolve from recent tasks, reminder context, or active task
     end
 
-    alt Named-task or active-task completion
+    alt Delivered reminder
+        Note over AI: Notion write skipped — reminder page already completed at delivery
+    else Any other target
         AI->>N: Update task status → completed
         AI->>N: Set completedAt timestamp
         N-->>AI: Success
-    else Reminder-context completion
-        Note over AI: Notion write skipped — reminder page already completed at delivery
     end
 
     AI->>R: Trigger reward evaluation
@@ -327,7 +347,7 @@ sequenceDiagram
         R->>SMS: Text significant other
     end
 
-    AI->>U: "CRUSHED IT! 🔥💪✨" + single MEDIA attachment
+    AI->>U: "Wash the dishes — done. CRUSHED IT! 🔥💪✨" + single MEDIA attachment
 
     Note over HA: "We Are The Champions" plays
 
@@ -872,7 +892,11 @@ If the next graph turn starts and the user replies to the reminder in shorthand,
 Example:
 - Agent sends: "Hey, time to clean up boxes before noon."
 - User opens a new session and says: "I did it"
-- Agent interprets that as completion of "clean up boxes before noon", delivers completion acknowledgment and reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears every live `recent_outbound` row for that peer and `notion_page_id` (`signal_timestamp` is the fallback when no page id is available)
+- Agent interprets that as completion of "clean up boxes before noon", delivers a completion acknowledgment that names the task, with its reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears every live `recent_outbound` row for that peer and `notion_page_id` (`signal_timestamp` is the fallback when no page id is available)
+
+A deadline nudge is different: it names the task ("Deadline nudge: <task>. Want one tiny next step?") and points at a task page that delivery leaves open. The worker records the delivery with `reminder_type = 'deadline'`, so a "done" in reply writes the task Completed rather than assuming delivery already did.
+
+A reminder can also be finished before it fires. "Done!" right after "remind me to…" resolves to the new reminder through the recent-task ledger, writes its page Completed, and cancels its pending outbox row, so the reminder never goes out.
 
 `recent_outbound` rows expire. Once one has, a shorthand reply carries nothing
 to match and the agent falls back to the resolution order in Flow 3: a task

@@ -160,29 +160,64 @@ Intent:
 Intent classification uses the checkpointed conversation window in
 `state["messages"]`; it does not query `recent_outbound` during routing.
 After a message routes to COMPLETE, `complete_node` resolves the completion
-target from three sources, in this order of authority:
+target in this order:
 
 1. **A task named in the message.** When the message carries words beyond the
-   completion phrase itself, they are ranked against every open non-reminder
-   task and a model call confirms which task the message reports as finished.
-   Word overlap ranks that list; it does not decide who is on it. When nothing
-   clears the ranking threshold, the whole open list goes to the model instead
-   (capped at 40, ranked), so a message that paraphrases a task rather than
-   quoting its title still reaches the model. A match at or above 0.90
-   confidence outranks both context sources below, including an active task
-   pointing at a different page.
-2. **The newest unresolved `recent_outbound` row** for the peer where
-   `awaiting_reply = true` and `expires_at > now()`.
-3. **The checkpointed `active_task`**, when it has a parseable, unexpired
-   `selected_at`.
+   completion phrase itself, they are ranked against every open task —
+   reminder pages included, since an open reminder is one that has not fired
+   yet — and a model call confirms which task the message reports as
+   finished. Word overlap ranks that list; it does not decide who is on it.
+   When nothing clears the ranking threshold, the whole open list goes to the
+   model instead (capped at 40, ranked), so a message that paraphrases a task
+   rather than quoting its title still reaches the model. A match at or above
+   0.90 confidence outranks every context source below, including an active
+   task pointing at a different page.
+2. **The newest context.** Three sources, pooled one entry per page:
+   - the recent-task ledger's open entries (`added`, `suggested`, `reminded`,
+     `nudged`) from the last 24 hours — none when the ledger's newest entry
+     is `completed` or `rejected`, since a second "done" straight after one is
+     an echo, not news about an older task;
+   - the newest unresolved `recent_outbound` row for the peer where
+     `awaiting_reply = true` and `expires_at > now()`;
+   - the checkpointed `active_task`, when it has a parseable, unexpired
+     `selected_at`.
 
-Between the two context sources, the more recent wins. If the reminder row
-wins, the node rewards the matched `notion_page_id`, skips the Notion status
-write because reminder delivery already completes the reminder page, and marks
+   The newest wins. When the two newest are different tasks touched within
+   15 minutes of each other, neither is a safe guess and the node asks,
+   naming both. A ledger entry with no `at` (a static eval fixture; the
+   checkpoint writers always stamp one) reads as happening now.
+3. **An unlisted completion.** When the message clearly reports finishing a
+   concrete task that is none of the open tasks — "I also paid the gas bill"
+   with nothing like it on the list — the model may return no match plus a
+   short task title. The node creates that task already `Completed`, rewards
+   it, and says so: "That wasn't on your list — logged it as done: {task}."
+   All of these must hold: the message is standalone rather than an answer to
+   a clarification, it carries at least two task-naming words, its words
+   reached no open task on the ranked shortlist, the model returned no
+   candidate, its confidence is at least 0.90, and the proposed title shares
+   a word with the message. A bare "done" never takes this path.
+
+Only a delivered reminder page skips the Notion status write, because the
+delivery worker completes a reminder page when it sends it. Every other
+target is written `Completed`: a task from any source, a reminder the user
+finishes before it fires, and the task behind a deadline nudge
+(`recent_outbound.reminder_type = 'deadline'`), which delivery never
+completes. Completing a reminder page also cancels its pending outbox rows,
+so a reminder already done does not fire. For every source, the node marks
 every live `recent_outbound` row for that peer and `notion_page_id`
-`awaiting_reply = false` (`signal_timestamp` is the fallback when no page id is
-available). If no confident target exists, the node asks which task the user
-means instead of completing a checkpointed task by default.
+`awaiting_reply = false` (`signal_timestamp` is the fallback when no page id
+is available).
+
+The celebration names the task. Its body is `{task} — done. ` followed by
+the reward text (a reward text that already opens with "Done", such as the
+muted sensitive-task text, follows the name directly), and the draft carries
+`notion_page_title` so `send_node` substitutes the stored title. The title
+comes from the target's own source, then the ledger, then the Notion page;
+a sent reminder body is never used as a title. When no title can be read,
+the reward text goes out alone.
+
+If no confident target exists, the node asks which task the user means
+instead of completing a checkpointed task by default.
 
 A null match matters differently depending on which list produced it. Over the
 ranked shortlist the model is rejecting tasks the message actually overlaps —
@@ -202,23 +237,31 @@ runs on every turn.
 | Time-to-live from `asked_at` | 30 minutes |
 | Intents treated as an answer | CHAT, COMPLETE (steered to COMPLETE) |
 | Intents that drop the question | every other intent |
-| Options named when the message reached candidates | up to 3 |
+| Options named per ask | up to 3: the ledger's open tasks first, then the ranked shortlist |
+| Word overlap that accepts an answer without a model call | 0.85, one task only |
 | Asks before the agent stops | 2 |
 
 An expired timestamp, a malformed record, or a classified intent outside the
 answer set clears the key rather than steering. Past the ask limit the node
 sends a closing message, leaves the tasks open, and clears the key.
 
-Options are named only when the message's own words put those candidates on
-the list. A widened whole-list scan is ranked by scores that are all
-effectively zero, so its top three are the first three open tasks rather than
-a shortlist; naming them would present noise as a suggestion, and because a
-named option can be answered by position, the user could accept one and
-complete a task chosen at random. In that case the question stays open and
-nothing is stored as an option — an option the user was never shown must never
-become the referent of "the first one". Each ask is worded differently from the
-one before it either way, because a question repeated verbatim is the failure
-this path exists to prevent.
+Options have a reason behind them or are not named. The ledger's open tasks
+with a known title come first — the conversation just touched them — except
+a delivered reminder, whose page is already completed and could not be
+chosen. Then come the shortlist tasks the message's own words reached. A
+widened whole-list scan adds nothing: it is ranked by scores that are all
+effectively zero, so its top three are the first three open tasks rather
+than a shortlist; naming them would present noise as a suggestion, and
+because a named option can be answered by position, the user could accept
+one and complete a task chosen at random. With no options the question stays
+open and nothing is stored as an option — an option the user was never shown
+must never become the referent of "the first one".
+
+Each ask is worded differently from the one before it, because a question
+repeated verbatim is the failure this path exists to prevent. There are three
+wordings, each with a first and a second ask: options drawn from the ledger
+("Nice — which task was it: A or B?"), options from the shortlist ("I can
+mark that done — was it A or B?"), and an open question.
 
 `complete_node` reads the same record for two things. The options it named lead
 the candidate list on the answering turn, in the order they were named, so a
@@ -228,11 +271,17 @@ checkpoint. And the matching prompt switches framing: a standalone completion
 must assert that a task is finished, while an answer to a clarification only
 has to identify one, because the assertion was made on the previous turn.
 
+An answer that types a title back nearly verbatim resolves without a model
+call: when its task-naming words overlap exactly one open task's at a Dice
+score of 0.85 or more, that task is the answer. This shortcut applies only to
+answers. A standalone message always goes to the model, because containing a
+title's words is not the same as saying it is finished.
+
 Steering an answer back to the node that asked relaxes the framing but not the
-threshold: when the answer names a task, the 0.90 confidence threshold and the
-instruction to return no match when uncertain still apply. When the answer's
-words do not identify a task, context sources (`recent_outbound`, `active_task`)
-resolve as they would on a first-turn completion.
+threshold: when the answer names a task and the shortcut does not apply, the
+0.90 confidence threshold and the instruction to return no match when
+uncertain still apply. When the answer's words do not identify a task, context
+sources resolve as they would on a first-turn completion.
 
 Other shorthand follow-up paths thread matched context as follows:
 
@@ -507,11 +556,10 @@ stateDiagram-v2
 
 The checkpoint carries `recent_tasks`: the tasks this conversation touched
 recently, newest first. It is the conversation's working memory of "the task
-we just talked about". The intent classifier sees it as context, and the chat
+we just talked about". The intent classifier sees it as context, the chat
 module uses it to answer "what task?" even when the previous reply did not
-repeat the title. The COMPLETE module does not resolve its completion target
-from the ledger; it writes to the ledger after resolving a target through the
-sources in Cross-Session Reply Resolution.
+repeat the title, and the COMPLETE module anchors a bare "done" to it and
+names its open tasks when it has to ask (see Cross-Session Reply Resolution).
 
 Each entry holds:
 
@@ -520,7 +568,7 @@ Each entry holds:
 | `page_id` | Notion page the event is about |
 | `title` | The stored task title, or empty when the entry came from a reminder delivery whose page could not be read. Never a sent message body. |
 | `kind` | `task` or `reminder` |
-| `event` | `added`, `suggested`, `completed`, `reminded`, or `nudged` |
+| `event` | `added`, `suggested`, `completed`, `reminded`, `nudged`, or `rejected` |
 | `at` | ISO-8601 UTC time of the event |
 
 Writers:
@@ -528,7 +576,10 @@ Writers:
 - **Intake** records `added` for the page it created (kind `reminder` when it
   created a reminder) or the existing page a duplicate matched.
 - **Selection** records `suggested` for the task it offered.
-- **Complete** records `completed` for the page it resolved.
+- **Rejection** records `rejected` for the declined task and `suggested` for
+  the named alternative it offers.
+- **Complete** records `completed` for the page it resolved, or for the task
+  it created from an unlisted completion.
 - **`hydrate_context`**, the graph's entry node, merges the peer's
   `recent_outbound` rows from the last 7 days at the start of every turn: a
   reminder delivery becomes `reminded`, a deadline delivery becomes `nudged`.
