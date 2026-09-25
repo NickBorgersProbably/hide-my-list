@@ -11,9 +11,7 @@ had no right answer. Typing the title back did not help. When a "done" did
 resolve, the celebration named no task, and the user had to ask what had been
 completed. A "done" after a deadline nudge rewarded the user and left the task
 open: COMPLETE skipped the Notion write for every `recent_outbound` target,
-treating the nudge like a reminder page that delivery had already completed. A
-past-tense report of something that was never on the list ended in the same
-question.
+treating the nudge like a reminder page that delivery had already completed.
 
 ## Fix
 
@@ -31,8 +29,6 @@ question.
 - Rejection records the declined page as `rejected` and the offered
   alternative as `suggested`, so a bare "done" after a rejection anchors to the
   alternative.
-- A confident report of finishing something on none of the open tasks is
-  logged as a new Completed task, and the reply says it was not on the list.
 
 ## Regression Tests
 

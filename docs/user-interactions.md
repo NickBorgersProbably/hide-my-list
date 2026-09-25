@@ -229,14 +229,7 @@ flowchart LR
    the agent does not guess: it names both and asks. Right after a completion
    the ledger anchors nothing, so a repeated "done" asks rather than
    completing an older task.
-3. **An unlisted completion** — a message that clearly reports finishing
-   something that is on none of the open tasks ("I also paid the gas bill!")
-   is logged as a new task, already completed, and the reply says so: "That
-   wasn't on your list — logged it as done: Pay the gas bill." Asking "which
-   task?" about a task that does not exist has no right answer. A bare "done",
-   an answer to a clarification, a message whose words reach an existing task,
-   and anything the model is unsure of never create a task.
-4. **Clarification** — if nothing resolves, the agent asks which task was
+3. **Clarification** — if nothing resolves, the agent asks which task was
    meant, and remembers having asked.
 
    The question is held in conversation state, so the reply that answers it

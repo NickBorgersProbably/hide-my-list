@@ -210,11 +210,6 @@ attention the reward exists to repay. The title comes from the task's own
 record, never from the text of a reminder the agent sent. When no title can be
 read, the template text goes out alone.
 
-A task the user reports finishing that was never on the list is logged
-already completed and celebrated the same way, prefixed with a plain note that
-it was not on the list: "That wasn't on your list — logged it as done: {task}.
-Nice work! ✨"
-
 ---
 
 ### AI-Generated Celebration Images

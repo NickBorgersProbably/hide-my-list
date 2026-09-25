@@ -186,16 +186,6 @@ target in this order:
    15 minutes of each other, neither is a safe guess and the node asks,
    naming both. A ledger entry with no `at` (a static eval fixture; the
    checkpoint writers always stamp one) reads as happening now.
-3. **An unlisted completion.** When the message clearly reports finishing a
-   concrete task that is none of the open tasks — "I also paid the gas bill"
-   with nothing like it on the list — the model may return no match plus a
-   short task title. The node creates that task already `Completed`, rewards
-   it, and says so: "That wasn't on your list — logged it as done: {task}."
-   All of these must hold: the message is standalone rather than an answer to
-   a clarification, it carries at least two task-naming words, its words
-   reached no open task on the ranked shortlist, the model returned no
-   candidate, its confidence is at least 0.90, and the proposed title shares
-   a word with the message. A bare "done" never takes this path.
 
 Only a delivered reminder page skips the Notion status write, because the
 delivery worker completes a reminder page when it sends it. Every other
@@ -578,8 +568,7 @@ Writers:
 - **Selection** records `suggested` for the task it offered.
 - **Rejection** records `rejected` for the declined task and `suggested` for
   the named alternative it offers.
-- **Complete** records `completed` for the page it resolved, or for the task
-  it created from an unlisted completion.
+- **Complete** records `completed` for the page it resolved.
 - **`hydrate_context`**, the graph's entry node, merges the peer's
   `recent_outbound` rows from the last 7 days at the start of every turn: a
   reminder delivery becomes `reminded`, a deadline delivery becomes `nudged`.

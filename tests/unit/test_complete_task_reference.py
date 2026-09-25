@@ -35,7 +35,6 @@ from app.graph.nodes.complete import (
     _deterministic_answer,
     _ledger_options,
     _ledger_targets,
-    _parse_unlisted_completion,
     _target_from_ledger,
     _task_reference_tokens,
     _TitleMatch,
@@ -271,17 +270,6 @@ def test_prompt_uses_no_bracketed_placeholder_slots() -> None:
     assert "[title]" not in prompt
 
 
-def test_only_a_standalone_prompt_may_report_an_unlisted_completion() -> None:
-    """An answer to "which task?" chooses among tasks in play; it never adds one."""
-    candidates = [DedupCandidate(page_id="<page_A>", title="Wash the dishes", score=0.9)]
-    standalone = _build_completion_match_prompt("paid the gas bill", candidates)
-    answering = _build_completion_match_prompt(
-        "paid the gas bill", candidates, answering_clarification=True
-    )
-    assert "unlisted_completion_title" in standalone
-    assert "unlisted_completion_title" not in answering
-
-
 # ---------------------------------------------------------------------------
 # Recent-task ledger anchor
 # ---------------------------------------------------------------------------
@@ -514,7 +502,7 @@ def test_every_ask_family_words_its_two_attempts_differently() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Celebration body and unlisted completions
+# Celebration body
 # ---------------------------------------------------------------------------
 
 def test_the_celebration_names_the_task_first() -> None:
@@ -529,24 +517,6 @@ def test_a_muted_reward_follows_the_name_without_saying_done_twice() -> None:
 
 def test_an_unknown_title_sends_the_reward_text_alone() -> None:
     assert _celebration_body("", "Nice work! ✨") == "Nice work! ✨"
-
-
-@pytest.mark.parametrize(
-    ("response", "expected"),
-    [
-        (
-            '{"matched_page_id": null, "unlisted_completion_title": "Pay the gas bill", '
-            '"confidence": 0.95}',
-            ("Pay the gas bill", 0.95),
-        ),
-        ('{"matched_page_id": "<page_A>", "unlisted_completion_title": "X", "confidence": 1}', None),
-        ('{"matched_page_id": null, "unlisted_completion_title": null, "confidence": 0.9}', None),
-        ('{"matched_page_id": null, "unlisted_completion_title": "  ", "confidence": 0.9}', None),
-        ("not json", None),
-    ],
-)
-def test_unlisted_completion_parsing(response: str, expected: tuple[str, float] | None) -> None:
-    assert _parse_unlisted_completion(response) == expected
 
 
 def test_open_tasks_includes_reminders_only_when_asked() -> None:

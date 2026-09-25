@@ -18,16 +18,11 @@ reply that answers it comes back here instead of re-entering cold and
 re-asking. A failure in any one source narrows the answer, never the question:
 the lookups are independent, so a dead Postgres or an empty shortlist must not
 stop the others from running.
-
-A message that clearly reports finishing something that was never on the list
-is logged as a new, already-completed task rather than dead-ending in "which
-task?" — and the reply says so.
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -106,14 +101,6 @@ _TITLE_MATCH_MIN_SCORE = 0.30
 # The cap bounds the prompt, not the recall: it only binds on lists longer than
 # this, and complete_node.candidate_set_truncated says when it did.
 _FALLBACK_CANDIDATE_LIMIT = 40
-
-# A message must carry at least this many task-naming words before an
-# unlisted completion is logged. "done!" and "finished it" carry none; "paid
-# the gas bill" carries three.
-_UNLISTED_MIN_RESIDUE_TOKENS = 2
-
-# Longest title an unlisted completion may be logged under.
-_UNLISTED_TITLE_MAX_CHARS = 200
 
 # Re-asks before the agent stops asking. The first question is open ("which
 # task did you mean?"); the second names concrete options, per
@@ -221,9 +208,6 @@ class _TitleMatch:
     # True when an answer to a clarification matched a title on word overlap
     # alone and the model was not asked.
     deterministic: bool = False
-    # Set when the model reports the message finishing a task that matches no
-    # candidate, confidently enough to log it as a new completed task.
-    unlisted_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -475,11 +459,6 @@ def _build_completion_match_prompt(
     "the second one" is worse than never offering choices: it invites the short
     answer and then demands the long one. Enumerating them here is what gives
     an ordinal a referent.
-
-    Only the standalone framing may report an unlisted completion: a message
-    that plainly says the user finished something that is on none of the
-    candidates. An answer to a clarification is choosing among tasks already
-    in play, never announcing a new one.
     """
     candidate_payload = [
         {"id": candidate.page_id, "title": candidate.title}
@@ -522,21 +501,9 @@ def _build_completion_match_prompt(
             "asking about, or is about to start is NOT a match — return no "
             "match for those even when the wording overlaps a candidate title. "
             "The cost of a false match is high: it marks a task the user has "
-            "not finished as completed. If uncertain, return no match.\n\n"
-            "Unlisted completion: when the message clearly reports that the "
-            "user already finished a specific, concrete task — an action and "
-            "what it was done to — and that task is none of the candidates, "
-            "return no match and put a short to-do style title for it (under "
-            "8 words, imperative, e.g. \"Water the plants\") in "
-            "unlisted_completion_title. Leave it null for a bare \"done\", for "
-            "anything the user still has to do, for feelings or chatter, and "
-            "whenever the message could be about one of the candidates."
+            "not finished as completed. If uncertain, return no match."
         )
-        shape = (
-            '{"matched_page_id": "<candidate id or null>", '
-            '"unlisted_completion_title": "<short task title or null>", '
-            '"confidence": 0.0}'
-        )
+        shape = '{"matched_page_id": "<candidate id or null>", "confidence": 0.0}'
     return (
         f"{instructions}\n\n"
         f"User message: {incoming!r}\n"
@@ -544,40 +511,6 @@ def _build_completion_match_prompt(
         "Return JSON only in this shape:\n"
         f"{shape}"
     )
-
-
-def _parse_unlisted_completion(response_text: str) -> tuple[str, float] | None:
-    """Parse an unlisted-completion report: `(title, confidence)` or None.
-
-    None unless the model returned no candidate id and a non-empty title with
-    a numeric confidence. The caller applies the threshold and the guards.
-    """
-    json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-    if not json_match:
-        return None
-    try:
-        loaded = json.loads(json_match.group())
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(loaded, dict):
-        return None
-    matched = loaded.get("matched_page_id")
-    if matched not in (None, "", "null"):
-        return None
-    title = loaded.get("unlisted_completion_title")
-    if not isinstance(title, str):
-        return None
-    title = " ".join(title.split())
-    if not title or title.lower() == "null":
-        return None
-    confidence_raw = loaded.get("confidence")
-    if not isinstance(confidence_raw, int | float | str):
-        return None
-    try:
-        confidence = float(confidence_raw)
-    except ValueError:
-        return None
-    return title[:_UNLISTED_TITLE_MAX_CHARS], confidence
 
 
 def _reoffer_candidates(
@@ -626,15 +559,6 @@ def _deterministic_answer(
         and dice_coefficient(residue, title_tokens) >= _DETERMINISTIC_ANSWER_THRESHOLD
     ]
     return hits[0] if len(hits) == 1 else None
-
-
-def _unlisted_title_is_grounded(title: str, residue: set[str]) -> bool:
-    """Whether the proposed title shares a task-naming word with the message.
-
-    A title the model made up from nothing the user said must not become a
-    Notion page.
-    """
-    return bool(_task_reference_tokens(title) & residue)
 
 
 async def _resolve_title_match(
@@ -740,18 +664,12 @@ async def _resolve_title_match(
                 if candidate.page_id not in reoffered_ids
             ]
 
-        # With nothing open, a standalone message that names something still
-        # goes to the model: it may be reporting a task that was never listed.
-        may_report_unlisted = (
-            not answering_clarification and len(residue) >= _UNLISTED_MIN_RESIDUE_TOKENS
-        )
-        if not candidates and not may_report_unlisted:
+        if not candidates:
             return _TitleMatch(target=None, candidate_count=0, confidence=None)
 
         def outcome(
             target: _CompletionTarget | None,
             confidence: float | None,
-            unlisted_title: str | None = None,
         ) -> _TitleMatch:
             """Attach the candidate set to every verdict, matched or not.
 
@@ -764,7 +682,6 @@ async def _resolve_title_match(
                 confidence=confidence,
                 candidates=tuple(candidates),
                 widened=widened,
-                unlisted_title=unlisted_title,
             )
 
         model = llm("cheap", caller="complete_title_match")
@@ -777,21 +694,8 @@ async def _resolve_title_match(
             )),
             HumanMessage(content="Return only the JSON object."),
         ])
-        content = str(response.content)
-        parsed = parse_match_response(content, candidates)
+        parsed = parse_match_response(str(response.content), candidates)
         if parsed is None:
-            # Only when the message's words reached no open task: a message
-            # that overlaps a title is about that task, however the model
-            # read it, and must not spawn a near-duplicate of it.
-            unlisted = (
-                _parse_unlisted_completion(content) if may_report_unlisted and widened else None
-            )
-            if (
-                unlisted is not None
-                and unlisted[1] >= _TITLE_MATCH_CONFIDENCE_THRESHOLD
-                and _unlisted_title_is_grounded(unlisted[0], residue)
-            ):
-                return outcome(None, unlisted[1], unlisted_title=unlisted[0])
             return outcome(None, None)
 
         page_id, confidence = parsed
@@ -1159,87 +1063,6 @@ def _celebration_body(title: str, reward_text: str) -> str:
     return f"{TASK_TOKEN} — done. {reward_text}"
 
 
-async def _complete_unlisted(
-    state: State,
-    *,
-    title: str,
-    confidence: float,
-    residue_token_count: int,
-    now: datetime,
-    recent_tasks: list[Any],
-) -> dict[str, Any] | None:
-    """Log a finished task that was never on the list, and celebrate it.
-
-    Creates the page already Completed — there was never a moment it was open
-    — and says plainly that it was not on the list, so the user can tell a new
-    entry from a match. Returns None when the page could not be created; the
-    caller then asks instead of claiming a completion that was not recorded.
-    """
-    from app.tools import notion
-    from app.tools.rewards import maybe_reward
-
-    peer = state.get("peer", "")
-    try:
-        page = await notion.create_task(
-            title=title,
-            work_type="independent",
-            energy_required="Low",
-            status="Completed",
-        )
-    except Exception as exc:
-        log.warning(
-            "complete_node.unlisted_create_failed",
-            error_type=type(exc).__name__,
-        )
-        return None
-    # Notion accepted the write. A response without an id is tolerated the way
-    # intake tolerates it: the task is logged, only the page-scoped
-    # bookkeeping (ledger entry, reward manifest link) goes without an id.
-    page_id = str((page or {}).get("id") or "")
-
-    streak = state.get("streak", 0) + 1
-    reward_result = await maybe_reward(
-        peer=peer,
-        task_title=title,
-        notion_page_id=page_id,
-        streak=streak,
-        work_type="",
-        energy_required="",
-    )
-    draft: OutboundDraft = {
-        "recipient": peer,
-        "body": f"That wasn't on your list — logged it as done: {TASK_TOKEN}. "
-        f"{reward_result['text']}",
-        "notion_page_id": page_id or None,
-        "notion_page_title": title,
-    }
-    if reward_result["attachment_path"]:
-        draft["attachment_path"] = reward_result["attachment_path"]
-
-    log.info(
-        "complete_node.unlisted_completion",
-        page_id=page_id,
-        match_confidence=confidence,
-        residue_token_count=residue_token_count,
-        streak=streak,
-    )
-    return {
-        "pending_outbound": [draft],
-        "streak": streak,
-        "tasks_completed_today": state.get("tasks_completed_today", 0) + 1,
-        "conversation_state": "idle",
-        "pending_clarification": None,
-        "recent_tasks": record_task_event(
-            recent_tasks,
-            page_id=page_id,
-            title=title,
-            kind="task",
-            event="completed",
-            now=now,
-        ),
-    }
-
-
 async def complete_node(state: State) -> dict[str, Any]:
     """COMPLETE handler: update Notion, call rewards.maybe_reward(), draft reply."""
     peer = state.get("peer", "")
@@ -1298,26 +1121,6 @@ async def complete_node(state: State) -> dict[str, Any]:
             )
         else:
             title_match = _TitleMatch(target=None, candidate_count=0, confidence=None)
-
-        # The message reports finishing something that is on none of the open
-        # tasks. Logging it beats asking "which task?" about a task that does
-        # not exist — the question has no right answer.
-        if (
-            title_match.unlisted_title
-            and title_match.target is None
-            and not answering
-            and len(residue) >= _UNLISTED_MIN_RESIDUE_TOKENS
-        ):
-            unlisted = await _complete_unlisted(
-                state,
-                title=title_match.unlisted_title,
-                confidence=title_match.confidence or 0.0,
-                residue_token_count=len(residue),
-                now=now,
-                recent_tasks=recent_tasks,
-            )
-            if unlisted is not None:
-                return unlisted
 
         context_options = _ledger_options(recent_tasks, now=now)
         clarify_candidates, from_context = _clarification_candidates(
