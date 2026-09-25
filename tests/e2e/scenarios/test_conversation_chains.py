@@ -17,16 +17,14 @@ pytestmark = pytest.mark.asyncio
 async def test_rejecting_a_task_offers_a_named_alternative(
     conversation: Conversation,
 ) -> None:
-    """Scenario 4 — reject, then get something else, then accept it.
+    """Scenario 4 — reject, then get something else.
 
-    Four properties. The alternative has to be *named*: an alternative the user
+    Three properties. The alternative has to be *named*: an alternative the user
     cannot identify is the same unactionable message the naming invariant exists
     to prevent, and it shipped once already. The rejected task must not be
     completed — "not this one" is not "done" — and it returns to Pending rather
-    than staying In Progress with nothing active. Offering the alternative does
-    not commit the user to it: it stays untouched until they accept. And the
-    acceptance ("sure") is what marks it In Progress and makes it the active
-    task.
+    than staying In Progress with nothing active. And offering the alternative
+    does not commit the user to it: it stays Pending and nothing is active.
     """
     garage = conversation.notion.seed_task(
         title="Clean out the garage",
@@ -72,7 +70,7 @@ async def test_rejecting_a_task_offers_a_named_alternative(
         "finishing it"
     )
     # Offering an alternative is not choosing it: nothing is active and the
-    # alternative is still Pending until the user accepts.
+    # alternative is still Pending.
     assert not rejected.state.get("active_task")
     assert rejected.state.get("conversation_state") == "selection"
     assert conversation.notion.status_of(alternative) == "Pending"
@@ -85,21 +83,6 @@ async def test_rejecting_a_task_offers_a_named_alternative(
         "the rejection reply did not offer the one remaining task as a named "
         "alternative"
     )
-
-    # The alternative was attached to the rejection draft; record it for I3
-    # explicitly so the acceptance write is never read as a stray write.
-    conversation.offered.add(alternative)
-    accepted = await conversation.say(
-        "sure",
-        expect=Expect(
-            intent="CHAT",
-            notion_status={alternative: "In Progress"},
-            sent_count=1,
-            regex_require=[f"(?i){titles[alternative]}"],
-        ),
-    )
-    assert (accepted.state.get("active_task") or {}).get("page_id") == alternative
-    assert accepted.state.get("conversation_state") == "active"
 
 
 async def test_a_task_added_this_turn_can_be_reminded_about(

@@ -28,13 +28,6 @@ _NOTHING_FITS = "Nothing quite fits right now. Want to add something quick?"
 # Invalid model output (unknown id, blank-titled page) is not an empty fit, so
 # it gets a neutral retry line instead of an offer to grow the list.
 _SELECTION_RETRY = "Couldn't land on one just now — ask me again in a sec?"
-# Appended to the prompt for the one internal retry after invalid output.
-_SELECTION_ID_REMINDER = (
-    "\n\n### Reminder\n\n"
-    "Your previous answer named a task id that is not in the list, or a task "
-    "with no title. `selected_task_id` must be null or an exact `id` copied "
-    "from the task list above."
-)
 
 class _SimplifiedTask(TypedDict):
     id: str
@@ -128,44 +121,28 @@ async def selection_node(state: State) -> dict[str, Any]:
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 
         model = llm("expensive", caller="selection")
+        messages = [
+            SystemMessage(content=prompt_text),
+            HumanMessage(content="Select the best task for me right now."),
+        ]
 
-        async def _ask(system_prompt: str) -> tuple[str, str | None, _SimplifiedTask | None, str]:
-            messages = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content="Select the best task for me right now."),
-            ]
-            response = await model.ainvoke(messages)
-            body, page_id = _parse_selection_response(str(response.content).strip(), peer)
-            # The prompt writes the literal {task} token; the title comes from
-            # the task list we scored, never from the model. send_node
-            # substitutes it.
-            match = next(
-                (t for t in simplified if page_id and t["id"] == page_id),
-                None,
-            )
-            return body, page_id, match, match["title"].strip() if match else ""
+        response = await model.ainvoke(messages)
+        response_text = str(response.content).strip()
 
-        user_message, selected_page_id, selected, selected_title = await _ask(prompt_text)
+        # Parse JSON response from LLM
+        user_message, selected_page_id = _parse_selection_response(response_text, peer)
 
+        # The prompt writes the literal {task} token; the title comes from the
+        # task list we scored, never from the model. send_node substitutes it.
         # A selection counts only when it resolves to a scored task with a
         # title: an id the node never offered, or a page with no name, would
         # mark an unknown page In Progress and suggest a task the user cannot
-        # identify. That is invalid model output, so the model gets one more
-        # try with a reminder of the id rule before the user sees anything.
-        if selected_page_id and not (selected and selected_title):
-            first_in_candidates = selected is not None
-            user_message, selected_page_id, selected, selected_title = await _ask(
-                prompt_text + _SELECTION_ID_REMINDER
-            )
-            retry_valid = not selected_page_id or bool(selected and selected_title)
-            log.info(
-                "selection_node.invalid_selection_retry",
-                first_in_candidates=first_in_candidates,
-                retry_valid=retry_valid,
-                retry_has_selection=bool(selected_page_id),
-                candidate_count=len(simplified),
-            )
-
+        # identify. Either is treated as no selection.
+        selected = next(
+            (t for t in simplified if selected_page_id and t["id"] == selected_page_id),
+            None,
+        )
+        selected_title = selected["title"].strip() if selected else ""
         if selected_page_id and not (selected and selected_title):
             # The id is model-supplied free text; log shape only, never value.
             log.warning(
@@ -177,7 +154,6 @@ async def selection_node(state: State) -> dict[str, Any]:
             )
             selected = None
             selected_page_id = None
-            selected_title = ""
             user_message = _SELECTION_RETRY
         elif not selected_page_id and TASK_TOKEN in user_message:
             # A body that refers to a task with no task behind it cannot be

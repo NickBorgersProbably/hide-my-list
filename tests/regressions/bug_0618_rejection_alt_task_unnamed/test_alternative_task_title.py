@@ -113,9 +113,8 @@ async def test_rejection_node_names_selected_alternative_without_task_token(
     draft = result["pending_outbound"][0]
     assert draft["notion_page_id"] == alternative_id
     assert alternative_title in draft["body"]
-    # Naming the alternative does not activate it: it stays Pending until the
-    # user accepts, and the only status write returns the rejected page to
-    # Pending.
+    # Naming the alternative does not activate it: it stays Pending, and the
+    # only status write returns the rejected page to Pending.
     assert result["active_task"] is None
     assert _status_writes[-1:] == [("<page-id-rejected>", "Pending")]
     assert all(page_id != alternative_id for page_id, _ in _status_writes)

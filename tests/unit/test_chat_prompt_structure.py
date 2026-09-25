@@ -1,9 +1,7 @@
 """Structural anchors in the rendered chat prompt.
 
-`chat.md.j2` is the only place the "what task?" recall rule and the model's
-acceptance rule live (accepting a pending suggestion with a bare "sure" is
-handled in `chat_node` code before the model runs); a prompt edit that silently drops the
-ordering instruction or the anchor headings breaks recall without breaking any
+`chat.md.j2` is the only place the "what task?" recall rule lives; a prompt
+edit that silently drops the ordering instruction or the anchor headings breaks recall without breaking any
 LLM-graded eval (evals are gated and rarely run locally). This is a string-
 presence check against the rendered template, not an LLM test: it can run in
 `tests/unit` with no proxy and no DATABASE_URL.
@@ -34,55 +32,51 @@ def test_section_anchors_present() -> None:
 
 
 def test_recall_instruction_names_the_ordering() -> None:
-    """The recall rule answers about a newest reminder first (even an untitled
-    one, without skipping to an older task), then the newest titled Recent
-    Tasks entry, then the Current task as fallback — in that order, since that
-    ordering is the contract the model is graded against.
+    """The recall rule names the newest Recent Tasks entry word for word, asks
+    the user to name the task when that entry is untitled (never skipping to
+    an older entry), and uses the Current task only when Recent Tasks is empty
+    — in that order, since that ordering is the contract the model is graded
+    against.
     """
     flattened = " ".join(_render_chat_prompt().split())
-    reminder_rule = "If the newest entry in Recent Tasks has event `reminded` or `nudged`"
-    titled_rule = "Otherwise, if Recent Tasks has a titled entry"
-    fallback_rule = "Current task as fallback"
-    for phrase in (reminder_rule, titled_rule, fallback_rule):
+    newest_rule = "Name the title of the newest entry under Recent Tasks word for word"
+    untitled_rule = "If the newest entry is `(untitled)`, say you are not sure which one"
+    fallback_rule = "If Recent Tasks is \"None yet.\", name the Current task word for word"
+    for phrase in (newest_rule, untitled_rule, fallback_rule):
         assert phrase in flattened
     assert (
-        flattened.index(reminder_rule)
-        < flattened.index(titled_rule)
+        flattened.index(newest_rule)
+        < flattened.index(untitled_rule)
         < flattened.index(fallback_rule)
     )
-    assert "do not skip to an older titled task entry" in flattened
-    assert "name its title word for word" in flattened
+    assert "Do not name an older entry instead" in flattened
+
+
+def test_recall_rule_has_no_event_markers() -> None:
+    """The rule keys on the newest rendered line, not on event words or
+    markers the renderer may not emit, and makes no claim about acceptance.
+    """
+    flattened = " ".join(_render_chat_prompt().split())
+    assert "[nudged]" not in flattened
+    assert "that reminder" not in flattened
+    assert "accepts a suggestion" not in flattened
+    assert "marked `suggested`" not in flattened
 
 
 def test_recall_precedence_active_and_recent_both_present() -> None:
-    """When both an active task and a titled recent entry exist, the rendered
-    prompt names the Recent Tasks rule before the Current task fallback.
+    """When both an active task and a recent entry exist, the rendered prompt
+    names the Recent Tasks rule before the Current task fallback.
     """
     rendered = _render_chat_prompt(
         recent_tasks='- "Water the plants" — suggested just now',
         active_task_title="Book the eye appointment",
     )
     flattened = " ".join(rendered.split())
-    assert flattened.index("Otherwise, if Recent Tasks has a titled entry") < flattened.index(
-        "Current task as fallback"
+    assert flattened.index("newest entry under Recent Tasks") < flattened.index(
+        "name the Current task"
     )
     assert '"Water the plants"' in rendered
     assert "Book the eye appointment" in rendered
-
-
-def test_acceptance_rule_names_the_current_task() -> None:
-    """With acceptance of a pending suggestion handled in code (chat_node's
-    deterministic path), the prompt only needs to name the Current task when
-    the user accepts and one is set. The `suggested`-line fallback is gone:
-    the model must never guess a task the graph does not hold.
-    """
-    flattened = " ".join(_render_chat_prompt().split())
-    assert (
-        "When the user accepts a suggestion and Current task is set, name it"
-        in flattened
-    )
-    assert "marked `suggested`" not in flattened
-    assert "last resort" not in flattened
 
 
 def test_rendered_text_contains_passed_in_values() -> None:

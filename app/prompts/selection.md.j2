@@ -26,8 +26,11 @@ message above ("I've got 2 hours", "I'm wiped", "feeling sharp"). Read
 available time and mood from that current message only. The recent
 conversation tells you what the user is referring to; it is never a source
 of available time or mood, even when an earlier turn stated them. If the
-current message does not say how much time they have, assume 30 minutes; if
-it does not say how they feel, treat mood as neutral.
+current message does not say how much time they have, available time is
+unknown: do not assume a number and do not apply the Time Fit exclusion.
+Score on urgency, energy, and work type instead, and prefer the shorter task
+when two tasks score the same. If the message does not say how they feel,
+treat mood as neutral.
 
 ### Pending Tasks
 
@@ -35,7 +38,7 @@ it does not say how they feel, treat mood as neutral.
 
 ### Scoring Rules
 
-1. Time Fit (30% weight):
+1. Time Fit (30% weight; only when available time is known):
    - Task fits with buffer: 1.0
    - Tight fit (within 10%): 0.5
    - Doesn't fit: 0.0 (EXCLUDE)

@@ -7,9 +7,6 @@ eval silently scores a degenerate empty-pool response instead of failing.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
-
 import pytest
 
 from app.graph.nodes._task_match import extract_checkbox
@@ -128,62 +125,6 @@ def test_evaluate_contracts_scores_regex_raw_and_judge_delivered(monkeypatch) ->
 
     assert [r.passed for r in results] == [True, True, True]
     assert judged_surfaces == [delivered, delivered]
-
-
-def test_invoke_node_injects_fresh_at_for_chat_acceptance() -> None:
-    """A ledger entry without `at` must be stamped so chat_node's deterministic
-    acceptance path fires.
-
-    chat_node accepts a short affirmative answering a fresh `suggested` entry
-    in code, before the model — so this runs end-to-end in the unit
-    environment with no LLM proxy. Without the stamp, accepted_suggestion sees
-    a missing `at` as unusable and falls through to the model, which raises.
-    """
-    fixture = _fixture("chat-accepts-alternative-after-rejection-001")
-    body, _title = _invoke_node("chat", fixture)
-    assert "Water the plants" in body
-    assert "which task did you mean" not in body.lower()
-
-
-def test_invoke_node_preserves_explicit_at_for_chat_ledger() -> None:
-    """A ledger entry with an explicit `at` must not be re-stamped.
-
-    If the runner overwrote an explicit old `at` with now, a stale suggestion
-    would appear fresh to accepted_suggestion, silently bypassing the 24-hour
-    window. Prove preservation by supplying a 2-day-old timestamp: the
-    deterministic path does not fire, the model is called, and no LLM proxy
-    in the unit environment means the node hits its fallback — detected as
-    RuntimeError.
-    """
-    from tests.evals.runner import Fixture  # noqa: PLC0415
-
-    old_at = (datetime.now(UTC) - timedelta(days=2)).isoformat()
-    fixture = Fixture(
-        id="synthetic-stale-suggestion",
-        node="chat",
-        tier="medium",
-        inbound="sure",
-        peer="<test-peer>",
-        prior_state={
-            "active_task": None,
-            "conversation_state": "selection",
-            "messages": [],
-            "recent_tasks": [
-                {
-                    "page_id": "<placeholder-page-id-2>",
-                    "title": "Water the plants",
-                    "kind": "task",
-                    "event": "suggested",
-                    "at": old_at,
-                }
-            ],
-        },
-        notion_tasks=[{"id": "<placeholder-page-id-2>", "title": "Water the plants"}],
-        contracts=[],
-        path=Path("synthetic"),
-    )
-    with pytest.raises(RuntimeError, match="exception fallback path"):
-        _invoke_node("chat", fixture)
 
 
 def test_invoke_node_injects_fresh_selected_at_for_complete() -> None:

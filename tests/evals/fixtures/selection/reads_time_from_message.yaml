@@ -3,8 +3,8 @@
 # nothing in state carries them (`available_minutes` and `mood` are null).
 # The selection prompt passes the incoming message under "User Context" and
 # tells the model to read time and mood from it when the state fields are
-# empty. A prompt that fills a 30-minute default instead excludes the only
-# task that uses a two-hour focus block and suggests the short errand, which
+# empty. A prompt that ignores the stated two hours and energy suggests the
+# short errand instead of the task that uses a two-hour focus block, which
 # fails the judge contract below.
 id: selection-reads-time-from-message-001
 node: selection

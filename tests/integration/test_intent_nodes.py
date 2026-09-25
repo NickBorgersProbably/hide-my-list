@@ -958,14 +958,13 @@ async def test_rejection_node_records_rejected_and_suggested() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rejection_node_alternative_stays_pending_until_accepted() -> None:
+async def test_rejection_node_alternative_stays_pending() -> None:
     """The alternative the reply names is a suggestion, not a commitment.
 
-    Initiation happens at acceptance: the alternative is named and recorded
-    as `suggested`, but it is not marked In Progress and nothing is active
-    until the user says yes. The rejected page, which selection marked In
-    Progress when it offered it, returns to Pending, so no page is left In
-    Progress with nothing active.
+    The alternative is named and recorded as `suggested`, but it is not marked
+    In Progress and nothing is active afterwards. The rejected page, which
+    selection marked In Progress when it offered it, returns to Pending, so no
+    page is left In Progress with nothing active.
     """
     import inspect
 
@@ -1011,7 +1010,6 @@ async def test_rejection_node_alternative_stays_pending_until_accepted() -> None
     ]
     alternative_logs = [e for e in logs if e.get("event") == "rejection_node.alternative"]
     assert len(alternative_logs) == 1
-    assert alternative_logs[0]["activated"] is False
     assert alternative_logs[0]["rejected_reset"] is True
 
 
@@ -1104,230 +1102,6 @@ async def test_rejection_node_unknown_alternative_is_not_recorded() -> None:
     update_status.assert_awaited_once_with("<page_A>", "Pending")
     assert result["active_task"] is None
     assert result["conversation_state"] == "selection"
-
-
-def _suggested_entry(
-    page_id: str, title: str, *, age: timedelta = timedelta(minutes=1)
-) -> dict[str, Any]:
-    return {
-        "page_id": page_id,
-        "title": title,
-        "kind": "task",
-        "event": "suggested",
-        "at": (datetime.now(UTC) - age).isoformat(),
-    }
-
-
-@pytest.mark.asyncio
-async def test_chat_node_acceptance_activates_the_suggested_alternative() -> None:
-    """A short "sure" after a rejection alternative is the acceptance.
-
-    The alternative stayed Pending while it was only offered; accepting it is
-    what marks it In Progress and makes it the active task. The path is
-    deterministic, so the model is never consulted.
-    """
-    import inspect
-
-    from app.tools import notion
-
-    update_status = AsyncMock()
-    page = _pending_page("<page_B>", "Sort the mail", minutes=15)
-    page["properties"]["Urgency"] = {"number": 70}
-    page["properties"]["Rejection Count"] = {"number": 1}
-    llm = MagicMock()
-    ledger = [
-        _suggested_entry("<page_B>", "Sort the mail"),
-        {**_suggested_entry("<page_A>", "Water the plants", age=timedelta(minutes=3)),
-         "event": "rejected"},
-    ]
-    with (
-        patch("app.tools.notion.update_status", update_status),
-        patch("app.tools.notion.get_page", AsyncMock(return_value=page)),
-        patch("app.models.llm", llm),
-        capture_logs() as logs,
-    ):
-        from app.graph.nodes.chat import chat_node
-
-        result = await chat_node(_ledger_state(
-            incoming="Sure!", recent_tasks=ledger, conversation_state="selection"
-        ))
-
-    llm.assert_not_called()
-    update_status.assert_awaited_once()
-    call = update_status.await_args
-    bound = inspect.signature(notion.update_status).bind(*call.args, **call.kwargs)
-    assert bound.arguments == {"page_id": "<page_B>", "new_status": "In Progress"}
-
-    active = result["active_task"]
-    selected_at = active.pop("selected_at")
-    assert datetime.fromisoformat(selected_at).tzinfo is not None
-    assert active == {
-        "page_id": "<page_B>",
-        "title": "Sort the mail",
-        "status": "In Progress",
-        "work_type": "Independent",
-        "urgency": 70,
-        "time_estimate": 15,
-        "energy_required": "Low",
-        "rejection_count": 1,
-    }
-    assert result["conversation_state"] == "active"
-    # The ledger is unchanged: the entry stays `suggested`.
-    assert "recent_tasks" not in result
-    draft = result["pending_outbound"][0]
-    assert draft["notion_page_id"] == "<page_B>"
-    assert draft["notion_page_title"] == "Sort the mail"
-    assert draft["body"] == "Sort the mail is yours — say done when you finish."
-    accepted = [e for e in logs if e.get("event") == "chat_node.acceptance"]
-    assert accepted == [{"event": "chat_node.acceptance", "log_level": "info",
-                         "page_id": "<page_B>"}]
-
-
-@pytest.mark.asyncio
-async def test_chat_node_acceptance_survives_notion_failures() -> None:
-    """A failed In Progress write or page read is logged by id, not fatal."""
-    with (
-        patch("app.tools.notion.update_status", AsyncMock(side_effect=RuntimeError("down"))),
-        patch("app.tools.notion.get_page", AsyncMock(side_effect=RuntimeError("down"))),
-        patch("app.models.llm", MagicMock()),
-        capture_logs() as logs,
-    ):
-        from app.graph.nodes.chat import chat_node
-
-        result = await chat_node(_ledger_state(
-            incoming="ok, that one", recent_tasks=[_suggested_entry("<page_B>", "Sort the mail")]
-        ))
-
-    active = result["active_task"]
-    assert active["page_id"] == "<page_B>"
-    # Selection's defaults for a page with no readable properties.
-    assert (active["urgency"], active["time_estimate"], active["rejection_count"]) == (50, 30, 0)
-    events = {e.get("event") for e in logs}
-    assert "chat_node.mark_in_progress_failed" in events
-    assert "chat_node.error" not in events
-
-
-@pytest.mark.parametrize(
-    ("incoming", "overrides"),
-    [
-        # Not a bare affirmative: a hedge or question is the model's call.
-        ("sure, but maybe later", {}),
-        # A task is already active: the acceptance names it via the model.
-        ("sure", {"active_task": _active_task("Water the plants", page_id="<page_A>")}),
-        # The newest entry is not a suggestion.
-        ("sure", {"recent_tasks": [
-            {**_suggested_entry("<page_B>", "Sort the mail"), "event": "added"},
-        ]}),
-        # The suggestion is more than a day old.
-        ("sure", {"recent_tasks": [
-            _suggested_entry("<page_B>", "Sort the mail", age=timedelta(hours=25)),
-        ]}),
-    ],
-    ids=["non_affirmative", "active_task_set", "newest_not_suggested", "stale_suggestion"],
-)
-@pytest.mark.asyncio
-async def test_chat_node_non_affirmative_goes_to_the_model(
-    incoming: str, overrides: dict[str, Any]
-) -> None:
-    update_status = AsyncMock()
-    model = _mock_llm_response("Sounds good.")
-    state_overrides: dict[str, Any] = {
-        "recent_tasks": [_suggested_entry("<page_B>", "Sort the mail")],
-        **overrides,
-    }
-    with (
-        patch("app.tools.notion.update_status", update_status),
-        patch("app.models.llm", return_value=model),
-    ):
-        from app.graph.nodes.chat import chat_node
-
-        result = await chat_node(_ledger_state(incoming=incoming, **state_overrides))
-
-    model.ainvoke.assert_awaited_once()
-    update_status.assert_not_awaited()
-    assert "active_task" not in result
-    assert result["pending_outbound"][0]["body"] == "Sounds good."
-
-
-def _selection_model(*responses: dict[str, Any]) -> Any:
-    model = AsyncMock()
-    replies = []
-    for payload in responses:
-        reply = MagicMock()
-        reply.content = json.dumps(payload)
-        replies.append(reply)
-    model.ainvoke = AsyncMock(side_effect=replies)
-    return model
-
-
-@pytest.mark.asyncio
-async def test_selection_node_invalid_selection_retry_succeeds() -> None:
-    """An unknown id gets one internal retry; a valid second answer is used."""
-    update_status = AsyncMock()
-    model = _selection_model(
-        {"selected_task_id": "<page_unknown>", "user_message": "How about {task}?"},
-        {"selected_task_id": "<page_A>", "user_message": "How about {task}?"},
-    )
-    with (
-        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
-            _pending_page("<page_A>", "Water the plants"),
-        ]})),
-        patch("app.tools.notion.update_status", update_status),
-        patch("app.models.llm", return_value=model),
-        capture_logs() as logs,
-    ):
-        from app.graph.nodes.selection import selection_node
-
-        result = await selection_node(_ledger_state(incoming="what should I do?"))
-
-    assert model.ainvoke.await_count == 2
-    retry_prompt = model.ainvoke.await_args_list[1].args[0][0].content
-    first_prompt = model.ainvoke.await_args_list[0].args[0][0].content
-    assert retry_prompt.startswith(first_prompt)
-    assert "must be null or an exact `id`" in retry_prompt
-    update_status.assert_awaited_once_with("<page_A>", "In Progress")
-    assert result["active_task"]["page_id"] == "<page_A>"
-    draft = result["pending_outbound"][0]
-    assert draft["notion_page_title"] == "Water the plants"
-    retries = [e for e in logs if e.get("event") == "selection_node.invalid_selection_retry"]
-    assert len(retries) == 1
-    assert retries[0]["retry_valid"] is True
-    assert "<page_unknown>" not in repr(retries[0])
-    assert "selection_node.unknown_page_id" not in {e.get("event") for e in logs}
-
-
-@pytest.mark.asyncio
-async def test_selection_node_invalid_selection_retry_also_invalid() -> None:
-    """Two invalid answers fall back to the neutral line; nothing is written."""
-    update_status = AsyncMock()
-    model = _selection_model(
-        {"selected_task_id": "<page_unknown>", "user_message": "How about {task}?"},
-        {"selected_task_id": "<page_blank>", "user_message": "How about {task}?"},
-    )
-    with (
-        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
-            _pending_page("<page_A>", "Water the plants"),
-            _pending_page("<page_blank>", "  "),
-        ]})),
-        patch("app.tools.notion.update_status", update_status),
-        patch("app.models.llm", return_value=model),
-        capture_logs() as logs,
-    ):
-        from app.graph.nodes.selection import selection_node
-
-        result = await selection_node(_ledger_state(incoming="what should I do?"))
-
-    assert model.ainvoke.await_count == 2
-    update_status.assert_not_awaited()
-    assert result["active_task"] is None
-    draft = result["pending_outbound"][0]
-    assert draft["notion_page_id"] is None
-    assert "ask me again" in draft["body"]
-    retries = [e for e in logs if e.get("event") == "selection_node.invalid_selection_retry"]
-    assert len(retries) == 1
-    assert retries[0]["retry_valid"] is False
-    unknown = [e for e in logs if e.get("event") == "selection_node.unknown_page_id"]
-    assert len(unknown) == 1 and unknown[0]["blank_title"] is True
 
 
 def _intake_response(

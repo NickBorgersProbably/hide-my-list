@@ -14,14 +14,15 @@ created or the reminder the worker had just delivered, so a bare "Done!" or a
 
 Privacy: titles and message text are the user's own words. They go into
 prompts and the checkpoint, never into logs — log ids, counts, booleans, and
-error types only. The ledger never stores a sent message body: reminder
-deliveries enter it with an empty title unless the ledger already knows the
-page's title.
+error types only. The ledger never stores a sent message body: a reminder
+delivery enters it with the page's stored Notion title — the one the ledger
+already knows, or one `hydrate_context` reads from Notion — and stays untitled
+only when neither is available.
 """
 from __future__ import annotations
 
+import asyncio
 import os
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -50,6 +51,11 @@ HISTORY_TURNS = 8
 
 # Characters kept from each rendered message.
 HISTORY_CHARS = 400
+
+# Untitled delivery entries resolved from Notion per turn, and the time each
+# lookup may take. Bounded so a slow or failing Notion never stalls the turn.
+TITLE_LOOKUP_CAP = 3
+TITLE_LOOKUP_TIMEOUT_SECONDS = 5.0
 
 _NO_HISTORY = "No prior context."
 _NO_RECENT_TASKS = "None yet."
@@ -268,65 +274,56 @@ def _as_utc(value: object) -> datetime | None:
     return _parse_at(value)
 
 
-# Whole-message replies that accept the task just suggested. Matched after
-# lowercasing and stripping punctuation, against the entire message: anything
-# longer or different ("sure, but later", "ok what else?") goes to the model,
-# so a hedge or a question is never read as a commitment. Entries are stored
-# in normalized form: "let's do it" is "lets do it", "I'll take it" is
-# "ill take it".
-_ACCEPTANCE_PHRASES: frozenset[str] = frozenset({
-    "sure",
-    "ok",
-    "okay",
-    "yes",
-    "yep",
-    "yeah",
-    "fine",
-    "sounds good",
-    "lets do it",
-    "ok lets do it",
-    "do it",
-    "that one",
-    "ok that one",
-    "sure that one",
-    "ill do that",
-    "ill take it",
-})
+async def _lookup_title(page_id: str) -> str:
+    from app.graph.nodes._task_match import extract_title
+    from app.tools import notion
 
-# A suggestion older than this is not what a bare "sure" is answering.
-_SUGGESTION_MAX_AGE = timedelta(hours=24)
+    page = await asyncio.wait_for(notion.get_page(page_id), TITLE_LOOKUP_TIMEOUT_SECONDS)
+    props = page.get("properties") if isinstance(page, dict) else None
+    return extract_title(props).strip() if isinstance(props, dict) else ""
 
 
-def _normalize_reply(text: str) -> str:
-    """Lowercase, drop punctuation (apostrophes included), collapse spaces."""
-    stripped = re.sub(r"[^\w\s]", "", text.lower())
-    return " ".join(stripped.split())
+async def _resolve_delivery_titles(ledger: list[RecentTaskEntry]) -> list[RecentTaskEntry]:
+    """Fill in the stored title of untitled `reminded`/`nudged` entries.
 
-
-def accepted_suggestion(state: State, *, now: datetime) -> RecentTaskEntry | None:
-    """Return the suggestion this message accepts, or None.
-
-    Only when nothing is active, the newest ledger entry is a titled
-    `suggested` event from the last 24 hours, and the whole message is a
-    short affirmative. A rejection alternative stays Pending with no active
-    task, so this is how its acceptance is recognised: `classify_intent`
-    routes such a message to chat without consulting the model, and
-    `chat_node` performs the transition.
+    A delivery's `recent_outbound` row carries the sent body, never the task
+    title, so an entry the ledger did not already know is untitled. Each such
+    page is read from Notion once, newest first, at most `TITLE_LOOKUP_CAP` per
+    turn. Fail-soft: a failed lookup leaves that entry untitled and is logged
+    once per turn with error types and a count only.
     """
-    if state.get("active_task"):
-        return None
-    if _normalize_reply(state.get("incoming") or "") not in _ACCEPTANCE_PHRASES:
-        return None
-    ledger = prune_recent_tasks(state.get("recent_tasks"), now=now)
-    if not ledger:
-        return None
-    newest = ledger[0]
-    if newest["event"] != "suggested" or not newest["title"]:
-        return None
-    at = _parse_at(newest["at"])
-    if at is None or now - at > _SUGGESTION_MAX_AGE:
-        return None
-    return newest
+    targets = [
+        entry["page_id"]
+        for entry in ledger
+        if not entry["title"] and entry["event"] in ("reminded", "nudged")
+    ][:TITLE_LOOKUP_CAP]
+    if not targets:
+        return ledger
+    results = await asyncio.gather(
+        *(_lookup_title(page_id) for page_id in targets), return_exceptions=True
+    )
+    titles: dict[str, str] = {}
+    errors: list[str] = []
+    for page_id, result in zip(targets, results, strict=True):
+        if isinstance(result, BaseException):
+            errors.append(type(result).__name__)
+        elif result:
+            titles[page_id] = result
+    if errors:
+        log.warning(
+            "hydrate_context.title_lookup_failed",
+            error_type=sorted(set(errors)),
+            failed_count=len(errors),
+            lookup_count=len(targets),
+        )
+    if not titles:
+        return ledger
+    return [
+        {**entry, "title": titles[entry["page_id"]]}
+        if entry["page_id"] in titles and not entry["title"]
+        else entry
+        for entry in ledger
+    ]
 
 
 async def hydrate_context(state: State) -> dict[str, Any]:
@@ -335,11 +332,14 @@ async def hydrate_context(state: State) -> dict[str, Any]:
     Reminder deliveries happen outside the graph, so the checkpoint never sees
     them. Each turn this node reads the peer's `recent_outbound` rows from the
     last `LEDGER_MAX_AGE` and records each as `reminded` (or `nudged` for a
-    deadline row), keeping any title the ledger already has.
+    deadline row), keeping any title the ledger already has. A delivery entry
+    that is still untitled gets its stored title from Notion
+    (`_resolve_delivery_titles`).
 
     Fail-soft: any error keeps the existing ledger (pruned) and logs one
     warning with the error type. It never raises — a failure here must not
-    reach classify_intent's error fallback and cost the user their reply.
+    reach classify_intent's error fallback and cost the user their reply. A
+    failed title lookup keeps the merge and leaves that entry untitled.
     """
     now = datetime.now(UTC)
     existing = state.get("recent_tasks") or []
@@ -378,6 +378,15 @@ async def hydrate_context(state: State) -> dict[str, Any]:
                 now=sent_at,
             )
         merged = prune_recent_tasks(merged, now=now)
+        try:
+            merged = await _resolve_delivery_titles(merged)
+        except Exception as exc:
+            log.warning(
+                "hydrate_context.title_lookup_failed",
+                error_type=[type(exc).__name__],
+                failed_count=1,
+                lookup_count=0,
+            )
         log.info(
             "hydrate_context.merged",
             row_count=len(rows),

@@ -480,13 +480,12 @@ stateDiagram-v2
 
     Intake --> Idle: Task saved (after inference or up to 3 questions)
 
-    Selection --> Active: Task offered + initiation reward
-    Selection --> Active: Alternative accepted
+    Selection --> Active: Task offered (marked In Progress) + initiation reward
     Selection --> Idle: No suitable task
 
     Active --> Active: First sub-step done + reward
     Active --> Idle: Task completed + celebration
-    Active --> Selection: Task rejected (alternative suggested)
+    Active --> Selection: Task rejected (back to Pending, alternative suggested)
     Active --> Selection: Task abandoned
     Active --> CheckingIn: Timer expires
     Idle --> Active: Resume detected (in_progress task + gap ≥ 15 min)
@@ -496,14 +495,21 @@ stateDiagram-v2
     CheckingIn --> Selection: Task abandoned
 ```
 
+A selection suggestion is marked In Progress in Notion and becomes the active
+task as soon as it is offered, so the conversation is `active` from the reply
+that names it. Rejection is handled from `active`: the rejected task returns to
+Pending, no task is active, and the conversation returns to `selection`. A
+named alternative in the rejection reply is recorded in the recent-task ledger
+as `suggested` and stays Pending.
+
 ### State Data
 
 | State | Data Stored |
 |-------|-------------|
 | Idle | None |
 | Intake | Partial task data, conversation history, clarification_count |
-| Selection | Current task context |
-| Active | Active task ID, start time, check-in count |
+| Selection | No active task; a rejection alternative is in the recent-task ledger as `suggested` |
+| Active | Active task ID (In Progress in Notion), start time, check-in count |
 | CheckingIn | Active task ID, elapsed time, check-in count |
 
 ### Recent Task Ledger
@@ -511,8 +517,8 @@ stateDiagram-v2
 The checkpoint carries `recent_tasks`: the tasks this conversation touched
 recently, newest first. It is the conversation's working memory of "the task
 we just talked about". The intent classifier sees it as context, and the chat
-module uses it to answer "what task?" and to anchor a short acceptance such
-as "sure" even when the previous reply did not repeat the title. The COMPLETE
+module uses it to answer "what task?" even when the previous reply did not
+repeat the title. The COMPLETE
 module does not resolve its completion target from the ledger; it writes to
 the ledger after resolving a target through the sources in Cross-Session
 Reply Resolution.
@@ -522,7 +528,7 @@ Each entry holds:
 | Field | Meaning |
 |-------|---------|
 | `page_id` | Notion page the event is about |
-| `title` | The stored task title, or empty when the entry came from a reminder delivery the ledger had not seen before. Never a sent message body. |
+| `title` | The stored task title, or empty when the entry came from a reminder delivery whose page could not be read. Never a sent message body. |
 | `kind` | `task` or `reminder` |
 | `event` | `added`, `suggested`, `completed`, `reminded`, `nudged`, or `rejected` |
 | `at` | ISO-8601 UTC time of the event |
@@ -534,14 +540,17 @@ Writers:
 - **Selection** records `suggested` for the task it offered.
 - **Rejection** records `rejected` for the declined task and `suggested` for
   the named alternative it offers. The alternative stays Pending and no task
-  is active until the user accepts it.
+  is active.
 - **Complete** records `completed` for the page it resolved.
 - **`hydrate_context`**, the graph's entry node, merges the peer's
   `recent_outbound` rows from the last 7 days at the start of every turn: a
   reminder delivery becomes `reminded`, a deadline delivery becomes `nudged`.
-  A merged entry keeps the title the ledger already has for that page and is
-  otherwise untitled. A Postgres error keeps the existing ledger and the turn
-  continues.
+  A merged entry keeps the title the ledger already has for that page.
+  Otherwise merged entries carry the stored title when the page can be read:
+  `hydrate_context` reads each untitled delivery page from Notion, newest
+  first, at most 3 per turn. A failed read leaves that entry untitled and
+  the turn continues. A Postgres error keeps the existing ledger and the
+  turn continues.
 
 Rules: one entry per page, and the newest event wins — an older event never
 replaces a newer one, and a known title is kept when the newer event carries
@@ -554,23 +563,12 @@ prompt. Each title is flattened to a single line and capped at 120
 characters, so one entry is always exactly one rendered line. Page ids never
 reach a prompt.
 
-Chat reads the ledger two ways:
-
-- **"What task?"** When the user asks which task was just discussed, chat
-  answers about the newest entry first when it is a reminder delivery
-  (`reminded` or `nudged`), saying "that reminder" when its title is unknown
-  rather than naming an older task. Otherwise it names the title of the
-  newest titled ledger entry, and falls back to the current task only when no
-  titled entry exists.
-- **Acceptance.** When no task is active, the newest ledger entry is a
-  titled `suggested` entry from the last 24 hours, and the whole message is a
-  short affirmative ("sure", "ok", "yes", "sounds good", "ok, that one",
-  "I'll take it"), the intent classifier routes the message to chat without
-  a model call, and chat accepts that suggestion without consulting the
-  model: it marks the page In Progress, makes it the active task, and
-  confirms it by name. This is how a rejection alternative becomes the active task. Any
-  other message goes to the chat model, which names the current task when
-  the user accepts a suggestion and one is set.
+Chat reads the ledger to answer **"what task?"**: when the user asks which
+task was just discussed, chat names the title of the newest ledger entry word
+for word. A reminder that just went out is that newest entry. When the newest
+entry is untitled, chat says it is not sure which task the user means and asks
+them to name it rather than naming an older entry. When the ledger is empty,
+chat names the current task, or asks when there is none.
 
 ---
 

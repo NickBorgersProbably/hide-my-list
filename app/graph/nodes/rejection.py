@@ -3,9 +3,8 @@
 When the user rejects a suggested task, classifies the reason, updates
 rejection count in Notion, returns the rejected task to Pending, and suggests
 an alternative. An alternative that resolves to a named pending task is
-recorded in the ledger as `suggested` and named in the reply, but stays
-Pending: the user has not chosen it yet. Their acceptance on the next turn
-(`chat_node`) marks it In Progress and makes it the active task.
+recorded in the ledger as `suggested` and named in the reply. It stays
+Pending and no task is active afterwards: the user has not chosen it.
 
 Implements docs/ai-prompts/rejection.md behavior.
 """
@@ -144,8 +143,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
         # The alternative counts only when it resolves to a named task the node
         # actually offered; an unknown id names nothing. An offered alternative
         # is a suggestion, not a commitment: it stays Pending and no task is
-        # active until the user accepts it (chat_node performs that transition
-        # from the `suggested` ledger entry).
+        # active.
         offered = _offered_alternative(alternative_id, alternative_title, remaining)
         if offered is not None and alternative_id and alternative_title:
             recent_tasks = record_task_event(
@@ -161,7 +159,6 @@ async def rejection_node(state: State) -> dict[str, Any]:
             "rejection_node.alternative",
             alternative_id=alternative_id,
             has_alternative=offered is not None,
-            activated=False,
             rejected_reset=rejected_reset,
         )
         return {

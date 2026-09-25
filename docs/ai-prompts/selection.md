@@ -48,14 +48,17 @@ When available time or mood says "not stated", read them from the user's
 message above. Read available time and mood from that current message only.
 The recent conversation tells you what the user is referring to; it is never
 a source of available time or mood, even when an earlier turn stated them.
-If the current message does not say how much time they have, assume 30
-minutes; if it does not say how they feel, treat mood as neutral.
+If the current message does not say how much time they have, available time
+is unknown: do not assume a number and do not apply the Time Fit exclusion.
+Score on urgency, energy, and work type instead, and prefer the shorter task
+when two tasks score the same. If the message does not say how they feel,
+treat mood as neutral.
 
 PENDING TASKS:
 {tasks_json}
 
 SCORING RULES:
-1. Time Fit (30% weight):
+1. Time Fit (30% weight; only when available time is known):
    - Task fits with buffer: 1.0
    - Tight fit (within 10%): 0.5
    - Doesn't fit: 0.0 (EXCLUDE)
@@ -153,33 +156,33 @@ The selection prompt receives the incoming message and the last 8 messages of
 conversation history alongside the scored task list. Available time and mood
 come from state when a node has set them; otherwise the prompt shows "not
 stated" and the module reads both from the user's current message ("I've got
-2 hours", "I'm wiped"), because a fabricated default excludes tasks that fit
-the time the user actually has. The recent conversation is context for what
-the user is referring to, never a source of available time or mood: a "2
-hours" or "feeling sharp" from an earlier turn may no longer be true, and a
-task sized to stale capacity sets the user up to stall.
+2 hours", "I'm wiped"). When the current message states no duration either,
+available time stays unknown: the module applies no Time Fit exclusion,
+scores on urgency, energy, and work type, and prefers the shorter task on a
+tie. A fabricated duration would exclude tasks that fit the time the user
+actually has, or offer a task longer than the time they have. The recent
+conversation is context for what the user is referring to, never a source of
+available time or mood: a "2 hours" or "feeling sharp" from an earlier turn
+may no longer be true, and a task sized to stale capacity sets the user up to
+stall.
 
 ### Unknown Selection Guard
 
 A selection counts only when `selected_task_id` names a task in the scored
-list and that task has a non-empty title. Any other id is invalid model
-output. The module asks the model once more with the same prompt plus a
-reminder that `selected_task_id` is either `null` or an exact id from the
-list, and uses that second answer when it is valid. When the second answer is
-also invalid, it is treated as no selection: no task is marked In Progress, no
-active task is set, nothing is recorded in the recent-task ledger, and the
-user receives a neutral reply ("Couldn't land on one just now — ask me again
-in a sec?"). A genuine `null` selection, and a reply that writes `{task}` with
-a `null` selection, receive the no-match reply ("Nothing quite fits right
-now. Want to add something quick?").
+list and that task has a non-empty title. Any other id is treated as no
+selection: no task is marked In Progress, no active task is set, nothing is
+recorded in the recent-task ledger, and the user receives a neutral retry
+reply ("Couldn't land on one just now — ask me again in a sec?"). The module
+logs the shape of the invalid answer (booleans and a candidate count), never
+the id itself. A genuine `null` selection, and a reply that writes `{task}`
+with a `null` selection, receive the no-match reply ("Nothing quite fits
+right now. Want to add something quick?").
 
 Why this design: an id outside the list, or a page with no name, would mark an
-unknown page In Progress and suggest a task the user cannot identify. The
-internal retry keeps that recovery step off the user, who otherwise has to
-ask again. When the retry also fails, the case is still invalid model output,
-not an empty fit, so the reply invites another request rather than a new
-task: offering to add a task there grows the list and adds a decision the
-user does not need.
+unknown page In Progress and suggest a task the user cannot identify. That
+case is invalid model output, not an empty fit, so the reply invites a retry
+rather than a new task: offering to add a task there grows the list and adds a
+decision the user does not need.
 
 
 ---

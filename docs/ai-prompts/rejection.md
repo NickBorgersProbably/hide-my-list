@@ -12,7 +12,6 @@ flowchart TD
     Classify --> Update[Update task in Notion]
     Update --> Reselect[Select alternative]
     Reselect --> Present[Present new suggestion]
-    Present --> Accept[User accepts: alternative marked In Progress]
 ```
 
 ### Rejection Handling Prompt
@@ -63,16 +62,13 @@ task. After a rejection no task is active and the conversation is in
 
 When `alternative_task_id` names a pending task with a title, the reply names
 it and the recent-task ledger records it as `suggested`. The alternative stays
-Pending: offering a task after a "no" is not the user choosing it. When the
-user accepts it on the next turn with a short affirmative ("sure", "ok, that
-one"), the chat node marks it In Progress, makes it the active task, and
-confirms it by name. Check-ins, breakdown help, and a bare "done" then resolve
-against it.
+Pending and is not the active task: offering a task after a "no" is not the
+user choosing it.
 
-Why this design: the rejection moment carries the highest shame risk, and
-initiation happens at acceptance. Turning an offer into a commitment before
-the user says yes adds pressure at exactly that moment, and makes later help,
-completion, or another rejection act as though the user had picked the task.
+Why this design: the rejection moment carries the highest shame risk. Turning
+an offer into a commitment before the user says yes adds pressure at exactly
+that moment, and makes later help, completion, or another rejection act as
+though the user had picked the task.
 
 ### Rejection Response Templates (Shame-Safe)
 

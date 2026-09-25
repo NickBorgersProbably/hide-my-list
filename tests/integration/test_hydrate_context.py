@@ -23,6 +23,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from structlog.testing import capture_logs
 
+from tests.support.notion_fake import FakeNotion
+
 _HAS_DB = bool(os.environ.get("DATABASE_URL", ""))
 _needs_db = pytest.mark.skipif(not _HAS_DB, reason="DATABASE_URL not set; skipping DB-backed test")
 
@@ -33,6 +35,17 @@ def _mock_llm(content: str) -> Any:
     model = AsyncMock()
     model.ainvoke = AsyncMock(return_value=response)
     return model
+
+
+@pytest.fixture()
+def fake_notion() -> Any:
+    """A FakeNotion installed over `app.tools.notion` for the test's duration."""
+    fake = FakeNotion()
+    undo = fake.install()
+    try:
+        yield fake
+    finally:
+        undo()
 
 
 @pytest.fixture()
@@ -94,14 +107,18 @@ async def _run_one_turn(graph: Any, *, peer: str, incoming: str) -> dict[str, An
 
 @_needs_db
 @pytest.mark.asyncio
-async def test_delivered_reminder_reaches_the_checkpoint_ledger(db_conn: Any) -> None:
-    """A worker delivery shows up as a `reminded` ledger entry on the next turn."""
+async def test_delivered_reminder_reaches_the_checkpoint_ledger(
+    db_conn: Any, fake_notion: FakeNotion
+) -> None:
+    """A worker delivery shows up as a `reminded` ledger entry on the next turn,
+    carrying the page's stored Notion title.
+    """
     from langgraph.checkpoint.memory import MemorySaver
 
     from app.graph.graph import build_graph
 
     peer = "<recipient-hydrate-1>"
-    page_id = str(uuid.uuid4())
+    page_id = fake_notion.seed_task(title="Placeholder reminder task", is_reminder=True)
     await _deliver_reminder(db_conn, peer=peer, page_id=page_id)
 
     graph = build_graph(checkpointer=MemorySaver())
@@ -115,13 +132,94 @@ async def test_delivered_reminder_reaches_the_checkpoint_ledger(db_conn: Any) ->
     assert entry["event"] == "reminded"
     assert entry["kind"] == "reminder"
     # The worker's recent_outbound.title is the sent body, not the task title;
-    # the ledger never copies it.
-    assert entry["title"] == ""
+    # the ledger never copies it. The title comes from the Notion page.
+    assert entry["title"] == fake_notion.title_of(page_id)
+    assert entry["title"] != "Reminder body placeholder"
     assert isinstance(entry["at"], str) and entry["at"]
     assert values["intent"] == "CHAT"
     events = {str(e.get("event")) for e in logs}
     assert "classify_intent.error" not in events
     assert "hydrate_context.recent_outbound_failed" not in events
+    assert "hydrate_context.title_lookup_failed" not in events
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_title_lookup_failure_leaves_the_entry_untitled(db_conn: Any) -> None:
+    """A Notion read that fails costs the title, never the merge or the turn.
+
+    The entry is still recorded (untitled), one warning carries the error type
+    and counts only, and the classifier runs normally.
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+
+    from app.graph.graph import build_graph
+
+    peer = "<recipient-hydrate-6>"
+    page_id = str(uuid.uuid4())
+    await _deliver_reminder(db_conn, peer=peer, page_id=page_id)
+
+    graph = build_graph(checkpointer=MemorySaver())
+    get_page = AsyncMock(side_effect=RuntimeError("notion down"))
+    with patch("app.tools.notion.get_page", get_page), capture_logs() as logs:
+        values = await _run_one_turn(graph, peer=peer, incoming="hello")
+
+    get_page.assert_awaited_once_with(page_id)
+    ledger = values["recent_tasks"]
+    assert [(e["page_id"], e["title"], e["event"]) for e in ledger] == [
+        (page_id, "", "reminded")
+    ]
+    assert values["intent"] == "CHAT"
+    assert values.get("classification_error_fallback") is False
+    events = [str(e.get("event")) for e in logs]
+    assert "classify_intent.error" not in events
+    failures = [e for e in logs if e.get("event") == "hydrate_context.title_lookup_failed"]
+    assert len(failures) == 1
+    assert failures[0]["error_type"] == ["RuntimeError"]
+    assert failures[0]["failed_count"] == 1
+    # Private data discipline: no page id, peer, or error message in the event.
+    rendered = repr(failures[0])
+    assert page_id not in rendered
+    assert peer not in rendered
+    assert "notion down" not in rendered
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_title_lookups_are_capped_per_turn(
+    db_conn: Any, fake_notion: FakeNotion
+) -> None:
+    """At most TITLE_LOOKUP_CAP untitled deliveries are read per turn, newest first."""
+    from app.graph.context import TITLE_LOOKUP_CAP, hydrate_context
+
+    peer = "<recipient-hydrate-7>"
+    page_ids = [
+        fake_notion.seed_task(title=f"Placeholder task {n}", is_reminder=True)
+        for n in range(TITLE_LOOKUP_CAP + 2)
+    ]
+    for age_min, page_id in enumerate(page_ids):
+        await db_conn.execute(
+            """
+            INSERT INTO recent_outbound
+              (peer, signal_timestamp, notion_page_id, reminder_type, title,
+               prompt_kind, sent_at, awaiting_reply, expires_at)
+            VALUES (%s, %s, %s, 'reminder', 'Reminder body placeholder', 'sent',
+                    now() - make_interval(mins => %s), false,
+                    now() + interval '24 hours')
+            """,
+            (peer, 100 + age_min, page_id, age_min),
+        )
+    await db_conn.commit()
+
+    get_page = AsyncMock(side_effect=fake_notion.get_page)
+    with patch("app.tools.notion.get_page", get_page):
+        result = await hydrate_context({"peer": peer, "incoming": "hi"})  # type: ignore[typeddict-item]
+
+    assert get_page.await_count == TITLE_LOOKUP_CAP
+    titles = {e["page_id"]: e["title"] for e in result["recent_tasks"]}
+    newest = page_ids[:TITLE_LOOKUP_CAP]
+    assert all(titles[p] == fake_notion.title_of(p) for p in newest)
+    assert all(titles[p] == "" for p in page_ids[TITLE_LOOKUP_CAP:])
 
 
 @_needs_db
@@ -153,17 +251,23 @@ async def test_known_title_survives_the_delivery_merge(db_conn: Any) -> None:
     )
     await _deliver_reminder(db_conn, peer=peer, page_id=page_id)
 
-    values = await _run_one_turn(graph, peer=peer, incoming="hello")
+    get_page = AsyncMock()
+    with patch("app.tools.notion.get_page", get_page):
+        values = await _run_one_turn(graph, peer=peer, incoming="hello")
 
     ledger = values["recent_tasks"]
     assert len(ledger) == 1
     assert ledger[0]["event"] == "reminded"
     assert ledger[0]["title"] == "Take the bins out"
+    # A title the ledger already knows is not read from Notion again.
+    get_page.assert_not_awaited()
 
 
 @_needs_db
 @pytest.mark.asyncio
-async def test_deadline_delivery_is_recorded_as_nudged(db_conn: Any) -> None:
+async def test_deadline_delivery_is_recorded_as_nudged(
+    db_conn: Any, fake_notion: FakeNotion
+) -> None:
     """`reminder_type = 'deadline'` rows map to the `nudged` event.
 
     Inserted directly because this asserts the row-to-event mapping, not the
@@ -172,7 +276,7 @@ async def test_deadline_delivery_is_recorded_as_nudged(db_conn: Any) -> None:
     from app.graph.context import hydrate_context
 
     peer = "<recipient-hydrate-3>"
-    page_id = str(uuid.uuid4())
+    page_id = fake_notion.seed_task(title="Placeholder deadline task")
     await db_conn.execute(
         """
         INSERT INTO recent_outbound
@@ -191,7 +295,7 @@ async def test_deadline_delivery_is_recorded_as_nudged(db_conn: Any) -> None:
     entry = result["recent_tasks"][0]
     assert entry["event"] == "nudged"
     assert entry["kind"] == "task"
-    assert entry["title"] == ""
+    assert entry["title"] == "Placeholder deadline task"
 
 
 @_needs_db

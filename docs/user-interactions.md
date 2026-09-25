@@ -47,11 +47,6 @@ flowchart TD
 | CHECK_IN | System-initiated (runtime follow-up, not user message) |
 | CHAT | "Hello", "How does this work?", "What's in my list?" |
 
-A bare affirmative ("sure", "ok, that one", "I'll take it") sent while no task
-is active and the newest recent-task entry is a suggestion from the last 24
-hours is an acceptance of that suggestion. It routes to CHAT without a model
-call, and the chat node marks the suggested task In Progress (Flow 4).
-
 ## Flow 1: Task Intake
 
 ```mermaid
@@ -160,8 +155,8 @@ sequenceDiagram
 A selection suggestion is marked In Progress and becomes the active task when
 it is offered, so an immediate "done" reaches completion and its reward
 without an extra acceptance turn. A rejection returns it to Pending (Flow 4).
-An alternative offered after a rejection works differently: it stays Pending
-until the user accepts it.
+An alternative offered after a rejection stays Pending and is not the active
+task.
 
 ### Selection Decision Tree
 
@@ -468,22 +463,12 @@ sequenceDiagram
     Note over AI: Re-score with mood constraint
 
     AI->>U: "Got it. How about organizing your inbox? Still productive but lighter work."
-
-    alt User accepts the alternative
-        U->>AI: "Sure"
-        AI->>N: Update status → in_progress (alternative)
-        AI->>U: "Organize your inbox is yours — say done when you finish."
-    else User passes again
-        U->>AI: "Not that either"
-        Note over AI: Start rejection flow again
-    end
 ```
 
-The rejected task returns to Pending. The alternative the reply names stays
-Pending while it is only offered, so after a rejection no task is active. A
-short acceptance ("sure", "ok, that one") marks the alternative In Progress
-and makes it the active task. When the reply offers no alternative, no task
-is active.
+The rejected task returns to Pending. The alternative the reply names is
+recorded in the recent-task ledger as `suggested` and stays Pending, so after
+a rejection no task is active and the conversation is in `selection`, whether
+or not the reply offers an alternative.
 
 ### Rejection Reason Categories
 

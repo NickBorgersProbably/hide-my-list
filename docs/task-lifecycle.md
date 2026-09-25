@@ -32,10 +32,7 @@ stateDiagram-v2
     Selected --> InProgress: User accepts or starts
     Selected --> Rejected: User rejects
 
-    Rejected --> Pending: Rejection recorded
-    Rejected --> Alternative: Alternative suggested
-    Alternative --> InProgress: User accepts
-    Alternative --> Pending: User passes again
+    Rejected --> Pending: Rejection recorded (any alternative named stays pending)
 
     InProgress --> CheckIn: Check-in window reached
     InProgress --> Completed: User finishes
@@ -68,7 +65,6 @@ stateDiagram-v2
 | In Progress | User actively working | `in_progress` |
 | Check-In | System following up on progress | `in_progress` |
 | Rejected | User declined, giving feedback; the task returns to Pending | `pending` |
-| Alternative | Task offered after a rejection, awaiting acceptance; not the active task | `pending` |
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
 | Cannot Finish | User indicates task too large | `in_progress` (triggers breakdown) |
 | Reminder Pending | Reminder waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
@@ -593,11 +589,11 @@ flowchart TD
 ```
 
 **Task status after a rejection:** the rejected task returns to Pending and
-stops being the active task. An alternative offered in the reply stays Pending
-and no task is active until the user accepts it. A short acceptance ("sure",
-"ok, that one") marks the alternative In Progress and makes it the active
-task. Initiation happens at acceptance: turning an offer into a commitment
-before the user says yes adds pressure at the moment of highest shame risk.
+stops being the active task. An alternative offered in the reply is recorded
+in the recent-task ledger as `suggested`, stays Pending, and is not the active
+task: no task is active after a rejection. Offering a task after a "no" is not
+the user choosing it, so it does not become a commitment at the moment of
+highest shame risk.
 
 **Rejection Scoring Impact** (see [notion-schema.md](notion-schema.md#rejectioncount-number) for full details):
 - 0 rejections: No penalty
