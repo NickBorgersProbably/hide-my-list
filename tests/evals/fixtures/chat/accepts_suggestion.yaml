@@ -27,6 +27,9 @@ contracts:
     pattern: "(?i)garage"
   - kind: regex_forbid
     pattern: "(?i)which (one|task)"
+  # Accepting is not adding: the task is already on the list.
+  - kind: regex_forbid
+    pattern: "(?i)(\\badded\\b|to your list)"
   - kind: shame_safe
     threshold: 0.85
   - kind: judge
