@@ -16,6 +16,7 @@ Three properties are pinned:
 from __future__ import annotations
 
 import inspect
+import uuid
 from typing import Any
 
 import pytest
@@ -524,3 +525,22 @@ async def test_update_property_record_preserves_original_request_body() -> None:
     body = {"properties": {"Rejection Count": {"number": 7}}}
     await fake.update_property(page_id, body)
     assert fake.writes[-1].payload == body
+
+
+def test_page_ids_do_not_repeat_across_fake_instances() -> None:
+    """Two scenarios' first pages must not share an id.
+
+    E2E scenarios each build their own FakeNotion but share one Postgres, and
+    intake keys a reminder's outbox row by page id. An id repeated across
+    instances made the second scenario's enqueue violate the UNIQUE key.
+    """
+    first = FakeNotion([])
+    second = FakeNotion([])
+    a = first.seed_task(title="One")
+    b = second.seed_task(title="One")
+    assert a != b
+    # Stable within an instance: the same store hands out distinct, well-formed ids.
+    c = first.seed_task(title="Two")
+    assert a != c
+    uuid.UUID(a)
+    uuid.UUID(b)

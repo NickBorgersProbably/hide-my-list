@@ -142,6 +142,12 @@ class FakeNotion:
         self.discard_writes = discard_writes
         self.filter_reads = filter_reads
         self._counter = 0
+        # Per-instance salt: every scenario builds its own FakeNotion, but
+        # they share one Postgres. Ids derived from the counter alone repeat
+        # across instances, and rows keyed by page id (an intake reminder's
+        # outbox idempotency key, recent_outbound) then collide between
+        # scenarios in the same run. Ids stay stable within an instance.
+        self._salt = uuid.uuid4().hex
         for task in tasks:
             self.add_task(**dict(task))
 
@@ -149,7 +155,7 @@ class FakeNotion:
 
     def _next_page_id(self) -> str:
         self._counter += 1
-        return str(uuid.uuid5(_PAGE_ID_NAMESPACE, f"page-{self._counter}"))
+        return str(uuid.uuid5(_PAGE_ID_NAMESPACE, f"{self._salt}-page-{self._counter}"))
 
     def add_task(self, **flat: Any) -> str:
         """Insert a page from flat shorthand, verbatim. Returns its page id.
