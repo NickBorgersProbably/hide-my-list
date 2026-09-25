@@ -56,9 +56,7 @@ the exact selected title before sending the message.
 
 ### Task Status After a Rejection
 
-The rejected task returns to Pending in Notion and stops being the active
-task. After a rejection no task is active and the conversation is in
-`selection`.
+After a rejection no task is active and the conversation is in `selection`.
 
 When `alternative_task_id` names a pending task with a title, the reply names
 it and the recent-task ledger records it as `suggested`. The alternative stays

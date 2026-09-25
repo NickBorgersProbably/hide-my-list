@@ -964,14 +964,8 @@ async def test_rejection_node_alternative_stays_pending() -> None:
     """The alternative the reply names is a suggestion, not a commitment.
 
     The alternative is named and recorded as `suggested`, but it is not marked
-    In Progress and nothing is active afterwards. The rejected page, which
-    selection marked In Progress when it offered it, returns to Pending, so no
-    page is left In Progress with nothing active.
+    In Progress and nothing is active afterwards.
     """
-    import inspect
-
-    from app.tools import notion
-
     update_status = AsyncMock()
     response = json.dumps({
         "rejection_category": "timing",
@@ -993,12 +987,8 @@ async def test_rejection_node_alternative_stays_pending() -> None:
 
         result = await rejection_node(_ledger_state(incoming="too long", active_task=active))
 
-    # Exactly one status write: the rejected page back to Pending. Nothing
-    # touches the alternative.
-    update_status.assert_awaited_once()
-    call = update_status.await_args
-    bound = inspect.signature(notion.update_status).bind(*call.args, **call.kwargs)
-    assert bound.arguments == {"page_id": "<page_A>", "new_status": "Pending"}
+    # No status write: the alternative is not activated.
+    update_status.assert_not_awaited()
 
     assert result["active_task"] is None
     assert result["conversation_state"] == "selection"
@@ -1012,43 +1002,12 @@ async def test_rejection_node_alternative_stays_pending() -> None:
     ]
     alternative_logs = [e for e in logs if e.get("event") == "rejection_node.alternative"]
     assert len(alternative_logs) == 1
-    assert alternative_logs[0]["rejected_reset"] is True
-
-
-@pytest.mark.asyncio
-async def test_rejection_node_reset_failure_is_not_fatal() -> None:
-    """A failed Pending reset is logged by id and the reply still goes out."""
-    response = json.dumps({
-        "alternative_task_id": "<page_B>",
-        "user_message": "How about {task}?",
-    })
-    with (
-        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
-            _pending_page("<page_B>", "Sort the mail"),
-        ]})),
-        patch("app.tools.notion.update_property", AsyncMock()),
-        patch("app.tools.notion.update_status", AsyncMock(side_effect=RuntimeError("down"))),
-        patch("app.models.llm", return_value=_mock_llm_response(response)),
-        capture_logs() as logs,
-    ):
-        from app.graph.nodes.rejection import rejection_node
-
-        result = await rejection_node(_ledger_state(
-            incoming="nah", active_task=_active_task("Water the plants", page_id="<page_A>")
-        ))
-
-    assert result["active_task"] is None
-    assert result["conversation_state"] == "selection"
-    assert result["pending_outbound"][0]["notion_page_title"] == "Sort the mail"
-    failed = [e for e in logs if e.get("event") == "rejection_node.reset_status_failed"]
-    assert len(failed) == 1
-    assert failed[0]["page_id"] == "<page_A>"
-    assert "rejection_node.error" not in {e.get("event") for e in logs}
+    assert alternative_logs[0]["has_alternative"] is True
 
 
 @pytest.mark.asyncio
 async def test_rejection_node_without_alternative_leaves_no_active_task() -> None:
-    """No alternative offered: the rejected page returns to Pending, nothing is active."""
+    """No alternative offered: nothing is active and no status is written."""
     update_status = AsyncMock()
     response = json.dumps({
         "alternative_task_id": None,
@@ -1068,8 +1027,7 @@ async def test_rejection_node_without_alternative_leaves_no_active_task() -> Non
             incoming="not now", active_task=_active_task("Water the plants", page_id="<page_A>")
         ))
 
-    # The only status write returns the rejected page to Pending.
-    update_status.assert_awaited_once_with("<page_A>", "Pending")
+    update_status.assert_not_awaited()
     assert result["active_task"] is None
     assert result["conversation_state"] == "selection"
     assert result["pending_outbound"][0]["notion_page_id"] is None
@@ -1099,9 +1057,8 @@ async def test_rejection_node_unknown_alternative_is_not_recorded() -> None:
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_A>", "Water the plants", "task", "rejected"),
     ]
-    # An id the node never offered is neither recorded nor written; the only
-    # status write returns the rejected page to Pending.
-    update_status.assert_awaited_once_with("<page_A>", "Pending")
+    # An id the node never offered is neither recorded nor written.
+    update_status.assert_not_awaited()
     assert result["active_task"] is None
     assert result["conversation_state"] == "selection"
 

@@ -1,0 +1,47 @@
+---
+# The user asks for a task and states no duration or mood; nothing in state
+# carries them. With no duration, Time Fit is scored by each task's own
+# length (15 min or less: 1.0; over 60: 0.25) and nothing is excluded on time.
+# The two tasks match on work type and energy and differ by only 10 urgency
+# points, so the short-task bias decides: a prompt that ignores task length
+# when time is unknown suggests the two-hour task at the initiation moment.
+id: selection-unknown-time-prefers-short-001
+node: selection
+tier: expensive
+peer: "<test-peer-ledger-3>"
+inbound: "give me something to do"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: null
+  mood: null
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Sort the storage closet"
+    work_type: "Independent"
+    energy_required: "Medium"
+    urgency: 70
+    time_estimate: 120
+  - id: "<placeholder-page-id-2>"
+    title: "Reply to the school email"
+    work_type: "Independent"
+    energy_required: "Medium"
+    urgency: 60
+    time_estimate: 10
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user stated no available time. The pending tasks are "Sort the
+      storage closet" (120 minutes, urgency 70) and "Reply to the school
+      email" (10 minutes, urgency 60); both are independent, medium-energy
+      work. With no duration stated, the short task scores higher on Time
+      Fit and nothing is excluded on time. Score 1.0 when the response
+      suggests "Reply to the school email", 0.0 when it suggests the storage
+      closet or says nothing fits.
+    threshold: 0.7

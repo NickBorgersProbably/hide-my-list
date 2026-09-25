@@ -480,12 +480,12 @@ stateDiagram-v2
 
     Intake --> Idle: Task saved (after inference or up to 3 questions)
 
-    Selection --> Active: Task offered (marked In Progress) + initiation reward
-    Selection --> Idle: No suitable task
+    Selection --> Active: Task offered (marked In Progress)
+    Selection --> Selection: No suitable task
 
     Active --> Active: First sub-step done + reward
     Active --> Idle: Task completed + celebration
-    Active --> Selection: Task rejected (back to Pending, alternative suggested)
+    Active --> Selection: Task rejected (alternative suggested)
     Active --> Selection: Task abandoned
     Active --> CheckingIn: Timer expires
     Idle --> Active: Resume detected (in_progress task + gap ≥ 15 min)
@@ -495,12 +495,12 @@ stateDiagram-v2
     CheckingIn --> Selection: Task abandoned
 ```
 
-A selection suggestion is marked In Progress in Notion and becomes the active
-task as soon as it is offered, so the conversation is `active` from the reply
-that names it. Rejection is handled from `active`: the rejected task returns to
-Pending, no task is active, and the conversation returns to `selection`. A
-named alternative in the rejection reply is recorded in the recent-task ledger
-as `suggested` and stays Pending.
+A selection suggestion is marked In Progress in Notion and is the active task
+from the reply that names it, so the conversation is `active`. A selection
+that names no task leaves the conversation in `selection`. After a rejection
+no task is active and the conversation is in `selection`; a named alternative
+in the rejection reply is recorded in the recent-task ledger as `suggested`
+and stays Pending.
 
 ### State Data
 
@@ -601,5 +601,3 @@ sequenceDiagram
     U->>R: "Need something more engaging"
     R->>S: Re-score with "engaging" preference
     S->>U: "Try replying to that email from Jake? Social, quick."
-    U->>S: "Sure"
-    S->>U: "It's yours. Let me know when done!"

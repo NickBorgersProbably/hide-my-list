@@ -139,24 +139,17 @@ sequenceDiagram
     Note over AI: Score each task
     Note over AI: Best match: "Organize receipts" (score: 0.87)
 
-    AI->>N: Update status → in_progress
     AI->>U: "How about organizing your receipts from last week? It's low-energy admin work and should take about 15 minutes."
 
     alt User accepts
         U->>AI: "Sure"
+        AI->>N: Update status → in_progress
         AI->>U: "Great, it's yours. Let me know when you're done!"
     else User rejects
         U->>AI: "Not that one"
-        AI->>N: Update status → pending
         Note over AI: Start rejection flow
     end
 ```
-
-A selection suggestion is marked In Progress and becomes the active task when
-it is offered, so an immediate "done" reaches completion and its reward
-without an extra acceptance turn. A rejection returns it to Pending (Flow 4).
-An alternative offered after a rejection stays Pending and is not the active
-task.
 
 ### Selection Decision Tree
 
@@ -167,7 +160,10 @@ flowchart TD
     FetchTasks --> HasTasks{Any tasks?}
 
     HasTasks -->|No| NoTasks["Your slate is clear!<br/>Want to add something?"]
-    HasTasks -->|Yes| FilterTime[Filter by time constraint]
+    HasTasks -->|Yes| KnownTime{Duration stated?}
+    KnownTime -->|Yes| FilterTime[Filter by time constraint]
+    KnownTime -->|No| ShortBias[Bias toward short tasks<br/>exclude nothing on time]
+    ShortBias --> ScoreTasks
 
     FilterTime --> HasMatches{Any fit time?}
     HasMatches -->|No| NoFit["Nothing fits that timeframe.<br/>Got more time?"]
@@ -458,17 +454,11 @@ sequenceDiagram
 
     AI->>N: Update rejectionNotes
     AI->>N: Increment rejectionCount
-    AI->>N: Update status → pending (rejected task)
 
     Note over AI: Re-score with mood constraint
 
     AI->>U: "Got it. How about organizing your inbox? Still productive but lighter work."
 ```
-
-The rejected task returns to Pending. The alternative the reply names is
-recorded in the recent-task ledger as `suggested` and stays Pending, so after
-a rejection no task is active and the conversation is in `selection`, whether
-or not the reply offers an alternative.
 
 ### Rejection Reason Categories
 

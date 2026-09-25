@@ -53,9 +53,9 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/graph/context.py` — Recent-task ledger and shared prompt context. intake, selection, complete, and rejection write the ledger only through `record_task_event` (dedupe by page, newest wins, known title kept, 7-day prune, cap 8); `render_history` (8 messages × 400 chars) and `render_recent_tasks` render prompt blocks; `hydrate_context` is the graph entry node that merges the peer's recent `recent_outbound` deliveries as `reminded`/`nudged` entries and reads the stored title of an untitled delivery page from Notion (at most 3 per turn, 5 s each). Fail-soft: a DB error keeps the existing ledger, a failed title read leaves that entry untitled, and neither reaches the classifier's error fallback
 - `app/graph/routing.py` — Intent classification + conditional edges; owns the `pending_clarification` lifecycle. `classify_intent` runs after `hydrate_context` on every turn. The classify prompt carries the prior-conversation window, the `Recent tasks:` ledger block, and a conversation-state / awaiting-clarification line. A live clarification steers a CHAT- or COMPLETE-classified message to `complete_node` as the answer; any other intent, an expired timestamp, or malformed state drops it
 - `app/graph/nodes/intake.py` — ADD_TASK intent node
-- `app/graph/nodes/selection.py` — GET_TASK intent node; marks its suggestion In Progress when offered. An id outside the candidate list or a blank-titled page is no selection: no write, a neutral retry line, shape-only log
+- `app/graph/nodes/selection.py` — GET_TASK intent node. An id outside the candidate list or a blank-titled page is no selection: no write, a neutral retry line, shape-only log
 - `app/graph/nodes/chat.py` — CHAT intent node
-- `app/graph/nodes/rejection.py` — REJECT intent node; returns the rejected task to Pending and records a named alternative as `suggested` without activating it — the alternative stays Pending and no task is active
+- `app/graph/nodes/rejection.py` — REJECT intent node; records the declined task as `rejected` and a named alternative as `suggested` in the ledger — the alternative stays Pending and no task is active
 - `app/graph/nodes/cannot_finish.py` — CANNOT_FINISH intent node
 - `app/graph/nodes/need_help.py` — NEED_HELP intent node
 - `app/graph/nodes/check_in.py` — CHECK_IN intent node

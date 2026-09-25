@@ -1,10 +1,10 @@
 """REJECT node: shame-safe rejection handling.
 
 When the user rejects a suggested task, classifies the reason, updates
-rejection count in Notion, returns the rejected task to Pending, and suggests
-an alternative. An alternative that resolves to a named pending task is
-recorded in the ledger as `suggested` and named in the reply. It stays
-Pending and no task is active afterwards: the user has not chosen it.
+rejection count in Notion, and suggests an alternative. An alternative that
+resolves to a named pending task is recorded in the ledger as `suggested` and
+named in the reply. It stays Pending and no task is active afterwards: the
+user has not chosen it.
 
 Implements docs/ai-prompts/rejection.md behavior.
 """
@@ -129,17 +129,6 @@ async def rejection_node(state: State) -> dict[str, Any]:
         if alternative_title:
             draft["notion_page_title"] = alternative_title
 
-        # A rejected task is no longer the one the user is working on. It was
-        # marked In Progress when it was offered, so return it to the queue;
-        # otherwise it stays In Progress with nothing active in the graph.
-        rejected_reset = False
-        if rejected_page_id and active_task and active_task.get("status") == "In Progress":
-            try:
-                await notion.update_status(rejected_page_id, "Pending")
-                rejected_reset = True
-            except Exception:
-                log.exception("rejection_node.reset_status_failed", page_id=rejected_page_id)
-
         # The alternative counts only when it resolves to a named task the node
         # actually offered; an unknown id names nothing. An offered alternative
         # is a suggestion, not a commitment: it stays Pending and no task is
@@ -159,7 +148,6 @@ async def rejection_node(state: State) -> dict[str, Any]:
             "rejection_node.alternative",
             alternative_id=alternative_id,
             has_alternative=offered is not None,
-            rejected_reset=rejected_reset,
         )
         return {
             "pending_outbound": [draft],

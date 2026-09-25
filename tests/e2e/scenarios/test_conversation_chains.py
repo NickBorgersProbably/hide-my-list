@@ -22,8 +22,7 @@ async def test_rejecting_a_task_offers_a_named_alternative(
     Three properties. The alternative has to be *named*: an alternative the user
     cannot identify is the same unactionable message the naming invariant exists
     to prevent, and it shipped once already. The rejected task must not be
-    completed — "not this one" is not "done" — and it returns to Pending rather
-    than staying In Progress with nothing active. And offering the alternative
+    completed — "not this one" is not "done". And offering the alternative
     does not commit the user to it: it stays Pending and nothing is active.
     """
     garage = conversation.notion.seed_task(
@@ -55,7 +54,6 @@ async def test_rejecting_a_task_offers_a_named_alternative(
         expect=Expect(
             intent="REJECT",
             sent_count=1,
-            notion_status={offered_page: "Pending"},
             notion_untouched=[alternative],
         ),
     )

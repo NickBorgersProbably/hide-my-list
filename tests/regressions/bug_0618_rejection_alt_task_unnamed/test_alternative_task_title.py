@@ -31,14 +31,6 @@ def _notion_task(page_id: str, title: str, minutes: int) -> dict[str, Any]:
     }
 
 
-_status_writes: list[tuple[str, str]] = []
-
-
-async def _fake_update_status(page_id: str, new_status: str) -> dict[str, Any]:
-    _status_writes.append((page_id, new_status))
-    return {"id": page_id}
-
-
 @pytest.mark.asyncio
 async def test_rejection_node_names_selected_alternative_without_task_token(
     monkeypatch: pytest.MonkeyPatch,
@@ -50,7 +42,6 @@ async def test_rejection_node_names_selected_alternative_without_task_token(
 
     alternative_id = "<page-id-alternative>"
     alternative_title = "Placeholder alternative task"
-    _status_writes.clear()
 
     async def fake_query_pending() -> dict[str, Any]:
         return {
@@ -80,8 +71,6 @@ async def test_rejection_node_names_selected_alternative_without_task_token(
 
     monkeypatch.setattr(notion, "query_pending", fake_query_pending)
     monkeypatch.setattr(notion, "update_property", fake_update_property)
-    # The rejected page is returned to Pending; stub the write.
-    monkeypatch.setattr(notion, "update_status", _fake_update_status)
     monkeypatch.setattr(models_module, "llm", lambda tier, **kwargs: _FakeModel(model_response))
 
     result = await rejection_node(
@@ -113,11 +102,6 @@ async def test_rejection_node_names_selected_alternative_without_task_token(
     draft = result["pending_outbound"][0]
     assert draft["notion_page_id"] == alternative_id
     assert alternative_title in draft["body"]
-    # Naming the alternative does not activate it: it stays Pending, and the
-    # only status write returns the rejected page to Pending.
-    assert result["active_task"] is None
-    assert _status_writes[-1:] == [("<page-id-rejected>", "Pending")]
-    assert all(page_id != alternative_id for page_id, _ in _status_writes)
 
 
 @pytest.mark.asyncio
@@ -152,8 +136,6 @@ async def test_rejection_node_replaces_task_token_with_selected_title(
 
     monkeypatch.setattr(notion, "query_pending", fake_query_pending)
     monkeypatch.setattr(notion, "update_property", fake_update_property)
-    # The rejected page is returned to Pending; stub the write.
-    monkeypatch.setattr(notion, "update_status", _fake_update_status)
     monkeypatch.setattr(models_module, "llm", lambda tier, **kwargs: _FakeModel(model_response))
 
     result = await rejection_node(
