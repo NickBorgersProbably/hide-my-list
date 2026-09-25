@@ -398,6 +398,39 @@ def test_the_same_page_from_two_sources_is_one_candidate() -> None:
     assert chosen.needs_notion_write is False
 
 
+def test_an_active_task_and_its_suggested_entry_are_one_candidate() -> None:
+    """Selection writes both for the same page; that is one task, not an ambiguity.
+
+    The merged target keeps the active task's reward metadata.
+    """
+    active = _CompletionTarget(
+        source="active_task",
+        page_id="<page_A>",
+        task_title="Water the plants",
+        work_type="Physical",
+        energy_required="Low",
+        context_at=_NOW - timedelta(minutes=1),
+        kind="task",
+        event="suggested",
+    )
+    ledger = [_entry("<page_A>", "suggested", 1, title="Water the plants")]
+    chosen = _ledger_choice(ledger, active=active)
+    assert chosen is not None
+    assert chosen.source == "active_task"
+    assert chosen.work_type == "Physical"
+    assert chosen.needs_notion_write is True
+
+
+def test_after_a_rejection_the_suggested_alternative_anchors() -> None:
+    """Rejection records `rejected` then `suggested` at the same instant."""
+    ledger = [
+        _entry("<page_B>", "suggested", 1),
+        _entry("<page_A>", "rejected", 1),
+    ]
+    chosen = _ledger_choice(ledger)
+    assert chosen is not None and chosen.page_id == "<page_B>"
+
+
 def test_a_named_task_still_outranks_the_ledger() -> None:
     title = _target("title_match", "<page_B>", "Wash the dishes")
     chosen = _ledger_choice([_entry("<page_A>", "added", 1)], title=title)

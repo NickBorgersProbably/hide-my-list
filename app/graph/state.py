@@ -91,7 +91,7 @@ class PendingClarification(TypedDict, total=False):
 RecentTaskKind = Literal["task", "reminder"]
 
 RecentTaskEvent = Literal[
-    "added", "suggested", "completed", "reminded", "nudged"
+    "added", "suggested", "completed", "reminded", "nudged", "rejected"
 ]
 
 

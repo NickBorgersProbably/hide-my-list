@@ -51,7 +51,6 @@ def _state(incoming: str, **overrides: Any) -> State:
         "conversation_state": "idle",
         "pending_outbound": [],
         "recent_tasks": [],
-        "turn_actions": [],
     }
     state.update(overrides)
     return state  # type: ignore[return-value]
@@ -178,7 +177,6 @@ async def test_bare_done_completes_the_reminder_added_a_minute_ago(db_conn: Any)
     assert row == ("dead", "completed by user"), (
         "the reminder was completed but its outbox row will still fire"
     )
-    assert {"action": "reminder.cancel", "page_id": page} in result["turn_actions"]
     assert result["recent_tasks"][0]["event"] == "completed"
     assert result["recent_tasks"][0]["title"] == "Take the bins out"
 
@@ -294,6 +292,56 @@ async def test_done_after_a_deadline_nudge_writes_completed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_done_after_a_rejection_completes_the_offered_alternative() -> None:
+    """Rejection leaves no active task; its ledger entries are the only anchor.
+
+    The ledger rejection_node returns feeds complete_node directly, so the
+    handoff between the two writers is what is under test.
+    """
+    from app.graph.nodes.rejection import rejection_node
+
+    declined = {
+        "page_id": "<page_A>",
+        "title": "Water the plants",
+        "status": "In Progress",
+        "selected_at": datetime.now(UTC).isoformat(),
+    }
+    offer = json.dumps({
+        "alternative_task_id": "<page_B>",
+        "user_message": "Fair — how about {task} instead?",
+    })
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
+            _notion_page("<page_A>", "Water the plants"),
+            _notion_page("<page_B>", "Sort the mail"),
+        ]})),
+        patch("app.tools.notion.update_property", AsyncMock()),
+        patch("app.models.llm", return_value=_model(offer)),
+    ):
+        rejected = await rejection_node(
+            _state("not that one", intent="REJECT", active_task=declined)
+        )
+    assert rejected["active_task"] is None
+
+    update_status = AsyncMock(return_value={})
+    llm_factory = MagicMock()
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", AsyncMock()),
+        patch("app.tools.rewards.maybe_reward", AsyncMock(return_value=_REWARD)),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", llm_factory),
+    ):
+        result = await complete_module.complete_node(
+            _state("done", recent_tasks=rejected["recent_tasks"])
+        )
+
+    llm_factory.assert_not_called()
+    _assert_completed_write(update_status, "<page_B>")
+    assert result["pending_outbound"][0]["notion_page_title"] == "Sort the mail"
+
+
+@pytest.mark.asyncio
 async def test_a_bare_done_after_two_ledger_tasks_offers_both() -> None:
     """F8: the clarification names the tasks the conversation just touched."""
     query_all = AsyncMock()
@@ -353,7 +401,6 @@ async def test_an_unlisted_past_tense_report_is_logged_as_done_and_named() -> No
     assert draft["body"].startswith("That wasn't on your list — logged it as done: {task}.")
     assert result["recent_tasks"][0]["page_id"] == "<page_new>"
     assert result["recent_tasks"][0]["event"] == "completed"
-    assert {"action": "notion.create_task", "page_id": "<page_new>"} in result["turn_actions"]
 
 
 @pytest.mark.parametrize(

@@ -35,7 +35,7 @@ from typing import Any, Literal, cast
 
 import structlog
 
-from app.graph.context import ledger_entry, record_task_event, record_turn_action
+from app.graph.context import ledger_entry, record_task_event
 from app.graph.nodes._task_match import (
     DedupCandidate,
     dice_coefficient,
@@ -54,7 +54,6 @@ from app.graph.state import (
     RecentTaskEvent,
     RecentTaskKind,
     State,
-    TurnAction,
 )
 
 log = structlog.get_logger(__name__)
@@ -1038,7 +1037,6 @@ def _clarify_completion_target(
     attempts: int = 0,
     candidates: tuple[DedupCandidate, ...] = (),
     offerable: bool = False,
-    turn_actions: Sequence[TurnAction] | None = None,
     from_context: bool = False,
 ) -> dict[str, Any]:
     """Ask which task was meant, and remember having asked.
@@ -1108,9 +1106,6 @@ def _clarify_completion_target(
         options_from_context=from_context and bool(stored),
     )
     return {
-        "turn_actions": record_turn_action(
-            turn_actions, {"action": "clarify", "page_id": None}
-        ),
         "pending_outbound": [no_task_draft],
         "conversation_state": "idle",
         "active_task": None,
@@ -1172,7 +1167,6 @@ async def _complete_unlisted(
     residue_token_count: int,
     now: datetime,
     recent_tasks: list[Any],
-    turn_actions: list[TurnAction],
 ) -> dict[str, Any] | None:
     """Log a finished task that was never on the list, and celebrate it.
 
@@ -1203,9 +1197,6 @@ async def _complete_unlisted(
     # bookkeeping (ledger entry, reward manifest link) goes without an id.
     page_id = str((page or {}).get("id") or "")
 
-    turn_actions = record_turn_action(
-        turn_actions, {"action": "notion.create_task", "page_id": page_id or None}
-    )
     streak = state.get("streak", 0) + 1
     reward_result = await maybe_reward(
         peer=peer,
@@ -1215,7 +1206,6 @@ async def _complete_unlisted(
         work_type="",
         energy_required="",
     )
-    turn_actions = record_turn_action(turn_actions, {"action": "reward", "page_id": page_id or None})
     draft: OutboundDraft = {
         "recipient": peer,
         "body": f"That wasn't on your list — logged it as done: {TASK_TOKEN}. "
@@ -1247,7 +1237,6 @@ async def _complete_unlisted(
             event="completed",
             now=now,
         ),
-        "turn_actions": turn_actions,
     }
 
 
@@ -1263,7 +1252,6 @@ async def complete_node(state: State) -> dict[str, Any]:
         now = datetime.now(UTC)
         active_target = _target_from_active_task(active_task, now=now)
         recent_tasks = list(state.get("recent_tasks") or [])
-        turn_actions: list[TurnAction] = list(state.get("turn_actions") or [])
         ledger_targets = _ledger_targets(recent_tasks, now=now)
 
         # Attempts already spent on this question. Absent for a first "done",
@@ -1327,7 +1315,6 @@ async def complete_node(state: State) -> dict[str, Any]:
                 residue_token_count=len(residue),
                 now=now,
                 recent_tasks=recent_tasks,
-                turn_actions=turn_actions,
             )
             if unlisted is not None:
                 return unlisted
@@ -1365,7 +1352,6 @@ async def complete_node(state: State) -> dict[str, Any]:
                 attempts=attempts,
                 candidates=clarify_candidates,
                 offerable=bool(clarify_candidates),
-                turn_actions=turn_actions,
                 from_context=from_context,
             )
 
@@ -1395,7 +1381,6 @@ async def complete_node(state: State) -> dict[str, Any]:
                 attempts=attempts,
                 candidates=clarify_candidates,
                 offerable=bool(clarify_candidates),
-                turn_actions=turn_actions,
                 from_context=from_context,
             )
 
@@ -1409,24 +1394,16 @@ async def complete_node(state: State) -> dict[str, Any]:
 
         if target.needs_notion_write:
             await notion.update_status(page_id=page_id, new_status="Completed")
-            turn_actions = record_turn_action(
-                turn_actions, {"action": "notion.update_status", "page_id": page_id}
-            )
 
         if kind == "reminder":
             # A reminder finished before it fired must not fire afterwards.
             try:
-                cancelled = await _cancel_pending_reminders(peer, page_id)
+                await _cancel_pending_reminders(peer, page_id)
             except Exception as exc:
                 log.warning(
                     "complete_node.reminder_cancel_failed",
                     page_id=page_id,
                     error_type=type(exc).__name__,
-                )
-                cancelled = 0
-            if cancelled:
-                turn_actions = record_turn_action(
-                    turn_actions, {"action": "reminder.cancel", "page_id": page_id}
                 )
 
         streak = state.get("streak", 0) + 1
@@ -1472,9 +1449,6 @@ async def complete_node(state: State) -> dict[str, Any]:
         if reward_result["attachment_path"]:
             reward_draft["attachment_path"] = reward_result["attachment_path"]
 
-        turn_actions = record_turn_action(
-            turn_actions, {"action": "reward", "page_id": page_id}
-        )
         # The ledger stores the stored title only — never a sent reminder body.
         recent_tasks = record_task_event(
             recent_tasks,
@@ -1500,7 +1474,6 @@ async def complete_node(state: State) -> dict[str, Any]:
             "conversation_state": "idle",
             "pending_clarification": None,
             "recent_tasks": recent_tasks,
-            "turn_actions": turn_actions,
         }
 
     except Exception:

@@ -17,6 +17,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from structlog.testing import capture_logs
 
 from app.graph.state import State
 
@@ -1082,3 +1083,65 @@ async def test_complete_node_title_lookup_failure_still_completes_unnamed() -> N
     assert draft["body"] == "Nice work!"
     assert "notion_page_title" not in draft
     assert "complete_node.title_lookup_failed" in {entry["event"] for entry in logs}
+
+
+# ---------------------------------------------------------------------------
+# REJECT node: recent-task ledger writes
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_rejection_node_records_rejected_and_suggested() -> None:
+    """The declined page is `rejected`; the offered alternative is the newest entry.
+
+    A bare "done" next turn anchors to the ledger's newest open entry, so the
+    alternative has to lead the ledger and the declined page must never anchor.
+    """
+    update_status = AsyncMock()
+    response = json.dumps({
+        "rejection_category": "mood_mismatch",
+        "alternative_task_id": "<page_B>",
+        "user_message": "Fair — how about {task} instead?",
+    })
+    active = _active_task("Water the plants", page_id="<page_A>")
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": [
+            _pending_page("<page_A>", "Water the plants"),
+            _pending_page("<page_B>", "Sort the mail"),
+        ]})),
+        patch("app.tools.notion.update_property", AsyncMock()),
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.models.llm", return_value=_mock_llm_response(response)),
+    ):
+        from app.graph.nodes.rejection import rejection_node
+
+        result = await rejection_node(_ledger_state(incoming="not that one", active_task=active))
+
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_B>", "Sort the mail", "task", "suggested"),
+        ("<page_A>", "Water the plants", "task", "rejected"),
+    ]
+    # The ledger write adds no status write, and the offer leaves nothing active.
+    update_status.assert_not_awaited()
+    assert result["active_task"] is None
+
+
+@pytest.mark.asyncio
+async def test_rejection_node_unknown_alternative_is_not_recorded() -> None:
+    """An id the model invented names nothing the user was shown."""
+    response = json.dumps({
+        "alternative_task_id": "<page_unknown>",
+        "user_message": "Want something else?",
+    })
+    active = _active_task("Water the plants", page_id="<page_A>")
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": []})),
+        patch("app.tools.notion.update_property", AsyncMock()),
+        patch("app.models.llm", return_value=_mock_llm_response(response)),
+    ):
+        from app.graph.nodes.rejection import rejection_node
+
+        result = await rejection_node(_ledger_state(incoming="nah", active_task=active))
+
+    assert _ledger_view(result["recent_tasks"]) == [
+        ("<page_A>", "Water the plants", "task", "rejected"),
+    ]

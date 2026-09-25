@@ -50,12 +50,12 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/tools/db.py` — Postgres connection + migration runner
 - `app/graph/state.py` — LangGraph State TypedDict; `pending_clarification` and `recent_tasks` are absent on checkpoints written before they existed, so readers use `.get()`
 - `app/graph/graph.py` — LangGraph graph definition; entry point `hydrate_context` → `classify_intent` → intent node → `send`
-- `app/graph/context.py` — Recent-task ledger and shared prompt context. intake, selection, and complete write the ledger only through `record_task_event` (dedupe by page, newest wins, known title kept, 7-day prune, cap 8); `render_history` (8 messages × 400 chars) and `render_recent_tasks` render prompt blocks; `hydrate_context` is the graph entry node that merges the peer's recent `recent_outbound` deliveries as `reminded`/`nudged` entries and reads the stored title of an untitled delivery page from Notion (at most 3 per turn, 5 s each). Fail-soft: a DB error keeps the existing ledger, a failed title read leaves that entry untitled, and neither reaches the classifier's error fallback
+- `app/graph/context.py` — Recent-task ledger and shared prompt context. intake, selection, rejection, and complete write the ledger only through `record_task_event` (dedupe by page, newest wins, known title kept, 7-day prune, cap 8); `render_history` (8 messages × 400 chars) and `render_recent_tasks` render prompt blocks; `hydrate_context` is the graph entry node that merges the peer's recent `recent_outbound` deliveries as `reminded`/`nudged` entries and reads the stored title of an untitled delivery page from Notion (at most 3 per turn, 5 s each). Fail-soft: a DB error keeps the existing ledger, a failed title read leaves that entry untitled, and neither reaches the classifier's error fallback
 - `app/graph/routing.py` — Intent classification + conditional edges; owns the `pending_clarification` lifecycle. `classify_intent` runs after `hydrate_context` on every turn. The classify prompt carries the prior-conversation window, the `Recent tasks:` ledger block, and a conversation-state / awaiting-clarification line. A live clarification steers a CHAT- or COMPLETE-classified message to `complete_node` as the answer; any other intent, an expired timestamp, or malformed state drops it
 - `app/graph/nodes/intake.py` — ADD_TASK intent node
 - `app/graph/nodes/selection.py` — GET_TASK intent node
 - `app/graph/nodes/chat.py` — CHAT intent node
-- `app/graph/nodes/rejection.py` — REJECT intent node
+- `app/graph/nodes/rejection.py` — REJECT intent node; records the declined page as `rejected` and a listed, titled alternative as `suggested` in the recent-task ledger (no Notion status writes)
 - `app/graph/nodes/cannot_finish.py` — CANNOT_FINISH intent node
 - `app/graph/nodes/need_help.py` — NEED_HELP intent node
 - `app/graph/nodes/check_in.py` — CHECK_IN intent node
