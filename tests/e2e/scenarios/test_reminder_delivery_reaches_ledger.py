@@ -56,4 +56,3 @@ async def test_reminder_delivery_reaches_ledger_as_reminded(
     # The CHAT turn only answered a question; it must not resolve the reminder
     # the peer has not yet replied to.
     assert await conversation.awaiting_reply_count_for_page(page) == 1
-    assert result.state.get("turn_actions") == []

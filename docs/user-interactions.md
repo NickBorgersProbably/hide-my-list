@@ -454,8 +454,15 @@ sequenceDiagram
 
     Note over AI: Re-score with mood constraint
 
+    AI->>N: Update status → in_progress (alternative)
     AI->>U: "Got it. How about organizing your inbox? Still productive but lighter work."
 ```
+
+The alternative the reply names becomes the active task, exactly as a
+selection suggestion does: it is marked In Progress when it is offered. A short
+acceptance ("sure") confirms that active task, and a further "not that one"
+starts the rejection flow again for it. When the reply offers no alternative,
+no task is active.
 
 ### Rejection Reason Categories
 

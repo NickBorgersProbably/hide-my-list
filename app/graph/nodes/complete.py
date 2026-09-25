@@ -22,14 +22,14 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import structlog
 
-from app.graph.context import ledger_entry, record_task_event, record_turn_action
+from app.graph.context import ledger_entry, record_task_event
 from app.graph.nodes._task_match import (
     DedupCandidate,
     normalize_title_tokens,
@@ -43,7 +43,6 @@ from app.graph.state import (
     OutboundDraft,
     PendingClarification,
     State,
-    TurnAction,
 )
 
 log = structlog.get_logger(__name__)
@@ -595,7 +594,6 @@ def _clarify_completion_target(
     attempts: int = 0,
     candidates: tuple[DedupCandidate, ...] = (),
     offerable: bool = False,
-    turn_actions: Sequence[TurnAction] | None = None,
 ) -> dict[str, Any]:
     """Ask which task was meant, and remember having asked.
 
@@ -660,9 +658,6 @@ def _clarify_completion_target(
         named_option_count=len(stored),
     )
     return {
-        "turn_actions": record_turn_action(
-            turn_actions, {"action": "clarify", "page_id": None}
-        ),
         "pending_outbound": [no_task_draft],
         "conversation_state": "idle",
         "active_task": None,
@@ -682,7 +677,6 @@ async def complete_node(state: State) -> dict[str, Any]:
         now = datetime.now(UTC)
         active_target = _target_from_active_task(active_task, now=now)
         recent_tasks = list(state.get("recent_tasks") or [])
-        turn_actions: list[TurnAction] = list(state.get("turn_actions") or [])
 
         # Attempts already spent on this question. Absent for a first "done",
         # present when this turn is the answer to a clarification classify_intent
@@ -756,7 +750,6 @@ async def complete_node(state: State) -> dict[str, Any]:
                 attempts=attempts,
                 candidates=title_match.candidates,
                 offerable=not title_match.widened,
-                turn_actions=turn_actions,
             )
 
         # Ids and counts only — the residue tokens and task titles are the
@@ -782,7 +775,6 @@ async def complete_node(state: State) -> dict[str, Any]:
                 attempts=attempts,
                 candidates=title_match.candidates,
                 offerable=not title_match.widened,
-                turn_actions=turn_actions,
             )
 
         page_id = target.page_id
@@ -790,9 +782,6 @@ async def complete_node(state: State) -> dict[str, Any]:
 
         if target.needs_notion_write:
             await notion.update_status(page_id=page_id, new_status="Completed")
-            turn_actions = record_turn_action(
-                turn_actions, {"action": "notion.update_status", "page_id": page_id}
-            )
 
         streak = state.get("streak", 0) + 1
         tasks_today = state.get("tasks_completed_today", 0) + 1
@@ -831,9 +820,6 @@ async def complete_node(state: State) -> dict[str, Any]:
         if reward_result["attachment_path"]:
             reward_draft["attachment_path"] = reward_result["attachment_path"]
 
-        turn_actions = record_turn_action(
-            turn_actions, {"action": "reward", "page_id": page_id}
-        )
         # A recent_outbound target's title is the sent reminder body, not the
         # task title, so it is never written to the ledger; the ledger keeps
         # whatever title it already has for the page.
@@ -863,7 +849,6 @@ async def complete_node(state: State) -> dict[str, Any]:
             "conversation_state": "idle",
             "pending_clarification": None,
             "recent_tasks": recent_tasks,
-            "turn_actions": turn_actions,
         }
 
     except Exception:

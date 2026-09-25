@@ -1,7 +1,7 @@
 """Unit tests for the recent-task ledger and the shared context builder.
 
 `app/graph/context.py` owns the pure helpers every node uses to write the
-ledger (`record_task_event`, `record_turn_action`) and to render prompt
+ledger (`record_task_event`) and to render prompt
 context (`render_history`, `render_recent_tasks`). These tests pin the
 ledger's shape rules — dedupe by page, newest wins, title retention, prune,
 cap — and the renderers' bounds.
@@ -23,7 +23,6 @@ from app.graph.context import (
     RECENT_TASK_TITLE_CHARS,
     prune_recent_tasks,
     record_task_event,
-    record_turn_action,
     render_history,
     render_recent_tasks,
 )
@@ -189,19 +188,6 @@ class TestRecordTaskEvent:
             now=_NOW,
         )
         assert [e["page_id"] for e in pruned] == ["<page_b>", "<page_a>"]
-
-
-class TestRecordTurnAction:
-    def test_appends_without_mutating(self) -> None:
-        existing = [{"action": "notion.update_status", "page_id": "<page_a>"}]
-        result = record_turn_action(existing, {"action": "reward", "page_id": "<page_a>"})  # type: ignore[arg-type]
-        assert [a["action"] for a in result] == ["notion.update_status", "reward"]
-        assert len(existing) == 1
-
-    def test_none_existing_starts_a_new_list(self) -> None:
-        assert record_turn_action(None, {"action": "clarify", "page_id": None}) == [
-            {"action": "clarify", "page_id": None}
-        ]
 
 
 class TestRenderRecentTasks:

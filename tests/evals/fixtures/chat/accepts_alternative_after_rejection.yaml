@@ -1,22 +1,24 @@
----
-# The user passed on a suggestion; rejection offered an alternative, recorded
-# it in the ledger as `suggested`, and left no active task. The user's "sure"
-# accepts that alternative. With Current task "None", the chat prompt anchors
-# the acceptance to the newest `suggested` ledger entry, so the confirmation
-# names the alternative rather than the rejected task or asking which one.
+# The user passed on a suggestion; rejection offered an alternative, made it
+# the active task (marked In Progress, same as a selection suggestion), and
+# recorded it in the ledger as `suggested`. The user's "sure" accepts that
+# alternative. The chat prompt anchors acceptance to the Current task, so the
+# confirmation names the alternative rather than the rejected task or asking
+# which one.
 id: chat-accepts-alternative-after-rejection-001
 node: chat
 tier: medium
 peer: "<test-peer-ledger-2>"
 inbound: "sure"
 prior_state:
-  active_task: null
-  conversation_state: idle
+  active_task:
+    page_id: "<placeholder-page-id-2>"
+    title: "Water the plants"
+  conversation_state: active
   messages:
     - role: user
       content: "not that one"
     - role: assistant
-      content: "No problem. Want to try a different one instead?"
+      content: "No problem — how about Water the plants instead?"
   # `at` is omitted: a static fixture cannot carry a fresh timestamp.
   recent_tasks:
     - page_id: "<placeholder-page-id-2>"

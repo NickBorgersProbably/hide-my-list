@@ -1,7 +1,7 @@
 """Structural anchors in the rendered chat prompt.
 
 `chat.md.j2` is the only place the "what task?" recall rule and the
-`suggested`-line acceptance rule live; a prompt edit that silently drops the
+acceptance rule live; a prompt edit that silently drops the
 ordering instruction or the anchor headings breaks recall without breaking any
 LLM-graded eval (evals are gated and rarely run locally). This is a string-
 presence check against the rendered template, not an LLM test: it can run in
@@ -58,13 +58,16 @@ def test_recall_precedence_active_and_recent_both_present() -> None:
     assert "Book the eye appointment" in rendered
 
 
-def test_acceptance_rule_mentions_newest_suggested_line() -> None:
-    """When Current task is None, an acceptance ("sure", "ok, that one") must
-    resolve to the newest `suggested` ledger line, not silently fall through.
+def test_acceptance_rule_names_the_current_task() -> None:
+    """An acceptance ("sure", "ok, that one") names the Current task: selection
+    and rejection both activate the task they offer, so the graph already holds
+    it. The newest `suggested` ledger line is only the last resort when Current
+    task is None.
     """
-    rendered = _render_chat_prompt()
-    assert "newest line under Recent Tasks marked" in rendered
-    assert "`suggested`" in rendered
+    flattened = " ".join(_render_chat_prompt().split())
+    assert "the task they accepted is the Current task above" in flattened
+    assert "Only as a last resort, when Current task is \"None\"" in flattened
+    assert "newest line under Recent Tasks marked `suggested`" in flattened
 
 
 def test_rendered_text_contains_passed_in_values() -> None:

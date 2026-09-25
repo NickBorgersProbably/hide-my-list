@@ -25,7 +25,7 @@ from typing import Any, cast
 
 import structlog
 
-from app.graph.context import record_task_event, record_turn_action
+from app.graph.context import record_task_event
 from app.graph.nodes._task_match import (
     DedupCandidate,
     open_non_reminder_tasks,
@@ -112,9 +112,6 @@ async def intake_node(state: State) -> dict[str, Any]:
             # success: preserve capture, alert the operator, tell the truth.
             return await _handle_parse_failure(peer=peer, incoming=incoming, state=state)
 
-        turn_actions = list(state.get("turn_actions") or [])
-        clarify_actions = record_turn_action(turn_actions, {"action": "clarify", "page_id": None})
-
         if parsed.get("action") == "clarify":
             question = parsed.get("clarification_question", "Which task are you thinking of?")
             clarify_draft: OutboundDraft = {
@@ -122,7 +119,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 "body": question,
                 "notion_page_id": None,
             }
-            return {"pending_outbound": [clarify_draft], "turn_actions": clarify_actions}
+            return {"pending_outbound": [clarify_draft]}
 
         # Action is "save"
         # A blank title is as unusable as a missing one: it propagates into the
@@ -138,7 +135,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 "body": "What should I call that one?",
                 "notion_page_id": None,
             }
-            return {"pending_outbound": [blank_title_draft], "turn_actions": clarify_actions}
+            return {"pending_outbound": [blank_title_draft]}
         work_type = str(parsed.get("work_type", "focus"))
         urgency = int(parsed.get("urgency", 50))
         time_estimate = int(parsed.get("time_estimate_minutes", 30))
@@ -289,20 +286,6 @@ async def intake_node(state: State) -> dict[str, Any]:
                 event="added",
                 now=datetime.now(UTC),
             )
-            if not duplicate_matched:
-                turn_actions = record_turn_action(
-                    turn_actions,
-                    {
-                        "action": (
-                            "notion.create_reminder" if created_reminder else "notion.create_task"
-                        ),
-                        "page_id": page_id,
-                    },
-                )
-            elif deadline_at is not None:
-                turn_actions = record_turn_action(
-                    turn_actions, {"action": "notion.update_property", "page_id": page_id}
-                )
 
         if duplicate_matched:
             log.info(
@@ -325,7 +308,6 @@ async def intake_node(state: State) -> dict[str, Any]:
             "pending_outbound": [draft],
             "conversation_state": "idle",
             "recent_tasks": recent_tasks,
-            "turn_actions": turn_actions,
         }
 
     except Exception:
@@ -457,7 +439,6 @@ async def _handle_parse_failure(
         "notion_page_id": page_id,
     }
     recent_tasks = list(state.get("recent_tasks") or []) if state else []
-    turn_actions = list(state.get("turn_actions") or []) if state else []
     if page_id:
         recent_tasks = record_task_event(
             recent_tasks,
@@ -467,14 +448,10 @@ async def _handle_parse_failure(
             event="added",
             now=datetime.now(UTC),
         )
-        turn_actions = record_turn_action(
-            turn_actions, {"action": "notion.create_task", "page_id": page_id}
-        )
     return {
         "pending_outbound": [draft],
         "conversation_state": "idle",
         "recent_tasks": recent_tasks,
-        "turn_actions": turn_actions,
     }
 
 

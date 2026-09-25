@@ -47,4 +47,3 @@ async def test_what_task_after_adding_a_reminder_names_it(
     # leads with the task that was added.
     assert conversation.notion.writes[writes_before:] == []
     assert (asked.state.get("recent_tasks") or [{}])[0].get("page_id") == page_id
-    assert asked.state.get("turn_actions") == []

@@ -5,7 +5,7 @@ Topology:
     -> <intent node> -> send -> END
 
   hydrate_context merges the peer's recent reminder deliveries into the
-  recent-task ledger and resets turn_actions before the classifier runs
+  recent-task ledger before the classifier runs
   (app/graph/context.py). It is fail-soft and never routes anywhere else.
 
 Checkpointer lifecycle:

@@ -83,8 +83,8 @@ The app container runs four concurrent async tasks:
 
 2. **LangGraph graph** (`app/graph/graph.py`) — Every turn enters at
    `hydrate_context`, which merges the peer's recent reminder deliveries
-   (`recent_outbound`, last 7 days) into the checkpointed recent-task ledger and
-   resets the turn's action log, then flows to `classify_intent`. The
+   (`recent_outbound`, last 7 days) into the checkpointed recent-task ledger,
+   then flows to `classify_intent`. The
    classifier routes to one of eight intent nodes (`ADD_TASK`, `GET_TASK`,
    `COMPLETE`, `REJECT`, `CANNOT_FINISH`, `CHECK_IN`, `NEED_HELP`, `CHAT`) with
    deterministic conditional edges, and every intent node flows to the terminal

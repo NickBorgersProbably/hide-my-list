@@ -19,10 +19,12 @@ async def test_rejecting_a_task_offers_a_named_alternative(
 ) -> None:
     """Scenario 4 — reject, then get something else.
 
-    Two properties. The alternative has to be *named*: an alternative the user
+    Three properties. The alternative has to be *named*: an alternative the user
     cannot identify is the same unactionable message the naming invariant exists
     to prevent, and it shipped once already. And the rejected task must not be
-    completed — "not this one" is not "done".
+    completed — "not this one" is not "done". And a named alternative is the
+    active task afterwards, marked In Progress, so accepting it changes state
+    rather than relying on chat text.
     """
     conversation.notion.seed_task(
         title="Clean out the garage",
@@ -46,7 +48,9 @@ async def test_rejecting_a_task_offers_a_named_alternative(
     assert offered_page, "selection_node offered nothing to reject"
 
     writes_before = conversation.notion.mark()
-    await conversation.say("not that one", expect=Expect(intent="REJECT", sent_count=1))
+    rejected = await conversation.say(
+        "not that one", expect=Expect(intent="REJECT", sent_count=1)
+    )
 
     completed = {
         write.page_id
@@ -58,6 +62,25 @@ async def test_rejecting_a_task_offers_a_named_alternative(
         "finishing it"
     )
     assert conversation.notion.status_of(offered_page) != "Completed"
+
+    # An alternative the reply names becomes the active task, exactly as a
+    # selection suggestion does, so a short "sure" next turn has an anchor.
+    # Whether the model offers one is its call; the state must match the writes.
+    started = {
+        write.page_id
+        for write in conversation.notion.writes[writes_before:]
+        if write.op == "update_status" and write.payload.get("status") == "In Progress"
+    }
+    active = rejected.state.get("active_task") or {}
+    if active:
+        assert active.get("page_id") != offered_page
+        assert started == {active.get("page_id")}, (
+            "the active alternative was not marked In Progress"
+        )
+        assert rejected.state.get("conversation_state") == "active"
+    else:
+        assert not started, "a page was marked In Progress with no active task"
+        assert rejected.state.get("conversation_state") == "selection"
 
 
 async def test_a_task_added_this_turn_can_be_reminded_about(

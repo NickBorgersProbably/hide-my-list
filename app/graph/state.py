@@ -114,18 +114,6 @@ class RecentTaskEntry(TypedDict):
     at: str
 
 
-class TurnAction(TypedDict):
-    """One thing a node did during the current turn.
-
-    `action` names the side effect or reply shape (`notion.create_task`,
-    `notion.create_reminder`, `notion.update_status`, `notion.update_property`,
-    `suggest`, `reward`, `clarify`). `hydrate_context` resets the list at the
-    start of every turn, so it describes this turn only.
-    """
-    action: str
-    page_id: str | None
-
-
 class UserPrefs(TypedDict, total=False):
     """User personalization preferences, ported from state.json.user_preferences."""
     timezone: str
@@ -163,10 +151,6 @@ class State(TypedDict):
     # Writers return the full new list (plain replace, no reducer); the
     # helpers in app/graph/context.py own dedupe, prune, and cap.
     recent_tasks: NotRequired[list[RecentTaskEntry]]
-
-    # What the nodes did this turn. hydrate_context resets it to [] at turn
-    # start; absent on older checkpoints, so readers use .get().
-    turn_actions: NotRequired[list[TurnAction]]
 
     # Typing for extra keys accepted by LangGraph but not declared above
     __pydantic_extra__: Any

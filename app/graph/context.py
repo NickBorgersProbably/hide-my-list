@@ -5,8 +5,8 @@ created or the reminder the worker had just delivered, so a bare "Done!" or a
 "what task?" a minute later had no anchor, and each node windowed
 `state["messages"]` its own way. This module is the one place that:
 
-- writes the recent-task ledger (`record_task_event`) and the per-turn action
-  log (`record_turn_action`) with consistent dedupe, prune, and cap rules;
+- writes the recent-task ledger (`record_task_event`) with consistent dedupe,
+  prune, and cap rules;
 - renders the ledger and the message history for prompts
   (`render_recent_tasks`, `render_history`);
 - hydrates the ledger from Postgres at the start of every turn
@@ -32,7 +32,6 @@ from app.graph.state import (
     RecentTaskEvent,
     RecentTaskKind,
     State,
-    TurnAction,
 )
 
 log = structlog.get_logger(__name__)
@@ -187,13 +186,6 @@ def record_task_event(
     return prune_recent_tasks([new, *others], now=at)
 
 
-def record_turn_action(
-    existing: Sequence[TurnAction] | None, action: TurnAction
-) -> list[TurnAction]:
-    """Return a new action list with `action` appended."""
-    return [*(existing or []), action]
-
-
 def _relative_age(at: datetime, now: datetime) -> str:
     seconds = max(0, int((now - at).total_seconds()))
     if seconds < 60:
@@ -281,8 +273,7 @@ async def hydrate_context(state: State) -> dict[str, Any]:
     Reminder deliveries happen outside the graph, so the checkpoint never sees
     them. Each turn this node reads the peer's `recent_outbound` rows from the
     last `LEDGER_MAX_AGE` and records each as `reminded` (or `nudged` for a
-    deadline row), keeping any title the ledger already has. It also resets
-    `turn_actions` so the list describes this turn only.
+    deadline row), keeping any title the ledger already has.
 
     Fail-soft: any error keeps the existing ledger (pruned) and logs one
     warning with the error type. It never raises — a failure here must not
@@ -297,7 +288,7 @@ async def hydrate_context(state: State) -> dict[str, Any]:
 
     peer = state.get("peer", "")
     if not peer or not os.environ.get("DATABASE_URL"):
-        return {"recent_tasks": ledger, "turn_actions": []}
+        return {"recent_tasks": ledger}
 
     try:
         from app.tools.reminders import fetch_recent_outbound
@@ -330,7 +321,7 @@ async def hydrate_context(state: State) -> dict[str, Any]:
             row_count=len(rows),
             ledger_count=len(merged),
         )
-        return {"recent_tasks": merged, "turn_actions": []}
+        return {"recent_tasks": merged}
     except Exception as exc:
         # Error type and counts only: the rows carry page ids tied to a peer,
         # and a driver error string can echo connection details.
@@ -339,4 +330,4 @@ async def hydrate_context(state: State) -> dict[str, Any]:
             error_type=type(exc).__name__,
             existing_count=len(existing) if isinstance(existing, list) else 0,
         )
-        return {"recent_tasks": ledger, "turn_actions": []}
+        return {"recent_tasks": ledger}

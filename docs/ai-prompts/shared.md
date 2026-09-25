@@ -532,7 +532,7 @@ Writers:
   created a reminder) or the existing page a duplicate matched.
 - **Selection** records `suggested` for the task it offered.
 - **Rejection** records `rejected` for the declined task and `suggested` for
-  the named alternative it offers.
+  the named alternative it offers, which it also makes the active task.
 - **Complete** records `completed` for the page it resolved.
 - **`hydrate_context`**, the graph's entry node, merges the peer's
   `recent_outbound` rows from the last 7 days at the start of every turn: a
@@ -558,16 +558,10 @@ Chat reads the ledger two ways:
   names the title of the newest titled ledger entry first, and falls back to
   the current task only when no titled entry exists.
 - **Acceptance.** When the user accepts a suggestion ("sure", "ok, that one"),
-  chat names the current task. When there is no current task, it names the
-  newest `suggested` entry: rejection records the alternative it offers as
-  `suggested` while leaving no active task, so that entry is what the user is
-  accepting.
-
-`turn_actions` records what the nodes did during the current turn
-(`notion.create_task`, `notion.create_reminder`, `notion.update_status`,
-`notion.update_property`, `suggest`, `reward`, `clarify`), each with its page
-id when applicable (`clarify` uses null). `hydrate_context` resets it at the
-start of every turn.
+  chat names the current task. Selection and rejection both make the task
+  they offer the active task, marked In Progress, so the acceptance lands on
+  a task the conversation already holds. Only as a last resort, when there is
+  no current task, chat names the newest `suggested` entry.
 
 ---
 

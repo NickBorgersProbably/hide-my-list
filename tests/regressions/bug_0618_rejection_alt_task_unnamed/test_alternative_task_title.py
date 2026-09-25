@@ -31,6 +31,10 @@ def _notion_task(page_id: str, title: str, minutes: int) -> dict[str, Any]:
     }
 
 
+async def _fake_update_status(page_id: str, new_status: str) -> dict[str, Any]:
+    return {"id": page_id}
+
+
 @pytest.mark.asyncio
 async def test_rejection_node_names_selected_alternative_without_task_token(
     monkeypatch: pytest.MonkeyPatch,
@@ -71,6 +75,8 @@ async def test_rejection_node_names_selected_alternative_without_task_token(
 
     monkeypatch.setattr(notion, "query_pending", fake_query_pending)
     monkeypatch.setattr(notion, "update_property", fake_update_property)
+    # The offered alternative is marked In Progress; stub the write.
+    monkeypatch.setattr(notion, "update_status", _fake_update_status)
     monkeypatch.setattr(models_module, "llm", lambda tier, **kwargs: _FakeModel(model_response))
 
     result = await rejection_node(
@@ -102,6 +108,9 @@ async def test_rejection_node_names_selected_alternative_without_task_token(
     draft = result["pending_outbound"][0]
     assert draft["notion_page_id"] == alternative_id
     assert alternative_title in draft["body"]
+    # The named alternative is also the active task, so accepting it lands.
+    assert result["active_task"]["page_id"] == alternative_id
+    assert result["active_task"]["title"] == alternative_title
 
 
 @pytest.mark.asyncio
@@ -136,6 +145,8 @@ async def test_rejection_node_replaces_task_token_with_selected_title(
 
     monkeypatch.setattr(notion, "query_pending", fake_query_pending)
     monkeypatch.setattr(notion, "update_property", fake_update_property)
+    # The offered alternative is marked In Progress; stub the write.
+    monkeypatch.setattr(notion, "update_status", _fake_update_status)
     monkeypatch.setattr(models_module, "llm", lambda tier, **kwargs: _FakeModel(model_response))
 
     result = await rejection_node(

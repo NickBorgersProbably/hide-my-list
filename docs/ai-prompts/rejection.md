@@ -12,6 +12,7 @@ flowchart TD
     Classify --> Update[Update task in Notion]
     Update --> Reselect[Select alternative]
     Reselect --> Present[Present new suggestion]
+    Present --> Activate[Alternative becomes the active task]
 ```
 
 ### Rejection Handling Prompt
@@ -53,6 +54,18 @@ OUTPUT (JSON):
 When `alternative_task_id` is non-null, `user_message` uses the literal token
 `{task}` wherever it refers to the alternative task. The application substitutes
 the exact selected title before sending the message.
+
+### Offered Alternative Becomes the Active Task
+
+When `alternative_task_id` names a pending task with a title, the application
+treats it exactly like a selection suggestion: it marks the page In Progress in
+Notion, makes it the active task, and moves the conversation to `active`. A
+short acceptance on the next turn ("sure", "ok") therefore confirms a task the
+conversation already holds, and check-ins, breakdown help, and a bare "done"
+all resolve against it. The rejected task stops being the active task.
+
+When `alternative_task_id` is null or names no pending task, no task is active
+afterwards and the conversation stays in `selection`.
 
 ### Rejection Response Templates (Shame-Safe)
 

@@ -118,8 +118,6 @@ async def test_delivered_reminder_reaches_the_checkpoint_ledger(db_conn: Any) ->
     # the ledger never copies it.
     assert entry["title"] == ""
     assert isinstance(entry["at"], str) and entry["at"]
-    # turn_actions is reset by hydrate each turn; CHAT records nothing.
-    assert values.get("turn_actions") == []
     assert values["intent"] == "CHAT"
     events = {str(e.get("event")) for e in logs}
     assert "classify_intent.error" not in events
@@ -189,7 +187,6 @@ async def test_deadline_delivery_is_recorded_as_nudged(db_conn: Any) -> None:
 
     result = await hydrate_context({"peer": peer, "incoming": "hi"})  # type: ignore[typeddict-item]
 
-    assert result["turn_actions"] == []
     assert len(result["recent_tasks"]) == 1
     entry = result["recent_tasks"][0]
     assert entry["event"] == "nudged"
@@ -243,7 +240,7 @@ async def test_db_failure_keeps_the_existing_ledger(monkeypatch: pytest.MonkeyPa
             {"peer": "<recipient>", "incoming": "hi", "recent_tasks": [fresh, stale]}  # type: ignore[typeddict-item]
         )
 
-    assert result == {"recent_tasks": [fresh], "turn_actions": []}
+    assert result == {"recent_tasks": [fresh]}
     failures = [e for e in logs if e.get("event") == "hydrate_context.recent_outbound_failed"]
     assert len(failures) == 1
     failure = failures[0]
@@ -285,7 +282,7 @@ async def test_no_database_configured_is_a_quiet_no_op(monkeypatch: pytest.Monke
     monkeypatch.delenv("DATABASE_URL", raising=False)
     with capture_logs() as logs:
         result = await hydrate_context({"peer": "<recipient>", "incoming": "hi"})  # type: ignore[typeddict-item]
-    assert result == {"recent_tasks": [], "turn_actions": []}
+    assert result == {"recent_tasks": []}
     assert not [e for e in logs if str(e.get("event", "")).endswith("_failed")]
 
 

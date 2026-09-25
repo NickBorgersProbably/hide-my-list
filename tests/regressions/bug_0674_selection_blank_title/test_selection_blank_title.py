@@ -52,7 +52,6 @@ def _state() -> dict[str, Any]:
         "conversation_state": "idle",
         "pending_outbound": [],
         "recent_tasks": [],
-        "turn_actions": [],
     }
 
 
@@ -77,7 +76,6 @@ def _assert_no_selection(result: dict[str, Any], update_status: AsyncMock) -> No
     assert result["active_task"] is None
     assert result["conversation_state"] == "selection"
     assert result["recent_tasks"] == []
-    assert result["turn_actions"] == []
     draft = result["pending_outbound"][0]
     assert draft["notion_page_id"] is None
     assert "notion_page_title" not in draft
