@@ -222,3 +222,81 @@ class TestClassifyIntentUsesHistory:
         assert "turn-1\n" not in human_content
         assert "user: turn-2" in human_content
         assert "user: turn-9" in human_content
+
+
+class TestSuggestionAcceptanceRouting:
+    """A bare "sure" answering a pending suggestion reaches chat_node.
+
+    A rejection alternative stays Pending with no active task, and chat_node is
+    where its acceptance marks it In Progress. The cheap classifier has no
+    stable label for a one-word reply (it can return ADD_TASK), so the
+    acceptance is routed without consulting it.
+    """
+
+    @staticmethod
+    def _suggested(hours_ago: float = 0.0) -> list[dict[str, Any]]:
+        from datetime import UTC, datetime, timedelta
+
+        at = datetime.now(UTC) - timedelta(hours=hours_ago)
+        return [{
+            "page_id": "<page-id>",
+            "title": "Sort the mail",
+            "kind": "task",
+            "event": "suggested",
+            "at": at.isoformat(),
+        }]
+
+    @pytest.mark.asyncio
+    async def test_bare_acceptance_routes_to_chat_without_the_model(self) -> None:
+        from app.graph import routing
+
+        def _no_llm(_tier: str, **_kwargs: Any) -> Any:
+            raise AssertionError("the classifier model must not be consulted")
+
+        with patch("app.models.llm", new=_no_llm):
+            result = await routing.classify_intent(
+                _base_state(incoming="Sure!", recent_tasks=self._suggested())
+            )
+
+        assert result["intent"] == "CHAT"
+        assert result["classification_error_fallback"] is False
+
+    @pytest.mark.parametrize(
+        ("incoming", "overrides"),
+        [
+            ("sure, add milk to my list", {}),
+            ("sure", {"active_task": {"page_id": "<page-id-a>", "title": "Water the plants"}}),
+            ("sure", {"stale": True}),
+        ],
+        ids=["not_bare", "active_task_set", "stale_suggestion"],
+    )
+    @pytest.mark.asyncio
+    async def test_other_messages_still_go_to_the_model(
+        self, incoming: str, overrides: dict[str, Any]
+    ) -> None:
+        from app.graph import routing
+
+        calls: list[int] = []
+
+        class _FakeResp:
+            content = "ADD_TASK"
+
+        class _FakeModel:
+            async def ainvoke(self, msgs: list[Any]) -> Any:
+                calls.append(1)
+                return _FakeResp()
+
+        def _fake_llm(_tier: str, **_kwargs: Any) -> Any:
+            return _FakeModel()
+
+        stale = overrides.pop("stale", False)
+        state = _base_state(
+            incoming=incoming,
+            recent_tasks=self._suggested(hours_ago=25 if stale else 0),
+            **overrides,
+        )
+        with patch("app.models.llm", new=_fake_llm):
+            result = await routing.classify_intent(state)
+
+        assert calls == [1]
+        assert result["intent"] == "ADD_TASK"

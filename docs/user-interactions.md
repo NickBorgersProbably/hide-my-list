@@ -47,6 +47,11 @@ flowchart TD
 | CHECK_IN | System-initiated (runtime follow-up, not user message) |
 | CHAT | "Hello", "How does this work?", "What's in my list?" |
 
+A bare affirmative ("sure", "ok, that one", "I'll take it") sent while no task
+is active and the newest recent-task entry is a suggestion from the last 24
+hours is an acceptance of that suggestion. It routes to CHAT without a model
+call, and the chat node marks the suggested task In Progress (Flow 4).
+
 ## Flow 1: Task Intake
 
 ```mermaid
@@ -139,17 +144,24 @@ sequenceDiagram
     Note over AI: Score each task
     Note over AI: Best match: "Organize receipts" (score: 0.87)
 
+    AI->>N: Update status → in_progress
     AI->>U: "How about organizing your receipts from last week? It's low-energy admin work and should take about 15 minutes."
 
     alt User accepts
         U->>AI: "Sure"
-        AI->>N: Update status → in_progress
         AI->>U: "Great, it's yours. Let me know when you're done!"
     else User rejects
         U->>AI: "Not that one"
+        AI->>N: Update status → pending
         Note over AI: Start rejection flow
     end
 ```
+
+A selection suggestion is marked In Progress and becomes the active task when
+it is offered, so an immediate "done" reaches completion and its reward
+without an extra acceptance turn. A rejection returns it to Pending (Flow 4).
+An alternative offered after a rejection works differently: it stays Pending
+until the user accepts it.
 
 ### Selection Decision Tree
 
@@ -451,18 +463,27 @@ sequenceDiagram
 
     AI->>N: Update rejectionNotes
     AI->>N: Increment rejectionCount
+    AI->>N: Update status → pending (rejected task)
 
     Note over AI: Re-score with mood constraint
 
-    AI->>N: Update status → in_progress (alternative)
     AI->>U: "Got it. How about organizing your inbox? Still productive but lighter work."
+
+    alt User accepts the alternative
+        U->>AI: "Sure"
+        AI->>N: Update status → in_progress (alternative)
+        AI->>U: "Organize your inbox is yours — say done when you finish."
+    else User passes again
+        U->>AI: "Not that either"
+        Note over AI: Start rejection flow again
+    end
 ```
 
-The alternative the reply names becomes the active task, exactly as a
-selection suggestion does: it is marked In Progress when it is offered. A short
-acceptance ("sure") confirms that active task, and a further "not that one"
-starts the rejection flow again for it. When the reply offers no alternative,
-no task is active.
+The rejected task returns to Pending. The alternative the reply names stays
+Pending while it is only offered, so after a rejection no task is active. A
+short acceptance ("sure", "ok, that one") marks the alternative In Progress
+and makes it the active task. When the reply offers no alternative, no task
+is active.
 
 ### Rejection Reason Categories
 

@@ -12,7 +12,7 @@ flowchart TD
     Classify --> Update[Update task in Notion]
     Update --> Reselect[Select alternative]
     Reselect --> Present[Present new suggestion]
-    Present --> Activate[Alternative becomes the active task]
+    Present --> Accept[User accepts: alternative marked In Progress]
 ```
 
 ### Rejection Handling Prompt
@@ -55,17 +55,24 @@ When `alternative_task_id` is non-null, `user_message` uses the literal token
 `{task}` wherever it refers to the alternative task. The application substitutes
 the exact selected title before sending the message.
 
-### Offered Alternative Becomes the Active Task
+### Task Status After a Rejection
 
-When `alternative_task_id` names a pending task with a title, the application
-treats it exactly like a selection suggestion: it marks the page In Progress in
-Notion, makes it the active task, and moves the conversation to `active`. A
-short acceptance on the next turn ("sure", "ok") therefore confirms a task the
-conversation already holds, and check-ins, breakdown help, and a bare "done"
-all resolve against it. The rejected task stops being the active task.
+The rejected task returns to Pending in Notion and stops being the active
+task. After a rejection no task is active and the conversation is in
+`selection`.
 
-When `alternative_task_id` is null or names no pending task, no task is active
-afterwards and the conversation stays in `selection`.
+When `alternative_task_id` names a pending task with a title, the reply names
+it and the recent-task ledger records it as `suggested`. The alternative stays
+Pending: offering a task after a "no" is not the user choosing it. When the
+user accepts it on the next turn with a short affirmative ("sure", "ok, that
+one"), the chat node marks it In Progress, makes it the active task, and
+confirms it by name. Check-ins, breakdown help, and a bare "done" then resolve
+against it.
+
+Why this design: the rejection moment carries the highest shame risk, and
+initiation happens at acceptance. Turning an offer into a commitment before
+the user says yes adds pressure at exactly that moment, and makes later help,
+completion, or another rejection act as though the user had picked the task.
 
 ### Rejection Response Templates (Shame-Safe)
 

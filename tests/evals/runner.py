@@ -400,6 +400,19 @@ def _invoke_node(node: str, fixture: Fixture) -> tuple[str, str | None]:
             **active,
             "selected_at": datetime.now(UTC).isoformat(),
         }
+    # The same holds for ledger entries: a node that reads an entry's age (the
+    # chat node accepts only a suggestion from the last 24 hours) sees an
+    # undated entry as unusable. Stamp run-time now on entries without `at`;
+    # fixtures that want an old entry set `at` explicitly.
+    ledger = state.get("recent_tasks")
+    if isinstance(ledger, list):
+        now_iso = datetime.now(UTC).isoformat()
+        state["recent_tasks"] = [  # type: ignore[typeddict-item]
+            {**entry, "at": now_iso}
+            if isinstance(entry, dict) and not entry.get("at")
+            else entry
+            for entry in ledger
+        ]
     # Fixtures declare prior messages as `{role, content}` YAML mappings, but
     # nodes read LangChain message objects via getattr — a plain dict silently
     # yields empty strings, dropping the fixture's conversational context.

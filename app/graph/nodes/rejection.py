@@ -1,10 +1,11 @@
 """REJECT node: shame-safe rejection handling.
 
 When the user rejects a suggested task, classifies the reason, updates
-rejection count in Notion, and suggests an alternative. An alternative that
-resolves to a named pending task becomes the active task, marked In Progress,
-exactly as a selection suggestion does, so a short "sure" lands on a task the
-graph already holds.
+rejection count in Notion, returns the rejected task to Pending, and suggests
+an alternative. An alternative that resolves to a named pending task is
+recorded in the ledger as `suggested` and named in the reply, but stays
+Pending: the user has not chosen it yet. Their acceptance on the next turn
+(`chat_node`) marks it In Progress and makes it the active task.
 
 Implements docs/ai-prompts/rejection.md behavior.
 """
@@ -19,7 +20,7 @@ import structlog
 
 from app.graph.context import record_task_event
 from app.graph.nodes._task_token import render_task_token
-from app.graph.state import ActiveTask, OutboundDraft, State
+from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
@@ -56,10 +57,6 @@ async def rejection_node(state: State) -> dict[str, Any]:
             for t in tasks
             if t.get("id", "") != rejected_page_id
         ]
-        # Fields the prompt does not need but an activated alternative carries.
-        properties_by_id: dict[str, dict[str, Any]] = {
-            t.get("id", ""): t.get("properties", {}) or {} for t in tasks
-        }
 
         # Load rejection prompt
         prompt_text = render_with_defaults(
@@ -133,32 +130,24 @@ async def rejection_node(state: State) -> dict[str, Any]:
         if alternative_title:
             draft["notion_page_title"] = alternative_title
 
+        # A rejected task is no longer the one the user is working on. It was
+        # marked In Progress when it was offered, so return it to the queue;
+        # otherwise it stays In Progress with nothing active in the graph.
+        rejected_reset = False
+        if rejected_page_id and active_task and active_task.get("status") == "In Progress":
+            try:
+                await notion.update_status(rejected_page_id, "Pending")
+                rejected_reset = True
+            except Exception:
+                log.exception("rejection_node.reset_status_failed", page_id=rejected_page_id)
+
         # The alternative counts only when it resolves to a named task the node
         # actually offered; an unknown id names nothing. An offered alternative
-        # becomes the active task, exactly as a selection suggestion does, so a
-        # short acceptance ("sure") lands on a task the graph already holds and
-        # later check-ins and completions have their anchor.
-        next_active: ActiveTask | None = None
+        # is a suggestion, not a commitment: it stays Pending and no task is
+        # active until the user accepts it (chat_node performs that transition
+        # from the `suggested` ledger entry).
         offered = _offered_alternative(alternative_id, alternative_title, remaining)
         if offered is not None and alternative_id and alternative_title:
-            try:
-                await notion.update_status(alternative_id, "In Progress")
-            except Exception:
-                log.exception(
-                    "rejection_node.mark_in_progress_failed", notion_page_id=alternative_id
-                )
-            props = properties_by_id.get(alternative_id, {})
-            next_active = ActiveTask(
-                page_id=alternative_id,
-                title=alternative_title,
-                status="In Progress",
-                selected_at=now.isoformat(),
-                work_type=offered["work_type"],
-                urgency=_extract_number(props, "Urgency", 50),
-                time_estimate=offered["time_estimate"],
-                energy_required=_extract_select(props, "Energy Required"),
-                rejection_count=_extract_number(props, "Rejection Count", 0),
-            )
             recent_tasks = record_task_event(
                 recent_tasks,
                 page_id=alternative_id,
@@ -171,12 +160,14 @@ async def rejection_node(state: State) -> dict[str, Any]:
         log.info(
             "rejection_node.alternative",
             alternative_id=alternative_id,
-            activated=next_active is not None,
+            has_alternative=offered is not None,
+            activated=False,
+            rejected_reset=rejected_reset,
         )
         return {
             "pending_outbound": [draft],
-            "active_task": next_active,
-            "conversation_state": "active" if next_active else "selection",
+            "active_task": None,
+            "conversation_state": "selection",
             "recent_tasks": recent_tasks,
         }
 

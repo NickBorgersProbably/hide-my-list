@@ -532,7 +532,8 @@ Writers:
   created a reminder) or the existing page a duplicate matched.
 - **Selection** records `suggested` for the task it offered.
 - **Rejection** records `rejected` for the declined task and `suggested` for
-  the named alternative it offers, which it also makes the active task.
+  the named alternative it offers. The alternative stays Pending and no task
+  is active until the user accepts it.
 - **Complete** records `completed` for the page it resolved.
 - **`hydrate_context`**, the graph's entry node, merges the peer's
   `recent_outbound` rows from the last 7 days at the start of every turn: a
@@ -555,13 +556,20 @@ reach a prompt.
 Chat reads the ledger two ways:
 
 - **"What task?"** When the user asks which task was just discussed, chat
-  names the title of the newest titled ledger entry first, and falls back to
-  the current task only when no titled entry exists.
-- **Acceptance.** When the user accepts a suggestion ("sure", "ok, that one"),
-  chat names the current task. Selection and rejection both make the task
-  they offer the active task, marked In Progress, so the acceptance lands on
-  a task the conversation already holds. Only as a last resort, when there is
-  no current task, chat names the newest `suggested` entry.
+  answers about the newest entry first when it is a reminder delivery
+  (`reminded` or `nudged`), saying "that reminder" when its title is unknown
+  rather than naming an older task. Otherwise it names the title of the
+  newest titled ledger entry, and falls back to the current task only when no
+  titled entry exists.
+- **Acceptance.** When no task is active, the newest ledger entry is a
+  titled `suggested` entry from the last 24 hours, and the whole message is a
+  short affirmative ("sure", "ok", "yes", "sounds good", "ok, that one",
+  "I'll take it"), the intent classifier routes the message to chat without
+  a model call, and chat accepts that suggestion without consulting the
+  model: it marks the page In Progress, makes it the active task, and
+  confirms it by name. This is how a rejection alternative becomes the active task. Any
+  other message goes to the chat model, which names the current task when
+  the user accepts a suggestion and one is set.
 
 ---
 

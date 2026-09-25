@@ -26,14 +26,16 @@ stateDiagram-v2
     ReminderPending --> ReminderSent: Delivered via one-shot cron or safety-net path
     ReminderSent --> Completed: Reminder delivered
 
-    Pending --> Selected: User requests task
+    Pending --> Selected: User requests task (marked in_progress)
     Pending --> Pending: Time passes (urgency static)
 
-    Selected --> InProgress: User accepts
+    Selected --> InProgress: User accepts or starts
     Selected --> Rejected: User rejects
 
     Rejected --> Pending: Rejection recorded
-    Rejected --> Selected: Alternative suggested
+    Rejected --> Alternative: Alternative suggested
+    Alternative --> InProgress: User accepts
+    Alternative --> Pending: User passes again
 
     InProgress --> CheckIn: Check-in window reached
     InProgress --> Completed: User finishes
@@ -62,10 +64,11 @@ stateDiagram-v2
 | Complexity | AI evaluating if task needs breakdown | N/A (not yet saved) |
 | Breakdown | AI creating sub-tasks (hidden from user) | N/A (parent) / `pending` (sub-tasks) |
 | Pending | Task saved, waiting to be selected | `pending` |
-| Selected | Task suggested, awaiting response | `pending` |
+| Selected | Selection suggestion, awaiting response; marked In Progress when offered and is the active task | `in_progress` |
 | In Progress | User actively working | `in_progress` |
 | Check-In | System following up on progress | `in_progress` |
-| Rejected | User declined, giving feedback | `pending` |
+| Rejected | User declined, giving feedback; the task returns to Pending | `pending` |
+| Alternative | Task offered after a rejection, awaiting acceptance; not the active task | `pending` |
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |
 | Cannot Finish | User indicates task too large | `in_progress` (triggers breakdown) |
 | Reminder Pending | Reminder waiting for scheduled time | `pending` (is_reminder=true, reminder_status=pending) |
@@ -351,6 +354,12 @@ flowchart TD
     Select --> Present([Present to user])
 ```
 
+A selection suggestion is marked In Progress in Notion and becomes the active
+task when it is offered. The user's next message then resolves against it
+directly: an immediate "done" reaches completion and its reward without an
+extra acceptance turn, which keeps reward timing tight. When the user rejects
+it, it returns to Pending (Phase 6).
+
 ### Scoring Details
 
 ```mermaid
@@ -582,6 +591,13 @@ flowchart TD
     Complete --> Celebrate([Celebrate completion])
     FindAlt --> Present([Present new task])
 ```
+
+**Task status after a rejection:** the rejected task returns to Pending and
+stops being the active task. An alternative offered in the reply stays Pending
+and no task is active until the user accepts it. A short acceptance ("sure",
+"ok, that one") marks the alternative In Progress and makes it the active
+task. Initiation happens at acceptance: turning an offer into a commitment
+before the user says yes adds pressure at the moment of highest shame risk.
 
 **Rejection Scoring Impact** (see [notion-schema.md](notion-schema.md#rejectioncount-number) for full details):
 - 0 rejections: No penalty

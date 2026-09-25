@@ -162,19 +162,24 @@ task sized to stale capacity sets the user up to stall.
 ### Unknown Selection Guard
 
 A selection counts only when `selected_task_id` names a task in the scored
-list and that task has a non-empty title. Any other id is treated as no
-selection: no task is marked In Progress, no active task is set, nothing is
-recorded in the recent-task ledger, and the user receives a neutral retry
-reply ("Couldn't land on one just now — ask me again in a sec?"). A genuine
-`null` selection, and a reply that writes `{task}` with a `null` selection,
-receive the no-match reply ("Nothing quite fits right now. Want to add
-something quick?").
+list and that task has a non-empty title. Any other id is invalid model
+output. The module asks the model once more with the same prompt plus a
+reminder that `selected_task_id` is either `null` or an exact id from the
+list, and uses that second answer when it is valid. When the second answer is
+also invalid, it is treated as no selection: no task is marked In Progress, no
+active task is set, nothing is recorded in the recent-task ledger, and the
+user receives a neutral reply ("Couldn't land on one just now — ask me again
+in a sec?"). A genuine `null` selection, and a reply that writes `{task}` with
+a `null` selection, receive the no-match reply ("Nothing quite fits right
+now. Want to add something quick?").
 
 Why this design: an id outside the list, or a page with no name, would mark an
-unknown page In Progress and suggest a task the user cannot identify. That
-case is invalid model output, not an empty fit, so the reply invites a retry
-rather than a new task: offering to add a task there grows the list and adds a
-decision the user does not need.
+unknown page In Progress and suggest a task the user cannot identify. The
+internal retry keeps that recovery step off the user, who otherwise has to
+ask again. When the retry also fails, the case is still invalid model output,
+not an empty fit, so the reply invites another request rather than a new
+task: offering to add a task there grows the list and adds a decision the
+user does not need.
 
 
 ---

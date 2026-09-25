@@ -17,39 +17,49 @@ pytestmark = pytest.mark.asyncio
 async def test_rejecting_a_task_offers_a_named_alternative(
     conversation: Conversation,
 ) -> None:
-    """Scenario 4 — reject, then get something else.
+    """Scenario 4 — reject, then get something else, then accept it.
 
-    Three properties. The alternative has to be *named*: an alternative the user
+    Four properties. The alternative has to be *named*: an alternative the user
     cannot identify is the same unactionable message the naming invariant exists
-    to prevent, and it shipped once already. And the rejected task must not be
-    completed — "not this one" is not "done". And a named alternative is the
-    active task afterwards, marked In Progress, so accepting it changes state
-    rather than relying on chat text.
+    to prevent, and it shipped once already. The rejected task must not be
+    completed — "not this one" is not "done" — and it returns to Pending rather
+    than staying In Progress with nothing active. Offering the alternative does
+    not commit the user to it: it stays untouched until they accept. And the
+    acceptance ("sure") is what marks it In Progress and makes it the active
+    task.
     """
-    conversation.notion.seed_task(
+    garage = conversation.notion.seed_task(
         title="Clean out the garage",
         work_type="Independent",
         energy_required="High",
         urgency=95,
         time_estimate=120,
     )
-    conversation.notion.seed_task(
+    email = conversation.notion.seed_task(
         title="Reply to the school email",
         work_type="Independent",
         energy_required="Low",
         urgency=60,
         time_estimate=10,
     )
+    titles = {garage: "garage", email: "school email"}
 
     offer = await conversation.say(
         "give me something to do", expect=Expect(intent="GET_TASK", sent_count=1)
     )
     offered_page = (offer.state.get("active_task") or {}).get("page_id")
-    assert offered_page, "selection_node offered nothing to reject"
+    assert offered_page in titles, "selection_node offered nothing to reject"
+    alternative = email if offered_page == garage else garage
 
     writes_before = conversation.notion.mark()
     rejected = await conversation.say(
-        "not that one", expect=Expect(intent="REJECT", sent_count=1)
+        "not that one",
+        expect=Expect(
+            intent="REJECT",
+            sent_count=1,
+            notion_status={offered_page: "Pending"},
+            notion_untouched=[alternative],
+        ),
     )
 
     completed = {
@@ -61,26 +71,35 @@ async def test_rejecting_a_task_offers_a_named_alternative(
         "a rejected task was marked Completed; declining a suggestion is not "
         "finishing it"
     )
-    assert conversation.notion.status_of(offered_page) != "Completed"
+    # Offering an alternative is not choosing it: nothing is active and the
+    # alternative is still Pending until the user accepts.
+    assert not rejected.state.get("active_task")
+    assert rejected.state.get("conversation_state") == "selection"
+    assert conversation.notion.status_of(alternative) == "Pending"
+    suggested = [
+        entry.get("page_id")
+        for entry in rejected.state.get("recent_tasks") or []
+        if entry.get("event") == "suggested"
+    ]
+    assert suggested[:1] == [alternative], (
+        "the rejection reply did not offer the one remaining task as a named "
+        "alternative"
+    )
 
-    # An alternative the reply names becomes the active task, exactly as a
-    # selection suggestion does, so a short "sure" next turn has an anchor.
-    # Whether the model offers one is its call; the state must match the writes.
-    started = {
-        write.page_id
-        for write in conversation.notion.writes[writes_before:]
-        if write.op == "update_status" and write.payload.get("status") == "In Progress"
-    }
-    active = rejected.state.get("active_task") or {}
-    if active:
-        assert active.get("page_id") != offered_page
-        assert started == {active.get("page_id")}, (
-            "the active alternative was not marked In Progress"
-        )
-        assert rejected.state.get("conversation_state") == "active"
-    else:
-        assert not started, "a page was marked In Progress with no active task"
-        assert rejected.state.get("conversation_state") == "selection"
+    # The alternative was attached to the rejection draft; record it for I3
+    # explicitly so the acceptance write is never read as a stray write.
+    conversation.offered.add(alternative)
+    accepted = await conversation.say(
+        "sure",
+        expect=Expect(
+            intent="CHAT",
+            notion_status={alternative: "In Progress"},
+            sent_count=1,
+            regex_require=[f"(?i){titles[alternative]}"],
+        ),
+    )
+    assert (accepted.state.get("active_task") or {}).get("page_id") == alternative
+    assert accepted.state.get("conversation_state") == "active"
 
 
 async def test_a_task_added_this_turn_can_be_reminded_about(

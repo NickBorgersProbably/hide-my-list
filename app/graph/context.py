@@ -21,6 +21,7 @@ page's title.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -265,6 +266,67 @@ def _as_utc(value: object) -> datetime | None:
     if isinstance(value, datetime):
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return _parse_at(value)
+
+
+# Whole-message replies that accept the task just suggested. Matched after
+# lowercasing and stripping punctuation, against the entire message: anything
+# longer or different ("sure, but later", "ok what else?") goes to the model,
+# so a hedge or a question is never read as a commitment. Entries are stored
+# in normalized form: "let's do it" is "lets do it", "I'll take it" is
+# "ill take it".
+_ACCEPTANCE_PHRASES: frozenset[str] = frozenset({
+    "sure",
+    "ok",
+    "okay",
+    "yes",
+    "yep",
+    "yeah",
+    "fine",
+    "sounds good",
+    "lets do it",
+    "ok lets do it",
+    "do it",
+    "that one",
+    "ok that one",
+    "sure that one",
+    "ill do that",
+    "ill take it",
+})
+
+# A suggestion older than this is not what a bare "sure" is answering.
+_SUGGESTION_MAX_AGE = timedelta(hours=24)
+
+
+def _normalize_reply(text: str) -> str:
+    """Lowercase, drop punctuation (apostrophes included), collapse spaces."""
+    stripped = re.sub(r"[^\w\s]", "", text.lower())
+    return " ".join(stripped.split())
+
+
+def accepted_suggestion(state: State, *, now: datetime) -> RecentTaskEntry | None:
+    """Return the suggestion this message accepts, or None.
+
+    Only when nothing is active, the newest ledger entry is a titled
+    `suggested` event from the last 24 hours, and the whole message is a
+    short affirmative. A rejection alternative stays Pending with no active
+    task, so this is how its acceptance is recognised: `classify_intent`
+    routes such a message to chat without consulting the model, and
+    `chat_node` performs the transition.
+    """
+    if state.get("active_task"):
+        return None
+    if _normalize_reply(state.get("incoming") or "") not in _ACCEPTANCE_PHRASES:
+        return None
+    ledger = prune_recent_tasks(state.get("recent_tasks"), now=now)
+    if not ledger:
+        return None
+    newest = ledger[0]
+    if newest["event"] != "suggested" or not newest["title"]:
+        return None
+    at = _parse_at(newest["at"])
+    if at is None or now - at > _SUGGESTION_MAX_AGE:
+        return None
+    return newest
 
 
 async def hydrate_context(state: State) -> dict[str, Any]:

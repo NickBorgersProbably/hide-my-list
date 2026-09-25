@@ -22,7 +22,7 @@ from typing import Any
 
 import structlog
 
-from app.graph.context import render_history, render_recent_tasks
+from app.graph.context import accepted_suggestion, render_history, render_recent_tasks
 from app.graph.state import Intent, PendingClarification, State
 
 log = structlog.get_logger(__name__)
@@ -199,6 +199,17 @@ async def classify_intent(state: State) -> dict[str, Any]:
     """
     incoming = state.get("incoming", "").strip()
     if not incoming:
+        return _resolve_with_clarification(state, "CHAT")
+
+    # A bare "sure" answering a pending suggestion (a rejection alternative,
+    # which stays Pending with no active task) is an acceptance, and chat_node
+    # performs it. The model has no stable label for a one-word reply, so it
+    # is not consulted. A live clarification takes precedence: its answer
+    # belongs to complete_node.
+    if _live_clarification(state) is None and accepted_suggestion(
+        state, now=datetime.now(UTC)
+    ) is not None:
+        log.info("classify_intent.suggestion_acceptance", has_peer=bool(state.get("peer")))
         return _resolve_with_clarification(state, "CHAT")
 
     try:
