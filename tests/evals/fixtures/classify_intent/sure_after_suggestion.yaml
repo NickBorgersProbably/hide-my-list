@@ -1,0 +1,29 @@
+---
+# "sure" right after a suggestion accepts it. The suggested task is already
+# the user's (selection marked it In Progress when offering it), so this is
+# CHAT — chat confirms the task by name. GET_TASK would offer a second task.
+id: classify-intent-sure-after-suggestion-001
+node: classify_intent
+tier: cheap
+peer: "<test-peer-classify-sure>"
+inbound: "sure"
+prior_state:
+  conversation_state: active
+  active_task:
+    page_id: "<placeholder-page-id-1>"
+    title: "Clean out the garage"
+  messages:
+    - role: user
+      content: "what should I do?"
+    - role: assistant
+      content: "How about Clean out the garage? You've got the energy for it right now."
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Clean out the garage"
+      kind: task
+      event: suggested
+contracts:
+  - kind: regex_require
+    pattern: "CHAT"
+  - kind: regex_forbid
+    pattern: "GET_TASK|ADD_TASK|COMPLETE"

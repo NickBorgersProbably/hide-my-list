@@ -1,0 +1,25 @@
+---
+# "What task?" asks which task the last reply was about. It is a question,
+# answered by chat from the recent-task ledger — never GET_TASK (a new
+# suggestion) or COMPLETE.
+id: classify-intent-what-task-001
+node: classify_intent
+tier: cheap
+peer: "<test-peer-classify-what-task>"
+inbound: "What task?"
+prior_state:
+  messages:
+    - role: user
+      content: "Done!"
+    - role: assistant
+      content: "Conquered! Nice work."
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Take the bins out"
+      kind: reminder
+      event: completed
+contracts:
+  - kind: regex_require
+    pattern: "CHAT"
+  - kind: regex_forbid
+    pattern: "GET_TASK|COMPLETE|ADD_TASK"

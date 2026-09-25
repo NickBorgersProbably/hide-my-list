@@ -67,16 +67,31 @@ and the current message is "I need to do it by Friday", classify as ADD_TASK.
 Rules:
 - If unsure or confidence is low, output CHAT (never guess at a wrong intent)
 - CHECK_IN is NEVER triggered by user messages — it is system-only
+- A past-tense report of something the user did is COMPLETE even when it names
+  something not on the list. "I also paid the bill" reports a finished thing;
+  it never asks to add one.
+- A question about which task was meant ("what task?") is CHAT.
+- Accepting a suggestion ("sure", "ok let's do it") is CHAT, not GET_TASK or
+  ADD_TASK: the suggested task is already theirs.
+- When awaiting clarification is yes and the user says the thing is new and
+  asks to log, add, or track it, that is ADD_TASK.
 - Respond with ONLY the intent label, nothing else
 
 Examples:
 "I need to call the dentist" → ADD_TASK
+"I need to renew the car registration this week" → ADD_TASK
 "I have 30 minutes" → GET_TASK
 "Done!" → COMPLETE
+"I also paid the gas bill!" → COMPLETE
+"finished that one too" → COMPLETE
 "Not that one" → REJECT
 "This is too big" → CANNOT_FINISH
 "How do I start?" → NEED_HELP
 "Hello" → CHAT
+"What task?" → CHAT
+"sure" (right after the assistant suggested a task) → CHAT
+"ok let's do it" (right after the assistant suggested a task) → CHAT
+"no it's new, just log it" (awaiting clarification: yes) → ADD_TASK
 """
 
 

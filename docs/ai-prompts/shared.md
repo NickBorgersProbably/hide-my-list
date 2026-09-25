@@ -148,12 +148,32 @@ follow-ups (deadlines, clarifications, pronouns like "it") as continuations of
 that intent. For example, if the previous turn was the user describing a task
 and the current message is "I need to do it by Friday", classify as ADD_TASK.
 
+Rules:
+- A past-tense report of something the user did is COMPLETE even when it names
+  something not on the list. "I also paid the bill" reports a finished thing;
+  it never asks to add one.
+- A question about which task was meant ("what task?") is CHAT.
+- Accepting a suggestion ("sure", "ok let's do it") is CHAT, not GET_TASK or
+  ADD_TASK: the suggested task is already theirs.
+- When awaiting clarification is yes and the user says the thing is new and
+  asks to log, add, or track it, that is ADD_TASK.
+
 Message: "{user_message}"
 
 Intent:
 ```
 
 **Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Reminder delivery does not write `state["messages"]`. A short reply like "I did it" after a just-sent reminder classifies with that delivery visible in the `Recent tasks:` block above: `hydrate_context` merges the peer's `recent_outbound` rows into the ledger before classification. `classify_intent` itself does not query `recent_outbound`.
+
+A past-tense report of something the user did ("I also paid the gas bill!")
+classifies COMPLETE even when the thing was never on the list; the completion
+module completes the match or asks which task the user means. If the user
+answers that question by saying the thing is new ("no it's new, just log
+it"), the classifier returns ADD_TASK, which drops the open clarification, and
+intake saves the task from the earlier message in the prior conversation.
+Intake carries a backstop for a past-tense report the classifier sent its
+way: it returns `action: "already_done"`, saves nothing, and hands the turn to
+the completion module (see `docs/ai-prompts/intake.md`, ALREADY DONE REPORTS).
 
 ### Cross-Session Reply Resolution
 
@@ -287,6 +307,7 @@ Other shorthand follow-up paths thread matched context as follows:
 | Message | Intent |
 |---------|--------|
 | "I need to call the dentist" | ADD_TASK |
+| "I need to renew the car registration this week" | ADD_TASK |
 | "Remind me to buy groceries" | ADD_TASK |
 | "Remind me at 6pm to call Sarah" | ADD_TASK (with reminder) |
 | "Ping me at 3pm CT to email Melanie" | ADD_TASK (with reminder) |
@@ -294,6 +315,8 @@ Other shorthand follow-up paths thread matched context as follows:
 | "I have 30 minutes" | GET_TASK |
 | "Done!" | COMPLETE |
 | "Finished that one" | COMPLETE |
+| "Finished that one too" | COMPLETE |
+| "I also paid the gas bill!" (never on the list) | COMPLETE |
 | "Not that one" | REJECT |
 | "Something else" | REJECT |
 | "This is too big" | CANNOT_FINISH |
@@ -306,8 +329,11 @@ Other shorthand follow-up paths thread matched context as follows:
 | "What should I do first?" | NEED_HELP |
 | "How does this work?" | CHAT |
 | "Hello" | CHAT |
+| "What task?" | CHAT |
+| "Sure" / "Ok let's do it" right after a suggestion | CHAT |
 | "I did it" after a just-sent reminder | COMPLETE |
 | "Tomorrow at 9am" after a just-sent reminder | ADD_TASK |
+| "No it's new, just log it" while a completion clarification is open | ADD_TASK |
 
 
 ---
@@ -589,10 +615,11 @@ none. Entries older than 7 days are pruned and the ledger holds at most 8.
 
 The ledger reaches prompts as one line per entry — title (or `(untitled)`),
 `[reminder]` for a reminder, the event, and a relative age — under
-`Recent tasks:` in the intent classifier and `### Recent Tasks` in the chat
-prompt. Each title is flattened to a single line and capped at 120
-characters, so one entry is always exactly one rendered line. Page ids never
-reach a prompt.
+`Recent tasks:` in the intent classifier and `### Recent Tasks` in the chat,
+rejection, cannot-finish, and breakdown prompts; the last three also carry the
+last 8 messages under `### Prior Conversation`. Each title is flattened to a
+single line and capped at 120 characters, so one entry is always exactly one
+rendered line. Page ids never reach a prompt.
 
 Chat reads the ledger to answer **"what task?"**: when the user asks which
 task was just discussed, chat finds the newest ledger entry that is not
@@ -601,6 +628,9 @@ word for word. When that entry is untitled, chat says it is not sure which
 task the user means and asks them to name it. When every entry is `rejected`,
 or the ledger is empty, chat names the current task, or asks when there is
 none.
+
+With no active task, breakdown help (NEED_HELP) is about the newest titled
+entry whose event is `added` or `suggested`.
 
 ---
 
