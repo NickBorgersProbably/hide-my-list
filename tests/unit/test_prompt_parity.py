@@ -180,3 +180,16 @@ def test_shared_template_prior_conversation_contract() -> None:
     assert "RECENT_OUTBOUND_CONTEXT" not in rendered, (
         "obsolete RECENT_OUTBOUND_CONTEXT anchor must not appear in shared.md.j2"
     )
+
+def test_chat_template_structural_anchors() -> None:
+    """chat.md.j2 must contain the required section anchors and task-recall instruction."""
+    rendered = _render_template_with_empty_context("chat.md.j2")
+    required = [
+        "### Recent Tasks",
+        "### Which task?",
+        "Recent Tasks",
+    ]
+    missing = [anchor for anchor in required if anchor not in rendered]
+    assert not missing, (
+        "chat.md.j2 missing required anchors: " + ", ".join(missing)
+    )

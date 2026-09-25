@@ -507,7 +507,7 @@ stateDiagram-v2
 
 The checkpoint carries `recent_tasks`: the tasks this conversation touched
 recently, newest first. It is the conversation's working memory of "the task
-we just talked about", so a short follow-up — "done!", "what task?", "sure" —
+we just talked about", so a short follow-up — "what task?", "sure" —
 has something to anchor to even when the previous reply did not repeat the
 title.
 
@@ -548,8 +548,9 @@ discussed, chat answers with the title of the newest entry.
 
 `turn_actions` records what the nodes did during the current turn
 (`notion.create_task`, `notion.create_reminder`, `notion.update_status`,
-`notion.update_property`, `suggest`, `reward`, `clarify`, each with its page
-id). `hydrate_context` resets it at the start of every turn.
+`notion.update_property`, `suggest`, `reward`, `clarify`), each with its page
+id when applicable (`clarify` uses null). `hydrate_context` resets it at the
+start of every turn.
 
 ---
 

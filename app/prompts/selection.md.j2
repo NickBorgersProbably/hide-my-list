@@ -22,9 +22,9 @@ Recent conversation:
 
 When available time or mood says "not stated", read them from the user's
 message and the recent conversation ("I've got 2 hours", "I'm wiped",
-"feeling sharp"). Use what the user said over any default. If the message
-does not say how much time they have, assume 30 minutes; if it does not say
-how they feel, treat mood as neutral.
+"feeling sharp"). Use what the user said. If the message does not say how
+much time they have, leave available time as not stated and skip time-fit
+scoring; if it does not say how they feel, treat mood as neutral.
 
 ### Pending Tasks
 
@@ -70,6 +70,10 @@ yourself; the application substitutes the exact selected title. Never refer to
 the task only by attribute ("this focus task", "this 30-minute task").
 
 ### Output Format (JSON)
+
+`selected_task_id` MUST be null or exactly match an id from Pending Tasks
+whose title is non-empty. If no such task fits, return null, explain why in
+`user_message`, and MUST NOT use `{task}` in `user_message`.
 
 {
   "selected_task_id": "...",

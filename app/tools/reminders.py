@@ -162,3 +162,23 @@ async def mark_dead(
         """,
         (error, str(reminder_id)),
     )
+
+
+async def fetch_recent_outbound(peer: str, max_age_seconds: float) -> list[dict[str, Any]]:
+    """Return recent_outbound rows for *peer* sent within the last max_age_seconds."""
+    from app.tools.db import get_db_conn
+
+    async with get_db_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT notion_page_id, reminder_type, sent_at
+                  FROM recent_outbound
+                 WHERE peer = %s
+                   AND sent_at > now() - make_interval(secs => %s)
+                 ORDER BY sent_at ASC, signal_timestamp ASC
+                """,
+                (peer, max_age_seconds),
+            )
+            rows = await cur.fetchall()
+    return [dict(row) for row in rows]

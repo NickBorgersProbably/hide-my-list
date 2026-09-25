@@ -261,25 +261,6 @@ def render_history(
     return "\n".join(lines) if lines else _NO_HISTORY
 
 
-async def _load_recent_outbound(peer: str) -> list[dict[str, Any]]:
-    from app.tools.db import get_db_conn
-
-    async with get_db_conn() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                SELECT notion_page_id, reminder_type, sent_at
-                  FROM recent_outbound
-                 WHERE peer = %s
-                   AND sent_at > now() - make_interval(secs => %s)
-                 ORDER BY sent_at ASC, signal_timestamp ASC
-                """,
-                (peer, LEDGER_MAX_AGE.total_seconds()),
-            )
-            rows = await cur.fetchall()
-    return [dict(row) for row in rows]
-
-
 def _as_utc(value: object) -> datetime | None:
     if isinstance(value, datetime):
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
@@ -311,7 +292,9 @@ async def hydrate_context(state: State) -> dict[str, Any]:
         return {"recent_tasks": ledger, "turn_actions": []}
 
     try:
-        rows = await _load_recent_outbound(peer)
+        from app.tools.reminders import fetch_recent_outbound
+
+        rows = await fetch_recent_outbound(peer, LEDGER_MAX_AGE.total_seconds())
         merged = ledger
         for row in rows:
             page_id = str(row.get("notion_page_id") or "")
