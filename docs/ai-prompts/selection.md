@@ -35,9 +35,19 @@ flowchart TD
 Select the best task for the user based on their current context.
 
 USER CONTEXT:
-- Available time: {available_minutes} minutes
-- Current mood: {mood} (maps to: {preferred_work_type})
+- Available time (minutes): {available_minutes, or "not stated"}
+- Current mood: {mood, or "not stated"} (maps to: {preferred_work_type})
 - Time of day: {time_of_day}
+
+User's message: "{user_message}"
+
+Recent conversation:
+{conversation_context}
+
+When available time or mood says "not stated", read them from the user's
+message and the recent conversation. Use what the user said over any
+default. If the message does not say how much time they have, assume 30
+minutes; if it does not say how they feel, treat mood as neutral.
 
 PENDING TASKS:
 {tasks_json}
@@ -128,6 +138,27 @@ cannot drift.
 
 The bracketed slots that remain (`[time]`, `[mood]`, `[urgency level]`) are
 prose the module writes itself.
+
+### User Context Inputs
+
+The selection prompt receives the incoming message and the last 8 messages of
+conversation history alongside the scored task list. Available time and mood
+come from state when a node has set them; otherwise the prompt shows "not
+stated" and the module reads both from what the user wrote ("I've got 2
+hours", "I'm wiped"), because a fabricated default excludes tasks that fit
+the time the user actually has.
+
+### Unknown Selection Guard
+
+A selection counts only when `selected_task_id` names a task in the scored
+list and that task has a non-empty title. Any other id is treated as no
+selection: no task is marked In Progress, no active task is set, nothing is
+recorded in the recent-task ledger, and the user receives the no-match reply
+("Nothing quite fits right now. Want to add something quick?"). A reply that
+writes `{task}` without a selected task gets the same no-match reply.
+
+Why this design: an id outside the list, or a page with no name, would mark an
+unknown page In Progress and suggest a task the user cannot identify.
 
 
 ---

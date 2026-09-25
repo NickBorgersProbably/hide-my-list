@@ -4,10 +4,12 @@ Uses medium-tier LLM to provide brief, helpful responses.
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
+from app.graph.context import render_history, render_recent_tasks
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -23,20 +25,21 @@ async def chat_node(state: State) -> dict[str, Any]:
         from app.models import llm
         from app.prompts.loader import render_with_defaults
 
-        # Build conversation context from message history
         messages_history: list[AnyMessage] = state.get("messages", [])
-        context_lines: list[str] = []
-        for msg in messages_history[-5:]:  # Last 5 messages for context
-            role = getattr(msg, "type", "message")
-            content = str(getattr(msg, "content", ""))
-            context_lines.append(f"{role}: {content[:200]}")
-        conversation_context = "\n".join(context_lines) if context_lines else "No prior context."
+        conversation_context = render_history(messages_history)
+        # The ledger is what lets "what task?" be answered after a reply that
+        # did not repeat the title; the active task covers "is that mine now?".
+        recent_tasks = render_recent_tasks(state.get("recent_tasks"), now=datetime.now(UTC))
+        active_task = state.get("active_task") or {}
+        active_task_title = (active_task.get("title") or "").strip() or "None"
 
         prompt_text = render_with_defaults(
             "chat.md.j2",
             {
                 "user_message": incoming,
                 "conversation_context": conversation_context,
+                "recent_tasks": recent_tasks,
+                "active_task_title": active_task_title,
             },
         )
 

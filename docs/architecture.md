@@ -81,10 +81,20 @@ The app container runs four concurrent async tasks:
    isolation. Typing stop is scheduled after graph completion or graph error;
    queue overflow sends one visible reply to the authorized sender.
 
-2. **LangGraph graph** (`app/graph/graph.py`) — Eight intent nodes (`ADD_TASK`,
-   `GET_TASK`, `COMPLETE`, `REJECT`, `CANNOT_FINISH`, `CHECK_IN`, `NEED_HELP`,
-   `CHAT`) with deterministic conditional edges. `PostgresSaver` checkpoints
+2. **LangGraph graph** (`app/graph/graph.py`) — Every turn enters at
+   `hydrate_context`, which merges the peer's recent reminder deliveries
+   (`recent_outbound`, last 7 days) into the checkpointed recent-task ledger and
+   resets the turn's action log, then flows to `classify_intent`. The
+   classifier routes to one of eight intent nodes (`ADD_TASK`, `GET_TASK`,
+   `COMPLETE`, `REJECT`, `CANNOT_FINISH`, `CHECK_IN`, `NEED_HELP`, `CHAT`) with
+   deterministic conditional edges, and every intent node flows to the terminal
+   `send` node. `hydrate_context` is fail-soft: a Postgres error keeps the
+   existing ledger and the turn continues. `PostgresSaver` checkpoints
    conversation state per peer.
+
+   ```
+   hydrate_context → classify_intent → <intent node> → send → END
+   ```
 
 3. **APScheduler** (`app/scheduler/scheduler.py`) — Declarative job list
    (`app/scheduler/jobs.py`) with `PostgresJobStore`. Orphan reconciliation on

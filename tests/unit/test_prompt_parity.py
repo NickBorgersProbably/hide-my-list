@@ -94,6 +94,10 @@ def _render_template_with_empty_context(template_name: str) -> str:
         "inline_steps": "1. Step one\n2. Step two",
         "conversation_history": "",
         "clarification_count": 0,
+        "recent_tasks": "None yet.",
+        "active_task_title": "None",
+        "conversation_state": "idle",
+        "awaiting_clarification": "no",
     }
     return render(template_name, context)
 

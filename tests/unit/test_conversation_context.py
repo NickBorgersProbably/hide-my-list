@@ -145,3 +145,80 @@ class TestClassifyIntentUsesHistory:
 
         human_content = captured["msgs"][1].content
         assert "No prior context." in human_content
+        assert "Recent tasks:\nNone yet." in human_content
+        assert "Conversation state: idle; awaiting clarification: no" in human_content
+
+    @pytest.mark.asyncio
+    async def test_ledger_and_clarification_state_appear_in_classifier_prompt(self) -> None:
+        """The classifier sees what the last turns did, not only what was said."""
+        from datetime import UTC, datetime
+
+        from app.graph import routing
+
+        captured: dict[str, Any] = {}
+
+        class _FakeResp:
+            content = "CHAT"
+
+        class _FakeModel:
+            async def ainvoke(self, msgs: list[Any]) -> Any:
+                captured["msgs"] = msgs
+                return _FakeResp()
+
+        def _fake_llm(_tier: str, **_kwargs: Any) -> Any:
+            return _FakeModel()
+
+        now = datetime.now(UTC).isoformat()
+        state = _base_state(
+            incoming="what task?",
+            conversation_state="active",
+            recent_tasks=[{
+                "page_id": "<page-id>",
+                "title": "Take the bins out",
+                "kind": "reminder",
+                "event": "added",
+                "at": now,
+            }],
+            pending_clarification={
+                "kind": "complete_target",
+                "asked_at": now,
+                "attempts": 1,
+                "candidates": [],
+            },
+        )
+
+        with patch("app.models.llm", new=_fake_llm):
+            await routing.classify_intent(state)
+
+        human_content = captured["msgs"][1].content
+        assert "Recent tasks:" in human_content
+        assert "Take the bins out" in human_content
+        assert "[reminder]" in human_content
+        assert "<page-id>" not in human_content
+        assert "Conversation state: active; awaiting clarification: yes" in human_content
+
+    @pytest.mark.asyncio
+    async def test_history_window_is_eight_messages(self) -> None:
+        from app.graph import routing
+
+        captured: dict[str, Any] = {}
+
+        class _FakeResp:
+            content = "CHAT"
+
+        class _FakeModel:
+            async def ainvoke(self, msgs: list[Any]) -> Any:
+                captured["msgs"] = msgs
+                return _FakeResp()
+
+        def _fake_llm(_tier: str, **_kwargs: Any) -> Any:
+            return _FakeModel()
+
+        prior = [HumanMessage(content=f"turn-{i}") for i in range(10)]
+        with patch("app.models.llm", new=_fake_llm):
+            await routing.classify_intent(_base_state(incoming="ok", messages=prior))
+
+        human_content = captured["msgs"][1].content
+        assert "turn-1\n" not in human_content
+        assert "user: turn-2" in human_content
+        assert "user: turn-9" in human_content

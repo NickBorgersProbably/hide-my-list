@@ -48,9 +48,10 @@ The Python/LangGraph application. Safe to edit via PRs.
 - `app/tools/ops_alerts.py` — Ops alert enqueue + drain
 - `app/tools/time_context.py` — Timezone helper
 - `app/tools/db.py` — Postgres connection + migration runner
-- `app/graph/state.py` — LangGraph State TypedDict; `pending_clarification` is absent on checkpoints written before it existed, so readers use `.get()`
-- `app/graph/graph.py` — LangGraph graph definition
-- `app/graph/routing.py` — Intent classification + conditional edges; owns the `pending_clarification` lifecycle, since it is the one node that runs every turn. A live clarification steers a CHAT- or COMPLETE-classified message to `complete_node` as the answer; any other intent, an expired timestamp, or malformed state drops it
+- `app/graph/state.py` — LangGraph State TypedDict; `pending_clarification`, `recent_tasks`, and `turn_actions` are absent on checkpoints written before they existed, so readers use `.get()`
+- `app/graph/graph.py` — LangGraph graph definition; entry point `hydrate_context` → `classify_intent` → intent node → `send`
+- `app/graph/context.py` — Recent-task ledger and shared prompt context. intake, selection, complete, and rejection write the ledger only through `record_task_event` / `record_turn_action` (dedupe by page, newest wins, known title kept, 7-day prune, cap 8); `render_history` (8 messages × 400 chars) and `render_recent_tasks` render prompt blocks; `hydrate_context` is the graph entry node that merges the peer's recent `recent_outbound` deliveries as `reminded`/`nudged` entries and resets `turn_actions`. Fail-soft: a DB error keeps the existing ledger and never reaches the classifier's error fallback
+- `app/graph/routing.py` — Intent classification + conditional edges; owns the `pending_clarification` lifecycle, since it is the one node that runs every turn. The classify prompt carries the prior-conversation window, the `Recent tasks:` ledger block, and a conversation-state / awaiting-clarification line. A live clarification steers a CHAT- or COMPLETE-classified message to `complete_node` as the answer; any other intent, an expired timestamp, or malformed state drops it
 - `app/graph/nodes/intake.py` — ADD_TASK intent node
 - `app/graph/nodes/selection.py` — GET_TASK intent node
 - `app/graph/nodes/chat.py` — CHAT intent node

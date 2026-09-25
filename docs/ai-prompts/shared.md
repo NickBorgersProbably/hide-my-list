@@ -135,8 +135,13 @@ Categories:
 - CHECK_IN: System-initiated follow-up (triggered by APScheduler `check_in_dispatcher`, not by a user message)
 - CHAT: General conversation or questions
 
-Prior conversation (last ~5 turns from conversation history):
+Prior conversation (last 8 messages from conversation history, 400 characters each):
 {prior_conversation}
+
+Recent tasks:
+{recent_tasks}
+
+Conversation state: {conversation_state}; awaiting clarification: {yes|no}
 
 If the prior conversation shows an in-progress task discussion, treat short
 follow-ups (deadlines, clarifications, pronouns like "it") as continuations of
@@ -497,6 +502,54 @@ stateDiagram-v2
 | Selection | Current task context |
 | Active | Active task ID, start time, check-in count |
 | CheckingIn | Active task ID, elapsed time, check-in count |
+
+### Recent Task Ledger
+
+The checkpoint carries `recent_tasks`: the tasks this conversation touched
+recently, newest first. It is the conversation's working memory of "the task
+we just talked about", so a short follow-up — "done!", "what task?", "sure" —
+has something to anchor to even when the previous reply did not repeat the
+title.
+
+Each entry holds:
+
+| Field | Meaning |
+|-------|---------|
+| `page_id` | Notion page the event is about |
+| `title` | The stored task title, or empty when the entry came from a reminder delivery the ledger had not seen before. Never a sent message body. |
+| `kind` | `task` or `reminder` |
+| `event` | `added`, `suggested`, `completed`, `reminded`, `nudged`, or `rejected` |
+| `at` | ISO-8601 UTC time of the event |
+
+Writers:
+
+- **Intake** records `added` for the page it created (kind `reminder` when it
+  created a reminder) or the existing page a duplicate matched.
+- **Selection** records `suggested` for the task it offered.
+- **Rejection** records `rejected` for the declined task and `suggested` for
+  the named alternative it offers.
+- **Complete** records `completed` for the page it resolved.
+- **`hydrate_context`**, the graph's entry node, merges the peer's
+  `recent_outbound` rows from the last 7 days at the start of every turn: a
+  reminder delivery becomes `reminded`, a deadline delivery becomes `nudged`.
+  A merged entry keeps the title the ledger already has for that page and is
+  otherwise untitled. A Postgres error keeps the existing ledger and the turn
+  continues.
+
+Rules: one entry per page, and the newest event wins — an older event never
+replaces a newer one, and a known title is kept when the newer event carries
+none. Entries older than 7 days are pruned and the ledger holds at most 8.
+
+The ledger reaches prompts as one line per entry — title (or `(untitled)`),
+`[reminder]` for a reminder, the event, and a relative age — under
+`Recent tasks:` in the intent classifier and `### Recent Tasks` in the chat
+prompt. Page ids never reach a prompt. When the user asks which task was just
+discussed, chat answers with the title of the newest entry.
+
+`turn_actions` records what the nodes did during the current turn
+(`notion.create_task`, `notion.create_reminder`, `notion.update_status`,
+`notion.update_property`, `suggest`, `reward`, `clarify`, each with its page
+id). `hydrate_context` resets it at the start of every turn.
 
 ---
 

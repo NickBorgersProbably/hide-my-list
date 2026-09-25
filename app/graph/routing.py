@@ -22,6 +22,7 @@ from typing import Any
 
 import structlog
 
+from app.graph.context import render_history, render_recent_tasks
 from app.graph.state import Intent, PendingClarification, State
 
 log = structlog.get_logger(__name__)
@@ -207,23 +208,27 @@ async def classify_intent(state: State) -> dict[str, Any]:
 
         model = llm("cheap", caller="classify")
 
-        # Pull a small window of prior turns so short follow-ups can resolve
-        # against the active discussion (e.g. "by Friday" after an ADD_TASK turn).
-        # State.messages is populated by the terminal send node.
+        # Windowed prior turns let short follow-ups resolve against the active
+        # discussion (e.g. "by Friday" after an ADD_TASK turn). State.messages
+        # is populated by the terminal send node. The recent-task ledger and
+        # the conversation state tell the classifier what the last few turns
+        # did, which the message text alone does not always say.
         messages_history: list[AnyMessage] = state.get("messages", [])
-        context_lines = [
-            f"{getattr(m, 'type', 'message')}: {str(getattr(m, 'content', ''))[:200]}"
-            for m in messages_history[-5:]
-        ]
-        prior_context = (
-            "\n".join(context_lines) if context_lines else "No prior context."
+        prior_context = render_history(messages_history)
+        recent_tasks = render_recent_tasks(
+            state.get("recent_tasks"), now=datetime.now(UTC)
         )
+        awaiting = "yes" if _live_clarification(state) is not None else "no"
+        conversation_state = state.get("conversation_state") or "idle"
 
         messages = [
             SystemMessage(content=_INTENT_SYSTEM_PROMPT),
             HumanMessage(
                 content=(
                     f"Prior conversation:\n{prior_context}\n\n"
+                    f"Recent tasks:\n{recent_tasks}\n\n"
+                    f"Conversation state: {conversation_state}; "
+                    f"awaiting clarification: {awaiting}\n\n"
                     f"Current message: {incoming!r}"
                 )
             ),
