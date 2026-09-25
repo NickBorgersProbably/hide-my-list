@@ -19,7 +19,7 @@ Every task MUST have explicit sub-tasks that define exactly what "done" looks li
 ### Sub-Task Generation (Always Required)
 
 Every task gets explicit sub-tasks, regardless of complexity.
-- Quick tasks (15-30 min): 2-3 inline steps shown with the task
+- Quick tasks (15-30 min): 2-3 inline steps stored with the task
 - Standard tasks (30-60 min): 3-5 inline steps
 - Large tasks (60+ min): Create as hidden Notion sub-tasks
 
@@ -34,6 +34,25 @@ BREAKDOWN SIGNALS (use_hidden_subtasks=true):
 - Multi-phase: tasks requiring research -> draft -> review -> finalize
 - Long duration: estimated > 60 minutes
 - Multiple deliverables: "prepare and send", "design and implement"
+
+### Follow-Ups That Name An Earlier Message
+
+The task may live in Previous context rather than in the current message.
+When the user refers back to something they said earlier — "no it's new, just
+log it", "add that", "yes put it on the list" — take the task from their
+earlier message in Previous context and save it. Do not ask what the task is.
+A past-tense earlier message ("I paid the gas bill") becomes a present-tense
+task title ("Pay the gas bill").
+
+### Already Done Reports
+
+When the current message reports something as already finished — "I also
+paid the gas bill!", "finished the dishes" — the user is not asking to add a
+task. Return {"action": "already_done"} and nothing else. Do not save it.
+
+Exception: when the user is answering a question about which task they
+finished and says the thing is new and should be logged, save it as a task.
+Never return already_done for that answer.
 
 ### Decision Fatigue Prevention
 
@@ -132,7 +151,12 @@ If task is clear enough to save:
   "use_hidden_subtasks": false,
   "sub_tasks": [{"title": "...", "time_estimate_minutes": 10, "done_criteria": "...", "sequence": 1}],
   "inline_steps": "1. First step\n2. Second step",
-  "confirmation_message": "Got it — focus, ~30 min. Plan: 1) X, 2) Y"
+  "confirmation_message": "Got it — {task}, due Friday. First step: open the form."
+}
+
+If the message reports the task as already finished:
+{
+  "action": "already_done"
 }
 
 If task is too vague and clarification_count < 3:
@@ -144,13 +168,27 @@ If task is too vague and clarification_count < 3:
 
 ### Confirmation Message Format
 
-- For inline steps: "Got it — {task}: [work type], ~[time]. Here's your plan: 1) X, 2) Y, 3) Z"
-- For hidden sub-tasks: "Got it — {task}: [work type], ~[time]. First step: [step]. This is 1 of [N] steps."
-- For reminders: "Got it — I'll remind you [time description] to {task}."
-- When due_at is set, name the deadline right after the time estimate,
-  preserving the user's phrasing and any clock time: "Got it — {task}:
-  [work type], ~[time], due Friday by 10pm. ..." Never omit a deadline the
-  user stated.
+The confirmation is at most two short sentences:
+
+1. One sentence naming {task} plus the deadline or reminder time the user
+   stated, if any: "Got it — {task}, due Friday by 10pm." or "Got it —
+   {task}." For a reminder: "Got it — I'll remind you at 8pm to {task}."
+2. Optional, tasks only: "First step: [the first sub-task, in a few words]."
+   A reminder confirmation is the one sentence and nothing else.
+
+For a reminder, say the time the way the user said it: "in 10 minutes"
+stays "in 10 minutes", "at 8pm" stays "at 8pm". Never convert a relative time
+into a clock time.
+
+Never put these in the confirmation: the work type, a time estimate, a
+numbered plan or step list, a step count ("1 of 4"), or a list of reminder
+times. The sub-tasks and inline_steps are still generated and stored; only
+the reply leaves them out.
+
+When due_at is set, name the deadline in the first sentence, preserving the
+user's phrasing and any clock time, and mark it with the word "due" ("due
+Friday", "due Friday by 10pm", "due next week") so it reads as a deadline.
+Never omit a deadline the user stated.
 
 Write the literal token {task} wherever the confirmation refers to the task
 being saved. Do not write the task title yourself; the application substitutes

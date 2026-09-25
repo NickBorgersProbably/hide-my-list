@@ -1,0 +1,37 @@
+---
+# A past-tense report that reached intake is not a new task. The model returns
+# action "already_done" and intake hands the turn to the completion module,
+# which completes the match or asks which task was meant. It never answers
+# with a save confirmation — those always carry the {task} token.
+id: intake-already-done-handoff-001
+node: intake
+tier: medium
+peer: "<test-peer-intake-already-done>"
+inbound: "I also paid the gas bill!"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  messages: []
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Book the dentist"
+    status: Pending
+    is_reminder: false
+  - id: "<placeholder-page-id-2>"
+    title: "Email the landlord about the lease"
+    status: Pending
+    is_reminder: false
+contracts:
+  - kind: regex_forbid
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)(added|saved|on your list|got it —)"
+  - kind: judge
+    rubric: |
+      The user reported paying a bill. The reply must not confirm adding or
+      saving a new task. Score 1.0 when it treats the bill as already done
+      (acknowledges it, or asks which task it was / whether it is new). Score
+      0.0 when it says the task was added, saved, or put on the list.
+    threshold: 0.8

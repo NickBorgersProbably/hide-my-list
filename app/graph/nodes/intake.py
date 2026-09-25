@@ -6,6 +6,8 @@ Ports docs/ai-prompts/intake.md (464 lines) behavior:
 - Reminder detection (wall-clock time → outbox row)
 - Clarification flow (max 3 questions)
 - Reschedule from recent_outbound context
+- Already-done handoff: a message that reports the task as finished is not
+  saved; the node hands the turn to complete_node instead
 
 When a reminder is detected:
 - Creates Notion row via app/tools/notion.create_reminder()
@@ -25,7 +27,7 @@ from typing import Any, cast
 
 import structlog
 
-from app.graph.context import record_task_event
+from app.graph.context import record_task_event, render_history
 from app.graph.nodes._task_match import (
     DedupCandidate,
     open_non_reminder_tasks,
@@ -66,13 +68,9 @@ async def intake_node(state: State) -> dict[str, Any]:
         user_prefs = state.get("user_prefs", {})
         messages_history: list[AnyMessage] = state.get("messages", [])
 
-        # Build conversation history summary
-        history_lines = []
-        for msg in messages_history[-6:]:
-            role = getattr(msg, "type", "message")
-            content = str(getattr(msg, "content", ""))
-            history_lines.append(f"{role}: {content[:200]}")
-        conversation_history = "\n".join(history_lines) or "No prior context."
+        # The shared window lets a follow-up such as "no it's new, just log
+        # it" name the task from the user's earlier message.
+        conversation_history = render_history(messages_history)
 
         # Get time context in user's timezone
         time_ctx = get_time_context("now")
@@ -112,6 +110,16 @@ async def intake_node(state: State) -> dict[str, Any]:
             # success: preserve capture, alert the operator, tell the truth.
             return await _handle_parse_failure(peer=peer, incoming=incoming, state=state)
 
+        if parsed.get("action") == "already_done":
+            # The classifier is the first line for past-tense reports; this is
+            # the backstop. Nothing is saved: the message reports a finished
+            # task, so completion owns the turn. No topology change — the node
+            # delegates in-process and returns complete_node's update as its own.
+            from app.graph.nodes.complete import complete_node
+
+            log.info("intake_node.already_done_handoff", has_peer=bool(peer))
+            return await complete_node(state)
+
         if parsed.get("action") == "clarify":
             question = parsed.get("clarification_question", "Which task are you thinking of?")
             clarify_draft: OutboundDraft = {
@@ -146,7 +154,14 @@ async def intake_node(state: State) -> dict[str, Any]:
         inline_steps = parsed.get("inline_steps", "")
         use_hidden_subtasks = bool(parsed.get("use_hidden_subtasks", False)) and not is_reminder
         sub_tasks = parsed.get("sub_tasks", [])
-        confirmation_message = parsed.get("confirmation_message", f"Got it — {work_type}, ~{time_estimate} min.")
+        # The fallback names the task (send_node substitutes {task}) and nothing
+        # else: no work-type label, no estimate.
+        raw_confirmation = parsed.get("confirmation_message")
+        confirmation_message = (
+            raw_confirmation.strip()
+            if isinstance(raw_confirmation, str) and raw_confirmation.strip()
+            else "Got it — {task}."
+        )
 
         log.info(
             "intake_node.parsed",

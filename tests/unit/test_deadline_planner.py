@@ -110,11 +110,24 @@ def test_fallback_when_every_bucket_is_full() -> None:
     assert assigned == ideal
 
 
-def test_format_reminder_summary_is_chronological() -> None:
+def test_format_reminder_summary_names_only_the_earliest_slot() -> None:
+    # Slots arrive in planner order, not time order; the summary still picks
+    # the earliest one and names no other.
     slots = [
         ("1d", _dt(2026, 6, 4, 14)),
         ("3d", _dt(2026, 6, 3, 17)),
         ("4h", _dt(2026, 6, 4, 13)),
     ]
 
-    assert format_reminder_summary(slots, _TZ) == "I'll ping you Wed noon, Thu 8am, and Thu 9am."
+    summary = format_reminder_summary(slots, _TZ)
+
+    assert summary == "First nudge Wed noon."
+    assert "Thu" not in summary
+
+
+def test_format_reminder_summary_single_slot() -> None:
+    assert format_reminder_summary([("4h", _dt(2026, 6, 4, 13))], _TZ) == "First nudge Thu 8am."
+
+
+def test_format_reminder_summary_empty() -> None:
+    assert format_reminder_summary([], _TZ) == ""

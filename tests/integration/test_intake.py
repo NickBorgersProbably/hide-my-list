@@ -20,6 +20,7 @@ from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
+from structlog.testing import capture_logs
 
 from app.graph.state import State
 from app.scheduler.reminder_scheduling import schedule_for_task as _real_schedule_for_task
@@ -358,7 +359,11 @@ async def test_deadline_task_schedules_inline_series() -> None:
         title="Placeholder deadline task",
     )
     mark_scheduled.assert_awaited_once_with(page_id)
-    assert "I'll ping you" in result["pending_outbound"][0]["body"]
+    # One scheduled slot is summarized as the first nudge, appended to the
+    # model's confirmation. The whole-schedule "I'll ping you ..." list is gone.
+    body = result["pending_outbound"][0]["body"]
+    assert body.startswith("Got it — focus, ~45 min. First nudge ")
+    assert "I'll ping you" not in body
 
 
 @pytest.mark.asyncio
@@ -942,3 +947,171 @@ async def test_unparseable_output_with_notion_down_does_not_claim_capture() -> N
     assert "again" in body
     # The operator still hears about it, via the node-level error alert.
     assert "intake_node_error" in alert_kinds
+
+
+# ---------------------------------------------------------------------------
+# Already-done handoff and confirmation shape
+# ---------------------------------------------------------------------------
+
+
+def _model_returning(content: str) -> AsyncMock:
+    response = MagicMock()
+    response.content = content
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=response)
+    return model
+
+
+@pytest.mark.asyncio
+async def test_already_done_hands_the_turn_to_complete_node() -> None:
+    """`action: already_done` saves nothing and returns complete_node's update.
+
+    A past-tense report that reached intake is not a new task. The node must
+    not create a page; it delegates the same state to complete_node and
+    returns that node's update unchanged.
+    """
+    from app.graph.nodes import intake as intake_module
+
+    complete_update = {
+        "pending_outbound": [
+            {"recipient": "<test-peer-1>", "body": "Complete reply", "notion_page_id": None}
+        ]
+    }
+    complete_node = AsyncMock(return_value=complete_update)
+    create_task = AsyncMock()
+    create_reminder = AsyncMock()
+    state = _base_state(incoming="I also paid the placeholder bill!")
+
+    with (
+        patch("app.models.llm", return_value=_model_returning('{"action": "already_done"}')),
+        patch("app.graph.nodes.complete.complete_node", complete_node),
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.tools.notion.create_reminder", create_reminder),
+        capture_logs() as logs,
+    ):
+        result = await intake_module.intake_node(state)
+
+    complete_node.assert_awaited_once()
+    assert complete_node.await_args is not None
+    assert complete_node.await_args.args == (state,)
+    assert result is complete_update
+    create_task.assert_not_awaited()
+    create_reminder.assert_not_awaited()
+    events = [entry["event"] for entry in logs]
+    assert "intake_node.already_done_handoff" in events
+    assert "intake_node.saved" not in events
+
+
+@pytest.mark.asyncio
+async def test_deadline_confirmation_names_only_the_first_nudge() -> None:
+    """Three scheduled slots add one sentence naming the earliest, nothing more.
+
+    The body is the model's one-sentence confirmation plus "First nudge <time>."
+    — never a list of every slot, a time estimate, or a numbered plan.
+    """
+    page_id = str(uuid.uuid4())
+    confirmation = "Got it — {task}, due Saturday. First step: open the form."
+    task_response = _llm_save_response(
+        title="Placeholder deadline task",
+        due_at="2026-06-06T17:00:00-05:00",
+        confirmation=confirmation,
+    )
+    slots = [
+        type("Scheduled", (), {"label": label, "assigned_at": at})()
+        for label, at in [
+            ("1d", datetime(2026, 6, 5, 22, 0, tzinfo=UTC)),
+            ("3d", datetime(2026, 6, 3, 17, 0, tzinfo=UTC)),
+            ("4h", datetime(2026, 6, 6, 18, 0, tzinfo=UTC)),
+        ]
+    ]
+
+    class FakeCtx:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    with (
+        patch("app.models.llm", return_value=_model_returning(task_response)),
+        patch(
+            "app.tools.notion.create_task",
+            AsyncMock(return_value=_make_notion_page(page_id=page_id)),
+        ),
+        patch("app.tools.notion.mark_reminder_scheduled", AsyncMock(return_value={})),
+        patch("app.tools.db.get_db_conn", return_value=FakeCtx()),
+        patch(
+            "app.scheduler.reminder_scheduling.record_deadline_task_peer",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "app.scheduler.reminder_scheduling.schedule_for_task",
+            AsyncMock(return_value=(slots, [])),
+        ),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="finish the placeholder form by Saturday"))
+
+    draft = result["pending_outbound"][0]
+    # 2026-06-03 17:00 UTC is Wed noon in America/Chicago.
+    assert draft["body"] == f"{confirmation} First nudge Wed noon."
+    assert draft["notion_page_title"] == "Placeholder deadline task"
+
+
+@pytest.mark.asyncio
+async def test_missing_confirmation_falls_back_to_the_task_name_only() -> None:
+    """With no confirmation_message, the fallback names the task and nothing else.
+
+    It carries the {task} token (send_node substitutes the stored title) and no
+    work-type label or time estimate.
+    """
+    raw = json.loads(_llm_save_response(title="Placeholder task", time_estimate=45))
+    del raw["confirmation_message"]
+
+    with (
+        patch("app.models.llm", return_value=_model_returning(json.dumps(raw))),
+        patch(
+            "app.tools.notion.create_task",
+            AsyncMock(return_value=_make_notion_page(page_id=str(uuid.uuid4()))),
+        ),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="placeholder task"))
+
+    draft = result["pending_outbound"][0]
+    assert draft["body"] == "Got it — {task}."
+    assert draft["notion_page_title"] == "Placeholder task"
+
+
+@pytest.mark.asyncio
+async def test_intake_prompt_carries_the_earlier_message_for_a_follow_up() -> None:
+    """"no it's new, just log it" can only name the task from history.
+
+    The intake prompt renders the shared history window, so the earlier user
+    message is in front of the model on the follow-up turn.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    model = _model_returning(_llm_save_response(title="Pay the placeholder bill"))
+    state = _base_state(incoming="no it's new, just log it")
+    state["messages"] = [
+        HumanMessage(content="I also paid the placeholder bill!"),
+        AIMessage(content="Nice — which task was that?"),
+    ]
+
+    with (
+        patch("app.models.llm", return_value=model),
+        patch(
+            "app.tools.notion.create_task",
+            AsyncMock(return_value=_make_notion_page(page_id=str(uuid.uuid4()))),
+        ),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        await intake_node(state)
+
+    system_prompt = str(model.ainvoke.await_args.args[0][0].content)
+    assert "user: I also paid the placeholder bill!" in system_prompt
+    assert "assistant: Nice — which task was that?" in system_prompt
