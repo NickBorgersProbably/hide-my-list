@@ -147,7 +147,8 @@ jobs:
           ENABLE_E2E_CONVERSATIONS: 'true'
           E2E_MAX_LLM_CALLS: ${{ inputs.max_calls || '120' }}
           # Prints a failing turn's captured structlog events (event name +
-          # non-private fields only — never message text, titles, or peers)
+          # booleans, counts, and allowlisted enum/id fields only — never
+          # message text, titles, or peers)
           # plus the delivered reply's length, so a failing job here shows
           # which intent and node path the turn took without a re-run.
           E2E_DEBUG_TURNS: 'true'
