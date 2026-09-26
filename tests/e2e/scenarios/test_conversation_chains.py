@@ -17,27 +17,30 @@ pytestmark = pytest.mark.asyncio
 async def test_rejecting_a_task_offers_a_named_alternative(
     conversation: Conversation,
 ) -> None:
-    """Scenario 4 — reject, then get something else.
+    """Scenario 4 — reject, then get something else, then complete the alternative.
 
-    Two properties. The alternative has to be *named*: an alternative the user
+    Three properties. The alternative has to be *named*: an alternative the user
     cannot identify is the same unactionable message the naming invariant exists
-    to prevent, and it shipped once already. And the rejected task must not be
-    completed — "not this one" is not "done".
+    to prevent, and it shipped once already. The rejected task must not be
+    completed — "not this one" is not "done". And a bare "done" after the rejection
+    must resolve to the offered alternative, not the rejected one: the ledger's
+    `suggested` entry anchors the completion, and `rejected` does not.
     """
-    conversation.notion.seed_task(
+    garage_page = conversation.notion.seed_task(
         title="Clean out the garage",
         work_type="Independent",
         energy_required="High",
         urgency=95,
         time_estimate=120,
     )
-    conversation.notion.seed_task(
+    email_page = conversation.notion.seed_task(
         title="Reply to the school email",
         work_type="Independent",
         energy_required="Low",
         urgency=60,
         time_estimate=10,
     )
+    _ = (garage_page, email_page)  # captured for offered/alt assertions below
 
     offer = await conversation.say(
         "give me something to do", expect=Expect(intent="GET_TASK", sent_count=1)
@@ -46,7 +49,7 @@ async def test_rejecting_a_task_offers_a_named_alternative(
     assert offered_page, "selection_node offered nothing to reject"
 
     writes_before = conversation.notion.mark()
-    await conversation.say("not that one", expect=Expect(intent="REJECT", sent_count=1))
+    reject = await conversation.say("not that one", expect=Expect(intent="REJECT", sent_count=1))
 
     completed = {
         write.page_id
@@ -58,6 +61,33 @@ async def test_rejecting_a_task_offers_a_named_alternative(
         "finishing it"
     )
     assert conversation.notion.status_of(offered_page) != "Completed"
+
+    # The ledger should carry the suggested alternative from rejection_node.
+    recent_tasks = reject.state.get("recent_tasks") or []
+    suggested = next(
+        (e for e in recent_tasks if e.get("event") == "suggested"),
+        None,
+    )
+    assert suggested, "rejection_node wrote no suggested entry to the ledger"
+    alt_page = str(suggested["page_id"])
+    assert alt_page != offered_page, "alternative must be a different page than the rejected one"
+
+    done = await conversation.say(
+        "done",
+        expect=Expect(
+            intent="COMPLETE",
+            notion_status={alt_page: "Completed"},
+            notion_untouched=[offered_page],
+            sent_count=1,
+        ),
+    )
+
+    assert done.state.get("pending_clarification") is None, (
+        "completion context must be cleared after resolving"
+    )
+    assert conversation.notion.status_of(offered_page) != "Completed", (
+        "the rejected task must not be marked Completed by a bare 'done'"
+    )
 
 
 async def test_a_task_added_this_turn_can_be_reminded_about(

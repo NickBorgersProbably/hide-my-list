@@ -109,7 +109,9 @@ The app container runs four concurrent async tasks:
    `reminder_type` is the outbox row's `kind`. Rows with `kind='reminder'`
    complete the Notion reminder page after delivery. Rows with
    `kind='deadline'` leave the task open, and their body names the task
-   ("Deadline nudge: <task>. Want one tiny next step?"); a later "done" writes
+   ("Deadline nudge: <task>. Want one tiny next step?", or a generic
+   "Deadline nudge for this task. Want one tiny next step?" when no stored
+   title is available); a later "done" writes
    that task Completed because `reminder_type='deadline'` says delivery did
    not. When the user completes a reminder page before it fires,
    `complete_node` marks its pending and scheduled `kind='reminder'` rows

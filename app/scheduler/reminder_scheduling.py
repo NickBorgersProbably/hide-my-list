@@ -310,11 +310,11 @@ async def _insert_ledger_row(
 
 
 def _deadline_body(milestone_label: str, *, title: str = "") -> str:
-    """Compose a nudge that names its task.
+    """Compose a nudge that names its task when a title is available.
 
     The nudge is the message a later "done" replies to, so an unnamed one
-    leaves the user guessing which task it meant. A page whose title could not
-    be read still gets a sendable, generic body.
+    leaves the user guessing which task it meant. When no stored title is
+    available, a generic body is used ("Deadline nudge for this task...").
     """
     name = title.strip()
     if not name:

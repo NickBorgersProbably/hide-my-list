@@ -1,17 +1,16 @@
 ---
 # The user declined a suggested task, the assistant offered an alternative
 # without repeating its title, and the next message asks which task that was.
-# The ledger holds both: the alternative as `suggested` (newest) and the
-# declined task as `rejected`. The right answer names the alternative; naming
-# the declined task hands the user back the thing they just turned down.
+# The ledger holds both: the declined task as `rejected` (newest) and the
+# offered alternative as `suggested` (older). The right answer names the
+# alternative; naming the declined task hands the user back the thing they
+# just turned down.
 #
-# What distinguishes this fixture: the regex_forbid and judge contracts. A
-# chat prompt whose event list lacks `rejected` does not by itself fail it —
-# on a checkout where `app/graph/context.py` also lacks `rejected`, the
-# declined entry is dropped before rendering and the model sees only the
-# alternative. The fixture pins the behavior once a `rejected` line is on the
-# page: the model reads it as the task the user declined, never as the
-# current task.
+# What regression-locks this fixture: with the prior chat prompt (no rule
+# about skipping `rejected` entries), the model sees `rejected` as the newest
+# Recent Tasks entry and names it — violating the regex_forbid. With the
+# updated prompt, the model skips the `rejected` entry and names the next
+# open one ("Sort the mail") — passing the regex_require.
 id: chat-what-task-after-rejection-001
 node: chat
 tier: medium
@@ -26,16 +25,16 @@ prior_state:
     - role: assistant
       content: "Fair enough — here's a lighter one instead."
   # `at` is omitted: a static fixture cannot carry a fresh timestamp. The
-  # renderer keeps stored (newest-first) order.
+  # renderer keeps stored (newest-first) order, so `rejected` is newest.
   recent_tasks:
-    - page_id: "<placeholder-page-id-2>"
-      title: "Sort the mail"
-      kind: task
-      event: suggested
     - page_id: "<placeholder-page-id-1>"
       title: "Water the plants"
       kind: task
       event: rejected
+    - page_id: "<placeholder-page-id-2>"
+      title: "Sort the mail"
+      kind: task
+      event: suggested
 contracts:
   - kind: regex_require
     pattern: "(?i)sort(ing)? the mail"

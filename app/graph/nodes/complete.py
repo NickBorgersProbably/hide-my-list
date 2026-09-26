@@ -182,12 +182,13 @@ class _CompletionTarget:
     def needs_notion_write(self) -> bool:
         """Whether completing this target still has to write Status to Notion.
 
-        Derived rather than stored: only a delivered reminder page is exempt,
-        because delivery already completed it. A settable field would let a
-        caller construct a target that skips or repeats the write, and the
-        write is the destructive half of this node.
+        Always True. Delivery writes Completed when it marks the reminder sent,
+        but if that write fails the page stays Pending. The user's later "done"
+        repairs it idempotently: writing Completed to an already-Completed page
+        is a no-op. A settable field would let a caller skip or repeat the
+        write; keeping this derived prevents that.
         """
-        return not self.delivered_reminder
+        return True
 
 
 @dataclass(frozen=True)

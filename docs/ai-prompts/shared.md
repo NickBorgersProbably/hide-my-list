@@ -201,13 +201,13 @@ every live `recent_outbound` row for that peer and `notion_page_id`
 `awaiting_reply = false` (`signal_timestamp` is the fallback when no page id
 is available).
 
-The celebration names the task. Its body is `{task} — done. ` followed by
-the reward text (a reward text that already opens with "Done", such as the
-muted sensitive-task text, follows the name directly), and the draft carries
-`notion_page_title` so `send_node` substitutes the stored title. The title
-comes from the target's own source, then the ledger, then the Notion page;
-a sent reminder body is never used as a title. When no title can be read,
-the reward text goes out alone.
+The celebration names the task when a title can be read. Its body is
+`{task} — done. ` followed by the reward text (a reward text that already
+opens with "Done", such as the muted sensitive-task text, follows the name
+directly), and the draft carries `notion_page_title` so `send_node`
+substitutes the stored title. The title comes from the target's own source,
+then the ledger, then the Notion page; a sent reminder body is never used
+as a title. When no title can be read, the reward text goes out alone.
 
 If no confident target exists, the node asks which task the user means
 instead of completing a checkpointed task by default.

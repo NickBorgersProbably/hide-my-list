@@ -520,3 +520,44 @@ async def test_a_cancellation_that_keeps_failing_alerts_and_still_completes() ->
     draft = result["pending_outbound"][0]
     assert draft["notion_page_title"] == "Take the bins out"
     assert result["recent_tasks"][0]["event"] == "completed"
+
+@pytest.mark.asyncio
+async def test_done_after_a_delivered_reminder_whose_completion_write_failed() -> None:
+    """Repair path: delivery succeeds but complete_reminder fails; a later "done" closes the page.
+
+    The worker delivers the reminder and attempts complete_reminder. If that call
+    fails, the page stays Pending. A later "done" from the user resolves to the
+    same page via recent_outbound (delivered_reminder=True) and must still write
+    Status to Completed — idempotent when the page is already Completed, repair
+    when it is not.
+    """
+    delivered = complete_module._CompletionTarget(
+        source="recent_outbound",
+        page_id="<page_R>",
+        task_title="",
+        work_type="",
+        energy_required="",
+        context_at=datetime.now(UTC),
+        signal_timestamp=999,
+        event="reminded",
+        reminder_type="reminder",
+    )
+    assert delivered.delivered_reminder, "test setup: should be a delivered reminder"
+
+    update_status = AsyncMock(return_value={})
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.get_page", AsyncMock(return_value=_notion_page(
+            "<page_R>", "Take the bins out", reminder=True
+        ))),
+        patch("app.tools.rewards.maybe_reward", AsyncMock(return_value=_REWARD)),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=delivered)),
+        patch("app.tools.reminders.cancel_pending_reminders", AsyncMock(return_value=0)),
+        patch("app.tools.reminders.resolve_recent_outbound", AsyncMock(return_value=0)),
+    ):
+        result = await complete_module.complete_node(_state("done"))
+
+    # The page may be Pending (delivery's complete_reminder failed); the repair write must happen.
+    _assert_completed_write(update_status, "<page_R>")
+    assert result["pending_outbound"][0]["notion_page_title"] == "Take the bins out"
+    assert result["recent_tasks"][0]["event"] == "completed"

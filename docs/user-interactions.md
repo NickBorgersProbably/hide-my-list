@@ -887,7 +887,7 @@ Example:
 - User opens a new session and says: "I did it"
 - Agent interprets that as completion of "clean up boxes before noon", delivers a completion acknowledgment that names the task, with its reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears every live `recent_outbound` row for that peer and `notion_page_id` (`signal_timestamp` is the fallback when no page id is available)
 
-A deadline nudge is different: it names the task ("Deadline nudge: <task>. Want one tiny next step?") and points at a task page that delivery leaves open. The worker records the delivery with `reminder_type = 'deadline'`, so a "done" in reply writes the task Completed rather than assuming delivery already did.
+A deadline nudge is different: it names the task ("Deadline nudge: <task>. Want one tiny next step?", or "Deadline nudge for this task. Want one tiny next step?" when no stored title is available) and points at a task page that delivery leaves open. The worker records the delivery with `reminder_type = 'deadline'`, so a "done" in reply writes the task Completed rather than assuming delivery already did.
 
 A reminder can also be finished before it fires. "Done!" right after "remind me to…" resolves to the new reminder through the recent-task ledger, writes its page Completed, and cancels its pending outbox row, so the reminder never goes out.
 

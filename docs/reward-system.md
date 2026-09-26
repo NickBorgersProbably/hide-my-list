@@ -199,7 +199,7 @@ initiation-specific adjustments:
 | Parent task (all subs done) | Epic | "MAJOR WIN! 🏆👑🎉✨🔥", "PROJECT COMPLETE! 🚀⭐💪🎊" |
 | All tasks cleared | Epic | "INBOX ZERO! 🏆👑✨🎉🔥💪🚀", "LEGENDARY DAY! 👑⭐🏆🎊" |
 
-**Naming rule.** A completion celebration always names the task it celebrates.
+**Naming rule.** A completion celebration names the task it celebrates when a title can be read.
 The reply body is `{task} — done. ` followed by the template text — "Take the
 bins out — done. Nice work! ✨" — and the draft carries `notion_page_title`, so
 `send_node` substitutes the exact stored title. A template that already opens

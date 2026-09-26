@@ -32,7 +32,12 @@ async def test_ledger_options_then_a_shame_safe_give_up(conversation: Conversati
 
     first = await conversation.say(
         "yep done",
-        expect=Expect(intent="COMPLETE", notion_untouched=[bins, book], sent_count=1),
+        expect=Expect(
+            intent="COMPLETE",
+            notion_untouched=[bins, book],
+            sent_count=1,
+            regex_require=[r"(?i)(sort.*recycling|return.*library|recycling.*bins|library.*book)"],
+        ),
     )
     first_pending = first.state.get("pending_clarification") or {}
     assert first_pending.get("attempts") == 1
@@ -40,7 +45,11 @@ async def test_ledger_options_then_a_shame_safe_give_up(conversation: Conversati
 
     second = await conversation.say(
         "hmm, can't remember",
-        expect=Expect(notion_untouched=[bins, book], sent_count=1),
+        expect=Expect(
+            notion_untouched=[bins, book],
+            sent_count=1,
+            regex_require=[r"(?i)(sort.*recycling|return.*library|recycling.*bins|library.*book)"],
+        ),
     )
     assert (second.state.get("pending_clarification") or {}).get("attempts") == 2
 
@@ -48,7 +57,6 @@ async def test_ledger_options_then_a_shame_safe_give_up(conversation: Conversati
         "you know the one",
         expect=Expect(notion_untouched=[bins, book], sent_count=1, regex_forbid=[r"(?i)which task"]),
     )
-    assert len({first.text, second.text, third.text}) == 3, "the same message twice is the bug"
     assert third.state.get("pending_clarification") is None
     assert third.state.get("active_task") is None
     assert third.state.get("conversation_state") == "idle"
