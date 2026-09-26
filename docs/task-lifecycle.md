@@ -26,14 +26,13 @@ stateDiagram-v2
     ReminderPending --> ReminderSent: Delivered via one-shot cron or safety-net path
     ReminderSent --> Completed: Reminder delivered
 
-    Pending --> Selected: User requests task
+    Pending --> InProgress: AI suggests task
     Pending --> Pending: Time passes (urgency static)
 
-    Selected --> InProgress: User accepts
-    Selected --> Rejected: User rejects
+    InProgress --> Rejected: User rejects
 
     Rejected --> Pending: Rejection recorded
-    Rejected --> Selected: Alternative suggested
+    Rejected --> InProgress: Alternative suggested
 
     InProgress --> CheckIn: Check-in window reached
     InProgress --> Completed: User finishes
@@ -62,8 +61,7 @@ stateDiagram-v2
 | Complexity | AI evaluating if task needs breakdown | N/A (not yet saved) |
 | Breakdown | AI creating sub-tasks (hidden from user) | N/A (parent) / `pending` (sub-tasks) |
 | Pending | Task saved, waiting to be selected | `pending` |
-| Selected | Task suggested, awaiting response | `pending` |
-| In Progress | User actively working | `in_progress` |
+| In Progress | AI has suggested or user is actively working | `in_progress` |
 | Check-In | System following up on progress | `in_progress` |
 | Rejected | User declined, giving feedback | `pending` |
 | Resume Detection | User re-engages after ≥ 15 min gap | `in_progress` |

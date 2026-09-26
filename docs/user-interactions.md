@@ -162,13 +162,10 @@ sequenceDiagram
     Note over AI: Score each task
     Note over AI: Best match: "Organize receipts" (score: 0.87)
 
+    AI->>N: Update status → in_progress
     AI->>U: "How about organizing your receipts from last week? It's low-energy admin work and should take about 15 minutes."
 
-    alt User accepts
-        U->>AI: "Sure"
-        AI->>N: Update status → in_progress
-        AI->>U: "Great, it's yours. Let me know when you're done!"
-    else User rejects
+    alt User rejects
         U->>AI: "Not that one"
         Note over AI: Start rejection flow
     end
@@ -182,14 +179,14 @@ flowchart TD
     ParseContext --> FetchTasks[Fetch pending tasks]
     FetchTasks --> HasTasks{Any tasks?}
 
-    HasTasks -->|No| NoTasks["Your slate is clear!<br/>Want to add something?"]
+    HasTasks -->|No| NoMatch["Nothing quite fits right now. Want to add something quick?"]
     HasTasks -->|Yes| KnownTime{Duration stated?}
     KnownTime -->|Yes| FilterTime[Filter by time constraint]
     KnownTime -->|No| ShortBias[Bias toward short tasks<br/>exclude nothing on time]
     ShortBias --> ScoreTasks
 
     FilterTime --> HasMatches{Any fit time?}
-    HasMatches -->|No| NoFit["Nothing fits that timeframe.<br/>Got more time?"]
+    HasMatches -->|No| NoMatch
     HasMatches -->|Yes| ScoreTasks[Score remaining tasks]
 
     ScoreTasks --> BestScore{Best score > 0.5?}

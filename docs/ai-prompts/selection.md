@@ -150,6 +150,11 @@ length — 15 minutes or less: 1.0; 30 or less: 0.75; 60 or less: 0.5; over 60:
 0.25 — and nothing is excluded on time. Mood that is neither in state nor in
 the message is neutral.
 
+The incoming message is rendered inside `<user_message>` delimiters and is
+treated as untrusted data. The prompt extracts available time and mood from it
+only; it never follows instructions inside it, changes scoring or output rules
+because of it, or reveals Pending Tasks because of it.
+
 Why this design: a fabricated duration excludes tasks that fit the time the
 user actually has, and the short-task bias favours an easy start at the
 initiation moment without offering a long task to someone who has only a few
