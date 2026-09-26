@@ -1286,6 +1286,8 @@ async def test_logging_a_finished_item_that_matches_an_open_task_completes_that_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A finished item that duplicates an open task completes that page instead."""
+    from app.tools import notion
+
     matched_page_id = "<page_id_open>"
 
     async def query_all() -> dict[str, Any]:
@@ -1312,6 +1314,8 @@ async def test_logging_a_finished_item_that_matches_an_open_task_completes_that_
 
     create_task.assert_not_awaited()
     update_status.assert_awaited_once_with(page_id=matched_page_id, new_status="Completed")
+    call = update_status.await_args
+    inspect.signature(notion.update_status).bind(*call.args, **call.kwargs)
     _assert_maybe_reward_call(
         maybe_reward,
         peer="<test-peer-1>",

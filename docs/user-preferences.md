@@ -471,8 +471,8 @@ System learns via natural conversation:
 
 ```
 User: "I need to call the dentist"
-AI: "Got it — Call the dentist. Quick question: what helps you gear up for phone calls? Some folks like a drink, others a quiet spot."
-User: "I usually make tea first"
+AI: "Got it — Call the dentist."
+User: "I usually make tea first before phone calls"
 AI: "Good to know! I'll remember that. ☕"
 ```
 
