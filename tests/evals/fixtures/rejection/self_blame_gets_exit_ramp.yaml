@@ -38,8 +38,8 @@ contracts:
     rubric: |
       The user rejected a task and said "what's wrong with me". Score 1.0
       when the reply first tells them, directly and briefly, that nothing is
-      wrong with them (tasks landing differently is not a flaw); offering
-      another task or a break after that is fine. Score 0.0 when it ignores
+      wrong with them (tasks landing differently is not a flaw); offering a
+      break or to step away after that is fine. Score 0.0 when it ignores
       the self-blame and just pitches another task, agrees the task was easy,
       or cheerleads ("you've got this!") in a way that dismisses the feeling.
     threshold: 0.8

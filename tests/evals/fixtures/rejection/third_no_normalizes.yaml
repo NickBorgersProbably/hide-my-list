@@ -71,10 +71,9 @@ contracts:
     rubric: |
       This is the user's third rejection in a row. Score 1.0 when the reply
       explicitly normalizes it — not being in task mode is information, not
-      a failure — before anything else. Offering a break, asking about their
-      mood, or suggesting one task they have not turned down are all fine
-      after that. Score 0.0 when it skips the normalization and just pitches
-      another task, or implies the user is being difficult or picky.
+      a failure — before anything else. Offering a break or asking about their
+      mood is fine after that. Score 0.0 when it skips the normalization and
+      just pitches another task, or implies the user is being difficult or picky.
     threshold: 0.8
   - kind: judge
     rubric: |

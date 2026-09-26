@@ -86,7 +86,8 @@ the exact selected title before sending the message.
 > **Critical shame protection.** Multiple rejections = highest-risk shame moment. User may feel "broken." Every escalation must explicitly normalize.
 
 The rejection streak is how many rejections have happened in a row this
-session, this one included, with no completed or added task in between. No
+session, this one included, with no completed, added, reminded, or nudged
+event in between. No
 State field tracks it directly; the application derives it from the
 recent-task ledger (see `docs/ai-prompts/shared.md`, Recent Task Ledger), walking
 newest-first, skipping the pending `suggested` alternative, and counting
@@ -119,7 +120,7 @@ Watch for frustration, shame, or overwhelm signals:
 
 | Signal | Pattern | Response |
 |--------|---------|----------|
-| Frustration | "ugh", "I can't", short angry messages | "I hear you. Want to take a break, or try something totally different?" |
+| Frustration | "ugh", "I can't", short angry messages | "I hear you. Want to take a break? I'll be here when you're ready." |
 | Self-blame | "I'm useless", "what's wrong with me" | "Nothing's wrong with you. Brains just work differently with different tasks — that's not a flaw. Want to step away for a bit?" |
 | Withdrawal | Increasingly short responses, long pauses | Offer exit ramp: "We can pick this up later. I'll be here." |
 | Overwhelm | "too much", "I can't handle this" | "Let's pause. You don't have to do anything right now. The tasks aren't going anywhere." |
