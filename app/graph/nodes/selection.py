@@ -105,7 +105,18 @@ async def selection_node(state: State) -> dict[str, Any]:
                 "rejection_count": _extract_number(props, "Rejection Count", 0),
             })
 
-        tasks_json = json.dumps(simplified, indent=2)
+        # The model only ever sees titled tasks: a page with no name cannot be
+        # suggested, so offering it invites the model to pick it. `simplified`
+        # keeps every page so a returned id is still classified in the guard
+        # below (in the list but blank vs. never offered).
+        offered = [t for t in simplified if t["title"].strip()]
+        if len(offered) != len(simplified):
+            log.info(
+                "selection_node.blank_titles_withheld",
+                withheld_count=len(simplified) - len(offered),
+                offered_count=len(offered),
+            )
+        tasks_json = json.dumps(offered, indent=2)
 
         # Load and render the selection prompt
         from app.prompts.loader import render_with_defaults
