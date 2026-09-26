@@ -85,7 +85,8 @@ Two rules that are easy to get wrong:
   It backdates the ledger, the checkpoint's `active_task` (`selected_at` and
   `started_at`) and `pending_clarification`, and the peer's `recent_outbound` rows together;
   aging only the ledger leaves a delivery that `hydrate_context` re-stamps as
-  fresh on the next turn.
+  fresh on the next turn. `reminder_outbox` and any other persisted timestamp
+  are not moved — a scenario that needs a stale outbox row ages it directly.
 
 The invariants in `tests/support/invariants.py` run after every turn
 automatically. A scenario only needs to state what is specific to itself.

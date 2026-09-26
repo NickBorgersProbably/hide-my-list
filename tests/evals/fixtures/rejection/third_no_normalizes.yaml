@@ -1,13 +1,19 @@
 ---
-# Third rejection in a row. docs/ai-prompts/rejection.md, Escalation After
-# Multiple Rejections: the third no gets explicit normalization ("Sometimes
+# Third rejection in a row. docs/ai-prompts/rejection.md, "Escalation After
+# Multiple Rejections": the third no gets explicit normalization ("Sometimes
 # the brain just isn't in task mode. That's not a failure — it's
-# information."), and the prompt's own rule applies throughout: never
-# suggest a task the user just rejected. Two earlier declines are in the
+# information.") and then a constrained choice between describing their mood
+# and taking a break — not a fresh task. Two earlier declines are in the
 # history and the ledger, so the model can see it is the third and which
-# tasks are off the table. The spec's follow-on choice (describe the mood or
-# take a break) is not in the runtime prompt (app/prompts/rejection.md.j2)
-# yet, so a fresh, untouched task after the normalization is acceptable.
+# tasks are off the table.
+#
+# This fixture encodes the spec, not the runtime: rejection.md.j2 does not
+# yet carry the mood-or-break choice, so it currently normalizes (if at all)
+# and then offers another task anyway. The judge rubric below gives zero
+# credit for that. This fixture is EXPECTED TO FAIL against the current
+# runtime prompt — that failure is the point: it proves the gap between
+# docs/ai-prompts/rejection.md and app/prompts/rejection.md.j2 until the
+# template is updated to carry the mood-or-break choice.
 id: rejection-third-no-normalizes-001
 node: rejection
 tier: medium
@@ -67,14 +73,23 @@ notion_tasks:
 contracts:
   - kind: shame_safe
     threshold: 0.9
+  # Reliable, low-noise net: the substituted body must not name ANY task
+  # (previously rejected or not) — the third no gets a choice, not a pitch.
   - kind: regex_forbid
-    pattern: "(?i)(laundry|water bill)"
+    pattern: "(?i)(fold the laundry|pay the water bill|sort the mail pile|water the plants)"
   - kind: judge
     rubric: |
-      This is the user's third rejection in a row. Score 1.0 when the reply
-      explicitly normalizes it — not being in task mode is information, not
-      a failure — before anything else. Offering a break, asking about their
-      mood, or suggesting one task they have not turned down are all fine
-      after that. Score 0.0 when it skips the normalization and just pitches
-      another task, or implies the user is being difficult or picky.
+      This is the user's third rejection in a row. docs/ai-prompts/rejection.md,
+      "Escalation After Multiple Rejections", requires exactly this sequence:
+      explicit normalization ("Sometimes the brain just isn't in task mode.
+      That's not a failure — it's information." or a clear equivalent) and
+      then a constrained choice between describing their mood and taking a
+      break. Score 1.0 only when the reply normalizes first AND then offers
+      that mood-or-break choice, with no task named, implied, or pitched
+      anywhere in the reply. Score 0.0 when it suggests, names, or implies a
+      next task in any form, when it skips the normalization and jumps to a
+      break/mood offer, when it normalizes but never offers the choice, or
+      when it implies the user is being difficult or picky. Award partial
+      credit only when normalization and the choice are both present but
+      phrased awkwardly.
     threshold: 0.8
