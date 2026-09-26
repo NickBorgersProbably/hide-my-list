@@ -7,7 +7,6 @@ Uses expensive-tier LLM for nuanced scoring and suggestion text.
 """
 from __future__ import annotations
 
-import html
 import json
 from datetime import UTC, datetime
 from typing import Any, TypedDict, cast
@@ -127,7 +126,7 @@ async def selection_node(state: State) -> dict[str, Any]:
             "preferred_work_type": preferred_work_type,
             "time_of_day": time_of_day,
             "tasks_json": tasks_json,
-            "user_message": html.escape(incoming),
+            "user_message": _delimiter_safe(incoming),
         }
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 
@@ -291,9 +290,15 @@ def _extract_number(props: dict[str, Any], key: str, default: int = 0) -> int:
 _SELECTION_REQUEST = "Select the best task for me right now."
 
 
+def _delimiter_safe(text: str) -> str:
+    """Escape only angle brackets, so the message cannot close or open a
+    `<user_message>` delimiter while apostrophes and quotes stay readable."""
+    return text.replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _human_turn(incoming: str) -> str:
     """The human turn: the user's message as delimited data, then the request."""
-    text = html.escape(incoming.strip())
+    text = _delimiter_safe(incoming.strip())
     if not text:
         return _SELECTION_REQUEST
     return f"<user_message>{text}</user_message>\n\n{_SELECTION_REQUEST}"
