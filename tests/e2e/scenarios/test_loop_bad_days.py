@@ -86,7 +86,9 @@ async def test_rejections_a_nothing_day_a_declined_question_and_an_unlisted_win(
     )
     drafts = again.state.get("pending_outbound") or []
     third = drafts[0].get("notion_page_id") if drafts else None
-    assert third not in {first, second}, "a task the user just turned down was offered again"
+    assert third in seeded - {first, second}, "second decline must offer the remaining seeded task"
+    ledger = {e["page_id"]: e["event"] for e in again.state.get("recent_tasks") or []}
+    assert ledger.get(second) == "rejected" and ledger.get(third) == "suggested"
 
     third_no = await conversation.say(
         "nope none of those either",
@@ -105,6 +107,8 @@ async def test_rejections_a_nothing_day_a_declined_question_and_an_unlisted_win(
     assert not (drafts and drafts[0].get("notion_page_id")), (
         "the third no was answered by re-offering a task the user already declined"
     )
+    ledger = {e["page_id"]: e["event"] for e in third_no.state.get("recent_tasks") or []}
+    assert ledger.get(third) == "rejected"
 
     nothing = await conversation.say(
         "i did nothing today lol",

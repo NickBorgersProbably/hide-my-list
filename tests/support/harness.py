@@ -275,12 +275,17 @@ class Conversation:
             updates["recent_tasks"] = ledger
 
         active_task = current.get("active_task")
-        if isinstance(active_task, dict) and active_task.get("selected_at"):
+        if isinstance(active_task, dict):
             aged = dict(active_task)
-            aged["selected_at"] = (
-                datetime.fromisoformat(str(aged["selected_at"])) - delta
-            ).isoformat()
-            updates["active_task"] = aged
+            changed = False
+            for field in ("selected_at", "started_at"):
+                if aged.get(field):
+                    aged[field] = (
+                        datetime.fromisoformat(str(aged[field])) - delta
+                    ).isoformat()
+                    changed = True
+            if changed:
+                updates["active_task"] = aged
 
         pending = current.get("pending_clarification")
         if isinstance(pending, dict) and pending.get("asked_at"):

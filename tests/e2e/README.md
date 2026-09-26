@@ -82,8 +82,8 @@ Two rules that are easy to get wrong:
   scenario costs. `outbox_state(page_id)` reads a page's `reminder_outbox`
   states when a scenario needs to prove a reminder will or will not fire.
 - **Simulate elapsed days with `advance_days(n)`**, not by aging one source.
-  It backdates the ledger, the checkpoint's `active_task` and
-  `pending_clarification`, and the peer's `recent_outbound` rows together;
+  It backdates the ledger, the checkpoint's `active_task` (`selected_at` and
+  `started_at`) and `pending_clarification`, and the peer's `recent_outbound` rows together;
   aging only the ledger leaves a delivery that `hydrate_context` re-stamps as
   fresh on the next turn.
 
