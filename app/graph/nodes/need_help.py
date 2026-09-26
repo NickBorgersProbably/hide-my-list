@@ -126,11 +126,11 @@ async def need_help_node(state: State) -> dict[str, Any]:
         if real_title:
             draft["notion_page_title"] = real_title
 
-        log.info("need_help_node.response", peer=peer)
+        log.info("need_help_node.response", has_peer=bool(peer))
         return {"pending_outbound": [draft]}
 
     except Exception:
-        log.exception("need_help_node.error", peer=peer)
+        log.exception("need_help_node.error", has_peer=bool(peer))
         fallback: OutboundDraft = {
             "recipient": peer,
             "body": "Let's make this tiny. What's the very first physical thing you need to do?",

@@ -35,6 +35,7 @@ async def test_past_tense_report_then_log_it_as_new(conversation: Conversation) 
     )
     assert conversation.notion.written_pages("create_task") == set()
 
+    notion_cursor = conversation.notion.mark()
     logged = await conversation.say(
         "no it's new, just log it",
         expect=Expect(
@@ -44,11 +45,13 @@ async def test_past_tense_report_then_log_it_as_new(conversation: Conversation) 
         ),
     )
 
-    created = conversation.notion.written_pages("create_task") | conversation.notion.written_pages(
-        "create_reminder"
+    new_tasks = conversation.notion.written_pages("create_task", since=notion_cursor)
+    new_reminders = conversation.notion.written_pages("create_reminder", since=notion_cursor)
+    new_creates = new_tasks | new_reminders
+    assert len(new_creates) == 1, (
+        f"expected exactly one create write after turn 2, got {len(new_creates)}: {new_creates}"
     )
-    titles = [conversation.notion.title_of(page_id).lower() for page_id in created]
-    assert any("gas bill" in title for title in titles), (
-        f"expected a page about the gas bill, got {titles}"
-    )
+    created_id = next(iter(new_creates))
+    title = conversation.notion.title_of(created_id).lower()
+    assert "gas bill" in title, f"expected a page about the gas bill, got {title!r}"
     assert logged.state.get("pending_clarification") is None

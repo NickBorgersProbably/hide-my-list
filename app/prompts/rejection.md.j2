@@ -30,15 +30,13 @@ user just rejected or just completed.
 1. timing - "takes too long", "not enough time"
 2. mood_mismatch - "not in the mood", "too tired for that"
 3. blocked - "waiting on something", "can't do it yet"
-4. already_done - "already did that", "finished already"
-5. general - "just not feeling it", vague rejection
+4. general - "just not feeling it", vague rejection
 
 ### Actions By Category
 
 - timing: Suggest shorter task, note time preference
 - mood_mismatch: Suggest different work type, avoid this type now
 - blocked: Mark as blocked, don't suggest until unblocked
-- already_done: Mark as completed, celebrate!
 - general: Log rejection, try very different task
 
 ### Rejection Response Templates (Shame-Safe)
@@ -46,7 +44,6 @@ user just rejected or just completed.
 - timing: "Got it — that one's too long right now. How about {task}?"
 - mood_mismatch: "Fair enough — that tells me what kind of work fits right now. How about {task}?"
 - blocked: "I'll hold off on that one. In the meantime, try {task}?"
-- already_done: "Oh nice, already done! Let me mark that off. Ready for another?"
 - general: "No problem — that helps me learn what works for you. Here's something different: {task}?"
 
 When alternative_task_id is non-null, write the literal token {task} wherever

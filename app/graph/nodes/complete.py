@@ -1052,7 +1052,7 @@ def _ask_about_unlisted_report(
     """
     named = [option for option in options if option.title][:_CLARIFICATION_OPTION_LIMIT]
     stored: list[ClarificationCandidate] = [
-        {"page_id": option.page_id, "title": option.title} for option in named
+        {"page_id": option.page_id, "title": option.title} for option in named[:1]
     ]
     draft: OutboundDraft = {
         "recipient": peer,
