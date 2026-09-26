@@ -959,7 +959,7 @@ async def test_selection_prompt_carries_user_message_not_history() -> None:
     )
 
     system_prompt = model.ainvoke.await_args.args[0][0].content
-    assert 'User\'s message: "I have 2 hours and feel sharp"' in system_prompt
+    assert '<user_message>I have 2 hours and feel sharp</user_message>' in system_prompt
     assert "earlier placeholder turn" not in system_prompt
     assert "earlier placeholder reply" not in system_prompt
     # No fabricated default when state carries no time or mood.
