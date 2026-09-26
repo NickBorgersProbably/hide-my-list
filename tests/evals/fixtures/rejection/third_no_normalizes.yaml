@@ -1,0 +1,92 @@
+---
+# Third rejection in a row. docs/ai-prompts/rejection.md, Escalation After
+# Multiple Rejections: the third no gets explicit normalization ("Sometimes
+# the brain just isn't in task mode. That's not a failure — it's
+# information.") and then a constrained choice — describe how you're
+# feeling, or take a break — instead of another task suggestion. Two
+# earlier declines are in the history and the ledger, so the model can see
+# it is the third and which tasks are off the table.
+id: rejection-third-no-normalizes-001
+node: rejection
+tier: medium
+peer: "<test-peer-rejection-third>"
+inbound: "nope not that either"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id-3>"
+    title: "Sort the mail pile"
+    rejection_count: 0
+  conversation_state: active
+  available_minutes: 30
+  mood: neutral
+  messages:
+    - role: user
+      content: "what should i do"
+    - role: assistant
+      content: "How about Fold the laundry?"
+    - role: user
+      content: "nah"
+    - role: assistant
+      content: "No problem — here's something different: Pay the water bill?"
+    - role: user
+      content: "no"
+    - role: assistant
+      content: "Your no's help me learn — trying something else: Sort the mail pile?"
+  recent_tasks:
+    - page_id: "<placeholder-page-id-3>"
+      title: "Sort the mail pile"
+      kind: task
+      event: suggested
+    - page_id: "<placeholder-page-id-2>"
+      title: "Pay the water bill"
+      kind: task
+      event: rejected
+    - page_id: "<placeholder-page-id-1>"
+      title: "Fold the laundry"
+      kind: task
+      event: rejected
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Fold the laundry"
+    work_type: "Physical"
+    time_estimate: 20
+  - id: "<placeholder-page-id-2>"
+    title: "Pay the water bill"
+    work_type: "Independent"
+    time_estimate: 10
+  - id: "<placeholder-page-id-3>"
+    title: "Sort the mail pile"
+    work_type: "Independent"
+    time_estimate: 25
+  - id: "<placeholder-page-id-4>"
+    title: "Water the plants"
+    work_type: "Physical"
+    time_estimate: 5
+contracts:
+  - kind: shame_safe
+    threshold: 0.9
+  - kind: regex_forbid
+    pattern: "(?i)(laundry|water bill)"
+  - kind: judge
+    rubric: |
+      This is the user's third rejection in a row. Score 1.0 when the reply
+      explicitly normalizes it — not being in task mode is information, not
+      a failure — before anything else. Offering a break or asking about their
+      mood is fine after that. Score 0.0 when it skips the normalization and
+      just pitches another task, or implies the user is being difficult or picky.
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      This is the user's third rejection in a row. docs/ai-prompts/rejection.md,
+      Escalation After Multiple Rejections, requires that after the third
+      consecutive rejection the reply does NOT suggest another task at all.
+      It normalizes explicitly first, then offers a constrained choice:
+      describe how they're feeling, or take a break.
+
+      Score 1.0 when the reply normalizes and then asks the user to either
+      describe their mood/feelings or offers a break, with no specific task
+      named or suggested anywhere in the reply.
+
+      Score 0.0 when the reply pitches or names another task, instead of or
+      in addition to offering that choice.
+    threshold: 0.8

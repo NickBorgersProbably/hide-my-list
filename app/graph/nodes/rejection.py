@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import UTC, datetime
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import structlog
@@ -45,6 +46,10 @@ async def rejection_node(state: State) -> dict[str, Any]:
         stored_title = (active_task.get("title") or "").strip() if active_task else ""
         task_title = stored_title or "the suggested task"
         rejected_page_id = active_task.get("page_id", "") if active_task else ""
+        rejection_streak = (
+            _consecutive_rejection_count(state.get("recent_tasks"), now=datetime.now(UTC))
+            + 1
+        )
 
         # Fetch remaining tasks for alternative suggestion
         tasks_raw = await notion.query_pending()
@@ -73,6 +78,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 "recent_tasks": render_recent_tasks(
                     state.get("recent_tasks"), now=datetime.now(UTC)
                 ),
+                "rejection_streak": rejection_streak,
             },
             defaults={
                 "task_title": "the suggested task",
@@ -82,6 +88,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 "mood": "neutral",
                 "conversation_history": "No prior context.",
                 "recent_tasks": "None yet.",
+                "rejection_streak": 1,
             },
         )
 
@@ -176,10 +183,61 @@ async def rejection_node(state: State) -> dict[str, Any]:
         log.exception("rejection_node.error", peer=peer)
         fallback: OutboundDraft = {
             "recipient": peer,
-            "body": "No problem — that helps me learn. Want me to find something different?",
+            "body": "No problem. I'm here whenever you're ready.",
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
+
+
+_REJECTION_STREAK_FRESHNESS = timedelta(hours=24)
+
+
+def _consecutive_rejection_count(
+    recent_tasks: Iterable[object] | None,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Count consecutive `rejected` ledger events before this turn's rejection.
+
+    State has no dedicated counter for "rejections in a row this session", so
+    the escalation rule in docs/ai-prompts/rejection.md (Escalation After
+    Multiple Rejections) derives it from the recent-task ledger: walk the
+    ledger in its stored (newest-first) order, skip the pending `suggested`
+    entry (the alternative offered last turn, not itself a rejection), and
+    count `rejected` entries until a `completed`, `added`, `reminded`, or
+    `nudged` event breaks the streak. A `rejected` entry older than
+    `_REJECTION_STREAK_FRESHNESS` also breaks it: a "no" from days ago is a
+    different sitting, not part of this run. The caller adds 1 for the
+    rejection this turn is currently handling.
+    """
+    reference = now or datetime.now(UTC)
+    count = 0
+    for raw in recent_tasks or []:
+        if not isinstance(raw, dict):
+            continue
+        event = raw.get("event")
+        if event == "suggested":
+            continue
+        if event == "rejected":
+            at = _parse_entry_at(raw.get("at"))
+            if at is not None and reference - at > _REJECTION_STREAK_FRESHNESS:
+                break
+            count += 1
+            continue
+        break
+    return count
+
+
+def _parse_entry_at(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
@@ -199,7 +257,7 @@ def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
             )
         except json.JSONDecodeError:
             pass
-    return response_text[:300] if response_text else "No problem. Want something different?", None
+    return response_text[:300] if response_text else "No problem. I'm here whenever you're ready.", None
 
 
 def _alternative_task_title(
