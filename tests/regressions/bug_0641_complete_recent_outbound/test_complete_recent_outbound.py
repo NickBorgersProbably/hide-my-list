@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.tools import reminders
+
 _HAS_DB = bool(os.environ.get("DATABASE_URL", ""))
 
 
@@ -99,11 +101,14 @@ async def test_complete_prefers_unresolved_recent_outbound_over_stale_active_tas
             "_load_recent_outbound_target",
             AsyncMock(return_value=recent_target),
         ),
-        patch.object(complete_module, "_clear_recent_outbound", clear_mock),
+        patch("app.tools.reminders.resolve_recent_outbound", clear_mock),
     ):
         result = await complete_module.complete_node(_state(stale_active_task))  # type: ignore[arg-type]
 
-    update_status.assert_not_awaited()
+    # Every completion writes Completed: delivery already completed a reminder
+    # page, but that write may have failed, so the user's "done" repairs it
+    # idempotently.
+    update_status.assert_awaited_once()
     reward_mock.assert_awaited_once()
     reward_kwargs = reward_mock.await_args.kwargs
     _assert_reward_kwargs_shape(reward_kwargs)
@@ -120,10 +125,10 @@ async def test_complete_prefers_unresolved_recent_outbound_over_stale_active_tas
     # orphan a later unrelated "done" would resolve.
     clear_call = clear_mock.await_args
     assert clear_call is not None
-    assert not clear_call.args, "expected keyword-only call to _clear_recent_outbound"
-    sig_params = set(inspect.signature(complete_module._clear_recent_outbound).parameters)
+    assert not clear_call.args, "expected keyword-only call to resolve_recent_outbound"
+    sig_params = set(inspect.signature(reminders.resolve_recent_outbound).parameters)
     assert {"peer", "signal_timestamp", "notion_page_id"} <= sig_params, (
-        "_clear_recent_outbound signature drifted from expected parameters"
+        "reminders.resolve_recent_outbound signature drifted from expected parameters"
     )
     assert set(clear_call.kwargs) == {"peer", "signal_timestamp", "notion_page_id"}
     assert clear_call.kwargs == {
@@ -179,7 +184,10 @@ async def test_complete_reads_and_clears_recent_outbound_row(db_conn: Any) -> No
             }  # type: ignore[arg-type]
         )
 
-    update_status.assert_not_awaited()
+    # Every completion writes Completed: delivery already completed a reminder
+    # page, but that write may have failed, so the user's "done" repairs it
+    # idempotently.
+    update_status.assert_awaited_once()
     reward_mock.assert_awaited_once()
     assert reward_mock.await_args.kwargs["notion_page_id"] == reminder_page_id
 

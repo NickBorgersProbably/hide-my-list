@@ -1,47 +1,52 @@
 """COMPLETE node: task completion + reward integration.
 
 Marks the finished task as completed in Notion, triggers the reward subsystem,
-and drafts a celebration message into pending_outbound.
+and drafts a celebration message that names the task into pending_outbound.
 
-Three sources can identify which task the user means, in order of authority:
-a task named in the message itself, the unresolved reminder the assistant last
-sent, and the task handed to the user by selection. The message wins because it
-is the only source the user can steer — the other two are inferences from
-context that goes stale, and when they both do, nothing else can resolve
-"finished the dishes" to a page.
+Four sources can identify which task the user means. A task named in the
+message itself comes first, because it is the only source the user can steer.
+The other three are context: the recent-task ledger (what this conversation
+added, suggested, or was reminded about), the unresolved reminder the assistant
+last sent (`recent_outbound`), and the task handed to the user by selection
+(`active_task`). Among those the newest wins — unless two different tasks were
+touched within minutes of each other, where any pick is a guess and the node
+asks instead.
 
-When none of the three resolves, the node asks — and records the question in
-`pending_clarification` so the reply that answers it comes back here instead of
-re-entering cold and re-asking. A failure in any one source narrows the answer,
-never the question: the lookups are independent, so a dead Postgres or an empty
-shortlist must not stop the others from running.
-
-Reward integration implemented in PR-B5.
+When nothing resolves, the node asks — naming the tasks the conversation just
+touched first — and records the question in `pending_clarification` so the
+reply that answers it comes back here instead of re-entering cold and
+re-asking. A failure in any one source narrows the answer, never the question:
+the lookups are independent, so a dead Postgres or an empty shortlist must not
+stop the others from running.
 """
 from __future__ import annotations
 
 import json
-import os
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import structlog
 
 from app.graph.context import ledger_entry, record_task_event
 from app.graph.nodes._task_match import (
     DedupCandidate,
+    dice_coefficient,
+    extract_title,
     normalize_title_tokens,
-    open_non_reminder_tasks,
+    open_tasks,
     parse_match_response,
     shortlist_duplicate_candidates,
 )
+from app.graph.nodes._task_token import TASK_TOKEN
 from app.graph.state import (
     ActiveTask,
     ClarificationCandidate,
     OutboundDraft,
     PendingClarification,
+    RecentTaskEvent,
+    RecentTaskKind,
     State,
 )
 
@@ -49,12 +54,34 @@ log = structlog.get_logger(__name__)
 
 _ACTIVE_TASK_TTL = timedelta(hours=24)
 
+# A ledger entry anchors a bare "done" for this long. Matches the active-task
+# TTL: past a day, "done" is more likely about something else.
+_LEDGER_ANCHOR_TTL = timedelta(hours=24)
+
+# Ledger events that leave a task open and in the user's hands. `completed` and
+# `rejected` are the conversation's last word on a page, so they anchor nothing.
+_LEDGER_ANCHOR_EVENTS: frozenset[str] = frozenset({"added", "suggested", "reminded", "nudged"})
+
+# Two different tasks touched this close together make a bare "done"
+# ambiguous: the newer one is not meaningfully more likely than the older. The
+# node names both instead of guessing, because a wrong guess writes Completed
+# to a task the user has not finished.
+_CONTEXT_AMBIGUITY_WINDOW = timedelta(minutes=15)
+
 # Stricter than intake's 0.85. The two failure modes differ in detectability,
 # not just direction: intake's false match names the task it matched, so the
 # user sees it that turn. A false match here stamps Completed At on a task the
 # user has not done and celebrates the one they have — nothing surfaces the
 # error until the task fails to reappear days later.
 _TITLE_MATCH_CONFIDENCE_THRESHOLD = 0.90
+
+# Word-overlap bar for accepting an answer to "which task did you mean?"
+# without a model call. Only ever applied to an answer: the completion claim
+# was made on the previous turn, so the answer only has to name one task, and
+# typing a title back nearly verbatim does exactly that. A standalone message
+# never takes this path — "done, now I need to call mom" contains every word
+# of "Call mom" while saying it is not done.
+_DETERMINISTIC_ANSWER_THRESHOLD = 0.85
 
 # Below the shortlist default (0.4) because a message names a task in fewer
 # words than the title carries: {laundry} against "Fold the laundry before bed"
@@ -102,27 +129,66 @@ _COMPLETION_WORDS: frozenset[str] = frozenset({
     "out", "up", "off",
 })
 
+_KINDS: frozenset[str] = frozenset({"task", "reminder"})
+
+CompletionSource = Literal["active_task", "recent_outbound", "title_match", "recent_tasks"]
+
 
 @dataclass(frozen=True)
 class _CompletionTarget:
-    source: Literal["active_task", "recent_outbound", "title_match"]
+    source: CompletionSource
     page_id: str
     task_title: str
     work_type: str
     energy_required: str
     context_at: datetime | None
     signal_timestamp: int | None = None
+    # What the page is and what last happened to it. None means "not known
+    # from this source"; `resolved_kind` fills the gap from the source.
+    kind: RecentTaskKind | None = None
+    event: RecentTaskEvent | None = None
+    # recent_outbound.reminder_type — the outbox row's kind, for a delivery.
+    reminder_type: str | None = None
+
+    @property
+    def resolved_kind(self) -> RecentTaskKind:
+        """The page's kind, from the source when no source said so outright.
+
+        A recent_outbound row carries its outbox kind in `reminder_type`: a
+        `reminder` row points at a reminder page, a `deadline` row at a task.
+        """
+        if self.kind is not None:
+            return self.kind
+        if self.source == "recent_outbound" and self.reminder_type != "deadline":
+            return "reminder"
+        return "task"
+
+    @property
+    def delivered_reminder(self) -> bool:
+        """Whether this is a reminder page the worker has already delivered.
+
+        Delivery completes a reminder page (`complete_reminder`), so a
+        delivered one is already Completed in Notion. A reminder the user
+        finishes before it fires is still Pending, and a deadline nudge points
+        at a task delivery never touches — both still need the write.
+        """
+        if self.resolved_kind != "reminder":
+            return False
+        if self.source == "recent_outbound":
+            return self.reminder_type != "deadline"
+        return self.event == "reminded"
 
     @property
     def needs_notion_write(self) -> bool:
         """Whether completing this target still has to write Status to Notion.
 
-        Derived from the source rather than stored: reminder pages arrive here
-        already Completed, because the worker completes them at delivery. A
-        settable field would let a caller construct a recent_outbound target
-        that writes anyway, and the write is the destructive half of this node.
+        Always True. Delivery writes Completed when it marks the reminder sent,
+        but if that write fails the page stays Pending. The user's later "done"
+        repairs it idempotently: writing Completed to an already-Completed page
+        is a no-op. A settable field would let a caller skip or repeat the
+        write; keeping this derived prevents that.
         """
-        return self.source != "recent_outbound"
+        return True
 
 
 @dataclass(frozen=True)
@@ -139,6 +205,20 @@ class _TitleMatch:
     # a reason to stop; over the whole list it is saying "I could not tell",
     # which is not.
     widened: bool = False
+    # True when an answer to a clarification matched a title on word overlap
+    # alone and the model was not asked.
+    deterministic: bool = False
+
+
+@dataclass(frozen=True)
+class _LedgerItem:
+    """One validated ledger entry, with its timestamp parsed."""
+
+    page_id: str
+    title: str
+    kind: RecentTaskKind
+    event: RecentTaskEvent
+    at: datetime
 
 
 def _parse_checkpoint_datetime(value: object) -> datetime | None:
@@ -194,31 +274,114 @@ def _target_from_active_task(
         work_type=active_task.get("work_type", ""),
         energy_required=active_task.get("energy_required", ""),
         context_at=selected_at,
+        kind="task",
+        event="suggested",
     )
 
 
-async def _load_recent_outbound_target(peer: str) -> _CompletionTarget | None:
-    if not peer or not os.environ.get("DATABASE_URL"):
-        return None
+def _ledger_items(recent_tasks: Sequence[object] | None, *, now: datetime) -> list[_LedgerItem]:
+    """Validate the ledger and return it newest first.
 
-    from app.tools.db import get_db_conn
-
-    async with get_db_conn() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                SELECT signal_timestamp, notion_page_id, title, sent_at
-                  FROM recent_outbound
-                 WHERE peer = %s
-                   AND awaiting_reply = true
-                   AND expires_at > now()
-                 ORDER BY sent_at DESC, signal_timestamp DESC
-                 LIMIT 1
-                """,
-                (peer,),
+    Checkpointed entries always carry `at`. A static eval fixture cannot carry
+    a fresh timestamp, so an entry with no `at` at all is read as happening
+    now; an entry whose `at` is present but unparseable is dropped, as is any
+    entry with an unknown kind or event.
+    """
+    items: list[_LedgerItem] = []
+    for raw in recent_tasks or []:
+        if not isinstance(raw, Mapping):
+            continue
+        page_id = raw.get("page_id")
+        kind = raw.get("kind")
+        event = raw.get("event")
+        if not isinstance(page_id, str) or not page_id:
+            continue
+        if kind not in _KINDS or event not in _LEDGER_ANCHOR_EVENTS | {"completed", "rejected"}:
+            continue
+        raw_at = raw.get("at")
+        at = now if not raw_at else _parse_checkpoint_datetime(raw_at)
+        if at is None:
+            continue
+        title = raw.get("title")
+        items.append(
+            _LedgerItem(
+                page_id=page_id,
+                title=title.strip() if isinstance(title, str) else "",
+                kind=cast(RecentTaskKind, kind),
+                event=cast(RecentTaskEvent, event),
+                at=at,
             )
-            row = await cur.fetchone()
+        )
+    return sorted(items, key=lambda item: item.at, reverse=True)
 
+
+def _ledger_target(item: _LedgerItem) -> _CompletionTarget:
+    return _CompletionTarget(
+        source="recent_tasks",
+        page_id=item.page_id,
+        task_title=item.title,
+        work_type="",
+        energy_required="",
+        context_at=item.at,
+        kind=item.kind,
+        event=item.event,
+    )
+
+
+def _ledger_targets(
+    recent_tasks: Sequence[object] | None, *, now: datetime
+) -> list[_CompletionTarget]:
+    """Ledger entries that can anchor a bare "done", newest first.
+
+    Nothing anchors when the ledger's newest entry is a completion or a
+    rejection: that was the conversation's last word, and a second "done"
+    straight after one is more likely an echo than news about an older task.
+    Otherwise every open-event entry from the last `_LEDGER_ANCHOR_TTL` is
+    returned, so the caller can tell a clear anchor from two tasks touched
+    moments apart.
+    """
+    items = _ledger_items(recent_tasks, now=now)
+    if not items or items[0].event not in _LEDGER_ANCHOR_EVENTS:
+        return []
+    return [
+        _ledger_target(item)
+        for item in items
+        if item.event in _LEDGER_ANCHOR_EVENTS and now - item.at <= _LEDGER_ANCHOR_TTL
+    ]
+
+
+def _target_from_ledger(
+    recent_tasks: Sequence[object] | None, *, now: datetime
+) -> _CompletionTarget | None:
+    """The newest ledger entry that anchors a bare "done", or None."""
+    targets = _ledger_targets(recent_tasks, now=now)
+    return targets[0] if targets else None
+
+
+def _ledger_options(
+    recent_tasks: Sequence[object] | None, *, now: datetime
+) -> list[DedupCandidate]:
+    """Ledger tasks worth naming when the node has to ask, newest first.
+
+    Open-event entries with a known title. A delivered reminder is left out:
+    delivery already completed its page, so the answering turn could not find
+    it among the open tasks and the option would name something unanswerable.
+    """
+    options: list[DedupCandidate] = []
+    for item in _ledger_items(recent_tasks, now=now):
+        if item.event not in _LEDGER_ANCHOR_EVENTS or not item.title:
+            continue
+        if item.kind == "reminder" and item.event == "reminded":
+            continue
+        options.append(DedupCandidate(page_id=item.page_id, title=item.title, score=1.0))
+    return options
+
+
+async def _load_recent_outbound_target(peer: str) -> _CompletionTarget | None:
+    """The newest delivery awaiting a reply, as a completion target."""
+    from app.tools import reminders
+
+    row = await reminders.load_recent_outbound(peer)
     if not row:
         return None
 
@@ -231,14 +394,19 @@ async def _load_recent_outbound_target(peer: str) -> _CompletionTarget | None:
     else:
         sent_at = sent_at.astimezone(UTC)
 
+    reminder_type = str(row.get("reminder_type") or "reminder")
     return _CompletionTarget(
         source="recent_outbound",
         page_id=str(row["notion_page_id"]),
+        # The sent body, not the task title. It is a reward-classification
+        # fallback only; the celebration and the ledger never use it.
         task_title=str(row.get("title") or "").strip(),
         work_type="",
         energy_required="",
         context_at=sent_at,
         signal_timestamp=signal_timestamp,
+        event="nudged" if reminder_type == "deadline" else "reminded",
+        reminder_type=reminder_type,
     )
 
 
@@ -305,6 +473,7 @@ def _build_completion_match_prompt(
                 'second", "the last one" — refers to this numbering. Resolve it '
                 "to that option's id."
             )
+        shape = '{"matched_page_id": "<candidate id or null>", "confidence": 0.0}'
     else:
         instructions = (
             "The user sent a message reporting that they finished something. "
@@ -317,18 +486,19 @@ def _build_completion_match_prompt(
             "The cost of a false match is high: it marks a task the user has "
             "not finished as completed. If uncertain, return no match."
         )
+        shape = '{"matched_page_id": "<candidate id or null>", "confidence": 0.0}'
     return (
         f"{instructions}\n\n"
         f"User message: {incoming!r}\n"
         f"Candidates: {json.dumps(candidate_payload, ensure_ascii=True)}\n\n"
         "Return JSON only in this shape:\n"
-        '{"matched_page_id": "<candidate id or null>", "confidence": 0.0}'
+        f"{shape}"
     )
 
 
 def _reoffer_candidates(
     offered: tuple[ClarificationCandidate, ...],
-    open_tasks: list[Mapping[str, str]],
+    open_list: list[Mapping[str, str]],
 ) -> list[DedupCandidate]:
     """Rebuild the previous turn's options, in the order they were offered.
 
@@ -337,7 +507,7 @@ def _reoffer_candidates(
     checkpoint. Order is the offered order because that is what an ordinal
     answer refers to; the score is unused here and carries no ranking claim.
     """
-    open_titles = {task["id"]: task["title"] for task in open_tasks}
+    open_titles = {task["id"]: task["title"] for task in open_list}
     rebuilt: list[DedupCandidate] = []
     seen: set[str] = set()
     for option in offered:
@@ -349,6 +519,29 @@ def _reoffer_candidates(
         seen.add(page_id)
         rebuilt.append(DedupCandidate(page_id=page_id, title=open_titles[page_id], score=0.0))
     return rebuilt
+
+
+def _deterministic_answer(
+    residue: set[str], open_list: list[Mapping[str, str]]
+) -> Mapping[str, str] | None:
+    """The one open task an answer names nearly verbatim, or None.
+
+    Compares the answer's task-naming words against each title's, with the
+    completion words removed from both sides so "take the bins out" and "Take
+    the bins out" compare equal. Accepts only a unique hit at or above
+    `_DETERMINISTIC_ANSWER_THRESHOLD`; two hits are an ambiguity for the model
+    to read, not a coin toss. The caller uses this only for an answer to a
+    clarification — never for a standalone message.
+    """
+    if not residue:
+        return None
+    hits = [
+        task
+        for task in open_list
+        if (title_tokens := _task_reference_tokens(task.get("title", "")))
+        and dice_coefficient(residue, title_tokens) >= _DETERMINISTIC_ANSWER_THRESHOLD
+    ]
+    return hits[0] if len(hits) == 1 else None
 
 
 async def _resolve_title_match(
@@ -366,12 +559,14 @@ async def _resolve_title_match(
     handler emits complete_node.error, which the eval runner treats as the
     hand-written fallback path rather than real behavior.
 
-    Scope: the candidate set is every open non-reminder task, unfiltered by
-    peer. That is deliberate and is the documented data model, not a missing
-    authorization check — the Notion database holds one person's tasks and has
-    no owner column, and AUTHORIZED_PEERS lists that person's own addresses.
-    See "Scope and Ownership" in docs/notion-schema.md. The access boundary is
-    the allowlist at the Signal ingress; past it there is nothing to partition.
+    Scope: the candidate set is every open task, reminder pages included,
+    unfiltered by peer. An open reminder page is one that has not fired yet;
+    a user can finish it before it does. The peer scope is deliberate and is
+    the documented data model, not a missing authorization check — the Notion
+    database holds one person's tasks and has no owner column, and
+    AUTHORIZED_PEERS lists that person's own addresses. See "Scope and
+    Ownership" in docs/notion-schema.md. The access boundary is the allowlist
+    at the Signal ingress; past it there is nothing to partition.
     """
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -380,19 +575,48 @@ async def _resolve_title_match(
         from app.tools import notion
 
         raw = await notion.query_all()
-        # Reminder pages are filtered out here, so a title match can never
-        # land on one — the needs_notion_write exemption stays unreachable
-        # from this source.
-        open_tasks = open_non_reminder_tasks(raw)
+        open_list = open_tasks(raw, include_reminders=True)
+        kinds = {task["id"]: task.get("kind", "task") for task in open_list}
+
+        def target_for(page_id: str, title: str) -> _CompletionTarget:
+            kind: RecentTaskKind = "reminder" if kinds.get(page_id) == "reminder" else "task"
+            return _title_target(page_id, title, now=now, kind=kind)
+
+        # The options the previous turn named lead the list, in that order, and
+        # are never dropped by ranking — an ordinal answer has no other referent,
+        # and a message like "the second one" scores nothing against any title.
+        reoffered = (
+            _reoffer_candidates(offered, open_list) if answering_clarification else []
+        )
+
+        if answering_clarification:
+            # An answer that types a title back nearly verbatim has named it.
+            # Asking the model to confirm that costs a call and can only add a
+            # way to get it wrong.
+            answer = _deterministic_answer(residue, open_list)
+            if answer is not None:
+                log.info(
+                    "complete_node.deterministic_answer",
+                    page_id=answer["id"],
+                    open_task_count=len(open_list),
+                )
+                return _TitleMatch(
+                    target=target_for(answer["id"], answer["title"]),
+                    candidate_count=len(open_list),
+                    confidence=1.0,
+                    candidates=tuple(reoffered),
+                    deterministic=True,
+                )
 
         # Every candidate goes to the model, even one that quotes a title
         # verbatim. Containing a task's words is not the same as saying it is
         # finished: "done, now I need to call mom" contains all of "Call mom"
         # while asserting the opposite. Only the whole sentence separates them,
-        # so there is no lexical shortcut past this call.
+        # so there is no lexical shortcut past this call for a standalone
+        # message.
         candidates = shortlist_duplicate_candidates(
             incoming,
-            open_tasks,
+            open_list,
             min_score=_TITLE_MATCH_MIN_SCORE,
             query_stopwords=_COMPLETION_WORDS,
         )
@@ -404,22 +628,18 @@ async def _resolve_title_match(
             widened = True
             candidates = shortlist_duplicate_candidates(
                 incoming,
-                open_tasks,
+                open_list,
                 limit=_FALLBACK_CANDIDATE_LIMIT,
                 min_score=0.0,
                 query_stopwords=_COMPLETION_WORDS,
             )
-            if len(open_tasks) > _FALLBACK_CANDIDATE_LIMIT:
+            if len(open_list) > _FALLBACK_CANDIDATE_LIMIT:
                 log.info(
                     "complete_node.candidate_set_truncated",
-                    open_task_count=len(open_tasks),
+                    open_task_count=len(open_list),
                     limit=_FALLBACK_CANDIDATE_LIMIT,
                 )
 
-        # The options the previous turn named lead the list, in that order, and
-        # are never dropped by ranking — an ordinal answer has no other referent,
-        # and a message like "the second one" scores nothing against any title.
-        reoffered = _reoffer_candidates(offered, open_tasks) if answering_clarification else []
         if reoffered:
             reoffered_ids = {candidate.page_id for candidate in reoffered}
             candidates = reoffered + [
@@ -431,7 +651,8 @@ async def _resolve_title_match(
             return _TitleMatch(target=None, candidate_count=0, confidence=None)
 
         def outcome(
-            target: _CompletionTarget | None, confidence: float | None
+            target: _CompletionTarget | None,
+            confidence: float | None,
         ) -> _TitleMatch:
             """Attach the candidate set to every verdict, matched or not.
 
@@ -468,9 +689,7 @@ async def _resolve_title_match(
         if len(matches) != 1:
             return outcome(None, confidence)
 
-        return outcome(
-            _title_target(matches[0].page_id, matches[0].title, now=now), confidence
-        )
+        return outcome(target_for(matches[0].page_id, matches[0].title), confidence)
     except Exception:
         # Counts only — the message and titles are the user's private words.
         log.warning(
@@ -481,7 +700,9 @@ async def _resolve_title_match(
         return _TitleMatch(target=None, candidate_count=0, confidence=None)
 
 
-def _title_target(page_id: str, title: str, *, now: datetime) -> _CompletionTarget:
+def _title_target(
+    page_id: str, title: str, *, now: datetime, kind: RecentTaskKind = "task"
+) -> _CompletionTarget:
     return _CompletionTarget(
         source="title_match",
         page_id=page_id,
@@ -489,47 +710,109 @@ def _title_target(page_id: str, title: str, *, now: datetime) -> _CompletionTarg
         work_type="",
         energy_required="",
         context_at=now,
+        kind=kind,
     )
 
 
-async def _clear_recent_outbound(
-    peer: str, signal_timestamp: int, notion_page_id: str = ""
-) -> None:
-    """Resolve the reminder rows this completion answers.
+# Attempts at cancelling a finished reminder's outbox rows before giving up.
+_REMINDER_CANCEL_ATTEMPTS = 2
 
-    Scoped by page, not by the single delivery the user replied to. A task can
-    have several reminders in flight — migration 0007 dropped the UNIQUE on
-    `reminder_outbox.notion_page_id` so deadline milestones could stack — and
-    each delivery writes its own `recent_outbound` row. Clearing only the row
-    matching `signal_timestamp` leaves the siblings live for their full 24h
-    window, where a later unrelated "done" resolves one of them: the wrong task
-    marked complete, and a reward celebrating work that was already finished
-    and already celebrated. `docs/reward-system.md` ties rewards to actual
-    completion, so that is a spec violation, not merely untidy state.
 
-    `signal_timestamp` stays in the predicate as a fallback so a target that
-    somehow carries no page id still resolves the row it came from.
+async def _cancel_pending_reminders(peer: str, page_id: str) -> None:
+    """Stop a reminder the user already finished from firing.
+
+    Tries twice. When both attempts fail the completion still stands — the
+    Notion write already happened, and taking back the celebration would
+    punish the user for a database hiccup. The failure is logged and raised to
+    the operator as an ops alert, and the delivery worker's pre-send check
+    (`reminder_worker`) skips a reminder whose page is already Completed, so a
+    surviving outbox row still does not reach the user.
     """
-    if not peer or not os.environ.get("DATABASE_URL"):
-        return
+    from app.tools import ops_alerts, reminders
 
-    from app.tools.db import get_db_conn
+    last_error: Exception | None = None
+    for _ in range(_REMINDER_CANCEL_ATTEMPTS):
+        try:
+            await reminders.cancel_pending_reminders(peer=peer, notion_page_id=page_id)
+            return
+        except Exception as exc:
+            last_error = exc
 
-    async with get_db_conn() as conn:
-        await conn.execute(
-            """
-            UPDATE recent_outbound
-               SET awaiting_reply = false
-             WHERE peer = %s
-               AND awaiting_reply = true
-               AND (
-                     signal_timestamp = %s
-                     OR (%s <> '' AND notion_page_id = %s)
-                   )
-            """,
-            (peer, signal_timestamp, notion_page_id, notion_page_id),
+    log.warning(
+        "complete_node.reminder_cancel_failed",
+        page_id=page_id,
+        error_type=type(last_error).__name__,
+        attempts=_REMINDER_CANCEL_ATTEMPTS,
+    )
+    try:
+        # Placeholder only: an ops alert body never carries a page id or title.
+        await ops_alerts.enqueue(
+            kind="reminder_cancel_failed",
+            body=(
+                "Reminder cancellation failed after the user completed <page_id>; "
+                "the worker's pre-send check is the remaining guard."
+            ),
+            severity="warning",
         )
-        await conn.commit()
+    except Exception as exc:
+        log.warning(
+            "complete_node.reminder_cancel_alert_failed",
+            page_id=page_id,
+            error_type=type(exc).__name__,
+        )
+
+
+def _merge_same_page(group: list[_CompletionTarget]) -> _CompletionTarget:
+    """Collapse one page's targets from several sources into one.
+
+    The active task wins as the base when present — it is the only source
+    carrying work_type and energy_required for the reward call. Otherwise the
+    delivery row wins over the ledger entry, because it is what the ledger's
+    `reminded`/`nudged` entry was merged from and it says authoritatively
+    whether delivery already completed the page. The group's newest timestamp
+    stands for the page in arbitration.
+    """
+    priority = {"active_task": 0, "recent_outbound": 1, "recent_tasks": 2, "title_match": 3}
+    base = min(group, key=lambda target: priority[target.source])
+    stamps = [target.context_at for target in group if target.context_at is not None]
+    if stamps and base.context_at != max(stamps):
+        base = replace(base, context_at=max(stamps))
+    if base.source == "active_task":
+        delivery = next((t for t in group if t.source == "recent_outbound"), None)
+        if delivery is not None:
+            base = replace(base, signal_timestamp=delivery.signal_timestamp)
+    return base
+
+
+def _context_pool(
+    *,
+    active_target: _CompletionTarget | None,
+    recent_target: _CompletionTarget | None,
+    ledger_targets: Sequence[_CompletionTarget] = (),
+) -> list[_CompletionTarget]:
+    """Every live context target, one per page, newest first.
+
+    Ties go to the delivery, then the active task, then the ledger: the sort
+    is stable, so insertion order breaks them. A reminder the user is replying
+    to is the likelier referent than a task handed over at the same moment.
+    """
+    by_page: dict[str, list[_CompletionTarget]] = {}
+    for target in (recent_target, active_target, *ledger_targets):
+        if target is not None and target.page_id:
+            by_page.setdefault(target.page_id, []).append(target)
+    merged = [_merge_same_page(group) for group in by_page.values()]
+    oldest = datetime.min.replace(tzinfo=UTC)
+    return sorted(merged, key=lambda target: target.context_at or oldest, reverse=True)
+
+
+def _is_ambiguous(pool: Sequence[_CompletionTarget]) -> bool:
+    """Whether the two newest context tasks are too close together to pick one."""
+    if len(pool) < 2:
+        return False
+    newest, runner_up = pool[0].context_at, pool[1].context_at
+    if newest is None or runner_up is None:
+        return False
+    return newest - runner_up < _CONTEXT_AMBIGUITY_WINDOW
 
 
 def _choose_completion_target(
@@ -537,25 +820,25 @@ def _choose_completion_target(
     active_target: _CompletionTarget | None,
     recent_target: _CompletionTarget | None,
     title_target: _CompletionTarget | None = None,
+    ledger_targets: Sequence[_CompletionTarget] = (),
 ) -> _CompletionTarget | None:
     if title_target:
         # Same page from two sources: keep the active task, which is the only
         # one carrying work_type and energy_required for the reward call.
         if active_target and active_target.page_id == title_target.page_id:
             return active_target
-        # The user named a task. That outranks both inferences — including an
+        # The user named a task. That outranks every inference — including an
         # active task pointing at a different page, which would otherwise mark
         # the wrong one done.
         return title_target
-    if recent_target and active_target:
-        if active_target.context_at is None:
-            return recent_target
-        if recent_target.context_at is None:
-            return active_target
-        if recent_target.context_at >= active_target.context_at:
-            return recent_target
-        return active_target
-    return recent_target or active_target
+    pool = _context_pool(
+        active_target=active_target,
+        recent_target=recent_target,
+        ledger_targets=ledger_targets,
+    )
+    if not pool or _is_ambiguous(pool):
+        return None
+    return pool[0]
 
 
 def _format_options(titles: list[str]) -> str:
@@ -568,24 +851,61 @@ def _format_options(titles: list[str]) -> str:
 
 
 def _clarification_body(
-    attempts: int, candidates: tuple[DedupCandidate, ...], *, offerable: bool
+    attempts: int,
+    candidates: tuple[DedupCandidate, ...],
+    *,
+    offerable: bool,
+    from_context: bool = False,
 ) -> str:
     """Compose the question for this attempt.
 
     When there are candidates worth naming the ask names them — recognition
-    rather than recall. Otherwise it stays open, and the second ask rephrases
-    rather than repeating, because a message repeated verbatim is the failure
-    this whole path exists to prevent.
+    rather than recall. Options drawn from what the conversation just touched
+    get their own wording, since the user named nothing and the question is
+    only which of those it was. Otherwise it stays open, and the second ask
+    rephrases rather than repeating, because a message repeated verbatim is the
+    failure this whole path exists to prevent.
     """
     if candidates and offerable:
         titles = [candidate.title for candidate in candidates[:_CLARIFICATION_OPTION_LIMIT]]
+        options = _format_options(titles)
+        if from_context:
+            if attempts == 0:
+                return f"Nice — which task was it: {options}?"
+            return f"Just checking which one — {options}?"
         if attempts == 0:
-            return f"I can mark that done — was it {_format_options(titles)}?"
-        return f"Still not sure which one — was it {_format_options(titles)}?"
+            return f"I can mark that done — was it {options}?"
+        return f"Still not sure which one — was it {options}?"
 
     if attempts == 0:
         return "I can mark that done. Which task did you mean?"
     return "Still not placing it — what's the task called?"
+
+
+def _clarification_candidates(
+    context_options: Sequence[DedupCandidate], title_match: _TitleMatch
+) -> tuple[tuple[DedupCandidate, ...], bool]:
+    """Options for the next ask: the conversation's own tasks first, then the shortlist.
+
+    Returns `(candidates, from_context)`. The shortlist joins only when the
+    message's words put those titles on it; a widened whole-list scan is not a
+    shortlist. `from_context` is true when the leading option came from the
+    conversation rather than the message.
+    """
+    merged: list[DedupCandidate] = []
+    seen: set[str] = set()
+    shortlist = () if title_match.widened else title_match.candidates
+    for candidate in (*context_options, *shortlist):
+        if candidate.page_id in seen or not candidate.title:
+            continue
+        seen.add(candidate.page_id)
+        merged.append(candidate)
+        if len(merged) >= _CLARIFICATION_OPTION_LIMIT:
+            break
+    from_context = bool(merged) and bool(context_options) and (
+        merged[0].page_id == context_options[0].page_id
+    )
+    return tuple(merged), from_context
 
 
 def _clarify_completion_target(
@@ -594,6 +914,7 @@ def _clarify_completion_target(
     attempts: int = 0,
     candidates: tuple[DedupCandidate, ...] = (),
     offerable: bool = False,
+    from_context: bool = False,
 ) -> dict[str, Any]:
     """Ask which task was meant, and remember having asked.
 
@@ -603,10 +924,11 @@ def _clarify_completion_target(
     costs the user attention and returns nothing.
 
     `offerable` says whether the candidates are worth presenting as choices —
-    true only when the message's own words put them there. A widened candidate
-    set is the whole open list ranked by scores that are all effectively zero,
-    so its top three are not a shortlist, they are the first three tasks. Naming
-    them would present noise as a suggestion, and because a named option can be
+    true only when there is a reason behind them: the conversation just touched
+    them, or the message's own words put them there. A widened candidate set is
+    the whole open list ranked by scores that are all effectively zero, so its
+    top three are not a shortlist, they are the first three tasks. Naming them
+    would present noise as a suggestion, and because a named option can be
     answered by position, the user could pick one and complete a task chosen at
     random. Choices are only a kindness when there is a reason behind them.
     """
@@ -648,7 +970,9 @@ def _clarify_completion_target(
     }
     no_task_draft: OutboundDraft = {
         "recipient": peer,
-        "body": _clarification_body(attempts, candidates, offerable=offerable),
+        "body": _clarification_body(
+            attempts, candidates, offerable=offerable, from_context=from_context
+        ),
         "notion_page_id": None,
     }
     log.info(
@@ -656,6 +980,7 @@ def _clarify_completion_target(
         has_peer=bool(peer),
         attempts=attempts + 1,
         named_option_count=len(stored),
+        options_from_context=from_context and bool(stored),
     )
     return {
         "pending_outbound": [no_task_draft],
@@ -665,18 +990,65 @@ def _clarify_completion_target(
     }
 
 
+async def _resolve_display_title(
+    target: _CompletionTarget, recent_tasks: Sequence[object]
+) -> str:
+    """The stored task title to name in the celebration, or "" if unknown.
+
+    Never the sent reminder body: a recent_outbound target's `task_title` is
+    the message that went out, not the task. The ledger's title comes first,
+    then the page itself. The Notion read is fail-soft — a lookup failure costs
+    the name, never the completion.
+    """
+    if target.source != "recent_outbound" and target.task_title:
+        return target.task_title
+    known = ledger_entry(recent_tasks, target.page_id)
+    if known and known["title"]:
+        return known["title"]
+    try:
+        from app.tools import notion
+
+        page = await notion.get_page(page_id=target.page_id)
+        props = page.get("properties", {}) if isinstance(page, dict) else {}
+        return extract_title(props if isinstance(props, dict) else {}).strip()
+    except Exception as exc:
+        log.warning(
+            "complete_node.title_lookup_failed",
+            page_id=target.page_id,
+            error_type=type(exc).__name__,
+        )
+        return ""
+
+
+def _celebration_body(title: str, reward_text: str) -> str:
+    """Name the task, then celebrate it.
+
+    The body leads with the `{task}` token and the draft carries the title, so
+    `send_node` substitutes the exact stored title. A reward text that already
+    opens with "Done" (the muted sensitive-task text among them) follows the
+    name directly rather than saying done twice. With no known title the reward
+    text goes out alone.
+    """
+    if not title:
+        return reward_text
+    if reward_text.lstrip().lower().startswith("done"):
+        return f"{TASK_TOKEN} — {reward_text}"
+    return f"{TASK_TOKEN} — done. {reward_text}"
+
+
 async def complete_node(state: State) -> dict[str, Any]:
     """COMPLETE handler: update Notion, call rewards.maybe_reward(), draft reply."""
     peer = state.get("peer", "")
 
     try:
-        from app.tools import notion
+        from app.tools import notion, reminders
         from app.tools.rewards import maybe_reward
 
         active_task = state.get("active_task")
         now = datetime.now(UTC)
         active_target = _target_from_active_task(active_task, now=now)
         recent_tasks = list(state.get("recent_tasks") or [])
+        ledger_targets = _ledger_targets(recent_tasks, now=now)
 
         # Attempts already spent on this question. Absent for a first "done",
         # present when this turn is the answer to a clarification classify_intent
@@ -723,10 +1095,16 @@ async def complete_node(state: State) -> dict[str, Any]:
         else:
             title_match = _TitleMatch(target=None, candidate_count=0, confidence=None)
 
+        context_options = _ledger_options(recent_tasks, now=now)
+        clarify_candidates, from_context = _clarification_candidates(
+            context_options, title_match
+        )
+
         target = _choose_completion_target(
             active_target=active_target,
             recent_target=recent_target,
             title_target=title_match.target,
+            ledger_targets=ledger_targets,
         )
 
         # When the message appeared to name a task (candidates the message
@@ -748,8 +1126,9 @@ async def complete_node(state: State) -> dict[str, Any]:
             return _clarify_completion_target(
                 peer,
                 attempts=attempts,
-                candidates=title_match.candidates,
-                offerable=not title_match.widened,
+                candidates=clarify_candidates,
+                offerable=bool(clarify_candidates),
+                from_context=from_context,
             )
 
         # Ids and counts only — the residue tokens and task titles are the
@@ -760,9 +1139,12 @@ async def complete_node(state: State) -> dict[str, Any]:
             page_id=target.page_id if target else None,
             active_page_id=active_target.page_id if active_target else None,
             recent_page_id=recent_target.page_id if recent_target else None,
+            ledger_page_id=ledger_targets[0].page_id if ledger_targets else None,
+            ledger_anchor_count=len(ledger_targets),
             title_page_id=title_match.target.page_id if title_match.target else None,
             candidate_count=title_match.candidate_count,
             candidates_widened=title_match.widened,
+            deterministic_answer=title_match.deterministic,
             match_confidence=title_match.confidence,
             residue_token_count=len(residue),
             clarification_attempts=attempts,
@@ -773,64 +1155,77 @@ async def complete_node(state: State) -> dict[str, Any]:
             return _clarify_completion_target(
                 peer,
                 attempts=attempts,
-                candidates=title_match.candidates,
-                offerable=not title_match.widened,
+                candidates=clarify_candidates,
+                offerable=bool(clarify_candidates),
+                from_context=from_context,
             )
 
         page_id = target.page_id
-        task_title = target.task_title
+        display_title = await _resolve_display_title(target, recent_tasks)
+        known = ledger_entry(recent_tasks, page_id)
+        kind: RecentTaskKind = (
+            target.kind if target.kind is not None
+            else known["kind"] if known else target.resolved_kind
+        )
 
         if target.needs_notion_write:
             await notion.update_status(page_id=page_id, new_status="Completed")
+
+        if kind == "reminder":
+            # A reminder finished before it fired must not fire afterwards.
+            await _cancel_pending_reminders(peer, page_id)
 
         streak = state.get("streak", 0) + 1
         tasks_today = state.get("tasks_completed_today", 0) + 1
 
         reward_result = await maybe_reward(
             peer=peer,
-            task_title=task_title,
+            # The real title when known; a delivery's sent body is only a
+            # fallback so sensitive-task classification still sees the words.
+            task_title=display_title or target.task_title,
             notion_page_id=page_id,
             streak=streak,
             work_type=target.work_type,
             energy_required=target.energy_required,
         )
 
-        if target.source == "recent_outbound" and target.signal_timestamp is not None:
-            try:
-                await _clear_recent_outbound(
-                    peer=peer,
-                    signal_timestamp=target.signal_timestamp,
-                    notion_page_id=page_id,
-                )
-            except Exception:
-                log.warning(
-                    "complete_node.recent_outbound_clear_failed",
-                    page_id=page_id,
-                    signal_timestamp=target.signal_timestamp,
-                    exc_info=True,
-                )
+        try:
+            # Scoped by page, for every source: a task finished by name or from
+            # the ledger may still have a delivered nudge awaiting a reply.
+            await reminders.resolve_recent_outbound(
+                peer=peer,
+                signal_timestamp=target.signal_timestamp or 0,
+                notion_page_id=page_id,
+            )
+        except Exception:
+            log.warning(
+                "complete_node.recent_outbound_clear_failed",
+                page_id=page_id,
+                signal_timestamp=target.signal_timestamp,
+                exc_info=True,
+            )
 
         reward_draft: OutboundDraft = {
             "recipient": peer,
-            "body": reward_result["text"],
+            "body": _celebration_body(display_title, reward_result["text"]),
             "notion_page_id": page_id,
         }
+        if display_title:
+            # send_node substitutes the token and guarantees the name appears.
+            reward_draft["notion_page_title"] = display_title
+        else:
+            log.info("complete_node.unnamed_celebration", page_id=page_id, source=target.source)
         # Attach image if one was generated.
         # attachment_path is private; never log the path value.
         if reward_result["attachment_path"]:
             reward_draft["attachment_path"] = reward_result["attachment_path"]
 
-        # A recent_outbound target's title is the sent reminder body, not the
-        # task title, so it is never written to the ledger; the ledger keeps
-        # whatever title it already has for the page.
-        known = ledger_entry(recent_tasks, page_id)
+        # The ledger stores the stored title only — never a sent reminder body.
         recent_tasks = record_task_event(
             recent_tasks,
             page_id=page_id,
-            title="" if target.source == "recent_outbound" else task_title,
-            kind=known["kind"] if known else (
-                "reminder" if target.source == "recent_outbound" else "task"
-            ),
+            title=display_title,
+            kind=kind,
             event="completed",
             now=now,
         )
@@ -840,6 +1235,7 @@ async def complete_node(state: State) -> dict[str, Any]:
             page_id=page_id,
             source=target.source,
             streak=streak,
+            named=bool(display_title),
         )
         return {
             "pending_outbound": [reward_draft],

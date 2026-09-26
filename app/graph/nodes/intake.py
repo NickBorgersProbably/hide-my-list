@@ -240,6 +240,7 @@ async def intake_node(state: State) -> dict[str, Any]:
                 urgency=urgency,
                 user_timezone=user_timezone,
                 refresh_existing_deadline=duplicate_matched,
+                title=dedup_match.title if duplicate_matched and dedup_match else task_title,
             )
 
         # Create hidden sub-tasks if needed
@@ -554,8 +555,12 @@ async def _schedule_deadline_series(
     urgency: int,
     user_timezone: str,
     refresh_existing_deadline: bool = False,
+    title: str = "",
 ) -> list[tuple[str, datetime]]:
-    """Schedule a deadline milestone series after a Notion task is created."""
+    """Schedule a deadline milestone series after a Notion task is created.
+
+    `title` is the stored task title the nudges name (private; never logged).
+    """
     try:
         from app.scheduler.reminder_scheduling import (
             cancel_outbox_rows,
@@ -584,6 +589,7 @@ async def _schedule_deadline_series(
                 urgency=urgency,
                 now=datetime.now(UTC),
                 user_tz=user_timezone,
+                title=title,
             )
         if scheduled and not failures:
             try:

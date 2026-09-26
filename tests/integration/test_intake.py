@@ -22,6 +22,30 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 
 from app.graph.state import State
+from app.scheduler.reminder_scheduling import schedule_for_task as _real_schedule_for_task
+
+
+def _assert_schedule_call(
+    mock: AsyncMock, *, page_id: str, peer: str, deadline_iso: str, title: str
+) -> None:
+    """Bind intake's schedule_for_task call against the real signature (clause 10).
+
+    Intake swallows scheduling errors into a fallback reply, so a renamed or
+    removed parameter would degrade silently. Every keyword is pinned.
+    """
+    mock.assert_awaited_once()
+    call = mock.await_args
+    params = inspect.signature(_real_schedule_for_task).parameters
+    inspect.signature(_real_schedule_for_task).bind(*call.args, **call.kwargs)
+    assert len(call.args) == 1  # the connection
+    assert set(call.kwargs) == {name for name in params if name != "conn"}
+    assert call.kwargs["notion_page_id"] == page_id
+    assert call.kwargs["peer"] == peer
+    assert call.kwargs["deadline_at"] == datetime.fromisoformat(deadline_iso)
+    assert isinstance(call.kwargs["urgency"], int)
+    assert call.kwargs["user_tz"] == "America/Chicago"
+    assert isinstance(call.kwargs["now"], datetime) and call.kwargs["now"].tzinfo is not None
+    assert call.kwargs["title"] == title
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -325,7 +349,14 @@ async def test_deadline_task_schedules_inline_series() -> None:
 
     assert create_task_calls[0]["due_at_iso"] == "2026-06-06T22:00:00+00:00"
     record_deadline_task_peer.assert_awaited_once()
-    schedule_for_task.assert_awaited_once()
+    # The nudge body names the task, so intake hands the series its title.
+    _assert_schedule_call(
+        schedule_for_task,
+        page_id=page_id,
+        peer="<test-intake-deadline>",
+        deadline_iso="2026-06-06T22:00:00+00:00",
+        title="Placeholder deadline task",
+    )
     mark_scheduled.assert_awaited_once_with(page_id)
     assert "I'll ping you" in result["pending_outbound"][0]["body"]
 
@@ -487,8 +518,14 @@ async def test_dedup_deadline_updates_existing_and_schedules_series(
     supersede_ledger_rows.assert_awaited_once()
     cancel_outbox_rows.assert_awaited_once_with(ANY, ["<outbox-id>"])
     record_deadline_task_peer.assert_awaited_once()
-    schedule_for_task.assert_awaited_once()
-    assert schedule_for_task.await_args.kwargs["notion_page_id"] == matched_page_id
+    # A duplicate's series is named after the existing page, not the new phrasing.
+    _assert_schedule_call(
+        schedule_for_task,
+        page_id=matched_page_id,
+        peer="<test-peer-1>",
+        deadline_iso="2026-06-06T22:00:00+00:00",
+        title="Placeholder deadline task",
+    )
     mark_scheduled.assert_awaited_once_with(matched_page_id)
     draft = result["pending_outbound"][0]
     assert draft["notion_page_id"] == matched_page_id

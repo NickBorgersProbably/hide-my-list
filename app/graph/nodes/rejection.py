@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import structlog
 
+from app.graph.context import ledger_entry, record_task_event
 from app.graph.nodes._task_token import render_task_token
 from app.graph.state import OutboundDraft, State
 
@@ -34,8 +36,8 @@ async def rejection_node(state: State) -> dict[str, Any]:
         available_minutes = state.get("available_minutes") or 30
         mood = state.get("mood") or "neutral"
 
-        task_title = (active_task.get("title") or "").strip() if active_task else ""
-        task_title = task_title or "the suggested task"
+        stored_title = (active_task.get("title") or "").strip() if active_task else ""
+        task_title = stored_title or "the suggested task"
         rejected_page_id = active_task.get("page_id", "") if active_task else ""
 
         # Fetch remaining tasks for alternative suggestion
@@ -110,11 +112,44 @@ async def rejection_node(state: State) -> dict[str, Any]:
         if alternative_title:
             draft["notion_page_title"] = alternative_title
 
-        log.info("rejection_node.alternative", peer=peer, alternative_id=alternative_id)
+        # The ledger remembers both halves of the exchange: the declined page as
+        # `rejected`, then the offered alternative as `suggested`. Recorded in
+        # that order at the same instant, so the alternative is the ledger's
+        # newest entry and a bare "done" next turn anchors to it. Only a listed
+        # alternative with a real title is recorded — an id the model invented
+        # names nothing the user was shown.
+        now = datetime.now(UTC)
+        recent_tasks = list(state.get("recent_tasks") or [])
+        if rejected_page_id:
+            known = ledger_entry(recent_tasks, rejected_page_id)
+            recent_tasks = record_task_event(
+                recent_tasks,
+                page_id=rejected_page_id,
+                title=stored_title,
+                kind=known["kind"] if known else "task",
+                event="rejected",
+                now=now,
+            )
+        if alternative_id and alternative_title and alternative_title.strip():
+            recent_tasks = record_task_event(
+                recent_tasks,
+                page_id=alternative_id,
+                title=alternative_title,
+                kind="task",
+                event="suggested",
+                now=now,
+            )
+
+        log.info(
+            "rejection_node.alternative",
+            alternative_id=alternative_id,
+            alternative_recorded=bool(alternative_id and alternative_title),
+        )
         return {
             "pending_outbound": [draft],
             "active_task": None,
             "conversation_state": "selection",
+            "recent_tasks": recent_tasks,
         }
 
     except Exception:

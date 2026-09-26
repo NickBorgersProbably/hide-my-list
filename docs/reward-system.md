@@ -199,6 +199,17 @@ initiation-specific adjustments:
 | Parent task (all subs done) | Epic | "MAJOR WIN! 🏆👑🎉✨🔥", "PROJECT COMPLETE! 🚀⭐💪🎊" |
 | All tasks cleared | Epic | "INBOX ZERO! 🏆👑✨🎉🔥💪🚀", "LEGENDARY DAY! 👑⭐🏆🎊" |
 
+**Naming rule.** A completion celebration names the task it celebrates when a title can be read.
+The reply body is `{task} — done. ` followed by the template text — "Take the
+bins out — done. Nice work! ✨" — and the draft carries `notion_page_title`, so
+`send_node` substitutes the exact stored title. A template that already opens
+with "Done" follows the name directly rather than saying done twice; the muted
+sensitive-task text becomes "{task} — Done. That mattered." A celebration that
+names nothing leaves the user asking what was finished, which spends the
+attention the reward exists to repay. The title comes from the task's own
+record, never from the text of a reminder the agent sent. When no title can be
+read, the template text goes out alone.
+
 ---
 
 ### AI-Generated Celebration Images
@@ -998,7 +1009,7 @@ sequenceDiagram
         R->>SMS: Text significant other
     end
 
-    AI->>U: "CRUSHED IT! 🔥💪✨" + single MEDIA attachment
+    AI->>U: "Wash the dishes — done. CRUSHED IT! 🔥💪✨" + single MEDIA attachment
 
     opt High intensity + cleared schedule
         R->>AI: Outing suggestion

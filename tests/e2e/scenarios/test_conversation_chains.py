@@ -17,27 +17,30 @@ pytestmark = pytest.mark.asyncio
 async def test_rejecting_a_task_offers_a_named_alternative(
     conversation: Conversation,
 ) -> None:
-    """Scenario 4 — reject, then get something else.
+    """Scenario 4 — reject, then get something else, then complete the alternative.
 
-    Two properties. The alternative has to be *named*: an alternative the user
+    Three properties. The alternative has to be *named*: an alternative the user
     cannot identify is the same unactionable message the naming invariant exists
-    to prevent, and it shipped once already. And the rejected task must not be
-    completed — "not this one" is not "done".
+    to prevent, and it shipped once already. The rejected task must not be
+    completed — "not this one" is not "done". And a bare "done" after the rejection
+    must resolve to the offered alternative, not the rejected one: the ledger's
+    `suggested` entry anchors the completion, and `rejected` does not.
     """
-    conversation.notion.seed_task(
+    garage_page = conversation.notion.seed_task(
         title="Clean out the garage",
         work_type="Independent",
         energy_required="High",
         urgency=95,
         time_estimate=120,
     )
-    conversation.notion.seed_task(
+    email_page = conversation.notion.seed_task(
         title="Reply to the school email",
         work_type="Independent",
         energy_required="Low",
         urgency=60,
         time_estimate=10,
     )
+    _ = (garage_page, email_page)  # captured for offered/alt assertions below
 
     offer = await conversation.say(
         "give me something to do", expect=Expect(intent="GET_TASK", sent_count=1)
@@ -46,7 +49,7 @@ async def test_rejecting_a_task_offers_a_named_alternative(
     assert offered_page, "selection_node offered nothing to reject"
 
     writes_before = conversation.notion.mark()
-    await conversation.say("not that one", expect=Expect(intent="REJECT", sent_count=1))
+    reject = await conversation.say("not that one", expect=Expect(intent="REJECT", sent_count=1))
 
     completed = {
         write.page_id
@@ -58,6 +61,33 @@ async def test_rejecting_a_task_offers_a_named_alternative(
         "finishing it"
     )
     assert conversation.notion.status_of(offered_page) != "Completed"
+
+    # The ledger should carry the suggested alternative from rejection_node.
+    recent_tasks = reject.state.get("recent_tasks") or []
+    suggested = next(
+        (e for e in recent_tasks if e.get("event") == "suggested"),
+        None,
+    )
+    assert suggested, "rejection_node wrote no suggested entry to the ledger"
+    alt_page = str(suggested["page_id"])
+    assert alt_page != offered_page, "alternative must be a different page than the rejected one"
+
+    done = await conversation.say(
+        "done",
+        expect=Expect(
+            intent="COMPLETE",
+            notion_status={alt_page: "Completed"},
+            notion_untouched=[offered_page],
+            sent_count=1,
+        ),
+    )
+
+    assert done.state.get("pending_clarification") is None, (
+        "completion context must be cleared after resolving"
+    )
+    assert conversation.notion.status_of(offered_page) != "Completed", (
+        "the rejected task must not be marked Completed by a bare 'done'"
+    )
 
 
 async def test_a_task_added_this_turn_can_be_reminded_about(
@@ -125,12 +155,15 @@ async def test_a_follow_up_turn_reads_the_previous_one(
 async def test_redelivering_a_reminder_completes_it_once(
     conversation: Conversation,
 ) -> None:
-    """Scenario 10 — two live reminders for one page, then a single "done".
+    """Scenario 10 — two live deadline nudges for one page, then a single "done".
 
-    A page can legitimately have several reminders in flight: migration 0007
+    A page can legitimately have several nudges in flight: migration 0007
     dropped the UNIQUE on `reminder_outbox.notion_page_id` so deadline milestones
     could stack. Each delivery writes its own `recent_outbound` row keyed on its
-    own signal_timestamp.
+    own signal_timestamp. Deadline nudges are the case that stacks: their task
+    stays open after delivery. A reminder page is completed by its own delivery,
+    and the worker skips any later row for a page that is already Completed, so
+    two reminder rows for one page can no longer both fire.
 
     One "done" finishes the task once, so it has to resolve *every* live row for
     that page. Clearing only the delivery the user replied to leaves the sibling
@@ -145,12 +178,14 @@ async def test_redelivering_a_reminder_completes_it_once(
     page = conversation.notion.seed_task(
         title="Pick up the prescription",
         work_type="Independent",
-        is_reminder=True,
-        reminder_status="pending",
     )
 
-    first = await conversation.deliver_reminder(page_id=page, body="Reminder: pick up the prescription")
-    second = await conversation.deliver_reminder(page_id=page, body="Reminder: pick up the prescription")
+    first = await conversation.deliver_reminder(
+        page_id=page, body="Deadline nudge: pick up the prescription.", kind="deadline"
+    )
+    second = await conversation.deliver_reminder(
+        page_id=page, body="Deadline nudge: pick up the prescription.", kind="deadline"
+    )
     assert second.signal_timestamp != first.signal_timestamp
 
     async with conversation.db() as conn:
@@ -165,7 +200,13 @@ async def test_redelivering_a_reminder_completes_it_once(
     )
 
     result = await conversation.say(
-        "done", expect=Expect(intent="COMPLETE", db_awaiting_reply=0, sent_count=1)
+        "done",
+        expect=Expect(
+            intent="COMPLETE",
+            notion_status={page: "Completed"},
+            db_awaiting_reply=0,
+            sent_count=1,
+        ),
     )
 
     async with conversation.db() as conn:

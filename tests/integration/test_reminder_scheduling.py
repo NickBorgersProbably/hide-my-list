@@ -76,6 +76,34 @@ async def test_schedule_for_task_writes_deadline_outbox_and_ledger(db_conn: Any)
 
 
 @pytest.mark.asyncio
+async def test_deadline_nudge_body_names_the_task(db_conn: Any) -> None:
+    """A nudge that does not say which task gives the user nothing to act on.
+
+    The body is also the only text a later "done" is replying to, so an
+    unnamed nudge leaves both the user and the next turn guessing.
+    """
+    from app.scheduler.reminder_scheduling import schedule_for_task
+
+    now = datetime.now(UTC)
+    await schedule_for_task(
+        db_conn,
+        notion_page_id="<page-id>",
+        peer="<recipient>",
+        deadline_at=now + timedelta(days=5),
+        urgency=50,
+        now=now,
+        user_tz="America/Chicago",
+        title="Placeholder deadline task",
+    )
+
+    async with db_conn.cursor() as cur:
+        await cur.execute("SELECT DISTINCT body FROM reminder_outbox WHERE kind = 'deadline'")
+        bodies = [row[0] for row in await cur.fetchall()]
+
+    assert bodies == ["Deadline nudge: Placeholder deadline task. Want one tiny next step?"]
+
+
+@pytest.mark.asyncio
 async def test_supersede_marks_ledger_and_deadens_outbox(db_conn: Any) -> None:
     from app.scheduler.reminder_scheduling import (
         cancel_outbox_rows,

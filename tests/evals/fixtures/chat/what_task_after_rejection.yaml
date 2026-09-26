@@ -1,0 +1,55 @@
+---
+# The user declined a suggested task, the assistant offered an alternative
+# without repeating its title, and the next message asks which task that was.
+# The ledger holds both: the declined task as `rejected` (newest) and the
+# offered alternative as `suggested` (older). The right answer names the
+# alternative; naming the declined task hands the user back the thing they
+# just turned down.
+#
+# What regression-locks this fixture: with the prior chat prompt (no rule
+# about skipping `rejected` entries), the model sees `rejected` as the newest
+# Recent Tasks entry and names it — violating the regex_forbid. With the
+# updated prompt, the model skips the `rejected` entry and names the next
+# open one ("Sort the mail") — passing the regex_require.
+id: chat-what-task-after-rejection-001
+node: chat
+tier: medium
+peer: "<test-peer-ledger-2>"
+inbound: "what task?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  messages:
+    - role: user
+      content: "not that one, too tired"
+    - role: assistant
+      content: "Fair enough — here's a lighter one instead."
+  # `at` is omitted: a static fixture cannot carry a fresh timestamp. The
+  # renderer keeps stored (newest-first) order, so `rejected` is newest.
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Water the plants"
+      kind: task
+      event: rejected
+    - page_id: "<placeholder-page-id-2>"
+      title: "Sort the mail"
+      kind: task
+      event: suggested
+contracts:
+  - kind: regex_require
+    pattern: "(?i)sort(ing)? the mail"
+  - kind: regex_forbid
+    pattern: "(?i)water(ing)? the plants"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user declined one task ("Water the plants") and was offered another
+      ("Sort the mail"), then asked which task that was. The correct answer
+      names "Sort the mail" plainly and does not present "Water the plants" as
+      the current task or suggest it again. The response is brief, does not
+      ask the user to repeat themselves, and does not comment on the user
+      having declined the other task. Score 1.0 when only the offered
+      alternative is named, 0.0 when the declined task is named as the current
+      task or no task is named.
+    threshold: 0.7

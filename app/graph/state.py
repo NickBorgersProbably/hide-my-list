@@ -51,10 +51,10 @@ class OutboundDraft(TypedDict, total=True):
     The path is private (references the user's task via the manifest table);
     log attachment_count only, never the path itself.
     notion_page_title is optional: set it whenever the body is meant to name the
-    task, and send_node guarantees the title appears in the sent text (see
-    app/graph/nodes/_task_token.py). Omit it when naming the task would not help
-    the user — a completion celebration, for example. The title is private; log
-    booleans only, never the title itself.
+    task — a suggestion, a confirmation, a completion celebration — and
+    send_node guarantees the title appears in the sent text (see
+    app/graph/nodes/_task_token.py). Omit it only when no stored title is known.
+    The title is private; log booleans only, never the title itself.
     """
     recipient: str
     body: str
@@ -91,7 +91,7 @@ class PendingClarification(TypedDict, total=False):
 RecentTaskKind = Literal["task", "reminder"]
 
 RecentTaskEvent = Literal[
-    "added", "suggested", "completed", "reminded", "nudged"
+    "added", "suggested", "completed", "reminded", "nudged", "rejected"
 ]
 
 
@@ -99,8 +99,8 @@ class RecentTaskEntry(TypedDict):
     """One task the conversation touched recently.
 
     The ledger is the conversation's working memory of "the task we just talked
-    about": intake, selection, and complete record what they did to a page,
-    and `hydrate_context` merges reminder deliveries at turn start.
+    about": intake, selection, complete, and rejection record what they did to
+    a page, and `hydrate_context` merges reminder deliveries at turn start.
 
     `title` is the stored Notion title when a node knew it, or "" when the
     entry came from a delivery the ledger had not seen before. It is never a

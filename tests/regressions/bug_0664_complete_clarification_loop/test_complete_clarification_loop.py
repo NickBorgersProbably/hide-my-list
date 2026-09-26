@@ -282,6 +282,45 @@ async def test_a_bare_completion_still_reads_neither_notion_nor_the_model() -> N
 
 
 @pytest.mark.asyncio
+async def test_an_ambiguous_ledger_asks_without_reading_notion_or_the_model() -> None:
+    """Sibling for a ledger with two tasks touched minutes apart.
+
+    Neither is a safe guess, so the node asks — naming both from the ledger it
+    already holds. Building those options must not cost the Notion read and
+    model call a bare "done" is exempt from.
+    """
+    query_all = AsyncMock()
+    llm_factory = MagicMock()
+    update_status = AsyncMock()
+    now = datetime.now(UTC)
+    state = _state("done!")
+    state["recent_tasks"] = [
+        {"page_id": "<page_A>", "title": "Fold the laundry", "kind": "task",
+         "event": "added", "at": (now - timedelta(minutes=2)).isoformat()},
+        {"page_id": "<page_B>", "title": "Water the garden", "kind": "task",
+         "event": "suggested", "at": (now - timedelta(minutes=6)).isoformat()},
+    ]
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", query_all),
+        patch.object(
+            complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
+        ),
+        patch("app.models.llm", llm_factory),
+    ):
+        result = await complete_module.complete_node(state)
+
+    query_all.assert_not_awaited()
+    llm_factory.assert_not_called()
+    update_status.assert_not_awaited()
+    assert [c["page_id"] for c in result["pending_clarification"]["candidates"]] == [
+        "<page_A>",
+        "<page_B>",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_a_reminder_lookup_failure_does_not_veto_the_named_task() -> None:
     """One dead source must not end the turn for the others.
 

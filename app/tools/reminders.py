@@ -1,12 +1,15 @@
 """Reminder outbox CRUD operations.
 
 Provides enqueue, query, and state-transition helpers for the reminder_outbox
-table. Used by both the scheduler job and the graph intake node.
+table, and the `recent_outbound` reads and writes COMPLETE needs. Used by the
+scheduler jobs and the graph intake and complete nodes; graph nodes reach
+Postgres only through functions like these.
 
 All writes carry an explicit idempotency_key passed by the caller.
 """
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -144,6 +147,46 @@ async def mark_failed(
     )
 
 
+async def cancel_pending_for_page(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    notion_page_id: str,
+    peer: str,
+) -> int:
+    """Kill the undelivered reminder rows for a page the user already finished.
+
+    A reminder completed before its time must not fire afterwards. Only
+    `kind='reminder'` rows still waiting to go out (`pending` or `scheduled`)
+    are touched: a `delivering` row is already in the worker's hands,
+    delivered rows are history, and `kind='deadline'` rows belong to the
+    deadline series. Scoped to `peer` so one conversation never cancels
+    another's rows. The caller commits.
+
+    Returns the number of rows cancelled.
+    """
+    cursor = await conn.execute(
+        """
+        UPDATE reminder_outbox
+           SET state = 'dead',
+               last_error = 'completed by user',
+               locked_until = NULL,
+               worker_id = NULL
+         WHERE notion_page_id = %s
+           AND peer = %s
+           AND kind = 'reminder'
+           AND state IN ('pending', 'scheduled')
+        """,
+        (notion_page_id, peer),
+    )
+    cancelled = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+    log.info(
+        "reminders.cancelled_for_page",
+        notion_page_id=notion_page_id,
+        cancelled_count=cancelled,
+    )
+    return cancelled
+
+
 async def mark_dead(
     conn: psycopg.AsyncConnection[Any],
     *,
@@ -182,3 +225,96 @@ async def fetch_recent_outbound(peer: str, max_age_seconds: float) -> list[dict[
             )
             rows = await cur.fetchall()
     return [dict(row) for row in rows]
+
+
+def _db_configured(peer: str) -> bool:
+    """Whether a peer-scoped lookup can run: a peer to scope by and a database."""
+    return bool(peer) and bool(os.environ.get("DATABASE_URL"))
+
+
+async def load_recent_outbound(peer: str) -> dict[str, Any] | None:
+    """Return the newest delivery for *peer* still awaiting a reply, or None.
+
+    Only rows with `awaiting_reply = true` and an unexpired `expires_at`
+    count. The returned dict carries `signal_timestamp`, `notion_page_id`,
+    `title` (the sent body, not the task title), `sent_at`, and
+    `reminder_type` (the outbox kind the worker recorded). None when there is
+    no such row, no peer, or no configured database.
+    """
+    if not _db_configured(peer):
+        return None
+
+    from app.tools.db import get_db_conn
+
+    async with get_db_conn() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT signal_timestamp, notion_page_id, title, sent_at, reminder_type
+                  FROM recent_outbound
+                 WHERE peer = %s
+                   AND awaiting_reply = true
+                   AND expires_at > now()
+                 ORDER BY sent_at DESC, signal_timestamp DESC
+                 LIMIT 1
+                """,
+                (peer,),
+            )
+            row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def resolve_recent_outbound(
+    peer: str, *, signal_timestamp: int, notion_page_id: str
+) -> int:
+    """Mark every live delivery a completion answers `awaiting_reply = false`.
+
+    Scoped by page, not by the single delivery the user replied to: a task can
+    have several reminders in flight (deadline milestones stack), and each
+    delivery writes its own row. A sibling left live resolves a later,
+    unrelated "done" to a task already finished. `signal_timestamp` stays in
+    the predicate as a fallback for a caller with no page id.
+
+    Returns the number of rows resolved; 0 with no peer or no database.
+    """
+    if not _db_configured(peer):
+        return 0
+
+    from app.tools.db import get_db_conn
+
+    async with get_db_conn() as conn:
+        cursor = await conn.execute(
+            """
+            UPDATE recent_outbound
+               SET awaiting_reply = false
+             WHERE peer = %s
+               AND awaiting_reply = true
+               AND (
+                     signal_timestamp = %s
+                     OR (%s <> '' AND notion_page_id = %s)
+                   )
+            """,
+            (peer, signal_timestamp, notion_page_id, notion_page_id),
+        )
+        await conn.commit()
+    return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+
+async def cancel_pending_reminders(peer: str, notion_page_id: str) -> int:
+    """Kill the undelivered outbox rows of a reminder the user finished early.
+
+    Opens a connection, runs `cancel_pending_for_page`, and commits. Returns
+    the number of rows cancelled; 0 with no peer, no page id, or no database.
+    Raises on a database error so the caller can retry and alert.
+    """
+    if not notion_page_id or not _db_configured(peer):
+        return 0
+
+    from app.tools.db import get_db_conn
+
+    async with get_db_conn() as conn:
+        cancelled = await cancel_pending_for_page(
+            conn, notion_page_id=notion_page_id, peer=peer
+        )
+        await conn.commit()
+    return cancelled

@@ -39,9 +39,9 @@ def test_recall_instruction_names_the_ordering() -> None:
     against.
     """
     flattened = " ".join(_render_chat_prompt().split())
-    newest_rule = "Name the title of the newest entry under Recent Tasks word for word"
-    untitled_rule = "If the newest entry is `(untitled)`, say you are not sure which one"
-    fallback_rule = "If Recent Tasks is \"None yet.\", name the Current task word for word"
+    newest_rule = "Find the newest entry under Recent Tasks that is not `rejected`"
+    untitled_rule = "Name that entry's title word for word. If it is `(untitled)`, say you are not sure which one"
+    fallback_rule = "If every entry is `rejected`, or Recent Tasks is \"None yet.\", name the Current task word for word"
     for phrase in (newest_rule, untitled_rule, fallback_rule):
         assert phrase in flattened
     assert (
@@ -49,7 +49,7 @@ def test_recall_instruction_names_the_ordering() -> None:
         < flattened.index(untitled_rule)
         < flattened.index(fallback_rule)
     )
-    assert "Do not name an older entry instead" in flattened
+    assert "A `rejected` entry was declined by the user" in flattened
 
 
 def test_recall_rule_has_no_event_markers() -> None:

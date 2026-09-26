@@ -114,38 +114,41 @@ from three sources in priority order:
 
 1. **Message title match.** When the incoming message carries words beyond the completion
    phrase (residue tokens after stripping stopwords and completion words), the node queries
-   all open non-reminder tasks via `notion.query_all()` and ranks candidates by Sørensen–Dice
+   all open tasks and reminders via `notion.query_all()` and ranks candidates by Sørensen–Dice
    token overlap. Candidates that clear the score threshold are passed to a model call to
    confirm which the message reports as finished. If no candidate clears the threshold, the
-   node re-runs the ranking over the full open non-reminder list (capped at 40, ranked by
-   score) and asks the model anyway — so a message that paraphrases a task title rather than
-   quoting it still reaches the model. A match above the 0.90 confidence threshold outranks
-   both context sources, including an active task pointing at a different page. A null or
-   sub-threshold result over the scored shortlist returns a clarifying question rather than
-   falling through to context — the message asserted something it could not identify. A null
-   or sub-threshold result over the widened whole-list fallback means "could not tell" and
-   does not veto context.
-2. **Context comparison.** When no message-named task is resolved, the node queries
-   `recent_outbound` for the peer (unresolved, unexpired rows) and compares that context
-   with `active_task.selected_at`. The newer of the two wins.
+   node re-runs the ranking over the full open list (capped at 40, ranked by score) and asks
+   the model anyway — so a message that paraphrases a task title rather than quoting it still
+   reaches the model. A match above the 0.90 confidence threshold outranks both context
+   sources, including an active task pointing at a different page. A null or sub-threshold
+   result over the scored shortlist returns a clarifying question rather than falling through
+   to context — the message asserted something it could not identify. A null or sub-threshold
+   result over the widened whole-list fallback means "could not tell" and does not veto
+   context.
+2. **Context pool.** When no message-named task is resolved, the node pools three sources —
+   the recent-task ledger's open entries (added/suggested/reminded/nudged, last 24 h), the
+   newest unresolved `recent_outbound` row, and `active_task` — one entry per page, newest
+   wins. Echo guard: the pool anchors to nothing when the ledger's newest entry is `completed`
+   or `rejected`. When the two newest pooled entries are different tasks touched within 15
+   minutes of each other, neither is a safe guess and the node asks, naming both.
 3. **Clarification.** When no source resolves a target, the node asks which task was meant and
    records the question in `state["pending_clarification"]` (kind, `asked_at`, `attempts`, and
    the candidate titles it can offer as options). `classify_intent` owns that key's lifecycle:
    while it is live and inside its 30-minute TTL, a CHAT- or COMPLETE-classified message routes
    to `complete_node` as the answer; any other intent, an expired timestamp, or malformed state
-   clears it. An ask names up to 3 candidates only when they came from the scored shortlist —
-   `_clarify_completion_target(offerable=...)` is passed `not title_match.widened`, because a
-   widened set is the whole open list ranked by near-zero scores and its top three are not a
-   shortlist. Non-offerable asks stay open and store no options, so a page the user never saw
-   cannot become the referent of a positional answer. Either way the second ask is worded
-   differently from the first; past `_MAX_CLARIFICATION_ATTEMPTS` the node stops asking and
-   clears the key.
+   clears it. An ask offers up to 3 candidates drawn from the ledger's open entries first,
+   then the scored shortlist. Non-offerable asks stay open and store no options, so a page the
+   user never saw cannot become the referent of a positional answer. Either way the second ask
+   is worded differently from the first; past `_MAX_CLARIFICATION_ATTEMPTS` the node stops
+   asking and clears the key.
 
    `complete_node` also reads the stored options back. They are re-read from the current open
-   list (dropping any that closed in the meantime), placed at the head of the candidate list in
-   the order they were offered, and enumerated in the prompt, so a positional answer — "the
+   list (dropping any that closed in the meantime), placed at the head of the candidate list
+   in the order they were offered, and enumerated in the prompt, so a positional answer — "the
    first one", "the second" — resolves to the option it points at. That path runs even when the
-   message leaves no residue tokens, since an ordinal shortlists against nothing.
+   message leaves no residue tokens, since an ordinal shortlists against nothing. An answer
+   that types a title back nearly verbatim (Sørensen–Dice ≥ 0.85 on task-naming words, unique
+   match) resolves without a model call.
 
    `complete_node` reads the same key to pick its matching prompt. A standalone completion is
    judged against "does this message assert the candidate is finished"; an answer to a
@@ -153,14 +156,16 @@ from three sources in priority order:
    completion claim was made on the prior turn and the answer will never restate it. Both
    framings keep the 0.90 confidence threshold and the instruction to return no match when
    uncertain on any task the message names — the reframe changes what question the model is
-   asked, not what that path must clear. When no task is identified by name, context sources
-   (`recent_outbound`, `active_task`) resolve as they would on a first-turn completion.
+   asked, not what that path must clear.
 
-When `recent_outbound` wins the context comparison, the node skips the Notion status write
-because the reminder worker already completes the reminder page at delivery time, rewards
-the matched page, and clears every live `recent_outbound` row for that peer and `notion_page_id` (`awaiting_reply = false`; `signal_timestamp` is the fallback when no page id is available). A bare
-completion message with empty residue (e.g. "done!") skips the Notion read and model call
-entirely and resolves from context only.
+Every resolved completion writes Status to `Completed`. For a delivered reminder page this is
+an idempotent repair — the delivery worker writes `Completed` when it sends the reminder, but
+that write can fail — so the user's completion repairs it. For every other target (a task, a
+reminder the user finishes before it fires, or a deadline nudge) the write is the primary
+update. The node then clears every live `recent_outbound` row for that peer and
+`notion_page_id` (`awaiting_reply = false`; `signal_timestamp` is the fallback when no page
+id is available). A bare completion message with empty residue (e.g. "done!") skips the
+Notion read and model call and resolves from context only.
 
 **Worker writes:**
 
