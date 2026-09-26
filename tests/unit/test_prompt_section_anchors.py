@@ -86,3 +86,14 @@ def test_rejection_recent_tasks_anchor_present() -> None:
     assert "### Recent Tasks" in _raw("rejection.md.j2"), (
         "rejection.md.j2 must contain '### Recent Tasks'"
     )
+
+
+# ---------------------------------------------------------------------------
+# selection.md.j2 — user context anchor
+# ---------------------------------------------------------------------------
+
+
+def test_selection_user_context_anchor_present() -> None:
+    assert "### User Context" in _raw("selection.md.j2"), (
+        "selection.md.j2 must contain '### User Context'"
+    )

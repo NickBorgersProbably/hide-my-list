@@ -142,7 +142,7 @@ flowchart LR
 ```mermaid
 flowchart TD
     subgraph Triggers["Initiation Trigger Points"]
-        Accept[User accepts task] --> StartReward[Initiation Reward]
+        Accept[AI suggests task] --> StartReward[Initiation Reward]
         FirstStep[First sub-step completed] --> ProgressReward[First-Step Reward]
         Return[User returns to paused task] --> ResumeReward[Resume Reward]
     end
@@ -1023,10 +1023,10 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> Pending: Task created
 
-    Pending --> InProgress: User accepts
+    Pending --> InProgress: AI suggests task
     InProgress --> Completed: User finishes
 
-    Pending --> InitiationReward: User accepts (initiation trigger)
+    Pending --> InitiationReward: AI suggests task (initiation trigger)
     InProgress --> InitiationReward: First step done / Resumed
 
     InitiationReward --> RewardEvaluation: Calculate score (weighted + capped)

@@ -1,0 +1,40 @@
+---
+# The user states a five-minute window and every pending task takes an hour
+# or more, so Time Fit excludes every candidate and nothing fits. The
+# selection prompt fixes the no-match reply: `selected_task_id` is null and
+# `user_message` is exactly "Nothing quite fits right now. Want to add
+# something quick?". A prompt that says "explain why and suggest
+# alternatives" produces free-form wording, and a prompt that ignores the
+# stated window suggests one of the long tasks; both fail the regex contract.
+id: selection-no-match-output-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-no-match>"
+inbound: "I only have 5 minutes — anything I can do?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: null
+  mood: null
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Draft the project proposal"
+    work_type: "Focus"
+    energy_required: "High"
+    urgency: 70
+    time_estimate: 90
+  - id: "<placeholder-page-id-2>"
+    title: "Sort the storage closet"
+    work_type: "Physical"
+    energy_required: "Medium"
+    urgency: 40
+    time_estimate: 60
+contracts:
+  - kind: regex_require
+    pattern: "Nothing quite fits right now\\. Want to add something quick\\?"
+  - kind: regex_forbid
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.8

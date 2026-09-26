@@ -1,0 +1,50 @@
+---
+# The user asks for a task and states no duration or mood; nothing in state
+# carries them. Both tasks fit in a fabricated 30-minute window, so the prior
+# prompt let urgency decide (the 25-minute task at urgency 90 beat the
+# 10-minute task at urgency 60: 0.30×1.0+0.20×0.9 = 0.48 vs 0.42). The
+# task-length scale reverses that: the 25-minute task drops to Time Fit 0.75
+# (≤30 min bracket) while the 10-minute task keeps 1.0 (≤15 min bracket),
+# shifting the totals to 0.615 vs 0.63 — the short task wins.
+id: selection-unknown-time-prefers-short-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-short>"
+inbound: "give me something to do"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: null
+  mood: null
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Sort the storage closet"
+    work_type: "Independent"
+    energy_required: "Medium"
+    urgency: 90
+    time_estimate: 25
+  - id: "<placeholder-page-id-2>"
+    title: "Reply to the school email"
+    work_type: "Independent"
+    energy_required: "Medium"
+    urgency: 60
+    time_estimate: 10
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user stated no available time. The pending tasks are "Sort the
+      storage closet" (25 minutes, urgency 90) and "Reply to the school
+      email" (10 minutes, urgency 60); both are the same work type and
+      energy. With no duration stated, Time Fit is scored by task length:
+      the 10-minute task scores 1.0 (≤15 min) and the 25-minute task scores
+      0.75 (≤30 min). The Time Fit advantage outweighs the urgency gap, so
+      the short task wins overall.
+      Score 1.0 when the response suggests "Reply to the school email", 0.0
+      when it suggests the storage closet or says nothing fits.
+    threshold: 0.7
