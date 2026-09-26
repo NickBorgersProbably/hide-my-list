@@ -88,12 +88,13 @@ The app container runs four concurrent async tasks:
    medium model re-reads the turn — history, recent-task ledger, the turn's
    recorded `turn_actions`, the open Notion tasks — and returns a strict JSON
    verdict. A valid `correct` verdict runs one action (`complete_task`,
-   `create_task`, `reopen_task`, or `send_only`), sends one follow-up naming
-   the task through `render_task_token`, and writes the checkpoint as the
-   `send` node (follow-up in `messages`, ledger event, `pending_clarification`
-   cleared) — but only when the thread's latest checkpoint id still equals
-   the reviewed turn's (`turn_ref`); otherwise the row ends
-   `error(stale_checkpoint)` and nothing is written.
+   `create_task`, `reopen_task`, or `send_only`), then re-reads the thread's
+   latest checkpoint id; when it no longer equals the reviewed turn's
+   (`turn_ref`), no follow-up is sent and nothing is written — the row ends
+   `error(stale_checkpoint)`. When the checkpoint is still current it sends
+   one follow-up naming the task through `render_task_token` and writes the
+   checkpoint as the `send` node (follow-up in `messages`, ledger event,
+   `pending_clarification` cleared).
 
    Each review is a durable job in the `interaction_reviews` table. The
    review task's first step, before the delay, stores a `pending` row keyed

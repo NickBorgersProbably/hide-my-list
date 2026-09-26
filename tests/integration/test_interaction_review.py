@@ -578,7 +578,7 @@ async def test_a_moved_checkpoint_blocks_the_checkpoint_write(peer: str, world: 
 
     graph.aupdate_state.assert_not_awaited()
     assert world.notion.status_of(page_id) == "Completed"
-    assert len(world.signal.sent) == 1
+    assert len(world.signal.sent) == 0
     assert [(r["verdict"], r["reason"], r["executed"], r["turn_ref"])
             for r in await _rows(peer)] == [("error", "stale_checkpoint", True, "<ckpt-1>")]
     assert "interaction_review.stale_checkpoint" in [e["event"] for e in logs]

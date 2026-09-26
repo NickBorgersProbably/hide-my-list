@@ -18,8 +18,9 @@
 --   'error'   — invalid model output, a stale checkpoint, or a failure.
 -- action: the proposed correction; NULL while pending and when the review
 -- ended before a verdict.
--- executed: a correction's Notion write happened (also on a skipped or error
--- row when the review stopped after the write). Rate limit and alert count it.
+-- executed: the corrective action ran — any Notion write, or send_only (whose
+-- entire correction is delivery). Also set on a skipped or error row when the
+-- review stopped after the action. Rate limit and alert count it.
 -- reason: the model's own explanation for ok/correct rows, a fixed reason
 -- code otherwise. It can name a task, so it is private data: ops queries read
 -- it here, never from logs.

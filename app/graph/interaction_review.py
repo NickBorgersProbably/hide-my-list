@@ -832,6 +832,21 @@ async def review_turn(
             progress=progress,
         )
         progress.page_id = execution.page_id or None
+
+        # Guard before sending or writing: when the thread has moved past the
+        # reviewed turn, sending a follow-up would refer to stale context.
+        # The Notion write already ran and is recorded on the row.
+        if not turn_ref or await current_turn_ref(graph, config) != turn_ref:
+            log.warning(
+                "interaction_review.stale_checkpoint",
+                action=verdict.action,
+                has_turn_ref=bool(turn_ref),
+            )
+            await _finalize(
+                review_id, verdict="error", reason="stale_checkpoint", progress=progress
+            )
+            return
+
         body = render_task_token(_FOLLOW_UP_TEMPLATES[verdict.action], title=execution.title or None)
         if not execution.title:
             # No stored name to put in the token's place: say it without one.
@@ -845,20 +860,6 @@ async def review_turn(
             attachment_path=execution.attachment_path,
         )
         progress.follow_up_sent = delivered is not None
-
-        # The last check before the checkpoint write: when the thread has
-        # moved past the reviewed turn, writing now would land on a newer
-        # turn's state. The Notion write already ran and is recorded on the row.
-        if not turn_ref or await current_turn_ref(graph, config) != turn_ref:
-            log.warning(
-                "interaction_review.stale_checkpoint",
-                action=verdict.action,
-                has_turn_ref=bool(turn_ref),
-            )
-            await _finalize(
-                review_id, verdict="error", reason="stale_checkpoint", progress=progress
-            )
-            return
 
         # Written as the terminal node, so the next turn starts fresh at the
         # entry node with the correction in its history, ledger, and state.

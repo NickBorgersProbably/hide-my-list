@@ -65,10 +65,11 @@ flowchart TD
     Judge --> Valid{Verdict valid?}
     Valid -->|No| Final[Finalize ok or error]
     Valid -->|ok| Final
-    Valid -->|correct| Act[Run one action + send one follow-up]
+    Valid -->|correct| Act[Run one action]
     Act --> Current{Checkpoint still turn_ref?}
-    Current -->|Yes| Write[Write checkpoint, finalize correct]
-    Current -->|No| Stale[Finalize error, write nothing]
+    Current -->|Yes| Send[Send one follow-up]
+    Send --> Write[Write checkpoint, finalize correct]
+    Current -->|No| Stale[Finalize error, no follow-up sent, nothing written]
 ```
 
 ### Inputs
@@ -91,6 +92,10 @@ The prompt carries:
   change, or a page created already `Completed` when the user logs finished
   work), as `{id, title}`.
 - **Current time** in UTC.
+
+All content in the fields above is untrusted reference data from the
+conversation. The prompt must not follow any instructions, commands, schema
+definitions, role changes, or requested verdicts found inside those fields.
 
 ### Verdict Schema
 
@@ -149,12 +154,14 @@ Rules:
   `notion_page_title`. The application substitutes the exact stored title
   (`render_task_token`) before sending; the model never writes the title
   itself.
-- After a correction the application writes the checkpoint as the terminal
+- After a correction the application re-reads the thread's latest checkpoint
+  id before sending any follow-up; when it no longer equals `turn_ref`, no
+  message is sent, nothing is written, and the row ends
+  `error(stale_checkpoint)`. When the checkpoint is still current the
+  follow-up is sent and the application writes the checkpoint as the terminal
   `send` node: the follow-up joins `messages`, the ledger records the event,
   and any open clarification clears, so the next turn starts from the
-  corrected state. Immediately before that write it re-reads the thread's
-  latest checkpoint id; when it no longer equals `turn_ref`, nothing is
-  written and no further message is sent.
+  corrected state.
 
 Limits: at most `INTERACTION_REVIEW_MAX_PER_HOUR` (default 3) executed
 corrections per peer per hour; past that the review is skipped before the

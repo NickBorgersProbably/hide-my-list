@@ -710,7 +710,7 @@ async def test_a_moved_checkpoint_blocks_the_write() -> None:
     graph.aupdate_state.assert_not_awaited()
     stored = finalize.await_args.kwargs
     assert (stored["verdict"], stored["reason"], stored["executed"], stored["follow_up_sent"]) == (
-        "error", "stale_checkpoint", True, True,
+        "error", "stale_checkpoint", True, False,
     )
     assert "interaction_review.stale_checkpoint" in [e["event"] for e in logs]
 

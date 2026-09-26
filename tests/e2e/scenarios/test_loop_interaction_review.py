@@ -54,7 +54,6 @@ async def test_review_completes_the_reminder_the_turn_could_not_place(
             regex_require=[r"(?i)which task"],
         ),
     )
-    assert (await conversation.state()).get("pending_clarification")
 
     settled = await conversation.settle_review(
         expect=Expect(

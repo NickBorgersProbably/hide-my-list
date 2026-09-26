@@ -354,7 +354,7 @@ regression trips as soon as any scenario walks past it:
 
 | # | Invariant | What it catches |
 |---|---|---|
-| I1 | No `<node>_node.error`, `classify_intent.error`, `signal_listener.graph_error`, or `*_failed` event | A node taking its exception fallback. The fallback is shame-safe and reads fine, which is what makes this invisible without the check |
+| I1 | No `<node>_node.error`, `classify_intent.error`, `signal_listener.graph_error`, `interaction_review.error`, or `*_failed` event | A node taking its exception fallback. The fallback is shame-safe and reads fine, which is what makes this invisible without the check |
 | I2 | A draft carrying `notion_page_title` delivers that title; no `{task}`/`[task]` reaches the user | A suggestion the user cannot act on because it names no task |
 | I3 | No `update_status` / `update_property` / `complete_reminder` targets a page the peer was never offered | The generalized form of #641's wrong-page completion |
 | I4 | A COMPLETE turn resolves every reminder that was awaiting a reply; other intents do not clear context they did not answer | An unresolved reminder that the next "done" completes a second time |
