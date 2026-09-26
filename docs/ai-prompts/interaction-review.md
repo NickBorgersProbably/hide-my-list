@@ -10,13 +10,13 @@ It can repair one thing per turn and say so in one short follow-up message.
 
 The review is not a graph node. It runs in the Signal listener as a background
 task after the graph returns (`app/graph/interaction_review.py`), so it never
-delays the reply or the next queued turn. It yields to live conversation:
+delays the initial reply. It yields to live conversation:
 
 - It waits `INTERACTION_REVIEW_DELAY_SECONDS` (default 3) after the reply.
 - It is skipped when the peer already has another message waiting.
 - It is cancelled when the peer sends a new message before it starts acting.
-  Once it starts acting, the next turn waits for it to finish, so the next
-  turn reads the corrected checkpoint.
+  Once it has started acting, the next same-peer turn waits up to 60 seconds
+  for it to finish, so that turn reads the corrected checkpoint.
 - It is off when `INTERACTION_REVIEW_ENABLED=false`.
 
 The model is the medium tier (caller `interaction_review`).

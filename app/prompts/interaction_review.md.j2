@@ -49,17 +49,17 @@ Return exactly one JSON object and nothing else — no prose, no code fence:
   characters), otherwise null.
 - `due`: an ISO-8601 deadline for `create_task` when the user gave one,
   otherwise null.
-- `follow_up_message`: empty for `ok`. For `correct`, one short sentence that
-  contains the literal token {task} where the task's name goes. Do not write
-  the task's name yourself; the application fills it in.
+- `follow_up_message`: empty for `ok`. For `correct`, one sentence containing
+  the literal token {task} where the task's name goes, at most 400 characters.
+  Do not write the task's name yourself; the application fills it in.
 
 ### Correction Policy
 
 Choose `correct` only for one of these clear gaps:
 
-- `complete_task` — the user reported finishing something, this turn did not
-  complete it (no `notion.update_status Completed` above), and exactly one open
-  task plausibly matches. Use that task's `id`. Example follow-up:
+- `complete_task` — the user reported finishing something, the intended task is
+  not represented under Completed this turn, and exactly one open task plausibly
+  matches. Use that task's `id`. Example follow-up:
   "{task} — marked that one done."
 - `create_task` — the user clearly asked to track something new and this turn
   saved nothing (no `notion.create_task` or `notion.create_reminder` above).

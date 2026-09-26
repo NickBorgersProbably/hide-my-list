@@ -96,6 +96,13 @@ _BLAME_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(wasn'?t|isn'?t|was not|is not) on your list\b", re.IGNORECASE),
 )
 
+_FOLLOW_UP_TEMPLATES: dict[str, str] = {
+    "complete_task": "{task} — marked that one done.",
+    "create_task": "Added {task} to your list.",
+    "reopen_task": "{task} is back on your list.",
+    "send_only": "That was {task}.",
+}
+
 
 @dataclass(frozen=True)
 class Verdict:
@@ -350,6 +357,9 @@ def parse_verdict(
         return None
     if set(loaded) - _KEYS:
         _reject("unknown_key")
+        return None
+    if _KEYS - set(loaded):
+        _reject("missing_key")
         return None
 
     verdict = loaded.get("verdict")
@@ -762,7 +772,7 @@ async def review_turn(
             completed=inputs.completed_this_turn,
             now=now,
         )
-        body = render_task_token(verdict.follow_up_message, title=execution.title or None)
+        body = render_task_token(_FOLLOW_UP_TEMPLATES[verdict.action], title=execution.title or None)
         if not execution.title:
             # No stored name to put in the token's place: say it without one.
             body = body.replace(TASK_TOKEN, "that one")
