@@ -99,3 +99,23 @@ def test_shared_template_mirrors_the_rule() -> None:
     rendered = render_with_defaults("shared.md.j2", {})
     assert "A reply\n  that picks one of the offered options" in rendered
     assert '"the first one" (awaiting clarification: yes) → COMPLETE' in rendered
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", ["no", "nope", "neither", "none", "none of them"])
+async def test_negative_reply_clears_clarification_without_completing_any_task(
+    reply: str,
+) -> None:
+    from app.graph import routing
+
+    fake = _AddTaskLLM()
+    with patch("app.models.llm", new=fake):
+        result = await routing.classify_intent(_state(reply))
+
+    assert fake.calls == 0, "negative reply with live clarification must not call the model"
+    assert result["intent"] == "CHAT"
+    assert result["pending_clarification"] is None
+    assert result.get("classification_error_fallback") is True
+    outbound = result.get("pending_outbound", [])
+    assert outbound, "must send an acknowledgement"
+    body = outbound[0]["body"]
+    assert body, "acknowledgement must not be empty"

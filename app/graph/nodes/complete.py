@@ -1062,9 +1062,9 @@ def _clarify_completion_target(
 
 
 _UNLISTED_REPORT_WITH_OPTION = (
-    f"Nice one — I don't have that on your list. Did you mean {TASK_TOKEN}?"
+    f"Nice one — want me to log that as done, or did you mean {TASK_TOKEN}?"
 )
-_UNLISTED_REPORT_NO_OPTION = "Nice one — I don't have that on your list."
+_UNLISTED_REPORT_NO_OPTION = "Nice one — want me to log that as done?"
 
 
 def _ask_about_unlisted_report(

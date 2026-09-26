@@ -53,14 +53,24 @@ _CLARIFICATION_ANSWER_INTENTS: frozenset[Intent] = frozenset({"CHAT", "COMPLETE"
 # task and drop the clarification, and the next turn then asks the same
 # question again. The match is against the whole normalized message, so "no"
 # inside "no it's new, just log it" never matches — only a bare "no" does.
-# Positional forms only; a reply that names a task goes through the model.
+# Positional and affirmative forms only; negatives are in _NEGATIVE_ANSWER_RE
+# and handled separately (they decline rather than select).
 _OPTION_REFERENCE_RE = re.compile(
     r"(?:the )?(?:first|second|third|1st|2nd|3rd|last|former|latter)(?: one)?"
     r"|(?:number )?[123]"
     r"|that one|this one"
-    r"|yes|yep|yeah|no|nope|neither"
+    r"|yes|yep|yeah"
+)
+
+# Bare negatives that decline the clarification without selecting any candidate.
+# Handled before _OPTION_REFERENCE_RE so routing never steers them to COMPLETE.
+_NEGATIVE_ANSWER_RE = re.compile(
+    r"no|nope|neither"
     r"|none(?: of (?:them|those))?"
 )
+
+# Sent when the user declines the clarification; the task remains open.
+_CLARIFICATION_DECLINED_REPLY = "Got it, leaving that open."
 
 
 def _normalize_reply(text: str) -> str:
@@ -71,6 +81,10 @@ def _normalize_reply(text: str) -> str:
 
 def _is_option_reference(text: str) -> bool:
     return _OPTION_REFERENCE_RE.fullmatch(_normalize_reply(text)) is not None
+
+
+def _is_negative_answer(text: str) -> bool:
+    return _NEGATIVE_ANSWER_RE.fullmatch(_normalize_reply(text)) is not None
 
 
 _INTENT_SYSTEM_PROMPT = """\
@@ -236,6 +250,29 @@ def _resolve_with_backend_fallback(state: State) -> dict[str, Any]:
     }
 
 
+def _resolve_with_negative_answer(state: State) -> dict[str, Any]:
+    """Handle a bare negative reply to an open completion clarification.
+
+    The user declined the offered option(s). Clear the clarification, leave
+    every task open, and send a brief acknowledgement. Never writes Completed
+    or issues a reward. Routes straight to send via classification_error_fallback
+    so chat_node does not run and send a second reply.
+    """
+    peer = state.get("peer", "")
+    log.info(
+        "classify_intent.clarification_declined",
+        has_peer=bool(peer),
+    )
+    return {
+        "intent": "CHAT",
+        "pending_clarification": None,
+        "pending_outbound": [
+            {"recipient": peer, "body": _CLARIFICATION_DECLINED_REPLY, "notion_page_id": None}
+        ],
+        "classification_error_fallback": True,
+    }
+
+
 async def classify_intent(state: State) -> dict[str, Any]:
     """Classify the incoming message intent using an LLM.
 
@@ -246,6 +283,12 @@ async def classify_intent(state: State) -> dict[str, Any]:
     incoming = state.get("incoming", "").strip()
     if not incoming:
         return _resolve_with_clarification(state, "CHAT")
+
+    # A bare negative reply to an open clarification declines without selecting.
+    # Check before the affirmative option-reference guard so "no" never steers
+    # to COMPLETE and never reaches complete_node's context fallback.
+    if _live_clarification(state) is not None and _is_negative_answer(incoming):
+        return _resolve_with_negative_answer(state)
 
     # A positional reply to an open clarification ("the first one", "yes") is
     # its answer. Resolve it here, before a model label can drop the

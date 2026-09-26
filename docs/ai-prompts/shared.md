@@ -250,13 +250,12 @@ with no candidates, for any message with at least two task-naming words left
 after the completion words; a shorter message resolves from context without a
 model call. A null match with that report set, over either list or an empty
 one, is answered with a question and never with a context completion: nothing
-is written and no reward goes out. The question opens positively and does not
-contrast the report against the list — "Nice one — I don't have that on your
-list. Want me to add it as done, or did you mean {task}?" when a context or
-shortlist task can be named (that one named option is the only one stored in
-`pending_clarification`, so a positional answer can only point at it), and
-"Nice one — I don't have that on your list. Want me to add it?" when there is
-none.
+is written and no reward goes out. The question celebrates first and never
+contrasts the report against the list — "Nice one — want me to log that as
+done, or did you mean {task}?" when a context or shortlist task can be named
+(that one named option is the only one stored in `pending_clarification`, so a
+positional answer can only point at it), and "Nice one — want me to log that
+as done?" when there is none.
 
 ### Pending Clarification
 

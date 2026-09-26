@@ -34,13 +34,19 @@ _POSITIONAL_REPLIES = [
     "yes",
     "Yeah",
     "yep",
+    "  the   second  one  ",
+]
+
+_NEGATIVE_REPLIES = [
     "no",
     "nope",
     "neither",
     "none",
     "none of them",
     "none of those",
-    "  the   second  one  ",
+    "No",
+    "NOPE",
+    "None of them!",
 ]
 
 
@@ -118,7 +124,7 @@ async def test_positional_reply_with_live_clarification_routes_complete_without_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reply", ["the first one", "yes", "that one"])
+@pytest.mark.parametrize("reply", ["the first one", "yes", "that one", "no", "nope"])
 async def test_positional_reply_without_clarification_goes_to_model(reply: str) -> None:
     from app.graph import routing
 
@@ -159,6 +165,41 @@ async def test_partial_matches_are_not_option_references(reply: str) -> None:
         await routing.classify_intent(_state(reply, _clarification()))
 
     assert fake.calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", _NEGATIVE_REPLIES)
+async def test_negative_reply_with_live_clarification_clears_it_without_completion(
+    reply: str,
+) -> None:
+    from app.graph import routing
+
+    pending = _clarification()
+    fake = _RecordingLLM("COMPLETE")
+    with patch("app.models.llm", new=fake):
+        result = await routing.classify_intent(_state(reply, pending))
+
+    assert fake.calls == 0, "no model call for a bare negative"
+    assert result["intent"] == "CHAT"
+    assert result["pending_clarification"] is None
+    assert result.get("classification_error_fallback") is True
+    outbound = result.get("pending_outbound", [])
+    assert outbound, "must send an acknowledgement"
+    assert outbound[0]["body"] == routing._CLARIFICATION_DECLINED_REPLY
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", ["no", "nope", "neither"])
+async def test_negative_reply_without_live_clarification_goes_to_model(reply: str) -> None:
+    from app.graph import routing
+
+    fake = _RecordingLLM("CHAT")
+    with patch("app.models.llm", new=fake):
+        result = await routing.classify_intent(_state(reply))
+
+    assert fake.calls == 1, "bare negative without live clarification goes to model"
+    assert result["intent"] == "CHAT"
+    assert result["pending_clarification"] is None
 
 
 @pytest.mark.asyncio

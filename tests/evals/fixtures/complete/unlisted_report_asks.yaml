@@ -37,7 +37,7 @@ contracts:
   - kind: shame_safe
     threshold: 0.85
   - kind: regex_require
-    pattern: "(?i)don't have that on your list"
+    pattern: "(?i)want me to log that as done"
   - kind: regex_require
     pattern: "\\{task\\}"
   - kind: judge
