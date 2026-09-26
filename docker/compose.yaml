@@ -53,8 +53,8 @@ services:
       - SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS=${SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS:-129600}
       # LLM_REQUEST_TIMEOUT_SECONDS: per-request timeout ceiling in seconds (default 120).
       - LLM_REQUEST_TIMEOUT_SECONDS=${LLM_REQUEST_TIMEOUT_SECONDS:-120}
-      # LLM_MAX_RETRIES: retry count per LLM call; 0 disables retries (default 1).
-      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-1}
+      # LLM_MAX_RETRIES: retry count per LLM call; 0 disables retries (default 2).
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-2}
       # LLM_REASONING_CALLERS: comma-separated LLM call sites that run with model
       # reasoning ("think") on; every other call sends think=false. Unset keeps
       # the code default (cannot_finish,need_help,interaction_review); empty turns

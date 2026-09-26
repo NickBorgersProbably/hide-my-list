@@ -127,17 +127,21 @@ _TIER_MAX_TOKENS: dict[str, int] = {
 # Per-request latency ceiling. The model backend holds one model in RAM and
 # serves one request at a time, so an unbounded call does not just delay its own
 # turn — it holds the only inference slot and every queued conversation waits
-# behind it. Observed successful calls land between 0.6s and 8.2s; the default
-# leaves room for queue wait behind another tenant on the same backend plus a
-# slow reasoning turn, and still gives up long before the reverse proxy in front
+# behind it. Observed successful calls land between 0.5s and ~15s with
+# reasoning off and up to ~40s for the reasoning callers; the default leaves
+# room for queue wait behind another tenant on the same backend plus a slow
+# reasoning turn, and still gives up long before the reverse proxy in front
 # of the LiteLLM proxy synthesizes its own 504 at 600s. Failing on our own clock
 # keeps the error ours to classify instead of an opaque gateway timeout.
 _DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
 
-# Attempts = _max_retries + 1. The OpenAI SDK default of 2 retries multiplies
-# the ceiling by three; one retry absorbs a transient blip while keeping the
-# worst case (2 x 120s = 240s) under the 600s gateway timeout.
-_DEFAULT_MAX_RETRIES = 1
+# Attempts = _max_retries + 1. The proxy's first response after an idle gap is
+# sometimes an instant 500 (LiteLLM reports "Timeout ... time taken=0.0"), and
+# it arrives in pairs: the SDK's first retry lands ~0.5s later on the same
+# stale connection and fails the same way, while a third attempt succeeds.
+# Two retries absorb that; the worst case (3 x 120s = 360s) stays under the
+# 600s gateway timeout.
+_DEFAULT_MAX_RETRIES = 2
 
 
 def _request_timeout_seconds() -> float:
