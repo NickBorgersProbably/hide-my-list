@@ -15,9 +15,12 @@ Reasoning ("think") is decided per caller, not per tier. The model host serves
 one request at a time and the proxy in front of it gives up on any single
 request after 110 s; with think on, intake spent 2k–4k tokens reasoning per
 turn (47–103 s observed) and a single long chain of thought timed out the turn
-and queued every conversation behind it. Think-off intake lands in ~12 s with
-no eval regression. Selection, cannot_finish, and need_help lose accuracy
-without reasoning (measured on the eval suite), so they keep it by default.
+and queued every conversation behind it. Think-off intake lands in ~12 s and
+think-off selection in ~5 s with no eval regression. cannot_finish and
+need_help lose accuracy without reasoning (measured on the eval suite), and
+interaction_review misreads its verdict enum, so those three keep it by
+default; the review runs in the background after the reply, so its latency
+never reaches the user.
 LLM_REASONING_CALLERS (comma-separated caller names) replaces that default for
 a deployment; an empty value turns reasoning off everywhere.
 
@@ -92,7 +95,7 @@ _LOCAL_MODEL_PREFIXES: tuple[str, ...] = ("gemma",)
 # backend; every call sends the flag explicitly so the backend default never
 # decides. Names are the `caller` values passed to llm().
 _DEFAULT_REASONING_CALLERS: frozenset[str] = frozenset(
-    {"selection", "cannot_finish", "need_help"}
+    {"cannot_finish", "need_help", "interaction_review"}
 )
 _REASONING_CALLERS_ENV = "LLM_REASONING_CALLERS"
 

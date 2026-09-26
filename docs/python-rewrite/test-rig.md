@@ -445,7 +445,7 @@ tier sends it (capped output) and must be asserted; the uncapped tiers
 (expensive/medium/reminder) omit it and tests must assert its absence. `think`
 is always explicit and decided per caller: tests must assert that a call
 sends `extra_body={'think': True}` only when its `caller` is in the default
-reasoning set (`selection`, `cannot_finish`, `need_help`) or in
+reasoning set (`cannot_finish`, `need_help`, `interaction_review`) or in
 `LLM_REASONING_CALLERS`, and `{'think': False}` otherwise (including
 `caller=None`).
 

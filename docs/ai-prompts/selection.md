@@ -45,6 +45,12 @@ got 2 hours", "I'm wiped"). No duration there either: score Time Fit by
 time_estimate — 15 min or less: 1.0; 30 or less: 0.75; 60 or less: 0.5; over
 60: 0.25 — and exclude nothing on time. No mood: treat it as neutral.
 
+Pick exactly one task whenever Pending Tasks has at least one task with a
+title. `selected_task_id` is `null` only when Pending Tasks is empty, or when
+a time limit the user actually stated excludes every task. "Not stated" time
+or mood is never a reason for `null`: it means nothing is excluded, not that
+nothing fits.
+
 PENDING TASKS:
 {tasks_json}
 
@@ -84,8 +90,9 @@ OUTPUT (JSON):
 selected_task_id is null or exactly one id copied from PENDING TASKS, for a
 task with a non-empty title. Never invent or alter an id.
 
-If no task fits, set selected_task_id to null and user_message to exactly:
-"Nothing quite fits right now. Want to add something quick?"
+Only when no task fits under the rule above, set selected_task_id to null and
+user_message to exactly: "Nothing quite fits right now. Want to add something
+quick?"
 ```
 
 ### Mood to Work Type Affinity

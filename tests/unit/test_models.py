@@ -257,7 +257,7 @@ def _llm_env() -> dict[str, str]:
 
 def test_think_is_explicit_and_off_unless_the_caller_reasons_by_default() -> None:
     """Every call sends extra_body={'think': <bool>}; only the default reasoning
-    callers (selection, cannot_finish, need_help) get True when
+    callers (cannot_finish, need_help, interaction_review) get True when
     LLM_REASONING_CALLERS is unset.
 
     The proxy forwards `think` to Ollama. Reasoning turns spend thousands of
@@ -270,13 +270,13 @@ def test_think_is_explicit_and_off_unless_the_caller_reasons_by_default() -> Non
 
     with patch.dict(os.environ, _llm_env(), clear=True):
         for tier in ("cheap", "medium", "expensive", "reminder"):
-            for caller in ("intake", "chat", "classify", "rejection", "interaction_review", None):
+            for caller in ("intake", "chat", "classify", "rejection", "selection", None):
                 bound = models_module.llm(tier, caller=caller).bound  # unwrap RunnableBinding
                 assert getattr(bound, "extra_body", None) == {"think": False}, (
                     f"{tier}/{caller} must send think=false; "
                     f"got extra_body={getattr(bound, 'extra_body', None)!r}"
                 )
-        for caller in ("selection", "cannot_finish", "need_help"):
+        for caller in ("cannot_finish", "need_help", "interaction_review"):
             assert models_module.llm("medium", caller=caller).bound.extra_body == {"think": True}
 
     models_module._load_model_tiers.cache_clear()
@@ -292,11 +292,11 @@ def test_llm_reasoning_callers_env_replaces_the_default() -> None:
     with patch.dict(os.environ, env, clear=True):
         assert models_module.llm("medium", caller="intake").bound.extra_body == {"think": True}
         assert models_module.llm("medium", caller="chat").bound.extra_body == {"think": True}
-        assert models_module.llm("expensive", caller="selection").bound.extra_body == {"think": False}
+        assert models_module.llm("medium", caller="need_help").bound.extra_body == {"think": False}
 
     env["LLM_REASONING_CALLERS"] = ""
     with patch.dict(os.environ, env, clear=True):
-        for caller in ("selection", "cannot_finish", "need_help", "intake"):
+        for caller in ("interaction_review", "cannot_finish", "need_help", "intake"):
             assert models_module.llm("medium", caller=caller).bound.extra_body == {"think": False}
 
     models_module._load_model_tiers.cache_clear()

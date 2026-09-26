@@ -57,9 +57,9 @@ services:
       - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-1}
       # LLM_REASONING_CALLERS: comma-separated LLM call sites that run with model
       # reasoning ("think") on; every other call sends think=false. Unset keeps
-      # the code default (selection,cannot_finish,need_help); empty turns
+      # the code default (cannot_finish,need_help,interaction_review); empty turns
       # reasoning off everywhere.
-      - LLM_REASONING_CALLERS=${LLM_REASONING_CALLERS:-selection,cannot_finish,need_help}
+      - LLM_REASONING_CALLERS=${LLM_REASONING_CALLERS:-cannot_finish,need_help,interaction_review}
       # Post-send interaction review (app/graph/interaction_review.py): after a
       # reply is sent, the medium model re-reads the turn and may send one
       # corrective follow-up.

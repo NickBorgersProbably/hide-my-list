@@ -120,9 +120,13 @@ async def selection_node(state: State) -> dict[str, Any]:
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 
         model = llm("expensive", caller="selection")
+        # The human turn is the user's own message, so the model reads the
+        # time and mood it states there; the system prompt carries the same
+        # text inside <user_message> for the untrusted-data rule. A blank
+        # message (a scheduled GET_TASK) falls back to a fixed request.
         messages = [
             SystemMessage(content=prompt_text),
-            HumanMessage(content="Select the best task for me right now."),
+            HumanMessage(content=incoming.strip() or "Select the best task for me right now."),
         ]
 
         response = await model.ainvoke(messages)
