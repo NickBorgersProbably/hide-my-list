@@ -15,6 +15,22 @@ docker run -d --rm --name hml-e2e-pg \
   -e POSTGRES_USER=hml -e POSTGRES_PASSWORD=hml -e POSTGRES_DB=hml \
   -p 5432:5432 postgres:16-alpine
 
+bash scripts/ci-local.sh e2e
+```
+
+`scripts/ci-local.sh e2e [files…]` sets the same env `.github/workflows/e2e.yml`
+does — `ENABLE_E2E_CONVERSATIONS`, `E2E_DEBUG_TURNS`, the proxy URL/key,
+`AUTHORIZED_PEERS`, `SIGNAL_ACCOUNT` — and always unsets `OPENAI_API_KEY` so
+rewards stay emoji-only locally too. It also refuses to start while
+`e2e.yml` is running in CI (`gh run list --workflow=e2e.yml`, `in_progress` or
+`queued`), because the LLM proxy has exactly one inference slot shared with
+every CI job on the `homelab` runner — a local run competing with a CI run
+corrupts both runs' latency. Pass `--force` to start anyway. See
+`scripts/ci-local.sh --help` for the other modes (`unit`, `db`, `docs`, `all`).
+
+To run pytest directly instead:
+
+```bash
 ENABLE_E2E_CONVERSATIONS=true \
 DATABASE_URL=postgresql://hml:hml@localhost:5432/hml \
 LLM_PROXY_BASE_URL=https://llm.featherback-mermaid.ts.net/v1 \
@@ -31,6 +47,23 @@ runner rather than a GitHub-hosted one.
 
 Without `ENABLE_E2E_CONVERSATIONS`, or with any required variable missing, the
 whole directory skips.
+
+## Diagnosing a CI failure
+
+The self-hosted `homelab` runner's job log is not retrievable via the API
+today, so `.github/workflows/e2e.yml` tees the raw `pytest` output to a file
+and uploads it as the `e2e-pytest-log` workflow artifact (`if: always()`,
+7-day retention) — download it from the failed run rather than trying to
+reconstruct output from the job summary.
+
+Set `E2E_DEBUG_TURNS=1` (on by default in CI; off by default locally) to make
+a failing invariant or `Expect` assertion inside `Conversation._turn` print
+that turn's captured structlog events and the delivered reply's length before
+raising. Only event names and non-private fields are printed — booleans,
+counts, ids, and enum values (`intent`, `tier`, …) — never message text,
+titles, or peers, so the printout is safe to paste into a PR comment or issue.
+This is what tells you which intent the classifier chose and which node ran
+without re-running the scenario with a debugger attached.
 
 ## Failure taxonomy
 

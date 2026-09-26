@@ -51,6 +51,82 @@ _TURN_TIMEOUT_SECONDS = float(os.environ.get("E2E_TURN_TIMEOUT_SECONDS", "180"))
 # the assertion is that nothing happens, and "nothing" has no completion signal.
 _DROP_SETTLE_SECONDS = 1.0
 
+# Prints the failing turn's captured structlog events when an invariant or
+# `Expect` assertion fails inside `_turn`, so a failing CI job shows which
+# intent and node path the turn took without opening a debugger. Defaults ON
+# in CI (`.github/workflows/e2e.yml` sets it) and OFF locally, since a
+# developer re-running one scenario by hand can already see the failure.
+_DEBUG_TURNS_KEY = "E2E_DEBUG_TURNS"
+
+# Keys whose value is free text by construction — dropped unconditionally,
+# regardless of shape, because a short-looking string here can still be a
+# name or a phone number.
+_ALWAYS_PRIVATE_KEYS = frozenset(
+    {
+        "peer",
+        "recipient",
+        "source",
+        "body",
+        "text",
+        "message",
+        "incoming",
+        "title",
+        "notion_page_title",
+        "content",
+        "prompt",
+        "reply",
+    }
+)
+
+
+def _debug_turns_enabled() -> bool:
+    return os.environ.get(_DEBUG_TURNS_KEY, "").lower() in ("1", "true", "yes")
+
+
+def _safe_event_fields(entry: dict[str, Any]) -> dict[str, Any]:
+    """Non-private fields of a structlog event: booleans, counts, ids, enums.
+
+    Never message text, titles, or peers. `event` and `timestamp` (the
+    structlog-added ones) are handled by the caller, not here. A string value
+    is kept only when it carries no whitespace and stays short — the shape of
+    an id, a page id, or an enum member, not of prose. Anything else (dicts,
+    lists, free text) is dropped rather than guessed at.
+    """
+    safe: dict[str, Any] = {}
+    for key, value in entry.items():
+        if key in ("event", "timestamp"):
+            continue
+        if key in _ALWAYS_PRIVATE_KEYS:
+            continue
+        if isinstance(value, bool):
+            safe[key] = value
+        elif isinstance(value, int):
+            safe[key] = value
+        elif isinstance(value, str):
+            if value and " " not in value and "\n" not in value and len(value) <= 64:
+                safe[key] = value
+        # floats, dicts, lists, and anything else are dropped: none of them
+        # are reliably "just a count or an id".
+    return safe
+
+
+def _print_turn_debug(result: TurnResult) -> None:
+    """Print a failing turn's events + reply length for CI diagnosability.
+
+    Only event names and non-private fields are printed — never message text,
+    titles, or peers (see `_safe_event_fields`). This is a diagnostic aid, not
+    an assertion; it never changes pass/fail.
+    """
+    print("[e2e-debug] turn events:")  # noqa: T201 — surfaced in the CI job log
+    for entry in result.logs:
+        event = str(entry.get("event", ""))
+        fields = _safe_event_fields(entry)
+        print(f"[e2e-debug]   {event} {fields}")  # noqa: T201
+    print(  # noqa: T201
+        f"[e2e-debug] delivered reply length: {len(result.text)} chars, "
+        f"{len(result.sent)} message(s)"
+    )
+
 
 class IntentMisrouteError(AssertionError):
     """The classifier chose a different intent than the scenario declared.
@@ -627,6 +703,11 @@ class Conversation:
             resolved_page_id=resolved_page_id,
             resolved_page_awaiting_after=resolved_page_awaiting_after,
         )
-        assert_turn_invariants(self, result, expect)
-        assert_expectations(self, result, expect)
+        try:
+            assert_turn_invariants(self, result, expect)
+            assert_expectations(self, result, expect)
+        except AssertionError:
+            if _debug_turns_enabled():
+                _print_turn_debug(result)
+            raise
         return result

@@ -62,6 +62,24 @@ layers — nightly would report them the morning after they land in production.
 That is why the two workflows have different schedules despite sharing the same
 runner and proxy.
 
+### Running locally
+
+`scripts/ci-local.sh <unit|db|e2e|docs|all>` runs exactly what CI runs, in
+CI's environment, instead of an approximation of it: `unit` mirrors the
+`ruff`/`mypy`/`pytest-unit` jobs verbatim (no `DATABASE_URL`), `db` mirrors
+`pytest-db` against a Postgres instance (`DATABASE_URL` defaults to
+`postgresql://hml:hml@localhost:5432/hml`), `e2e [files…]` mirrors
+`e2e.yml`'s exact env — including always unsetting `OPENAI_API_KEY` so
+rewards stay emoji-only — and refuses to start while `e2e.yml` is running in
+CI, since the LLM proxy has one inference slot shared with every job on the
+`homelab` runner. `docs` delegates to `scripts/run-required-checks.sh
+ci-docs`. `all` runs `unit`, `db`, then `docs` — e2e stays opt-in even there,
+since it costs a shared inference slot and several minutes of wall clock. It
+deliberately never runs the compose smoke test: that test's teardown runs
+`docker compose down -v`, which on a developer machine tears down the local
+compose stack's volumes rather than a throwaway one; `scripts/ci-local.sh
+--help` says so. See `tests/e2e/README.md` for the e2e-specific flags.
+
 ### Running evals before you push
 
 The suite is not runner-only. Any machine on the tailnet can reach the proxy, so

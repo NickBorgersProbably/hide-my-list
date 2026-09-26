@@ -452,6 +452,13 @@ async def test_rapid_same_peer_messages_are_coalesced_into_one_turn() -> None:
         patch("app.ingress.signal_listener.receive_messages", return_value=_async_gen(envelopes)),
         patch("app.ingress.signal_listener.send_read_receipt", new=AsyncMock()),
         patch("app.ingress.signal_listener.send_typing_indicator", new=AsyncMock()),
+        # Real DB latency here (when DATABASE_URL is set) can exceed the 10 ms
+        # debounce window: `record_inbound_activity` is awaited per message
+        # before it reaches the buffer, so a slow write can push "second"
+        # outside the collect_peer() window and split this into two turns.
+        # This test is about the debounce/coalescing logic, not the ingress
+        # health marker, so the marker write is faked out here.
+        patch("app.ingress.signal_listener.record_inbound_message", new=AsyncMock()),
     ):
         await listener.run()
 
