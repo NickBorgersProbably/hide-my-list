@@ -15,7 +15,7 @@ Enforce test-rig maintenance: every PR that adds or modifies production code mus
 
 The authoritative rig architecture is documented in `docs/python-rewrite/test-rig.md`. If this PR adds a new bug class or extends the layer architecture defined there, update that document AND update this reviewer prompt to enforce the new contract.
 
-Lens — twelve contract clauses:
+Lens — thirteen contract clauses:
 
 1. **New public function in `app/tools/`, `app/graph/nodes/`, `app/scheduler/`, `app/ingress/`** MUST have:
    - At least one integration test asserting reachability from an end-to-end flow (catches dead-code wiring, bug class 6 — `record_reward_feedback` pattern).

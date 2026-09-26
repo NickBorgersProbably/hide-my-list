@@ -174,12 +174,12 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
 
 
 def test_max_tokens_per_tier() -> None:
-    """Reasoning tiers send NO max_tokens; only the label-only cheap tier is capped.
+    """Tiers control model aliases and output caps; caller plus LLM_REASONING_CALLERS controls think.
 
     The output-token cap was a Claude-era default that truncated gemma4-small's
-    think+structured-JSON intake output. Reasoning tiers (medium/expensive/reminder)
-    must let the model finish; cheap (intent classifier) only emits a label and
-    keeps a small cap.
+    think+structured-JSON intake output. Non-cheap tiers (medium/expensive/reminder)
+    send no cap so structured-JSON output is never truncated; cheap (intent classifier)
+    only emits a label and keeps a small cap.
     """
     from unittest.mock import MagicMock, patch
 

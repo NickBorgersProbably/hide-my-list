@@ -42,8 +42,8 @@ _ERROR_EVENT_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 # I7. Tier assignments from app/models.py. A node quietly downgraded to `cheap`
-# gets think=False and max_tokens=1024, which truncates intake's JSON mid-object
-# and drops the task's reminder without raising anything.
+# gets max_tokens=1024, which truncates intake's JSON mid-object and drops the
+# task's reminder without raising anything. (`think` is caller-based, not tier-based.)
 _EXPECTED_TIERS: dict[str, str] = {
     "classify": "cheap",
     "complete_title_match": "cheap",
@@ -235,7 +235,7 @@ def _assert_tier_discipline(result: TurnResult) -> None:
         actual = str(entry.get("tier") or "")
         assert actual == expected, (
             f"caller {caller!r} used the {actual!r} tier; app/models.py assigns it "
-            f"{expected!r}. A downgrade to 'cheap' also turns reasoning off and caps "
+            f"{expected!r}. A downgrade to 'cheap' also caps "
             "output at 1024 tokens, which truncates structured JSON mid-object."
         )
 

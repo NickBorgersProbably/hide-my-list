@@ -464,7 +464,7 @@ behavioral correctness. See `docs/python-rewrite/llm-observability.md`.
 
 ## Test Discipline Rules (Developer-Facing)
 
-These are the eleven contract clauses the test reviewer enforces (see
+These are the thirteen contract clauses the test reviewer enforces (see
 `.github/scripts/review/prompts/test.md` for the authoritative enforcement spec):
 
 1. **New public function in `app/tools/`, `app/graph/nodes/`, `app/scheduler/`, `app/ingress/`** must have:
@@ -521,6 +521,14 @@ These are the eleven contract clauses the test reviewer enforces (see
     - Cover any new cross-turn handoff — for example, a `recent_outbound` row written by `reminder_worker` several turns before the COMPLETE turn that resolves against it — with a full multi-turn scenario rather than a single-node call with a hand-built `State`.
     - Never retry on `IntentMisrouteError`. Retrying hides the classifier drift this layer exists to detect. (Catches bug class 11 — cross-turn state handoff regressions.)
     - Rely on the seven per-turn invariants in `tests/support/invariants.py`, which run automatically after every `conversation.say()` call.
+
+12. **New public Notion database query verb in `app/tools/notion.py`** must:
+    - Route through the shared `_query_database()` helper, not a bare unpaginated `client.post()` call. (Catches bug class 12 — Notion database query truncation; see `tests/regressions/bug_0668_notion_query_pagination/test_notion_query_pagination.py` as the canonical template.)
+    - Include parametrized coverage in `tests/regressions/bug_0668_notion_query_pagination/` asserting the new verb follows `has_more`/`next_cursor` pagination. Adding the verb to the `_VERBS` parametrize list in the existing regression file is sufficient.
+
+13. **PRs that change the per-caller reasoning default or `LLM_REASONING_CALLERS` semantics in `app/models.py`** must:
+    - Include unit tests asserting `extra_body={'think': <bool>}` for: a caller in the default set, a caller outside it, `caller=None`, a replaced `LLM_REASONING_CALLERS` value, and an empty `LLM_REASONING_CALLERS` value.
+    - Assert `LLM_REASONING_CALLERS` is threaded through the compose stack in `tests/smoke/test_compose_round_trip.py` (clause 4).
 
 If this PR adds a new bug class or extends the layer architecture described in
 this document, update this document AND update
