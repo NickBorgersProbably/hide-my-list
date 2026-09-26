@@ -21,6 +21,8 @@ prior_state:
       kind: task
       event: added
 contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
   - kind: regex_forbid
     pattern: "(?i)get you a task first"
   - kind: shame_safe

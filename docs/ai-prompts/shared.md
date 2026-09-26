@@ -646,14 +646,14 @@ sequenceDiagram
 
     U->>I: "I need to finish the report"
     I->>T: ADD_TASK intent
-    T->>U: "Got it — focus work, ~2 hours, moderate priority. First step: outline the key sections."
+    T->>U: "Got it — Finish the report. First step: outline the key sections."
 
     Note over U,T: Vague task example (clarifying question)
     U->>I: "Handle that thing"
     I->>T: ADD_TASK intent
     T->>U: "Which thing are you thinking of?"
     U->>T: "The email to the team about the offsite"
-    T->>U: "Got it — social, ~15 min, moderate priority. Steps: 1) Draft email, 2) Review, 3) Send."
+    T->>U: "Got it — Email the team about the offsite."
 
     U->>I: "I have 30 minutes, feeling tired"
     I->>S: GET_TASK intent
