@@ -148,12 +148,34 @@ follow-ups (deadlines, clarifications, pronouns like "it") as continuations of
 that intent. For example, if the previous turn was the user describing a task
 and the current message is "I need to do it by Friday", classify as ADD_TASK.
 
+Rules:
+- A past-tense report of something the user did is COMPLETE even when it names
+  something not on the list. "I also paid the bill" reports a finished thing;
+  it never asks to add one.
+- A question about which task was meant ("what task?") is CHAT.
+- Accepting a suggestion ("sure", "ok let's do it") is CHAT, not GET_TASK or
+  ADD_TASK: the suggested task is already theirs.
+- When awaiting clarification is yes, ADD_TASK needs both: the user says the
+  thing is new or not on the list, AND asks to log, add, or track it. A reply
+  that picks one of the offered options ("the first one", "the second one",
+  "that one", "yes") is COMPLETE.
+
 Message: "{user_message}"
 
 Intent:
 ```
 
 **Note:** CHECK_IN never inferred from user messages. Reserved system intent for scheduler-driven follow-up via APScheduler `check_in_dispatcher`. Normal user replies like "I'm back" still go through standard intent flow. Reminder delivery does not write `state["messages"]`. A short reply like "I did it" after a just-sent reminder classifies with that delivery visible in the `Recent tasks:` block above: `hydrate_context` merges the peer's `recent_outbound` rows into the ledger before classification. `classify_intent` itself does not query `recent_outbound`.
+
+A past-tense report of something the user did ("I also paid the gas bill!")
+classifies COMPLETE even when the thing was never on the list; the completion
+module completes the match or asks which task the user means. If the user
+answers that question by saying the thing is new ("no it's new, just log
+it"), the classifier returns ADD_TASK, which drops the open clarification, and
+intake saves the task from the earlier message in the prior conversation.
+Intake carries a backstop for a past-tense report the classifier sent its
+way: it returns `action: "already_done"`, saves nothing, and hands the turn to
+the completion module (see `docs/ai-prompts/intake.md`, ALREADY DONE REPORTS).
 
 ### Cross-Session Reply Resolution
 
@@ -219,21 +241,94 @@ ranked shortlist the model is rejecting tasks the message actually overlaps —
 than falling through to context. Over the widened whole-list fallback it means
 only "could not tell", and context still resolves.
 
+For a standalone completion the model also reports `names_unlisted_task`:
+whether the message clearly reports finishing a specific, concrete task — an
+action and its object — that is none of the candidates. A bare "done", chatter
+or feelings ("done :) feeling good"), and any message that could be about a
+candidate report false. When the open list is empty the model is still asked,
+with no candidates, for any message with at least two task-naming words left
+after the completion words; a shorter message resolves from context without a
+model call. Alongside the report the model returns `unlisted_task_title`: a
+short imperative title for the reported task (under 8 words), or null. The
+title is kept only when it is a single line of at most 200 characters with no
+braces and shares at least one task-naming word with the message; a title
+built from nothing the user said is dropped.
+
+A null match with that report set over the widened list, or over an empty
+one, is answered with a question and never with a context completion: nothing
+is written and no reward goes out. `names_unlisted_task` governs only the
+widened and empty cases. Over the scored shortlist, a null match keeps the
+`complete_target` question naming those overlapping options regardless of
+`names_unlisted_task`: the message's words actively overlapped those
+candidates, so the model's null verdict means the completion did not resolve
+cleanly against them — not that the report is definitively about a different
+task. For the widened or empty list, the question celebrates first, never
+contrasts the report against the list, and is a yes/no choice whenever one is
+possible, so the user never has to recall and retype what they just said:
+
+| Situation | Question |
+|-----------|----------|
+| A kept title | "Nice one! Want me to log '<title>' as done?" |
+| No title | "Nice one! I've left your list as it is." — an acknowledgement; no clarification is stored |
+
+The question is stored as an `unlisted_report` clarification (see Pending
+Clarification below). The proposed title is rendered into the log question
+directly: it is the model's proposal, not a stored Notion title, so it carries
+no `{task}` token.
+
 ### Pending Clarification
 
 The question is recorded in `state["pending_clarification"]`: its kind, when it
-was asked, how many times it has been asked, and the options it named.
-`classify_intent` owns that key's lifecycle, since it is the only node that
-runs on every turn.
+was asked, how many times it has been asked, the options it named, and — for
+an unlisted report — the proposed title. `classify_intent` owns that key's
+lifecycle, since it is the only node that runs on every turn.
+
+There are two kinds. `complete_target` asks which task a completion was
+about. `unlisted_report` follows a report that matched no open task over a
+widened or empty list:
+
+| Record | Question |
+|--------|----------|
+| title set, no candidates (attempts 1) | "Nice one! Want me to log '<title>' as done?" |
+| no title, no candidates | "Nice one! I've left your list as it is." — an acknowledgement; no clarification is stored |
+
+A bare negative to the log offer clears the clarification. A report with no
+usable title is an acknowledgement with no clarification stored.
+
+| Answer | Title set (attempts 1) | No title |
+|--------|------------------------|----------|
+| "yes", affirmative | logs the title as a Completed task and celebrates it | closes the question |
+| Any other reply routed to COMPLETE | completes a task the answer names; otherwise closes the question | same |
+| "no", "nope", "neither" | "Got it, leaving that open." — clarification cleared | "Got it, leaving that open." |
+
+Logging goes through the same path as intake's "it's new, just log it": a title
+that matches an open task at the intake duplicate threshold completes that
+task, otherwise a new page is created Completed; the reward, the ledger
+`completed` event, the streak, and the `{task} — done.` celebration are the
+same as any completion. An answer to an `unlisted_report` question never
+resolves from context — not the ledger, `recent_outbound`, or `active_task` —
+because the user has already said the report is about something else.
 
 | Rule | Value |
 |------|-------|
 | Time-to-live from `asked_at` | 30 minutes |
 | Intents treated as an answer | CHAT, COMPLETE (steered to COMPLETE) |
 | Intents that drop the question | every other intent |
+| Affirmative/positional replies answered without classification | a whole-message positional or affirmative reply routes to COMPLETE, clarification kept: "the first one", "second", "number 2", "that one", "yes", "yep", "yeah" |
+| Negative replies answered without classification | a whole-message bare negative sends "Got it, leaving that open." and clears the clarification — tasks stay open: "no", "nope", "neither", "none of them" |
 | Options named per ask | up to 3: the ledger's open tasks first, then the ranked shortlist |
 | Word overlap that accepts an answer without a model call | 0.85, one task only |
 | Asks before the agent stops | 2 |
+
+A positional or affirmative reply ("the first one", "yes") points at one of the
+named options; while a live question is open `classify_intent` routes it to
+COMPLETE without calling the model and keeps the clarification for `complete_node`
+to read. A bare negative ("no", "nope", "neither") declines without selecting
+and never routes to COMPLETE: `classify_intent` leaves tasks open and clears
+the clarification with "Got it, leaving that open.". Both matches cover the
+whole message after lowercasing and stripping punctuation: "no it's new, just
+log it" contains "no" but is not a bare negative, and it goes to the model like
+any other message.
 
 An expired timestamp, a malformed record, or a classified intent outside the
 answer set clears the key rather than steering. Past the ask limit the node
@@ -274,8 +369,10 @@ title's words is not the same as saying it is finished.
 Steering an answer back to the node that asked relaxes the framing but not the
 threshold: when the answer names a task and the shortcut does not apply, the
 0.90 confidence threshold and the instruction to return no match when
-uncertain still apply. When the answer's words do not identify a task, context
-sources resolve as they would on a first-turn completion.
+uncertain still apply. When the answer to a `complete_target` question does
+not identify a task, context sources resolve as they would on a first-turn
+completion; an answer to an `unlisted_report` question that identifies no task
+closes the question instead.
 
 Other shorthand follow-up paths thread matched context as follows:
 
@@ -287,6 +384,7 @@ Other shorthand follow-up paths thread matched context as follows:
 | Message | Intent |
 |---------|--------|
 | "I need to call the dentist" | ADD_TASK |
+| "I need to renew the car registration this week" | ADD_TASK |
 | "Remind me to buy groceries" | ADD_TASK |
 | "Remind me at 6pm to call Sarah" | ADD_TASK (with reminder) |
 | "Ping me at 3pm CT to email Melanie" | ADD_TASK (with reminder) |
@@ -294,6 +392,8 @@ Other shorthand follow-up paths thread matched context as follows:
 | "I have 30 minutes" | GET_TASK |
 | "Done!" | COMPLETE |
 | "Finished that one" | COMPLETE |
+| "Finished that one too" | COMPLETE |
+| "I also paid the gas bill!" (never on the list) | COMPLETE |
 | "Not that one" | REJECT |
 | "Something else" | REJECT |
 | "This is too big" | CANNOT_FINISH |
@@ -306,8 +406,12 @@ Other shorthand follow-up paths thread matched context as follows:
 | "What should I do first?" | NEED_HELP |
 | "How does this work?" | CHAT |
 | "Hello" | CHAT |
+| "What task?" | CHAT |
+| "Sure" / "Ok let's do it" right after a suggestion | CHAT |
 | "I did it" after a just-sent reminder | COMPLETE |
 | "Tomorrow at 9am" after a just-sent reminder | ADD_TASK |
+| "The first one" / "the second one" while a completion clarification is open | COMPLETE |
+| "No it's new, just log it" while a completion clarification is open | ADD_TASK |
 
 
 ---
@@ -589,10 +693,11 @@ none. Entries older than 7 days are pruned and the ledger holds at most 8.
 
 The ledger reaches prompts as one line per entry — title (or `(untitled)`),
 `[reminder]` for a reminder, the event, and a relative age — under
-`Recent tasks:` in the intent classifier and `### Recent Tasks` in the chat
-prompt. Each title is flattened to a single line and capped at 120
-characters, so one entry is always exactly one rendered line. Page ids never
-reach a prompt.
+`Recent tasks:` in the intent classifier and `### Recent Tasks` in the chat,
+rejection, cannot-finish, and breakdown prompts; the last three also carry the
+last 8 messages under `### Prior Conversation`. Each title is flattened to a
+single line and capped at 120 characters, so one entry is always exactly one
+rendered line. Page ids never reach a prompt.
 
 Chat reads the ledger to answer **"what task?"**: when the user asks which
 task was just discussed, chat finds the newest ledger entry that is not
@@ -601,6 +706,9 @@ word for word. When that entry is untitled, chat says it is not sure which
 task the user means and asks them to name it. When every entry is `rejected`,
 or the ledger is empty, chat names the current task, or asks when there is
 none.
+
+With no active task, breakdown help (NEED_HELP) is about the newest titled
+entry whose event is `added` or `suggested`.
 
 ---
 
@@ -616,14 +724,14 @@ sequenceDiagram
 
     U->>I: "I need to finish the report"
     I->>T: ADD_TASK intent
-    T->>U: "Got it — focus work, ~2 hours, moderate priority. First step: outline the key sections."
+    T->>U: "Got it — Finish the report. First step: outline the key sections."
 
     Note over U,T: Vague task example (clarifying question)
     U->>I: "Handle that thing"
     I->>T: ADD_TASK intent
     T->>U: "Which thing are you thinking of?"
     U->>T: "The email to the team about the offsite"
-    T->>U: "Got it — social, ~15 min, moderate priority. Steps: 1) Draft email, 2) Review, 3) Send."
+    T->>U: "Got it — Email the team about the offsite."
 
     U->>I: "I have 30 minutes, feeling tired"
     I->>S: GET_TASK intent

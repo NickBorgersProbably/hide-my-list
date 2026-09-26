@@ -1,0 +1,35 @@
+---
+# The completion module asked which of two named tasks the user finished, and
+# the user answers by position. That is COMPLETE: it keeps the open
+# clarification so the completion module can resolve the option the answer
+# points at. ADD_TASK would drop the clarification and the next turn would ask
+# the same question again.
+#
+# In production the deterministic option-reference guard in classify_intent
+# routes this reply to COMPLETE without calling the model. This fixture pins
+# the prompt as a backstop for positional wordings the guard does not cover.
+id: classify-intent-ordinal-answer-during-clarification-001
+node: classify_intent
+tier: cheap
+peer: "<test-peer-classify-ordinal-answer>"
+inbound: "the first one"
+prior_state:
+  messages:
+    - role: user
+      content: "watered it"
+    - role: assistant
+      content: "Nice! Which one was that — Water the garden, or Water the lawn?"
+  pending_clarification:
+    kind: complete_target
+    asked_at: "2099-01-01T00:00:00+00:00"
+    attempts: 1
+    candidates:
+      - page_id: "<placeholder-page-id-1>"
+        title: "Water the garden"
+      - page_id: "<placeholder-page-id-2>"
+        title: "Water the lawn"
+contracts:
+  - kind: regex_require
+    pattern: "COMPLETE"
+  - kind: regex_forbid
+    pattern: "ADD_TASK"

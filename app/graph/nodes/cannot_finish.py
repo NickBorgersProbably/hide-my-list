@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
+from app.graph.context import render_history, render_recent_tasks
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -41,11 +43,17 @@ async def cannot_finish_node(state: State) -> dict[str, Any]:
                 "task_title": task_title,
                 "time_estimate": time_estimate,
                 "user_message": incoming,
+                "conversation_history": render_history(state.get("messages")),
+                "recent_tasks": render_recent_tasks(
+                    state.get("recent_tasks"), now=datetime.now(UTC)
+                ),
             },
             defaults={
                 "task_title": "your task",
                 "time_estimate": 30,
                 "user_message": "",
+                "conversation_history": "No prior context.",
+                "recent_tasks": "None yet.",
             },
         )
 

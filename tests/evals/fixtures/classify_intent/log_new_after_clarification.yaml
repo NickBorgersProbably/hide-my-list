@@ -1,0 +1,30 @@
+---
+# The completion module asked which task the user finished. The user says the
+# thing is new and asks to log it. That is ADD_TASK: it drops the open
+# clarification and lets intake save the task from the earlier message. CHAT
+# or COMPLETE would steer it back to the completion module, which asks again.
+id: classify-intent-log-new-after-clarification-001
+node: classify_intent
+tier: cheap
+peer: "<test-peer-classify-log-new>"
+inbound: "no it's new, just log it"
+prior_state:
+  messages:
+    - role: user
+      content: "I also paid the gas bill!"
+    - role: assistant
+      content: "Nice! Which one was that — Book the dentist, or Email the landlord about the lease?"
+  pending_clarification:
+    kind: complete_target
+    asked_at: "2099-01-01T00:00:00+00:00"
+    attempts: 1
+    candidates:
+      - page_id: "<placeholder-page-id-1>"
+        title: "Book the dentist"
+      - page_id: "<placeholder-page-id-2>"
+        title: "Email the landlord about the lease"
+contracts:
+  - kind: regex_require
+    pattern: "ADD_TASK"
+  - kind: regex_forbid
+    pattern: "COMPLETE|CHAT"

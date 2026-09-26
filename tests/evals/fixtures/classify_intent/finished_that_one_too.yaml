@@ -1,0 +1,19 @@
+---
+# "too" marks a second completion report after an earlier one. It is
+# COMPLETE, not CHAT and not ADD_TASK.
+id: classify-intent-finished-too-001
+node: classify_intent
+tier: cheap
+peer: "<test-peer-classify-finished-too>"
+inbound: "finished that one too"
+prior_state:
+  messages:
+    - role: user
+      content: "done with the laundry"
+    - role: assistant
+      content: "Nice — Fold the laundry is done."
+contracts:
+  - kind: regex_require
+    pattern: "COMPLETE"
+  - kind: regex_forbid
+    pattern: "ADD_TASK|CHAT"

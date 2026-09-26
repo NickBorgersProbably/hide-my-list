@@ -40,12 +40,12 @@ flowchart TD
 |--------|------------------|
 | ADD_TASK | "I need to...", "Add...", "Remind me to...", "New task:", "Ping me at 6pm to..." |
 | GET_TASK | "I have X minutes", "What should I do?", "I'm ready to work" |
-| COMPLETE | "Done", "Finished", "Completed", "I did it" |
+| COMPLETE | "Done", "Finished", "Completed", "I did it", "I also paid the gas bill!" (a past-tense report, even of something never added) |
 | REJECT | "Not that one", "Something else", "I don't want to" |
 | CANNOT_FINISH | "This is too big", "I can't finish this", "Too much for one sitting" |
 | NEED_HELP | "How do I start?", "What should I do first?", "I'm stuck", "Break this down" |
 | CHECK_IN | System-initiated (runtime follow-up, not user message) |
-| CHAT | "Hello", "How does this work?", "What's in my list?" |
+| CHAT | "Hello", "How does this work?", "What's in my list?", "What task?", "Sure" / "Ok let's do it" right after a suggestion |
 
 ## Flow 1: Task Intake
 
@@ -55,14 +55,14 @@ sequenceDiagram
     participant AI as AI Assistant
     participant N as Notion
 
-    U->>AI: "I need to review Sarah's proposal"
+    U->>AI: "I need to review the proposal by Friday"
 
-    Note over AI: Parse task, infer ALL labels
-    Note over AI: Inferred: focus work, ~30 min, urgency 50
+    Note over AI: Parse task, infer ALL labels and steps
+    Note over AI: Inferred: focus work, ~30 min, urgency 50, due Friday 5pm
 
-    AI->>N: Create task with inferred labels
+    AI->>N: Create task with inferred labels and steps
     N-->>AI: Task created
-    AI->>U: "Got it — focus work, ~30 min, moderate priority.<br/>Plan: 1) Read intro, 2) Check numbers, 3) Note concerns, 4) Draft feedback"
+    AI->>U: "Got it — Review the proposal, due Friday.<br/>First step: read the intro. First nudge Wed 5pm."
 
     Note over U,AI: Vague task example
 
@@ -72,14 +72,37 @@ sequenceDiagram
     Note over AI: Clarification 1 of max 3
 
     AI->>U: "Which thing from yesterday?"
-    U->>AI: "The proposal review for Sarah"
+    U->>AI: "The proposal review"
 
     Note over AI: Now clear — infer labels and save
 
-    AI->>N: Create task with inferred labels
+    AI->>N: Create task with inferred labels and steps
     N-->>AI: Task created
-    AI->>U: "Got it — focus work, ~30 min, moderate priority.<br/>Plan: 1) Read intro, 2) Check numbers, 3) Note concerns, 4) Draft feedback"
+    AI->>U: "Got it — Review the proposal. First step: read the intro."
+
+    Note over U,AI: Past-tense report of something never added
+
+    U->>AI: "I also paid the gas bill!"
+    Note over AI: COMPLETE — no open task matches, title proposed
+    AI->>U: "Nice one! Want me to log 'Pay the gas bill' as done?"
+    U->>AI: "yes"
+    AI->>N: Create task with Status Completed
+    AI->>U: "Pay the gas bill — done. Nice work! ✨"
 ```
+
+The confirmation is one sentence naming the task plus the deadline or
+reminder time the user stated, and optionally a second sentence with the
+first step. Work type, time estimate, the numbered plan, and a step count
+never appear in it; the steps are stored with the task, where breakdown help
+reads them. When a deadline series is scheduled, the reply adds one sentence
+naming the earliest nudge. A message that reports a task as already finished
+is never saved as a new task: intake hands it to the completion flow. That
+flow answers with yes/no choices, so the user never retypes what they did:
+it offers to log the report under a short proposed title. A "yes" to that, like answering with "it's new, just log it",
+logs the report as already done: the page is created Completed (or the open
+task it duplicates is completed), the reward path runs, and the reply is the
+completion celebration, so an accomplishment never becomes another open item
+on the list.
 
 > **Decision Fatigue Prevention:** System prefers inference over questions. All labels (urgency, time, work type) inferred from context — never asked. When task too vague to identify (e.g., "do the thing"), up to 3 simple clarifying questions, one at a time. User can correct after ("actually that's urgent") but never forced to decide on labels.
 
@@ -96,7 +119,7 @@ flowchart TD
     AskCount -->|No, limit reached| Save
     Ask --> UserAnswer[User answers]
     UserAnswer --> Infer
-    Save --> Confirm([Confirm with inferred labels])
+    Save --> Confirm([Confirm task + stated deadline + first step])
     Confirm --> Correction{User corrects?}
     Correction -->|Yes| Update[Update task]
     Correction -->|No / Moves on| Done([Done])
@@ -107,13 +130,13 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Always["Clear Tasks (Inferred Immediately)"]
-        Q1["User: #quot;Call mom#quot;"] --> Q2["AI: #quot;Got it — social, ~15 min, low priority#quot;"]
-        Q3["User: #quot;Work on the project#quot;"] --> Q4["AI: #quot;Got it — focus, ~45 min, moderate priority.<br/>First step: outline the key sections.#quot;"]
+        Q1["User: #quot;Call mom#quot;"] --> Q2["AI: #quot;Got it — Call mom.#quot;"]
+        Q3["User: #quot;Work on the project by Friday#quot;"] --> Q4["AI: #quot;Got it — Work on the project, due Friday.<br/>First step: outline the key sections.#quot;"]
     end
 
     subgraph Clarify["Vague Tasks (Ask to Clarify)"]
         V1["User: #quot;Handle that thing#quot;"] --> V2["AI: #quot;Which thing are you thinking of?#quot;"]
-        V3["User: #quot;The email to the team#quot;"] --> V4["AI: #quot;Got it — social, ~15 min, moderate priority.#quot;"]
+        V3["User: #quot;The email to the team#quot;"] --> V4["AI: #quot;Got it — Email the team.#quot;"]
     end
 
     subgraph Correction["User Can Correct (Optional)"]
@@ -219,6 +242,31 @@ flowchart LR
    quote the title they filed it under, and a shared-word count cannot tell the
    difference between "unrelated" and "phrased differently". Only the model can,
    so the model is the one asked.
+
+   The model also says whether the message names a specific finished task that
+   is on none of the candidates — "I also paid the gas bill!" when no open task
+   is about the gas bill. When the message overlapped no open task (the
+   widened or empty list), that report is answered with a question, never with
+   a context completion: the active or most recent task stays open and no
+   reward goes out. When the message overlapped open tasks, the existing
+   question names those options instead. The question celebrates first and never contrasts the
+   report against the list, and it is a yes/no choice so the user never has
+   to repeat what they just said:
+   - When the message overlapped open tasks (scored shortlist), the existing
+     multi-option `complete_target` question names those overlapping options.
+     The unlisted-report question applies only when the list was widened or
+     empty.
+   - "Nice one! Want me to log '<title>' as done?" is asked when the model
+     proposes a title grounded in the message. "yes" creates the task already
+     Completed (or completes the open task it duplicates), rewards it, and
+     celebrates it by name. "no" leaves everything open.
+   - Only when the model proposes no usable title does the reply say "Nice
+     one! I've left your list as it is.".
+
+   An answer to any of these never falls back to the current or most recent
+   task. The model is asked even when the list holds no open tasks, so a
+   concrete report still gets the question. A bare "done" or a feeling
+   ("done :) feeling good") names no task and still resolves from context.
 2. **The most recent context** — whichever is newest among the tasks this
    conversation just touched (the recent-task ledger: tasks added, suggested,
    reminded, or nudged in the last day), the unresolved reminder the agent
@@ -1028,14 +1076,14 @@ sequenceDiagram
     AI->>U: Hey! Ready to add a task or work on something?
 
     U->>AI: I need to email the team about the offsite
-    AI->>U: Got it — social, ~15 min, moderate priority. Steps: 1) Draft email, 2) Review, 3) Send. What else?
+    AI->>U: Got it — Email the team about the offsite. First step: draft the email.
     U->>AI: Actually that's urgent, needs to go out today
     AI->>U: Updated to high priority. Anything else?
 
     U->>AI: Oh and deal with that thing
     AI->>U: Which thing are you thinking of?
     U->>AI: Booking travel for the offsite
-    AI->>U: Got it — independent, ~30 min. Ready to work or keep adding?
+    AI->>U: Got it — Book travel for the offsite.
 
     U->>AI: I've got 20 minutes before a meeting
     AI->>U: Perfect - how about sending that team email? It's short and urgent.

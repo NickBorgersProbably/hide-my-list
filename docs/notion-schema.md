@@ -319,7 +319,7 @@ Format:
 User: I need to review Sarah's proposal
 AI: Got it. Is this time-sensitive?
 User: She needs feedback by Friday
-AI: Added - focused work, ~30 min, moderate urgency.
+AI: Got it — Review the proposal, due Friday.
 ```
 
 **Used for:** Debugging labels, context on suggestion, improving intake prompts.

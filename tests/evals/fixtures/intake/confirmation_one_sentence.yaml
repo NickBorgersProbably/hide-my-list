@@ -1,0 +1,36 @@
+---
+# The confirmation is task + when + optional first step. Production replies
+# carried a work-type label, a time estimate, and a numbered plan. Sub-tasks
+# are still generated and stored; only the reply leaves them out.
+id: intake-confirmation-one-sentence-001
+node: intake
+tier: medium
+peer: "<test-peer-intake-one-sentence>"
+inbound: "I need to book the dentist next week"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  messages: []
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks: []
+contracts:
+  - kind: regex_forbid
+    pattern: "\\d\\)\\s"
+  - kind: regex_forbid
+    pattern: "(?i)~?\\d+\\s?min"
+  - kind: regex_forbid
+    pattern: "\\d+\\s+of\\s+\\d+"
+  - kind: regex_forbid
+    pattern: "(?i)\\b(focus|creative|social|independent)\\b"
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: judge
+    rubric: |
+      The confirmation names the task (booking the dentist) and, if it states
+      a time, only the deadline the user gave (next week), optionally followed
+      by one short "First step: ..." sentence. Score 1.0 for that shape. Score
+      0.0 if it includes a numbered plan or list of steps, a work-type label
+      (focus, social, independent, creative), a time estimate, a step count
+      like "1 of 4", or a list of reminder times.
+    threshold: 0.8

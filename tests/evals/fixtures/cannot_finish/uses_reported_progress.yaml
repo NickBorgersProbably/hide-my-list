@@ -1,0 +1,34 @@
+---
+# The user already said what they got through earlier in the conversation.
+# The first cannot-finish reply must not ask for that again; it leads with the
+# progress they reported (the shelves) and moves to what is left.
+id: cannot-finish-uses-reported-progress-001
+node: cannot_finish
+tier: medium
+peer: "<test-peer-cannot-finish-progress>"
+inbound: "this is too big, I can't finish it"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Clean out the garage"
+  conversation_state: active
+  messages:
+    - role: assistant
+      content: "How's Clean out the garage going?"
+    - role: user
+      content: "I cleared all the shelves and bagged the old paint cans"
+    - role: assistant
+      content: "Nice progress."
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: regex_forbid
+    pattern: "(?i)what (did you|have you) (get|got|gotten|manage|accomplish|get done|get through)"
+  - kind: judge
+    rubric: |
+      Earlier in the conversation the user said they cleared the shelves and
+      bagged the paint cans. Score 1.0 when the reply acknowledges that
+      progress (shelves or paint cans) and moves toward what remains, without
+      asking what they accomplished. Score 0.0 when it asks what they got
+      done, as if the user had said nothing about progress.
+    threshold: 0.8

@@ -151,18 +151,16 @@ def assign_slot(
 
 
 def format_reminder_summary(slots: list[tuple[str, datetime]], user_tz: str) -> str:
-    """Format assigned slots into a short user-facing confirmation suffix."""
+    """Format assigned slots into a short user-facing confirmation suffix.
+
+    Names the earliest slot only. The confirmation is one glance: the whole
+    nudge schedule is a list the user has to read and hold, and every later
+    nudge arrives on its own anyway.
+    """
     if not slots:
         return ""
-    zone = ZoneInfo(user_tz)
-    labels = [_format_local_time(dt.astimezone(zone)) for _, dt in sorted(slots, key=lambda s: s[1])]
-    if len(labels) == 1:
-        joined = labels[0]
-    elif len(labels) == 2:
-        joined = f"{labels[0]} and {labels[1]}"
-    else:
-        joined = f"{', '.join(labels[:-1])}, and {labels[-1]}"
-    return f"I'll ping you {joined}."
+    earliest = min(dt for _, dt in slots)
+    return f"First nudge {_format_local_time(earliest.astimezone(ZoneInfo(user_tz)))}."
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int | None = None) -> int:

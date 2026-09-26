@@ -1,0 +1,65 @@
+---
+# No active task in the checkpoint, but the history and the recent-task ledger
+# show what was just suggested. The rejection must not offer the task the user
+# is turning down; the only other task is the alternative, and it must be
+# offered by name. A reply that offers nothing fails: a context-blind prompt
+# could already produce a graceful exit, so only naming the alternative shows
+# the history was read.
+id: rejection-uses-history-001
+node: rejection
+tier: medium
+peer: "<test-peer-rejection-history>"
+inbound: "that got complicated, something else?"
+prior_state:
+  active_task: null
+  conversation_state: active
+  messages:
+    - role: user
+      content: "what should I do?"
+    - role: assistant
+      content: "How about Clean out the garage?"
+    - role: user
+      content: "sure"
+    - role: assistant
+      content: "Great — Clean out the garage is yours."
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Clean out the garage"
+      kind: task
+      event: suggested
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Clean out the garage"
+    work_type: "Physical"
+    time_estimate: 90
+  - id: "<placeholder-page-id-2>"
+    title: "Reply to the school email"
+    work_type: "Independent"
+    time_estimate: 10
+contracts:
+  # rejection_node substitutes the selected title into the draft body before
+  # returning it, so the raw body carries the alternative's exact title.
+  - kind: regex_require
+    pattern: "(?i)reply to the school email"
+  - kind: regex_forbid
+    pattern: "(?i)garage"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user is turning down "Clean out the garage", which the prior
+      conversation shows was just suggested. "Reply to the school email" is
+      the only other open task.
+
+      Score 1.0 only when the reply offers "Reply to the school email" by
+      name (the title or an unambiguous paraphrase such as "the school
+      email") as the next thing to do.
+
+      Score 0.0 when the reply suggests cleaning out the garage again, when
+      it offers no task at all (a graceful exit with nothing offered does
+      not pass), or when it refers to the alternative only by an attribute
+      ("something shorter", "a quick one") without naming it.
+
+      Judge only which task is offered. Do not score tone or shame-safety —
+      other contracts cover those.
+    threshold: 0.8

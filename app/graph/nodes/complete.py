@@ -22,6 +22,7 @@ stop the others from running.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -30,6 +31,7 @@ from typing import Any, Literal, cast
 import structlog
 
 from app.graph.context import ledger_entry, record_task_event
+from app.graph.nodes._log_finished import log_finished
 from app.graph.nodes._task_match import (
     DedupCandidate,
     dice_coefficient,
@@ -40,6 +42,7 @@ from app.graph.nodes._task_match import (
     shortlist_duplicate_candidates,
 )
 from app.graph.nodes._task_token import TASK_TOKEN
+from app.graph.routing import is_affirmative_answer, selects_single_option
 from app.graph.state import (
     ActiveTask,
     ClarificationCandidate,
@@ -100,6 +103,24 @@ _TITLE_MATCH_MIN_SCORE = 0.30
 # The cap bounds the prompt, not the recall: it only binds on lists longer than
 # this, and complete_node.candidate_set_truncated says when it did.
 _FALLBACK_CANDIDATE_LIMIT = 40
+
+# With no open task to compare against, a standalone report still goes to the
+# model to ask whether it names a concrete finished task (names_unlisted_task),
+# but only when it carries at least an action and its object. One word left
+# after the completion words ("done", "finally") names nothing and resolves
+# from context without a model call.
+_UNLISTED_MIN_RESIDUE_TOKENS = 2
+
+# Longest proposed title for an unlisted report. The prompt asks for under
+# eight words; this bounds what a runaway response can put in a reply.
+_UNLISTED_TITLE_MAX_CHARS = 200
+
+# Defaults for a logged accomplishment the intake model never labelled. They
+# match intake's own fallbacks for a save with missing labels.
+_LOGGED_WORK_TYPE = "focus"
+_LOGGED_URGENCY = 50
+_LOGGED_TIME_ESTIMATE = 30
+_LOGGED_ENERGY = "Medium"
 
 # Re-asks before the agent stops asking. The first question is open ("which
 # task did you mean?"); the second names concrete options, per
@@ -208,6 +229,13 @@ class _TitleMatch:
     # True when an answer to a clarification matched a title on word overlap
     # alone and the model was not asked.
     deterministic: bool = False
+    # True when the model reports that a standalone message names a specific
+    # finished task that is none of the candidates. Such a message is about
+    # something else, so no context task may be completed on its behalf.
+    names_unlisted: bool = False
+    # The model's proposed title for that unlisted task, kept only when it
+    # shares a task-naming word with the message; "" otherwise.
+    unlisted_title: str = ""
 
 
 @dataclass(frozen=True)
@@ -484,9 +512,22 @@ def _build_completion_match_prompt(
             "asking about, or is about to start is NOT a match — return no "
             "match for those even when the wording overlaps a candidate title. "
             "The cost of a false match is high: it marks a task the user has "
-            "not finished as completed. If uncertain, return no match."
+            "not finished as completed. If uncertain, return no match.\n\n"
+            "Also report names_unlisted_task. Set it to true only when the "
+            "message clearly reports finishing a specific, concrete task — an "
+            "action and the thing it was done to — that matches none of the "
+            "candidates. Set it to false for a bare \"done\", for chatter or "
+            "feelings with no task in them, and whenever the message could be "
+            "about one of the candidates.\n\n"
+            "When names_unlisted_task is true, also give unlisted_task_title: a "
+            "short to-do style title for that task, imperative and under 8 "
+            "words, built from the message's own words (for example "
+            "\"Water the plants\"). Otherwise set it to null."
         )
-        shape = '{"matched_page_id": "<candidate id or null>", "confidence": 0.0}'
+        shape = (
+            '{"matched_page_id": "<candidate id or null>", "confidence": 0.0, '
+            '"names_unlisted_task": false, "unlisted_task_title": null}'
+        )
     return (
         f"{instructions}\n\n"
         f"User message: {incoming!r}\n"
@@ -494,6 +535,61 @@ def _build_completion_match_prompt(
         "Return JSON only in this shape:\n"
         f"{shape}"
     )
+
+
+def _parse_names_unlisted(response_text: str) -> bool:
+    """Read `names_unlisted_task` from a match response; anything but JSON `true` is False.
+
+    Tolerant by design: an older response shape, unparseable output, or a
+    non-boolean value all read as "no claim", which leaves the node's other
+    rules in charge.
+    """
+    json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+    if not json_match:
+        return False
+    try:
+        loaded = json.loads(json_match.group())
+    except json.JSONDecodeError:
+        return False
+    return isinstance(loaded, dict) and loaded.get("names_unlisted_task") is True
+
+
+def _parse_unlisted_title(response_text: str) -> str:
+    """Read `unlisted_task_title` from a match response; "" when absent or unusable.
+
+    Tolerant like `_parse_names_unlisted`: an older response shape, a
+    non-string value, or unparseable output all read as "no title". The title
+    is collapsed to a single line, capped at `_UNLISTED_TITLE_MAX_CHARS`, and
+    refused outright when it carries a brace — it is rendered into the reply
+    verbatim, so it must not be able to smuggle in a `{task}` token.
+    """
+    json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+    if not json_match:
+        return ""
+    try:
+        loaded = json.loads(json_match.group())
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(loaded, dict):
+        return ""
+    raw = loaded.get("unlisted_task_title")
+    if not isinstance(raw, str):
+        return ""
+    title = " ".join(raw.split())
+    if not title or title.lower() in {"null", "none"} or "{" in title or "}" in title:
+        return ""
+    return title[:_UNLISTED_TITLE_MAX_CHARS].strip()
+
+
+def _grounded_unlisted_title(title: str, residue: set[str]) -> str:
+    """`title` when it shares a task-naming word with the message, else "".
+
+    A title the model made up from nothing the user said must never be offered
+    back as their accomplishment.
+    """
+    if title and _task_reference_tokens(title) & residue:
+        return title
+    return ""
 
 
 def _reoffer_candidates(
@@ -648,7 +744,44 @@ async def _resolve_title_match(
             ]
 
         if not candidates:
-            return _TitleMatch(target=None, candidate_count=0, confidence=None)
+            # An empty list cannot hold the task, so a concrete report is
+            # necessarily unlisted — but only the model can tell a concrete
+            # report from chatter. Ask it with no candidates rather than
+            # falling through to the generic "which task?" question.
+            if answering_clarification or len(residue) < _UNLISTED_MIN_RESIDUE_TOKENS:
+                return _TitleMatch(target=None, candidate_count=0, confidence=None)
+            empty_model = llm("cheap", caller="complete_title_match")
+            empty_response = await empty_model.ainvoke([
+                SystemMessage(content=_build_completion_match_prompt(
+                    incoming, [], answering_clarification=False, offered=(),
+                )),
+                HumanMessage(content="Return only the JSON object."),
+            ])
+            empty_unlisted = _parse_names_unlisted(str(empty_response.content))
+            empty_title = (
+                _grounded_unlisted_title(
+                    _parse_unlisted_title(str(empty_response.content)), residue
+                )
+                if empty_unlisted
+                else ""
+            )
+            # Counts and booleans only — the report is the user's own words.
+            log.info(
+                "complete_node.empty_list_unlisted_check",
+                residue_token_count=len(residue),
+                names_unlisted=empty_unlisted,
+                has_title=bool(empty_title),
+            )
+            return _TitleMatch(
+                target=None,
+                candidate_count=0,
+                confidence=None,
+                names_unlisted=empty_unlisted,
+                unlisted_title=empty_title,
+            )
+
+        names_unlisted = False
+        unlisted_title = ""
 
         def outcome(
             target: _CompletionTarget | None,
@@ -665,6 +798,8 @@ async def _resolve_title_match(
                 confidence=confidence,
                 candidates=tuple(candidates),
                 widened=widened,
+                names_unlisted=names_unlisted and target is None,
+                unlisted_title=unlisted_title if names_unlisted and target is None else "",
             )
 
         model = llm("cheap", caller="complete_title_match")
@@ -678,6 +813,15 @@ async def _resolve_title_match(
             HumanMessage(content="Return only the JSON object."),
         ])
         parsed = parse_match_response(str(response.content), candidates)
+        # Only the standalone framing asks for this field; an answer to a
+        # clarification is never read as naming something new.
+        names_unlisted = not answering_clarification and _parse_names_unlisted(
+            str(response.content)
+        )
+        if names_unlisted:
+            unlisted_title = _grounded_unlisted_title(
+                _parse_unlisted_title(str(response.content)), residue
+            )
         if parsed is None:
             return outcome(None, None)
 
@@ -990,6 +1134,111 @@ def _clarify_completion_target(
     }
 
 
+_UNLISTED_REPORT_WITH_OPTION = (
+    f"Nice one! Did you mean {TASK_TOKEN}?"
+)
+_UNLISTED_REPORT_OFFER_TO_LOG = "Nice one! Want me to log '{title}' as done?"
+_UNLISTED_REPORT_NO_OPTION = "Nice one! I've left your list as it is."
+
+
+def _ask_about_unlisted_report(
+    peer: str,
+    *,
+    options: Sequence[DedupCandidate],
+    title: str = "",
+) -> dict[str, Any]:
+    """Answer a report of something that is on none of the candidates.
+
+    The message names a finished task the list does not hold, so completing the
+    active or most recent task on its behalf would reward the wrong thing. The
+    copy celebrates first and never contrasts the report against the list.
+    Every form is a yes/no choice where one is possible, so the user never has
+    to recall and retype what they just said:
+
+    - a live conversation task is offered by name, since the user may have
+      meant it after all ("Did you mean {task}?"); the proposed title rides
+      along so a "no" can still offer to log it;
+    - with no task to offer, a grounded proposed title is offered for logging
+      as done — rendered directly, since it is not a stored Notion title;
+    - with neither, acknowledge the accomplishment and leave the list unchanged.
+
+    When an option or title is available the record is an `unlisted_report`
+    clarification on its first attempt. With neither, no clarification is stored.
+    """
+    named = [option for option in options if option.title][:1]
+    stored: list[ClarificationCandidate] = [
+        {"page_id": option.page_id, "title": option.title} for option in named
+    ]
+    if named:
+        body = _UNLISTED_REPORT_WITH_OPTION
+    elif title:
+        body = _UNLISTED_REPORT_OFFER_TO_LOG.format(title=title)
+    else:
+        body = _UNLISTED_REPORT_NO_OPTION
+    draft: OutboundDraft = {
+        "recipient": peer,
+        "body": body,
+        "notion_page_id": None,
+    }
+    if named:
+        draft["notion_page_title"] = named[0].title
+    # Counts and booleans only — the report and the titles are the user's words.
+    log.info(
+        "complete_node.unlisted_report",
+        has_peer=bool(peer),
+        named_option=bool(named),
+        option_count=len(stored),
+        has_title=bool(title),
+        attempts=1,
+    )
+    if not named and not title:
+        # No safe choice to offer: acknowledge and leave the list unchanged.
+        # Setting a clarification here would require free recall to answer it.
+        return {
+            "pending_outbound": [draft],
+            "conversation_state": "idle",
+            "pending_clarification": None,
+        }
+    clarification: PendingClarification = {
+        "kind": "unlisted_report",
+        "asked_at": datetime.now(UTC).isoformat(),
+        "attempts": 1,
+        "candidates": stored,
+        "title": title,
+    }
+    return {
+        "pending_outbound": [draft],
+        "conversation_state": "idle",
+        "pending_clarification": clarification,
+    }
+
+
+async def _offered_option_target(
+    option: Mapping[str, object], *, now: datetime
+) -> _CompletionTarget | None:
+    """The offered option as a completion target, if it is still open.
+
+    Re-read from the open list so an option completed or renamed since the
+    question went out is not resurrected from the checkpoint. Fail-soft: a
+    lookup failure returns None and the caller falls back to matching.
+    """
+    try:
+        from app.tools import notion
+
+        page_id = option.get("page_id")
+        if not isinstance(page_id, str) or not page_id:
+            return None
+        raw = await notion.query_all()
+        for task in open_tasks(raw, include_reminders=True):
+            if task["id"] == page_id:
+                kind: RecentTaskKind = "reminder" if task.get("kind") == "reminder" else "task"
+                return _title_target(page_id, task["title"], now=now, kind=kind)
+        return None
+    except Exception:
+        log.warning("complete_node.offered_option_lookup_failed", exc_info=True)
+        return None
+
+
 async def _resolve_display_title(
     target: _CompletionTarget, recent_tasks: Sequence[object]
 ) -> str:
@@ -1065,9 +1314,53 @@ async def complete_node(state: State) -> dict[str, Any]:
         offered: tuple[ClarificationCandidate, ...] = (
             tuple(raw_offered) if answering and isinstance(raw_offered, list) else ()
         )
+        # An answer to "Nice one! Did you mean X?" / "Want me to log it?" is
+        # about the accomplishment the user reported, so no context source may
+        # stand in for it: only the offered option, the proposed title, or a
+        # task the answer itself names.
+        answering_unlisted = (
+            answering
+            and isinstance(pending, dict)
+            and pending.get("kind") == "unlisted_report"
+        )
+        incoming_text = state.get("incoming") or ""
+        selected_option: _CompletionTarget | None = None
+        if answering_unlisted:
+            unlisted_title = (
+                str(pending.get("title") or "").strip() if isinstance(pending, dict) else ""
+            )
+            if unlisted_title and not offered and is_affirmative_answer(incoming_text):
+                log.info(
+                    "complete_node.unlisted_report_answered",
+                    has_peer=bool(peer),
+                    logged=True,
+                )
+                return await log_finished(
+                    state=state,
+                    peer=peer,
+                    title=unlisted_title,
+                    work_type=_LOGGED_WORK_TYPE,
+                    urgency=_LOGGED_URGENCY,
+                    time_estimate=_LOGGED_TIME_ESTIMATE,
+                    energy_required=_LOGGED_ENERGY,
+                    log_event="complete_node.logged_finished",
+                )
+            if len(offered) == 1 and selects_single_option(incoming_text):
+                selected_option = await _offered_option_target(offered[0], now=now)
+            log.info(
+                "complete_node.unlisted_report_answered",
+                has_peer=bool(peer),
+                logged=False,
+                option_selected=selected_option is not None,
+            )
+            active_target = None
+            ledger_targets = []
 
         try:
-            recent_target = await _load_recent_outbound_target(peer)
+            if answering_unlisted:
+                recent_target = None
+            else:
+                recent_target = await _load_recent_outbound_target(peer)
         except Exception:
             # Losing one source must not veto the others: the message may still
             # name the task outright, and that path does not touch Postgres.
@@ -1084,7 +1377,14 @@ async def complete_node(state: State) -> dict[str, Any]:
         # Answering a question we named options in earns the lookup on its own.
         # "the second one" reduces to no residue worth shortlisting, and it is
         # still a complete answer to what was asked.
-        if residue or offered:
+        if selected_option is not None:
+            title_match = _TitleMatch(
+                target=selected_option,
+                candidate_count=1,
+                confidence=1.0,
+                deterministic=True,
+            )
+        elif residue or offered:
             title_match = await _resolve_title_match(
                 state.get("incoming") or "",
                 residue,
@@ -1095,7 +1395,9 @@ async def complete_node(state: State) -> dict[str, Any]:
         else:
             title_match = _TitleMatch(target=None, candidate_count=0, confidence=None)
 
-        context_options = _ledger_options(recent_tasks, now=now)
+        context_options = (
+            [] if answering_unlisted else _ledger_options(recent_tasks, now=now)
+        )
         clarify_candidates, from_context = _clarification_candidates(
             context_options, title_match
         )
@@ -1106,6 +1408,26 @@ async def complete_node(state: State) -> dict[str, Any]:
             title_target=title_match.target,
             ledger_targets=ledger_targets,
         )
+
+        # The message names a finished task that overlapped no candidate: the
+        # list was widened or empty and the model still found nothing. It is
+        # about something else, so no context task may be completed on its
+        # behalf; ask instead, with the live context task leading the options.
+        # Over a scored shortlist a null match keeps the existing question
+        # that names those overlapping options — the message was about one of
+        # them, however the model read it.
+        if (
+            title_match.target is None
+            and title_match.names_unlisted
+            and (title_match.widened or title_match.candidate_count == 0)
+        ):
+            # The matcher confirmed nothing on the list matches the report: do
+            # not re-offer a context task the matcher already rejected. Offer to
+            # log the grounded proposed title directly, or acknowledge and leave
+            # the list unchanged when no safe title exists.
+            return _ask_about_unlisted_report(
+                peer, options=[], title=title_match.unlisted_title
+            )
 
         # When the message appeared to name a task (candidates the message
         # actually overlaps) but the model rejected all of them, the message
@@ -1152,9 +1474,12 @@ async def complete_node(state: State) -> dict[str, Any]:
         )
 
         if not target:
+            # An unlisted-report answer that names no open task closes the
+            # question: asking "what's the task called?" would ask the user to
+            # recall and retype the report they already made.
             return _clarify_completion_target(
                 peer,
-                attempts=attempts,
+                attempts=_MAX_CLARIFICATION_ATTEMPTS if answering_unlisted else attempts,
                 candidates=clarify_candidates,
                 offerable=bool(clarify_candidates),
                 from_context=from_context,

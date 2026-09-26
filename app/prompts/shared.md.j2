@@ -86,6 +86,29 @@ follow-ups (deadlines, clarifications, pronouns like "it") as continuations of
 that intent. For example, if the previous turn was the user describing a task
 and the current message is "I need to do it by Friday", classify as ADD_TASK.
 
+Rules:
+- A past-tense report of something the user did is COMPLETE even when it names
+  something not on the list. "I also paid the bill" reports a finished thing;
+  it never asks to add one.
+- A question about which task was meant ("what task?") is CHAT.
+- Accepting a suggestion ("sure", "ok let's do it") is CHAT, not GET_TASK or
+  ADD_TASK: the suggested task is already theirs.
+- When awaiting clarification is yes, ADD_TASK needs both: the user says the
+  thing is new or not on the list, AND asks to log, add, or track it. A reply
+  that picks one of the offered options ("the first one", "the second one",
+  "that one", "yes") is COMPLETE.
+
+Examples:
+"I need to renew the car registration this week" → ADD_TASK
+"I also paid the gas bill!" → COMPLETE
+"finished that one too" → COMPLETE
+"What task?" → CHAT
+"sure" (right after the assistant suggested a task) → CHAT
+"ok let's do it" (right after the assistant suggested a task) → CHAT
+"the first one" (awaiting clarification: yes) → COMPLETE
+"the second one" (awaiting clarification: yes) → COMPLETE
+"no it's new, just log it" (awaiting clarification: yes) → ADD_TASK
+
 Message: "{{ user_message | default('') }}"
 
 Intent:

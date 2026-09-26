@@ -14,7 +14,12 @@ from typing import Any, cast
 
 import structlog
 
-from app.graph.context import ledger_entry, record_task_event
+from app.graph.context import (
+    ledger_entry,
+    record_task_event,
+    render_history,
+    render_recent_tasks,
+)
 from app.graph.nodes._task_token import render_task_token
 from app.graph.state import OutboundDraft, State
 
@@ -63,6 +68,10 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 "remaining_tasks_json": json.dumps(remaining[:10], indent=2),
                 "available_minutes": available_minutes,
                 "mood": mood,
+                "conversation_history": render_history(state.get("messages")),
+                "recent_tasks": render_recent_tasks(
+                    state.get("recent_tasks"), now=datetime.now(UTC)
+                ),
             },
             defaults={
                 "task_title": "the suggested task",
@@ -70,6 +79,8 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 "remaining_tasks_json": "[]",
                 "available_minutes": 30,
                 "mood": "neutral",
+                "conversation_history": "No prior context.",
+                "recent_tasks": "None yet.",
             },
         )
 

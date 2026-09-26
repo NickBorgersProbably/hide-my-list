@@ -1149,3 +1149,242 @@ async def test_rejection_node_unknown_alternative_is_not_recorded() -> None:
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_A>", "Water the plants", "task", "rejected"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Conversation context for rejection, cannot_finish, need_help
+# ---------------------------------------------------------------------------
+
+
+def _context_messages() -> list[Any]:
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    return [
+        HumanMessage(content="what should I do?"),
+        AIMessage(content="How about Water the plants?"),
+    ]
+
+
+def _context_ledger() -> list[dict[str, Any]]:
+    return [
+        {
+            "page_id": "<page_A>",
+            "title": "Water the plants",
+            "kind": "task",
+            "event": "suggested",
+            "at": (datetime.now(UTC) - timedelta(minutes=2)).isoformat(),
+        }
+    ]
+
+
+def _assert_prompt_has_context(system_prompt: str) -> None:
+    assert "### Prior Conversation" in system_prompt
+    assert "user: what should I do?" in system_prompt
+    assert "assistant: How about Water the plants?" in system_prompt
+    assert "### Recent Tasks" in system_prompt
+    assert '- "Water the plants" — suggested 2 min ago' in system_prompt
+    # Page ids never reach a prompt.
+    assert "<page_A>" not in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_rejection_prompt_carries_history_and_ledger() -> None:
+    model = _mock_llm_response(json.dumps({"alternative_task_id": None, "user_message": "No problem."}))
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": []})),
+        patch("app.tools.notion.update_property", AsyncMock()),
+        patch("app.models.llm", return_value=model),
+    ):
+        from app.graph.nodes.rejection import rejection_node
+
+        await rejection_node(
+            _ledger_state(
+                incoming="not that one",
+                active_task=_active_task("Water the plants", page_id="<page_A>"),
+                messages=_context_messages(),
+                recent_tasks=_context_ledger(),
+            )
+        )
+
+    _assert_prompt_has_context(str(model.ainvoke.await_args.args[0][0].content))
+
+
+@pytest.mark.asyncio
+async def test_cannot_finish_prompt_carries_history_and_ledger() -> None:
+    model = _mock_llm_response(
+        json.dumps({"phase": "ask_progress", "progress_question": "What did you get into?"})
+    )
+    with patch("app.models.llm", return_value=model):
+        from app.graph.nodes.cannot_finish import cannot_finish_node
+
+        await cannot_finish_node(
+            _ledger_state(
+                incoming="this is too big",
+                active_task=_active_task("Water the plants", page_id="<page_A>"),
+                messages=_context_messages(),
+                recent_tasks=_context_ledger(),
+            )
+        )
+
+    _assert_prompt_has_context(str(model.ainvoke.await_args.args[0][0].content))
+
+
+@pytest.mark.asyncio
+async def test_need_help_prompt_carries_history_and_ledger() -> None:
+    model = _mock_llm_response(json.dumps({"user_message": "Start with {task}: fill the can."}))
+    with patch("app.models.llm", return_value=model):
+        from app.graph.nodes.need_help import need_help_node
+
+        await need_help_node(
+            _ledger_state(
+                incoming="how do I start?",
+                active_task=_active_task("Water the plants", page_id="<page_A>"),
+                messages=_context_messages(),
+                recent_tasks=_context_ledger(),
+            )
+        )
+
+    _assert_prompt_has_context(str(model.ainvoke.await_args.args[0][0].content))
+
+
+@pytest.mark.asyncio
+async def test_need_help_without_active_task_helps_with_newest_ledger_task() -> None:
+    """No active task: help is about the newest added/suggested ledger entry.
+
+    The completed entry is newer but is not a task the user is about to start,
+    so it is skipped. The draft names the ledger task through notion_page_title
+    so send_node substitutes {task}, and the model is actually consulted.
+    """
+    now = datetime.now(UTC)
+    ledger = [
+        {"page_id": "<page_done>", "title": "Sort the mail", "kind": "task",
+         "event": "completed", "at": now.isoformat()},
+        {"page_id": "<page_new>", "title": "Book the placeholder appointment", "kind": "task",
+         "event": "added", "at": (now - timedelta(minutes=1)).isoformat()},
+        {"page_id": "<page_old>", "title": "Water the plants", "kind": "task",
+         "event": "suggested", "at": (now - timedelta(minutes=30)).isoformat()},
+    ]
+    model = _mock_llm_response(json.dumps({"user_message": "Start {task} by opening the site."}))
+    get_page = AsyncMock(return_value=_notion_task_page("<page_new>", "Book the placeholder appointment"))
+    with (
+        patch("app.models.llm", return_value=model),
+        patch("app.tools.notion.get_page", get_page),
+        capture_logs() as logs,
+    ):
+        from app.graph.nodes.need_help import need_help_node
+
+        result = await need_help_node(
+            _ledger_state(incoming="how do I start?", intent="NEED_HELP", recent_tasks=ledger)
+        )
+
+    model.ainvoke.assert_awaited_once()
+    system_prompt = str(model.ainvoke.await_args.args[0][0].content)
+    assert "CURRENT TASK: Book the placeholder appointment" in system_prompt
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] == "<page_new>"
+    assert draft["notion_page_title"] == "Book the placeholder appointment"
+    assert "get you a task first" not in draft["body"]
+    assert "need_help_node.ledger_task" in [entry["event"] for entry in logs]
+
+
+@pytest.mark.asyncio
+async def test_need_help_without_active_task_or_helpable_ledger_entry_redirects() -> None:
+    """A ledger holding only completed or untitled entries names nothing."""
+    ledger = [
+        {"page_id": "<page_done>", "title": "Sort the mail", "kind": "task",
+         "event": "completed", "at": datetime.now(UTC).isoformat()},
+        {"page_id": "<page_untitled>", "title": "", "kind": "reminder",
+         "event": "added", "at": datetime.now(UTC).isoformat()},
+    ]
+    llm = MagicMock()
+    with patch("app.models.llm", llm):
+        from app.graph.nodes.need_help import need_help_node
+
+        result = await need_help_node(
+            _ledger_state(incoming="how do I start?", intent="NEED_HELP", recent_tasks=ledger)
+        )
+
+    llm.assert_not_called()
+    assert result["pending_outbound"][0]["body"].startswith("Let's get you a task first")
+
+
+@pytest.mark.asyncio
+async def test_need_help_stale_ledger_entry_does_not_become_current_task() -> None:
+    """A ledger entry outside _LEDGER_HELP_FRESHNESS is skipped; node redirects."""
+    stale_at = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+    ledger = [
+        {"page_id": "<page_stale>", "title": "Water the plants", "kind": "task",
+         "event": "added", "at": stale_at},
+    ]
+    llm = MagicMock()
+    with patch("app.models.llm", llm):
+        from app.graph.nodes.need_help import need_help_node
+
+        result = await need_help_node(
+            _ledger_state(incoming="how do I start?", intent="NEED_HELP", recent_tasks=ledger)
+        )
+
+    llm.assert_not_called()
+    assert result["pending_outbound"][0]["body"].startswith("Let's get you a task first")
+
+
+@pytest.mark.asyncio
+async def test_need_help_ledger_task_includes_stored_inline_steps() -> None:
+    """Stored inline steps from Notion appear in the prompt, not 'No steps recorded yet.'"""
+    def _page_with_steps(page_id: str, title: str, steps: str) -> dict:
+        return {
+            "id": page_id,
+            "properties": {
+                "Title": {"title": [{"plain_text": title}]},
+                "Status": {"select": {"name": "Pending"}},
+                "Is Reminder": {"checkbox": False},
+                "Inline Steps": {"rich_text": [{"plain_text": steps}]},
+            },
+        }
+
+    now = datetime.now(UTC)
+    ledger = [
+        {"page_id": "<page_new>", "title": "Book the placeholder appointment", "kind": "task",
+         "event": "added", "at": (now - timedelta(minutes=5)).isoformat()},
+    ]
+    model = _mock_llm_response('{"user_message": "Step 1: do the thing."}')
+    get_page = AsyncMock(return_value=_page_with_steps(
+        "<page_new>", "Book the placeholder appointment", "Step 1. Call the office."
+    ))
+    with (
+        patch("app.models.llm", return_value=model),
+        patch("app.tools.notion.get_page", get_page),
+    ):
+        from app.graph.nodes.need_help import need_help_node
+
+        result = await need_help_node(
+            _ledger_state(incoming="help me start", intent="NEED_HELP", recent_tasks=ledger)
+        )
+
+    get_page.assert_awaited_once_with(page_id="<page_new>")
+    system_prompt = str(model.ainvoke.await_args.args[0][0].content)
+    assert "Step 1. Call the office." in system_prompt
+    assert "No steps recorded yet." not in system_prompt
+    assert "get you a task first" not in result["pending_outbound"][0]["body"]
+
+
+@pytest.mark.asyncio
+async def test_need_help_ledger_task_falls_back_when_notion_fetch_fails() -> None:
+    """A Notion failure fetching inline_steps leaves the node functional."""
+    now = datetime.now(UTC)
+    ledger = [
+        {"page_id": "<page_new>", "title": "Book the placeholder appointment", "kind": "task",
+         "event": "added", "at": (now - timedelta(minutes=5)).isoformat()},
+    ]
+    model = _mock_llm_response('{"user_message": "Step 1: do the thing."}')
+    with (
+        patch("app.models.llm", return_value=model),
+        patch("app.tools.notion.get_page", AsyncMock(side_effect=RuntimeError("Notion down"))),
+    ):
+        from app.graph.nodes.need_help import need_help_node
+
+        result = await need_help_node(
+            _ledger_state(incoming="help me start", intent="NEED_HELP", recent_tasks=ledger)
+        )
+
+    assert "get you a task first" not in result["pending_outbound"][0]["body"]

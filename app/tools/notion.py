@@ -181,6 +181,8 @@ async def create_task(
         props["Sequence"] = {"number": sequence}
     if due_at_iso is not None:
         props["Due At"] = {"date": {"start": due_at_iso}}
+    if status == "Completed":
+        props["Completed At"] = {"date": {"start": datetime.now(UTC).isoformat()}}
 
     payload = {
         "parent": {"database_id": _database_id()},

@@ -1,0 +1,15 @@
+---
+# "I need to <X> this week" adds a task. The time phrase is a deadline, not a
+# request for something to work on.
+id: classify-intent-add-task-this-week-001
+node: classify_intent
+tier: cheap
+peer: "<test-peer-classify-this-week>"
+inbound: "I need to renew the car registration this week"
+prior_state:
+  messages: []
+contracts:
+  - kind: regex_require
+    pattern: "ADD_TASK"
+  - kind: regex_forbid
+    pattern: "GET_TASK|COMPLETE"
