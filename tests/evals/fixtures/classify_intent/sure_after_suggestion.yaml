@@ -1,7 +1,7 @@
 ---
-# "sure" right after a suggestion accepts it. The suggested task is already
-# the user's (selection marked it In Progress when offering it), so this is
-# CHAT — chat confirms the task by name. GET_TASK would offer a second task.
+# "sure" right after a suggestion accepts it. Routing only: the classifier
+# returns CHAT. GET_TASK would offer a second task, and ADD_TASK would save the
+# suggested task again.
 id: classify-intent-sure-after-suggestion-001
 node: classify_intent
 tier: cheap

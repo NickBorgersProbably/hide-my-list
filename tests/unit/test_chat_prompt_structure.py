@@ -52,29 +52,15 @@ def test_recall_instruction_names_the_ordering() -> None:
     assert "A `rejected` entry was declined by the user" in flattened
 
 
-def _recall_section() -> str:
-    """The "### Which task?" section alone, flattened to single spaces."""
-    rendered = _render_chat_prompt()
-    start = rendered.index("### Which task?")
-    end = rendered.index("\n### ", start + 1)
-    return " ".join(rendered[start:end].split())
-
-
 def test_recall_rule_has_no_event_markers() -> None:
     """The rule keys on the newest rendered line, not on event words or
     markers the renderer may not emit, and makes no claim about acceptance.
-
-    Scoped to the recall section: acceptance has its own section
-    ("### Accepting a suggestion"), and the recall rule must not borrow it.
     """
-    recall = _recall_section()
-    assert "[nudged]" not in recall
-    assert "that reminder" not in recall
-    assert "accepts a suggestion" not in recall
-    assert "marked `suggested`" not in recall
-    # The prompt as a whole never resolves acceptance through a `suggested`
-    # ledger line; acceptance names the Current task only.
-    assert "marked `suggested`" not in " ".join(_render_chat_prompt().split())
+    flattened = " ".join(_render_chat_prompt().split())
+    assert "[nudged]" not in flattened
+    assert "that reminder" not in flattened
+    assert "accepts a suggestion" not in flattened
+    assert "marked `suggested`" not in flattened
 
 
 def test_recall_precedence_active_and_recent_both_present() -> None:

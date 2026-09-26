@@ -22,6 +22,7 @@ stop the others from running.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -208,6 +209,10 @@ class _TitleMatch:
     # True when an answer to a clarification matched a title on word overlap
     # alone and the model was not asked.
     deterministic: bool = False
+    # True when the model reports that a standalone message names a specific
+    # finished task that is none of the candidates. Such a message is about
+    # something else, so no context task may be completed on its behalf.
+    names_unlisted: bool = False
 
 
 @dataclass(frozen=True)
@@ -484,9 +489,18 @@ def _build_completion_match_prompt(
             "asking about, or is about to start is NOT a match — return no "
             "match for those even when the wording overlaps a candidate title. "
             "The cost of a false match is high: it marks a task the user has "
-            "not finished as completed. If uncertain, return no match."
+            "not finished as completed. If uncertain, return no match.\n\n"
+            "Also report names_unlisted_task. Set it to true only when the "
+            "message clearly reports finishing a specific, concrete task — an "
+            "action and the thing it was done to — that matches none of the "
+            "candidates. Set it to false for a bare \"done\", for chatter or "
+            "feelings with no task in them, and whenever the message could be "
+            "about one of the candidates."
         )
-        shape = '{"matched_page_id": "<candidate id or null>", "confidence": 0.0}'
+        shape = (
+            '{"matched_page_id": "<candidate id or null>", "confidence": 0.0, '
+            '"names_unlisted_task": false}'
+        )
     return (
         f"{instructions}\n\n"
         f"User message: {incoming!r}\n"
@@ -494,6 +508,23 @@ def _build_completion_match_prompt(
         "Return JSON only in this shape:\n"
         f"{shape}"
     )
+
+
+def _parse_names_unlisted(response_text: str) -> bool:
+    """Read `names_unlisted_task` from a match response; anything but JSON `true` is False.
+
+    Tolerant by design: an older response shape, unparseable output, or a
+    non-boolean value all read as "no claim", which leaves the node's other
+    rules in charge.
+    """
+    json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+    if not json_match:
+        return False
+    try:
+        loaded = json.loads(json_match.group())
+    except json.JSONDecodeError:
+        return False
+    return isinstance(loaded, dict) and loaded.get("names_unlisted_task") is True
 
 
 def _reoffer_candidates(
@@ -650,6 +681,8 @@ async def _resolve_title_match(
         if not candidates:
             return _TitleMatch(target=None, candidate_count=0, confidence=None)
 
+        names_unlisted = False
+
         def outcome(
             target: _CompletionTarget | None,
             confidence: float | None,
@@ -665,6 +698,7 @@ async def _resolve_title_match(
                 confidence=confidence,
                 candidates=tuple(candidates),
                 widened=widened,
+                names_unlisted=names_unlisted and target is None,
             )
 
         model = llm("cheap", caller="complete_title_match")
@@ -678,6 +712,11 @@ async def _resolve_title_match(
             HumanMessage(content="Return only the JSON object."),
         ])
         parsed = parse_match_response(str(response.content), candidates)
+        # Only the standalone framing asks for this field; an answer to a
+        # clarification is never read as naming something new.
+        names_unlisted = not answering_clarification and _parse_names_unlisted(
+            str(response.content)
+        )
         if parsed is None:
             return outcome(None, None)
 
@@ -990,6 +1029,60 @@ def _clarify_completion_target(
     }
 
 
+_UNLISTED_REPORT_WITH_OPTION = (
+    f"Nice one — I don't have that on your list. "
+    f"Want me to add it as done, or did you mean {TASK_TOKEN}?"
+)
+_UNLISTED_REPORT_NO_OPTION = "Nice one — I don't have that on your list. Want me to add it?"
+
+
+def _ask_about_unlisted_report(
+    peer: str,
+    *,
+    attempts: int,
+    options: Sequence[DedupCandidate],
+) -> dict[str, Any]:
+    """Answer a report of something that is on none of the candidates with a question.
+
+    The message names a finished task the list does not hold, so completing the
+    active or most recent task on its behalf would reward the wrong thing. The
+    copy celebrates first and never contrasts the report against the list; when
+    a conversation task is live it is offered by name, since the user may have
+    meant it after all.
+    """
+    named = [option for option in options if option.title][:_CLARIFICATION_OPTION_LIMIT]
+    stored: list[ClarificationCandidate] = [
+        {"page_id": option.page_id, "title": option.title} for option in named
+    ]
+    draft: OutboundDraft = {
+        "recipient": peer,
+        "body": _UNLISTED_REPORT_WITH_OPTION if named else _UNLISTED_REPORT_NO_OPTION,
+        "notion_page_id": None,
+    }
+    if named:
+        draft["notion_page_title"] = named[0].title
+    clarification: PendingClarification = {
+        "kind": "complete_target",
+        "asked_at": datetime.now(UTC).isoformat(),
+        "attempts": attempts + 1,
+        "candidates": stored,
+    }
+    # Counts and booleans only — the report and the titles are the user's words.
+    log.info(
+        "complete_node.unlisted_report",
+        has_peer=bool(peer),
+        named_option=bool(named),
+        option_count=len(stored),
+        attempts=attempts + 1,
+    )
+    return {
+        "pending_outbound": [draft],
+        "conversation_state": "idle",
+        "active_task": None,
+        "pending_clarification": clarification,
+    }
+
+
 async def _resolve_display_title(
     target: _CompletionTarget, recent_tasks: Sequence[object]
 ) -> str:
@@ -1106,6 +1199,27 @@ async def complete_node(state: State) -> dict[str, Any]:
             title_target=title_match.target,
             ledger_targets=ledger_targets,
         )
+
+        # The message names a finished task that is none of the candidates —
+        # scored or widened alike. It is about something else, so no context
+        # task may be completed on its behalf; ask instead. The live context
+        # task leads the options, since the user may have meant it after all.
+        if title_match.target is None and title_match.names_unlisted:
+            unlisted_options: list[DedupCandidate] = []
+            if (
+                target is not None
+                and target.source != "recent_outbound"
+                and target.task_title
+            ):
+                unlisted_options.append(
+                    DedupCandidate(page_id=target.page_id, title=target.task_title, score=0.0)
+                )
+            for option in clarify_candidates:
+                if all(option.page_id != seen.page_id for seen in unlisted_options):
+                    unlisted_options.append(option)
+            return _ask_about_unlisted_report(
+                peer, attempts=attempts, options=unlisted_options
+            )
 
         # When the message appeared to name a task (candidates the message
         # actually overlaps) but the model rejected all of them, the message

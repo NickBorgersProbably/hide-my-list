@@ -2,10 +2,9 @@
 
 1. "I also paid the gas bill!" is a report of something done. It classifies
    COMPLETE even though nothing on the list matches; production routed this
-   shape to ADD_TASK. Neither open task is touched. The reply may ask which
-   task was meant — its wording is not the contract here.
-2. "no it's new, just log it" answers that question by declining every
-   candidate. It classifies ADD_TASK, which drops the open clarification, and
+   shape to ADD_TASK. Neither open task is touched. The reply asks whether to
+   add it — its wording is not the contract here.
+2. "no it's new, just log it" answers that question. It classifies ADD_TASK, which drops the open clarification, and
    intake takes the task from the earlier message instead of asking again.
 
 The handoff is cross-turn: turn 2's intake reads turn 1's user message from the

@@ -1,0 +1,48 @@
+---
+# Complete scenario: the user reports finishing something that is on none of
+# the open tasks while a different task is active. The match model has to
+# return no match and report names_unlisted_task, and the node asks instead of
+# completing the active task on the report's behalf.
+# notion_tasks holds two decoys — the active task among them — so the model
+# sees real candidates and has to decide none of them is the report.
+id: complete-unlisted-report-001
+node: complete
+tier: cheap
+peer: "<test-peer-12>"
+inbound: "I also paid the gas bill!"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id-1>"
+    title: "Fold the laundry"
+    work_type: "Physical"
+    energy_required: "Low"
+    time_estimate: 20
+  streak: 1
+  tasks_completed_today: 0
+  conversation_state: active
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Fold the laundry"
+    status: "In Progress"
+    work_type: "Physical"
+    energy_required: "Low"
+    time_estimate: 20
+  - id: "<placeholder-page-id-2>"
+    title: "Book the dentist appointment"
+    status: "Pending"
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 10
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: regex_require
+    pattern: "(?i)don't have that on your list"
+  - kind: judge
+    rubric: |
+      The response does not claim any listed task was completed — it does not
+      say the laundry or the dentist appointment is done and does not
+      celebrate either as finished. It asks the user what to do with the
+      reported item. Score 1.0 when no listed task is claimed complete, 0.0
+      when the response marks or celebrates a listed task as done.
+    threshold: 0.7

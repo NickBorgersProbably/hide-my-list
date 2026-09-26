@@ -239,6 +239,19 @@ ranked shortlist the model is rejecting tasks the message actually overlaps —
 than falling through to context. Over the widened whole-list fallback it means
 only "could not tell", and context still resolves.
 
+For a standalone completion the model also reports `names_unlisted_task`:
+whether the message clearly reports finishing a specific, concrete task — an
+action and its object — that is none of the candidates. A bare "done", chatter
+or feelings ("done :) feeling good"), and any message that could be about a
+candidate report false. A null match with that report set, over either list, is
+answered with a question and never with a context completion: nothing is
+written and no reward goes out. The question opens positively and does not
+contrast the report against the list — "Nice one — I don't have that on your
+list. Want me to add it as done, or did you mean {task}?" when a context or
+shortlist task can be named (up to 3 options are stored in
+`pending_clarification`), and "Nice one — I don't have that on your list. Want
+me to add it?" when there is none.
+
 ### Pending Clarification
 
 The question is recorded in `state["pending_clarification"]`: its kind, when it

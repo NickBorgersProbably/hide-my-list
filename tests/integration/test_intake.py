@@ -1003,6 +1003,67 @@ async def test_already_done_hands_the_turn_to_complete_node() -> None:
 
 
 @pytest.mark.asyncio
+async def test_already_done_for_an_unlisted_task_completes_nothing() -> None:
+    """The handoff runs the real complete_node, and an unlisted report asks.
+
+    The title matches no open task and the match model says the message names
+    something unlisted, so the live active task must stay open: no Completed
+    write, no reward, and the reply is a question.
+    """
+    from datetime import UTC, datetime
+
+    from app.graph.nodes import complete as complete_module
+    from app.graph.nodes import intake as intake_module
+
+    intake_model = _model_returning('{"action": "already_done"}')
+    match_model = _model_returning(
+        '{"matched_page_id": null, "confidence": 0.0, "names_unlisted_task": true}'
+    )
+
+    def _llm(_tier: str, *, caller: str = "", **_kwargs: Any) -> AsyncMock:
+        return match_model if caller == "complete_title_match" else intake_model
+
+    update_status = AsyncMock()
+    reward = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
+    query_all = AsyncMock(return_value={"results": [
+        {
+            "id": "<page_A>",
+            "properties": {
+                "Title": {"title": [{"plain_text": "Fold the laundry"}]},
+                "Status": {"select": {"name": "In Progress"}},
+                "Is Reminder": {"checkbox": False},
+            },
+        }
+    ]})
+    state = _base_state(incoming="I also paid the placeholder bill!")
+    state["active_task"] = {  # type: ignore[typeddict-item]
+        "page_id": "<page_A>",
+        "title": "Fold the laundry",
+        "selected_at": datetime.now(UTC).isoformat(),
+        "work_type": "Physical",
+        "energy_required": "Low",
+    }
+
+    with (
+        patch("app.models.llm", side_effect=_llm),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.create_task", AsyncMock()) as create_task,
+        patch("app.tools.rewards.maybe_reward", reward),
+        patch.object(
+            complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
+        ),
+    ):
+        result = await intake_module.intake_node(state)
+
+    update_status.assert_not_awaited()
+    reward.assert_not_awaited()
+    create_task.assert_not_awaited()
+    assert "don't have that on your list" in result["pending_outbound"][0]["body"]
+    assert result["pending_clarification"] is not None
+
+
+@pytest.mark.asyncio
 async def test_deadline_confirmation_names_only_the_first_nudge() -> None:
     """Three scheduled slots add one sentence naming the earliest, nothing more.
 

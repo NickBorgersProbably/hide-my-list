@@ -26,6 +26,7 @@ from app.graph.nodes._task_match import (
     open_tasks,
 )
 from app.graph.nodes.complete import (
+    _ask_about_unlisted_report,
     _build_completion_match_prompt,
     _celebration_body,
     _choose_completion_target,
@@ -35,6 +36,7 @@ from app.graph.nodes.complete import (
     _deterministic_answer,
     _ledger_options,
     _ledger_targets,
+    _parse_names_unlisted,
     _target_from_ledger,
     _task_reference_tokens,
     _TitleMatch,
@@ -540,3 +542,88 @@ def test_open_tasks_includes_reminders_only_when_asked() -> None:
         ("<page_R>", "reminder"),
     ]
     assert [t["id"] for t in open_non_reminder_tasks(response)] == ["<page_A>"]
+
+
+# ---------------------------------------------------------------------------
+# A report of something on none of the candidates
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("response_text", "expected"),
+    [
+        ('{"matched_page_id": null, "confidence": 0.0, "names_unlisted_task": true}', True),
+        ('{"matched_page_id": null, "confidence": 0.0, "names_unlisted_task": false}', False),
+        # Absent: the older shape reads as no claim.
+        ('{"matched_page_id": null, "confidence": 0.0}', False),
+        # Only a JSON boolean counts; a string or number is not a claim.
+        ('{"matched_page_id": null, "names_unlisted_task": "true"}', False),
+        ('{"matched_page_id": null, "names_unlisted_task": 1}', False),
+        ("not json at all", False),
+        ('{"names_unlisted_task": true', False),
+        ('Sure! {"matched_page_id": null, "names_unlisted_task": true} hope that helps', True),
+    ],
+)
+def test_names_unlisted_parser_tolerates_every_shape(response_text: str, expected: bool) -> None:
+    assert _parse_names_unlisted(response_text) is expected
+
+
+def test_the_standalone_prompt_asks_for_the_unlisted_report() -> None:
+    candidates = [DedupCandidate("<page_A>", "Call mom", 0.9)]
+    standalone = _build_completion_match_prompt("I also paid the gas bill!", candidates)
+    answering = _build_completion_match_prompt(
+        "the mom one", candidates, answering_clarification=True
+    )
+    assert '"names_unlisted_task": false' in standalone
+    assert "matches none of the candidates" in standalone
+    # An answer to "which one?" never names something new.
+    assert "names_unlisted_task" not in answering
+
+
+def test_the_title_match_defaults_to_no_unlisted_report() -> None:
+    assert _TitleMatch(target=None, candidate_count=0, confidence=None).names_unlisted is False
+
+
+def test_an_unlisted_report_offers_the_context_task_by_token() -> None:
+    result = _ask_about_unlisted_report(
+        "<test-peer>",
+        attempts=0,
+        options=[
+            DedupCandidate("<page_A>", "Fold the laundry", 0.0),
+            DedupCandidate("<page_B>", "Book the dentist", 0.0),
+            DedupCandidate("<page_C>", "", 0.0),
+            DedupCandidate("<page_D>", "Water the plants", 0.0),
+            DedupCandidate("<page_E>", "Call the bank", 0.0),
+        ],
+    )
+    draft = result["pending_outbound"][0]
+    assert draft["body"] == (
+        "Nice one — I don't have that on your list. "
+        "Want me to add it as done, or did you mean {task}?"
+    )
+    assert draft["notion_page_title"] == "Fold the laundry"
+    assert draft["notion_page_id"] is None
+    assert result["active_task"] is None
+    clarification = result["pending_clarification"]
+    assert clarification["kind"] == "complete_target"
+    assert clarification["attempts"] == 1
+    assert [c["page_id"] for c in clarification["candidates"]] == [
+        "<page_A>", "<page_B>", "<page_D>",
+    ]
+
+
+def test_an_unlisted_report_with_nothing_to_name_asks_to_add_it() -> None:
+    result = _ask_about_unlisted_report("<test-peer>", attempts=0, options=[])
+    draft = result["pending_outbound"][0]
+    assert draft["body"] == "Nice one — I don't have that on your list. Want me to add it?"
+    assert "notion_page_title" not in draft
+    assert result["pending_clarification"]["candidates"] == []
+
+
+def test_the_unlisted_copy_never_contrasts_against_the_list() -> None:
+    for options in ([], [DedupCandidate("<page_A>", "Fold the laundry", 0.0)]):
+        body = _ask_about_unlisted_report("<p>", attempts=0, options=options)[
+            "pending_outbound"
+        ][0]["body"].lower()
+        for phrase in ("but ", "only ", "instead", "not done", "wrong", "didn't"):
+            assert phrase not in body

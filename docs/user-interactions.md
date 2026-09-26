@@ -84,7 +84,7 @@ sequenceDiagram
 
     U->>AI: "I also paid the gas bill!"
     Note over AI: COMPLETE — no open task matches
-    AI->>U: "Nice! Which task was that — or is it a new one?"
+    AI->>U: "Nice one — I don't have that on your list. Want me to add it?"
     U->>AI: "no it's new, just log it"
     Note over AI: ADD_TASK — title taken from the earlier message
     AI->>N: Create task
@@ -159,12 +159,10 @@ sequenceDiagram
 
     AI->>U: "How about organizing your receipts from last week? It's low-energy admin work and should take about 15 minutes."
 
-    AI->>N: Update status → in_progress (at offer time)
-
     alt User accepts
         U->>AI: "Sure"
-        Note over AI: CHAT — the suggested task is the current task
-        AI->>U: "Great — Organize receipts is yours. Let me know when you're done!"
+        AI->>N: Update status → in_progress
+        AI->>U: "Great, it's yours. Let me know when you're done!"
     else User rejects
         U->>AI: "Not that one"
         Note over AI: Start rejection flow
@@ -239,6 +237,17 @@ flowchart LR
    quote the title they filed it under, and a shared-word count cannot tell the
    difference between "unrelated" and "phrased differently". Only the model can,
    so the model is the one asked.
+
+   The model also says whether the message names a specific finished task that
+   is on none of the candidates — "I also paid the gas bill!" when no open task
+   is about the gas bill. That report is answered with a question, never with
+   a context completion: the active or most recent task stays open and no
+   reward goes out. The question celebrates first and does not contrast the
+   report against the list — "Nice one — I don't have that on your list. Want
+   me to add it as done, or did you mean {task}?", naming the conversation's
+   current task when there is one, or "Nice one — I don't have that on your
+   list. Want me to add it?" when there is none. A bare "done" or a feeling
+   ("done :) feeling good") names no task and still resolves from context.
 2. **The most recent context** — whichever is newest among the tasks this
    conversation just touched (the recent-task ledger: tasks added, suggested,
    reminded, or nudged in the last day), the unresolved reminder the agent
@@ -1060,7 +1069,7 @@ sequenceDiagram
     U->>AI: I've got 20 minutes before a meeting
     AI->>U: Perfect - how about sending that team email? It's short and urgent.
     U->>AI: Yeah let's do it
-    AI->>U: Great — Email the team about the offsite is yours. Let me know when you're done!
+    AI->>U: Great, it's yours. Let me know when you're done!
 
     Note over U,AI: 12 minutes later
 
