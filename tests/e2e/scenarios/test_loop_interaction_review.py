@@ -8,8 +8,8 @@ re-reads the whole exchange, sees exactly one open reminder that fits, completes
 it, and sends one follow-up naming it.
 
 9b is the yielding half: when the user answers before the review starts, the
-review of that turn is cancelled, and the review of the next turn ("never
-mind") leaves the reminder alone.
+review of that turn is cancelled, and the review of the next turn (the user
+putting it off) leaves the reminder alone.
 
 Both run through `SignalListener` with the review turned on
 (`conversation_with_review`) and settle it with `Conversation.settle_review()`,
@@ -80,7 +80,7 @@ async def test_review_completes_the_reminder_the_turn_could_not_place(
             for r in corrections] == [("complete_task", page, True, True)]
 
 
-async def test_answering_first_cancels_the_review_and_never_mind_is_left_alone(
+async def test_answering_first_cancels_the_review_and_a_deferral_is_left_alone(
     conversation_with_review: Conversation,
 ) -> None:
     conversation = conversation_with_review
@@ -97,7 +97,7 @@ async def test_answering_first_cancels_the_review_and_never_mind_is_left_alone(
     )
     # Sent inside the review delay: the "Done!" turn's review yields to it.
     deferred = await conversation.say(
-        "never mind, I'll check later",
+        "hold on, let me check which one first",
         expect=Expect(notion_untouched=[page], sent_count=1),
     )
     skipped = [

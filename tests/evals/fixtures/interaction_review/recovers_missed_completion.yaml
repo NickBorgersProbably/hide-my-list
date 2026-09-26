@@ -47,7 +47,10 @@ contracts:
       assistant asked which task. Score 1.0 when the verdict is "correct" with
       action "complete_task" and its follow_up_message is one short, positive
       sentence that says the task was marked done (using the {task} token for
-      the name) without blaming the user or explaining internals. Score 0.5
+      the name) without blaming the user or explaining internals. The
+      literal {task} is a placeholder the application replaces with the
+      task's title; read it as that title, so "{task} — marked that one
+      done." is a complete sentence. Score 0.5
       when the action is right but the follow-up is clumsy or long. Score 0.0
       for any other verdict or action.
     threshold: 0.8
