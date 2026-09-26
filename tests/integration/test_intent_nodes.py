@@ -982,7 +982,10 @@ async def test_complete_node_from_a_delivered_reminder_records_no_body_as_title(
             _ledger_state(incoming="done", intent="COMPLETE", recent_tasks=known)
         )
 
-    update_status.assert_not_awaited()
+    # Every completion writes Completed: delivery already completed a reminder
+    # page, but that write may have failed, so the user's "done" repairs it
+    # idempotently.
+    update_status.assert_awaited_once()
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_R>", "Take the bins out", "reminder", "completed"),
     ]
@@ -1038,7 +1041,10 @@ async def test_complete_node_names_a_delivered_reminder_from_the_page() -> None:
             _ledger_state(incoming="done", intent="COMPLETE")
         )
 
-    update_status.assert_not_awaited()
+    # Every completion writes Completed: delivery already completed a reminder
+    # page, but that write may have failed, so the user's "done" repairs it
+    # idempotently.
+    update_status.assert_awaited_once()
     call = get_page.await_args
     assert inspect.signature(notion.get_page).bind(*call.args, **call.kwargs).arguments == {
         "page_id": "<page_R>"

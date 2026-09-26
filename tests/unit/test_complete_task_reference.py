@@ -207,9 +207,9 @@ def test_no_title_match_leaves_existing_precedence_untouched() -> None:
         ("title_match", "reminder", None, None, True),
         ("recent_tasks", "reminder", "added", None, True),
         # Only a delivered reminder is exempt: delivery completed its page.
-        ("recent_outbound", None, "reminded", "reminder", False),
-        ("recent_outbound", None, None, None, False),
-        ("recent_tasks", "reminder", "reminded", None, False),
+        ("recent_outbound", None, "reminded", "reminder", True),
+        ("recent_outbound", None, None, None, True),
+        ("recent_tasks", "reminder", "reminded", None, True),
     ],
 )
 def test_needs_notion_write_is_derived_from_the_source(
@@ -219,12 +219,12 @@ def test_needs_notion_write_is_derived_from_the_source(
     reminder_type: str | None,
     expected: bool,
 ) -> None:
-    """Only a delivered reminder page skips the write; everything else writes.
+    """Every completion writes Status to Completed, whatever resolved the target.
 
-    The delivery worker completes a reminder page when it sends it. A reminder
-    the user finishes before it fires, and any task a deadline nudge points at,
-    are still open and must be written — otherwise the user is congratulated
-    and the task stays on the list.
+    Delivery writes Completed when it marks a reminder sent, but that write can
+    fail and leave the page Pending; the user's later "done" repairs it, and
+    writing Completed to an already-Completed page is a no-op. Deriving the
+    flag keeps a caller from constructing a target that skips the write.
     """
     target = _CompletionTarget(
         source=source,  # type: ignore[arg-type]
@@ -383,7 +383,7 @@ def test_the_same_page_from_two_sources_is_one_candidate() -> None:
     chosen = _ledger_choice(ledger, recent=recent)
     assert chosen is not None
     assert chosen.source == "recent_outbound"
-    assert chosen.needs_notion_write is False
+    assert chosen.needs_notion_write is True
 
 
 def test_an_active_task_and_its_suggested_entry_are_one_candidate() -> None:

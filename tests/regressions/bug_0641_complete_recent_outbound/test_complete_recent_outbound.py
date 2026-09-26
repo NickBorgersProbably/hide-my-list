@@ -105,7 +105,10 @@ async def test_complete_prefers_unresolved_recent_outbound_over_stale_active_tas
     ):
         result = await complete_module.complete_node(_state(stale_active_task))  # type: ignore[arg-type]
 
-    update_status.assert_not_awaited()
+    # Every completion writes Completed: delivery already completed a reminder
+    # page, but that write may have failed, so the user's "done" repairs it
+    # idempotently.
+    update_status.assert_awaited_once()
     reward_mock.assert_awaited_once()
     reward_kwargs = reward_mock.await_args.kwargs
     _assert_reward_kwargs_shape(reward_kwargs)
@@ -181,7 +184,10 @@ async def test_complete_reads_and_clears_recent_outbound_row(db_conn: Any) -> No
             }  # type: ignore[arg-type]
         )
 
-    update_status.assert_not_awaited()
+    # Every completion writes Completed: delivery already completed a reminder
+    # page, but that write may have failed, so the user's "done" repairs it
+    # idempotently.
+    update_status.assert_awaited_once()
     reward_mock.assert_awaited_once()
     assert reward_mock.await_args.kwargs["notion_page_id"] == reminder_page_id
 
