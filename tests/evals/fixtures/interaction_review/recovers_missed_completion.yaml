@@ -1,0 +1,53 @@
+---
+# Interaction review: a reminder was added a minute ago, the user said
+# "Done!", and the turn could not place it (the ledger was empty) so it asked
+# which task. Exactly one open reminder matches. The review corrects: complete
+# that reminder (the application sends the fixed follow-up naming it).
+id: interaction-review-recovers-completion-001
+node: interaction_review
+tier: medium
+peer: "<test-peer-30>"
+inbound: "Done!"
+prior_state:
+  intent: COMPLETE
+  messages:
+    - role: user
+      content: "remind me to renew my library card tomorrow at 9am"
+    - role: assistant
+      content: "Got it — I'll remind you about Renew my library card tomorrow at 9am."
+    - role: user
+      content: "Done!"
+    - role: assistant
+      content: "I can mark that done. Which task did you mean?"
+  recent_tasks: []
+  turn_actions:
+    - action: clarify
+      page_id: ""
+      status: ""
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Renew my library card"
+    status: "Pending"
+    is_reminder: true
+contracts:
+  - kind: json_schema
+    schema_ref: interaction_review_verdict
+  - kind: regex_require
+    pattern: "\"verdict\":\\s*\"correct\""
+  - kind: regex_require
+    pattern: "\"action\":\\s*\"complete_task\""
+  - kind: regex_require
+    pattern: "\"page_id\":\\s*\"<placeholder-page-id-1>\""
+  - kind: judge
+    rubric: |
+      The response is a JSON verdict about a conversation where the user added
+      a reminder to renew a library card and then said "Done!", and the
+      assistant asked which task. The application, not the model, sends the
+      follow-up, so the verdict carries only verdict, reason, action, and
+      page_id. Score 1.0 when the verdict is "correct" with action
+      "complete_task" on the library-card reminder and the reason is one
+      sentence explaining that the user reported finishing the only matching
+      open task. Score 0.5 when the action and page are right but the reason
+      is missing, rambling, or wrong. Score 0.0 for any other verdict or
+      action.
+    threshold: 0.8

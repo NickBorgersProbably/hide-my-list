@@ -77,6 +77,10 @@ def compose_stack() -> object:
         "SIGNAL_RECEIVE_IDLE_TIMEOUT_SECONDS": "300",
         "SIGNAL_INGRESS_SILENCE_CHECK_INTERVAL_MINUTES": "60",
         "SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS": "129600",
+        "INTERACTION_REVIEW_ENABLED": "false",
+        "INTERACTION_REVIEW_DELAY_SECONDS": "5",
+        "INTERACTION_REVIEW_MAX_PER_HOUR": "2",
+        "INTERACTION_REVIEW_ALERT_THRESHOLD": "7",
     }
 
     # Bring up postgres + signal-cli + app
@@ -208,6 +212,10 @@ def test_app_receives_llm_proxy_env(compose_stack: object) -> None:
     assert "SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS=129600" in env_lines
     assert "LLM_REQUEST_TIMEOUT_SECONDS=90" in env_lines
     assert "LLM_MAX_RETRIES=0" in env_lines
+    assert "INTERACTION_REVIEW_ENABLED=false" in env_lines
+    assert "INTERACTION_REVIEW_DELAY_SECONDS=5" in env_lines
+    assert "INTERACTION_REVIEW_MAX_PER_HOUR=2" in env_lines
+    assert "INTERACTION_REVIEW_ALERT_THRESHOLD=7" in env_lines
 
 
 def test_app_boots_runtime(compose_stack: object) -> None:

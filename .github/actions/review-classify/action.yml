@@ -44,7 +44,7 @@ description: >
   and reviewer-prompt .md files must NOT be classified as inert docs
   or config just because they end in .md. The classifier carves out
   AGENTS.md, design/adhd-priorities.md,
-  docs/ai-prompts/{shared,intake,selection,rejection,cannot-finish,check-in,breakdown}.md,
+  docs/ai-prompts/{shared,intake,selection,rejection,cannot-finish,check-in,breakdown,interaction-review}.md,
   docs/task-lifecycle.md, docs/notion-schema.md, docs/architecture.md,
   docs/user-interactions.md, docs/user-preferences.md, docs/reward-system.md,
   and .github/scripts/review/prompts/*.md.
@@ -123,7 +123,7 @@ runs:
           case "$1" in
             AGENTS.md) return 0 ;;
             design/adhd-priorities.md) return 0 ;;
-            docs/ai-prompts/intake.md|docs/ai-prompts/selection.md|docs/ai-prompts/rejection.md|docs/ai-prompts/cannot-finish.md|docs/ai-prompts/check-in.md|docs/ai-prompts/breakdown.md|docs/ai-prompts/shared.md|docs/task-lifecycle.md|docs/notion-schema.md|docs/architecture.md|docs/user-interactions.md|docs/user-preferences.md|docs/reward-system.md) return 0 ;;
+            docs/ai-prompts/intake.md|docs/ai-prompts/selection.md|docs/ai-prompts/rejection.md|docs/ai-prompts/cannot-finish.md|docs/ai-prompts/check-in.md|docs/ai-prompts/breakdown.md|docs/ai-prompts/shared.md|docs/ai-prompts/interaction-review.md|docs/task-lifecycle.md|docs/notion-schema.md|docs/architecture.md|docs/user-interactions.md|docs/user-preferences.md|docs/reward-system.md) return 0 ;;
             *) return 1 ;;
           esac
         }

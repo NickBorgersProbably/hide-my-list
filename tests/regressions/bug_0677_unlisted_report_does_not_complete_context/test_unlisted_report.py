@@ -265,6 +265,8 @@ async def test_a_titled_report_with_no_context_offers_to_log_it() -> None:
     assert clarification["kind"] == "unlisted_report"
     assert clarification["candidates"] == []
     assert clarification["title"] == "Pay the gas bill"
+    # The question is recorded for the post-send interaction review.
+    assert [a["action"] for a in result["turn_actions"]] == ["clarify"]
 
 
 @pytest.mark.asyncio

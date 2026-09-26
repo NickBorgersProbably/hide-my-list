@@ -177,6 +177,20 @@ Intake carries a backstop for a past-tense report the classifier sent its
 way: it returns `action: "already_done"`, saves nothing, and hands the turn to
 the completion module (see `docs/ai-prompts/intake.md`, ALREADY DONE REPORTS).
 
+### Post-Send Interaction Review
+
+Intent dispatch answers each turn once, fast. After the reply is delivered, a
+separate review re-reads the whole turn — the message, the delivered reply,
+the conversation history, the recent-task ledger, and what the intent node
+recorded in `turn_actions` — and may run one corrective action (complete a
+task or name one; it never creates, reopens, or schedules) and send one fixed
+follow-up that names the task through `{task}`. It never runs inside the graph
+and never delays a reply. It yields to a newer message from the peer: before
+it acts it is skipped or cancelled; once it acts, the peer's next turn waits
+for it for a bounded time and then cancels it. Its lifecycle, inputs, verdict
+schema, correction policy, and shame rules are in
+`docs/ai-prompts/interaction-review.md`.
+
 ### Cross-Session Reply Resolution
 
 Intent classification uses the checkpointed conversation window in

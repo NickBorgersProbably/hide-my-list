@@ -1275,6 +1275,11 @@ async def test_logging_a_finished_item_creates_it_completed_and_celebrates() -> 
     assert result["conversation_state"] == "idle"
     assert result["pending_clarification"] is None
     assert [(e["page_id"], e["event"]) for e in result["recent_tasks"]] == [(page_id, "completed")]
+    # Created already Completed: the post-send review reads it as finished this turn.
+    assert [(a["action"], a["page_id"], a["status"]) for a in result["turn_actions"]] == [
+        ("notion.create_task", page_id, "Completed"),
+        ("reward", page_id, ""),
+    ]
 
     logged = [e for e in logs if e["event"] == "intake_node.logged_finished"]
     assert len(logged) == 1
@@ -1341,6 +1346,10 @@ async def test_logging_a_finished_item_that_matches_an_open_task_completes_that_
     assert draft["body"].startswith("{task} — done.")
     assert "attachment_path" not in draft
     assert result["recent_tasks"][-1]["event"] == "completed"
+    assert [(a["action"], a["page_id"], a["status"]) for a in result["turn_actions"]] == [
+        ("notion.update_status", matched_page_id, "Completed"),
+        ("reward", matched_page_id, ""),
+    ]
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,7 @@ _PARITY_MAP: dict[str, str] = {
     "cannot-finish.md": "cannot_finish.md.j2",
     "check-in.md": "check_in.md.j2",
     "breakdown.md": "need_help.md.j2",
+    "interaction-review.md": "interaction_review.md.j2",
 }
 
 # Some source headings are mermaid-diagram labels or sub-headings that are
@@ -98,6 +99,12 @@ def _render_template_with_empty_context(template_name: str) -> str:
         "active_task_title": "None",
         "conversation_state": "idle",
         "awaiting_clarification": "no",
+        "intent": "COMPLETE",
+        "reply": "placeholder reply",
+        "history": "user: placeholder prior turn",
+        "turn_actions": "Nothing was written or offered.",
+        "open_tasks_json": "[]",
+        "completed_json": "[]",
     }
     return render(template_name, context)
 

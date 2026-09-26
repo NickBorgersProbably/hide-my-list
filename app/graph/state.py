@@ -123,6 +123,32 @@ class RecentTaskEntry(TypedDict):
     at: str
 
 
+TurnActionKind = Literal[
+    "notion.create_task",
+    "notion.create_reminder",
+    "notion.update_status",
+    "notion.update_property",
+    "reminder.cancel",
+    "suggest",
+    "reward",
+    "clarify",
+]
+
+
+class TurnAction(TypedDict):
+    """One thing an intent node did during the current turn.
+
+    The post-send interaction review (`app/graph/interaction_review.py`) reads
+    these to judge the turn against what actually happened, not against what
+    the reply claims. `page_id` is "" when the action touched no page.
+    `status` is the new Notion status for `notion.update_status`, "Completed"
+    for a `notion.create_task` that logs finished work, and "" otherwise. Ids and enum values only — never a title or text.
+    """
+    action: TurnActionKind
+    page_id: str
+    status: str
+
+
 class UserPrefs(TypedDict, total=False):
     """User personalization preferences, ported from state.json.user_preferences."""
     timezone: str
@@ -160,6 +186,12 @@ class State(TypedDict):
     # Writers return the full new list (plain replace, no reducer); the
     # helpers in app/graph/context.py own dedupe, prune, and cap.
     recent_tasks: NotRequired[list[RecentTaskEntry]]
+
+    # What this turn's intent node did, in order. `hydrate_context` resets it
+    # to [] at the start of every turn; writers append through
+    # `record_turn_action` in app/graph/context.py. Absent on checkpoints
+    # written before the key existed, so readers use .get().
+    turn_actions: NotRequired[list[TurnAction]]
 
     # Typing for extra keys accepted by LangGraph but not declared above
     __pydantic_extra__: Any

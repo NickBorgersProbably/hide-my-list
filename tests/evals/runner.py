@@ -456,6 +456,38 @@ def _invoke_node(node: str, fixture: Fixture) -> tuple[str, str | None]:
         # which is correct: the model was consulted and answered off-vocabulary.
         return motif, None
 
+    if node == "interaction_review":
+        # The post-send review lives in app/graph/interaction_review.py, not
+        # under app/graph/nodes/, and returns a JSON verdict rather than a
+        # draft. `judge_turn` is the pure prompt + model call whose text
+        # production parses; the scored response is that verdict after
+        # `parse_verdict`'s validation, re-serialized, so a fixture fails on
+        # output production would discard. An invalid verdict comes back
+        # prefixed `INVALID_VERDICT:` and fails every json_schema contract.
+        # prior_state carries the finished turn: `intent`, `messages` (ending
+        # with the delivered reply), `recent_tasks`, and `turn_actions`.
+        from app.graph.interaction_review import (  # noqa: PLC0415
+            inputs_from_state,
+            judge_turn,
+            parse_verdict,
+        )
+        from app.graph.nodes._task_match import open_tasks  # noqa: PLC0415
+
+        open_list = open_tasks(
+            {"results": [_as_notion_page(task) for task in fixture.notion_tasks]},
+            include_reminders=True,
+        )
+        inputs = inputs_from_state(state, open_list, now=datetime.now(UTC))
+        raw = asyncio.run(judge_turn(inputs))
+        verdict = parse_verdict(
+            raw,
+            open_page_ids={task["id"] for task in inputs.open_tasks},
+            completed_this_turn={task["id"] for task in inputs.completed_this_turn},
+        )
+        if verdict is None:
+            return f"INVALID_VERDICT: {raw}", None
+        return json.dumps(dataclasses.asdict(verdict), ensure_ascii=False), None
+
     module_path = f"app.graph.nodes.{node}"
     import importlib  # noqa: PLC0415
 

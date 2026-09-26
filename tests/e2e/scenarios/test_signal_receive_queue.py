@@ -123,6 +123,7 @@ async def test_stacked_messages_are_read_and_coalesced_behind_slow_graph(
                 graph=observed,
                 authorized_peers=frozenset({peer}),
                 message_debounce_seconds=0.05,
+                interaction_review_enabled=False,
             )
             runner = asyncio.create_task(listener.run())
             try:

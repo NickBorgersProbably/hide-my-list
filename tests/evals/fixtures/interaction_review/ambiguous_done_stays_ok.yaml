@@ -1,0 +1,47 @@
+---
+# Interaction review: the user said "done" and two tasks added moments apart
+# are equally plausible. The turn asked which one — the right move. The review
+# must not guess: verdict ok, action none, and no completion.
+id: interaction-review-ambiguous-ok-001
+node: interaction_review
+tier: medium
+peer: "<test-peer-33>"
+inbound: "done"
+prior_state:
+  intent: COMPLETE
+  messages:
+    - role: user
+      content: "add take the recycling out and drop off the return package"
+    - role: assistant
+      content: "Added both to your list."
+    - role: user
+      content: "done"
+    - role: assistant
+      content: "Nice — which task was it: Take the recycling out or Drop off the return package?"
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Take the recycling out"
+      kind: task
+      event: added
+    - page_id: "<placeholder-page-id-2>"
+      title: "Drop off the return package"
+      kind: task
+      event: added
+  turn_actions:
+    - action: clarify
+      page_id: ""
+      status: ""
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Take the recycling out"
+    status: "Pending"
+  - id: "<placeholder-page-id-2>"
+    title: "Drop off the return package"
+    status: "Pending"
+contracts:
+  - kind: json_schema
+    schema_ref: interaction_review_verdict
+  - kind: regex_require
+    pattern: "\"verdict\":\\s*\"ok\""
+  - kind: regex_forbid
+    pattern: "complete_task"

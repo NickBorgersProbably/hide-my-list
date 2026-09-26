@@ -81,6 +81,56 @@ The app container runs four concurrent async tasks:
    isolation. Typing stop is scheduled after graph completion or graph error;
    queue overflow sends one visible reply to the authorized sender.
 
+   After each turn the listener schedules the **post-send interaction review**
+   (`app/graph/interaction_review.py`, spec in
+   `docs/ai-prompts/interaction-review.md`) as a per-peer background task.
+   Three seconds after the reply (`INTERACTION_REVIEW_DELAY_SECONDS`) the
+   medium model re-reads the turn — history, recent-task ledger, the turn's
+   recorded `turn_actions`, the open Notion tasks — and returns a strict JSON
+   verdict. A valid `correct` verdict claims the job row (`executing`, with
+   its action and page) and runs one action — `complete_task` or `send_only`;
+   the review never creates, reopens, or schedules anything — storing each
+   effect as it lands. It then re-reads the thread's latest checkpoint id;
+   when it no longer equals the reviewed turn's (`turn_ref`), no follow-up is
+   sent and nothing is written to the checkpoint — the row ends
+   `error(stale_checkpoint)`. When the checkpoint is still current it sends
+   the action's fixed follow-up template (the model writes no user-facing
+   text), naming the task through `render_task_token`, and writes the
+   checkpoint as the `send` node (follow-up in `messages`, ledger event,
+   `pending_clarification` cleared).
+
+   Each review is a durable job in the `interaction_reviews` table. The
+   review task's first step, before the delay, stores a `pending` row keyed
+   by peer and `turn_ref`; the claim moves it to `executing` before the first
+   Notion write, reward, or send; every exit path finalizes it as `ok`,
+   `correct`, `skipped`, or `error`, and a finalize on a row that is already
+   final changes nothing. The review yields to the conversation:
+
+   - It is skipped (`buffer_non_empty`) when the peer already has a message
+     waiting.
+   - When the worker picks up the peer's next message, a review that has not
+     started writing is cancelled (`cancelled`).
+   - A review that has started writing is awaited by that next turn for at
+     most 60 seconds (`_REVIEW_EXECUTION_WAIT_SECONDS`); past that bound the
+     listener cancels it (`timeout`, recording any Notion write that already
+     ran) and only then runs the turn. No review writes after the next turn
+     starts.
+   - Shutdown cancels running reviews (`cancelled`).
+
+   The cancelling side finalizes the row as well, so a cancel that lands
+   before the review's own handler runs still closes it. On startup, before
+   consuming the WebSocket, the listener reads the unfinished rows of
+   authorized peers. An `executing` row is finalized `error(interrupted)`
+   with its recorded action and page and never replayed, so no Notion write,
+   reward, or follow-up repeats. A `pending` row younger than one hour whose
+   `turn_ref` is still the peer's latest checkpoint is reviewed again from
+   that checkpoint's state; the other pending rows are finalized `skipped`
+   (`superseded`, or `disabled` when the review is off). Executed corrections are capped per peer per hour
+   (`INTERACTION_REVIEW_MAX_PER_HOUR`); more than
+   `INTERACTION_REVIEW_ALERT_THRESHOLD` in 24 hours raises an
+   `interaction_review_excess` ops alert. `INTERACTION_REVIEW_ENABLED=false`
+   turns it off.
+
 2. **LangGraph graph** (`app/graph/graph.py`) — Every turn enters at
    `hydrate_context`, which merges the peer's recent reminder deliveries
    (`recent_outbound`, last 7 days) into the checkpointed recent-task ledger,
@@ -194,6 +244,10 @@ up on its own clock and can classify the failure, rather than waiting out a
 | `LLM_PROXY_API_KEY` | LiteLLM proxy bearer token for the primary LLM |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | Per-LLM-request timeout (default `120`) |
 | `LLM_MAX_RETRIES` | Retries per LLM request (default `1`) |
+| `INTERACTION_REVIEW_ENABLED` | Post-send interaction review on/off (default `true`) |
+| `INTERACTION_REVIEW_DELAY_SECONDS` | Wait after a reply before its review starts (default `3`) |
+| `INTERACTION_REVIEW_MAX_PER_HOUR` | Executed review corrections per peer per hour (default `3`) |
+| `INTERACTION_REVIEW_ALERT_THRESHOLD` | Executed review corrections in 24 h above which an ops alert fires (default `5`) |
 | `OPENAI_API_KEY` | Reward image generation |
 | `DATABASE_URL` | Postgres connection string |
 | `SIGNAL_CLI_URL` | signal-cli REST API base URL |

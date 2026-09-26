@@ -85,6 +85,19 @@ Two rules that are easy to get wrong:
 The invariants in `tests/support/invariants.py` run after every turn
 automatically. A scenario only needs to state what is specific to itself.
 
+### Post-send interaction review
+
+Every fixture except `conversation_with_review` runs the listener with the
+interaction review off, so a scenario's `sent_count` counts only the turn's
+own replies. With `conversation_with_review`, call
+`conversation.settle_review(expect=Expect(...))` after a turn: it waits for
+that turn's background review, captures any follow-up it sent, and runs the
+per-turn invariants and the `expect` against it (leave `intent` unset).
+`conversation.review_rows()` reads the peer's `interaction_reviews` rows
+(`verdict` is the job state, `reason` the skip or error code); after a settle
+no row is left `pending`. See
+`tests/e2e/scenarios/test_loop_interaction_review.py`.
+
 ### Stacked messages
 
 `SignalListener` coalesces into one graph turn (`\n`-joined) same-peer messages

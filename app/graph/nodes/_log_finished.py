@@ -15,7 +15,7 @@ from typing import Any
 
 import structlog
 
-from app.graph.context import record_task_event
+from app.graph.context import record_task_event, record_turn_action
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -57,6 +57,12 @@ async def log_finished(
         page_id = dedup_match.page_id
         display_title = dedup_match.title
         await notion.update_status(page_id=page_id, new_status="Completed")
+        turn_actions = record_turn_action(
+            state.get("turn_actions"),
+            action="notion.update_status",
+            page_id=page_id,
+            status="Completed",
+        )
         try:
             from app.tools import reminders
             await reminders.resolve_recent_outbound(
@@ -81,6 +87,13 @@ async def log_finished(
         )
         page_id = str((notion_page or {}).get("id") or "")
         display_title = title
+        # Created already Completed: the status marks it as finished this turn.
+        turn_actions = record_turn_action(
+            state.get("turn_actions"),
+            action="notion.create_task",
+            page_id=page_id,
+            status="Completed",
+        )
 
     streak = state.get("streak", 0) + 1
     tasks_today = state.get("tasks_completed_today", 0) + 1
@@ -92,6 +105,7 @@ async def log_finished(
         work_type=work_type,
         energy_required=energy_required,
     )
+    turn_actions = record_turn_action(turn_actions, action="reward", page_id=page_id)
 
     draft: OutboundDraft = {
         "recipient": peer,
@@ -129,6 +143,7 @@ async def log_finished(
         "conversation_state": "idle",
         "pending_clarification": None,
         "recent_tasks": recent_tasks,
+        "turn_actions": turn_actions,
     }
     active_task = state.get("active_task") or {}
     if page_id and active_task.get("page_id") == page_id:

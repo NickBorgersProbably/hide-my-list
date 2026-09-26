@@ -337,6 +337,13 @@ every other scenario gets one graph call per `say()`; only the
 `conversation_debounced` fixture (`tests/e2e/conftest.py`, 2s debounce)
 exercises coalescing.
 
+**The post-send review is settled explicitly.** The interaction review runs in
+the listener's background after the reply, so a scenario that tests it uses the
+`conversation_with_review` fixture and calls `Conversation.settle_review()`,
+which awaits `SignalListener.wait_for_review(peer)` and checks any follow-up
+against the same invariants as a turn. Every other fixture turns the review
+off. `interaction_review.error` counts as an I1 fallback event.
+
 **The clock is never faked.** `complete_node` reads `datetime.now(UTC)` while
 Postgres reads `now()`; faking one invents a skew that exists in no deployment.
 Staleness is produced by writing backdated values — `age_active_task` through
@@ -347,7 +354,7 @@ regression trips as soon as any scenario walks past it:
 
 | # | Invariant | What it catches |
 |---|---|---|
-| I1 | No `<node>_node.error`, `classify_intent.error`, `signal_listener.graph_error`, or `*_failed` event | A node taking its exception fallback. The fallback is shame-safe and reads fine, which is what makes this invisible without the check |
+| I1 | No `<node>_node.error`, `classify_intent.error`, `signal_listener.graph_error`, `interaction_review.error`, or `*_failed` event | A node taking its exception fallback. The fallback is shame-safe and reads fine, which is what makes this invisible without the check |
 | I2 | A draft carrying `notion_page_title` delivers that title; no `{task}`/`[task]` reaches the user | A suggestion the user cannot act on because it names no task |
 | I3 | No `update_status` / `update_property` / `complete_reminder` targets a page the peer was never offered | The generalized form of #641's wrong-page completion |
 | I4 | A COMPLETE turn resolves every reminder that was awaiting a reply; other intents do not clear context they did not answer | An unresolved reminder that the next "done" completes a second time |

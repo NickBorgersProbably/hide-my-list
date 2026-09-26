@@ -31,7 +31,7 @@ from typing import Any, cast
 
 import structlog
 
-from app.graph.context import record_task_event, render_history
+from app.graph.context import record_task_event, record_turn_action, render_history
 from app.graph.nodes._log_finished import log_finished
 from app.graph.nodes._task_match import (
     DedupCandidate,
@@ -132,7 +132,10 @@ async def intake_node(state: State) -> dict[str, Any]:
                 "body": question,
                 "notion_page_id": None,
             }
-            return {"pending_outbound": [clarify_draft]}
+            return {
+                "pending_outbound": [clarify_draft],
+                "turn_actions": record_turn_action(state.get("turn_actions"), action="clarify"),
+            }
 
         # Action is "save"
         # A blank title is as unusable as a missing one: it propagates into the
@@ -323,6 +326,20 @@ async def intake_node(state: State) -> dict[str, Any]:
                 now=datetime.now(UTC),
             )
 
+        turn_actions = list(state.get("turn_actions") or [])
+        if page_id and created_reminder:
+            turn_actions = record_turn_action(
+                turn_actions, action="notion.create_reminder", page_id=page_id
+            )
+        elif page_id and duplicate_matched and deadline_at is not None:
+            turn_actions = record_turn_action(
+                turn_actions, action="notion.update_property", page_id=page_id
+            )
+        elif page_id and not duplicate_matched:
+            turn_actions = record_turn_action(
+                turn_actions, action="notion.create_task", page_id=page_id
+            )
+
         if duplicate_matched:
             log.info(
                 "intake_node.saved",
@@ -344,6 +361,7 @@ async def intake_node(state: State) -> dict[str, Any]:
             "pending_outbound": [draft],
             "conversation_state": "idle",
             "recent_tasks": recent_tasks,
+            "turn_actions": turn_actions,
         }
 
     except Exception:
@@ -475,6 +493,7 @@ async def _handle_parse_failure(
         "notion_page_id": page_id,
     }
     recent_tasks = list(state.get("recent_tasks") or []) if state else []
+    turn_actions = list(state.get("turn_actions") or []) if state else []
     if page_id:
         recent_tasks = record_task_event(
             recent_tasks,
@@ -484,10 +503,14 @@ async def _handle_parse_failure(
             event="added",
             now=datetime.now(UTC),
         )
+        turn_actions = record_turn_action(
+            turn_actions, action="notion.create_task", page_id=page_id
+        )
     return {
         "pending_outbound": [draft],
         "conversation_state": "idle",
         "recent_tasks": recent_tasks,
+        "turn_actions": turn_actions,
     }
 
 

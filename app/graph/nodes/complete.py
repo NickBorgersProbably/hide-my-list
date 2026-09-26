@@ -30,7 +30,7 @@ from typing import Any, Literal, cast
 
 import structlog
 
-from app.graph.context import ledger_entry, record_task_event
+from app.graph.context import ledger_entry, record_task_event, record_turn_action
 from app.graph.nodes._log_finished import log_finished
 from app.graph.nodes._task_match import (
     DedupCandidate,
@@ -1289,6 +1289,13 @@ async def complete_node(state: State) -> dict[str, Any]:
     """COMPLETE handler: update Notion, call rewards.maybe_reward(), draft reply."""
     peer = state.get("peer", "")
 
+    def asked(update: dict[str, Any]) -> dict[str, Any]:
+        """A question went out instead of a write: record it for the review."""
+        return {
+            **update,
+            "turn_actions": record_turn_action(state.get("turn_actions"), action="clarify"),
+        }
+
     try:
         from app.tools import notion, reminders
         from app.tools.rewards import maybe_reward
@@ -1425,9 +1432,9 @@ async def complete_node(state: State) -> dict[str, Any]:
             # not re-offer a context task the matcher already rejected. Offer to
             # log the grounded proposed title directly, or acknowledge and leave
             # the list unchanged when no safe title exists.
-            return _ask_about_unlisted_report(
+            return asked(_ask_about_unlisted_report(
                 peer, options=[], title=title_match.unlisted_title
-            )
+            ))
 
         # When the message appeared to name a task (candidates the message
         # actually overlaps) but the model rejected all of them, the message
@@ -1445,13 +1452,13 @@ async def complete_node(state: State) -> dict[str, Any]:
             and title_match.candidate_count > 0
             and title_match.target is None
         ):
-            return _clarify_completion_target(
+            return asked(_clarify_completion_target(
                 peer,
                 attempts=attempts,
                 candidates=clarify_candidates,
                 offerable=bool(clarify_candidates),
                 from_context=from_context,
-            )
+            ))
 
         # Ids and counts only — the residue tokens and task titles are the
         # user's own words and stay out of the logs.
@@ -1477,13 +1484,13 @@ async def complete_node(state: State) -> dict[str, Any]:
             # An unlisted-report answer that names no open task closes the
             # question: asking "what's the task called?" would ask the user to
             # recall and retype the report they already made.
-            return _clarify_completion_target(
+            return asked(_clarify_completion_target(
                 peer,
                 attempts=_MAX_CLARIFICATION_ATTEMPTS if answering_unlisted else attempts,
                 candidates=clarify_candidates,
                 offerable=bool(clarify_candidates),
                 from_context=from_context,
-            )
+            ))
 
         page_id = target.page_id
         display_title = await _resolve_display_title(target, recent_tasks)
@@ -1493,12 +1500,19 @@ async def complete_node(state: State) -> dict[str, Any]:
             else known["kind"] if known else target.resolved_kind
         )
 
+        turn_actions = list(state.get("turn_actions") or [])
         if target.needs_notion_write:
             await notion.update_status(page_id=page_id, new_status="Completed")
+            turn_actions = record_turn_action(
+                turn_actions, action="notion.update_status", page_id=page_id, status="Completed"
+            )
 
         if kind == "reminder":
             # A reminder finished before it fired must not fire afterwards.
             await _cancel_pending_reminders(peer, page_id)
+            turn_actions = record_turn_action(
+                turn_actions, action="reminder.cancel", page_id=page_id
+            )
 
         streak = state.get("streak", 0) + 1
         tasks_today = state.get("tasks_completed_today", 0) + 1
@@ -1513,6 +1527,7 @@ async def complete_node(state: State) -> dict[str, Any]:
             work_type=target.work_type,
             energy_required=target.energy_required,
         )
+        turn_actions = record_turn_action(turn_actions, action="reward", page_id=page_id)
 
         try:
             # Scoped by page, for every source: a task finished by name or from
@@ -1570,6 +1585,7 @@ async def complete_node(state: State) -> dict[str, Any]:
             "conversation_state": "idle",
             "pending_clarification": None,
             "recent_tasks": recent_tasks,
+            "turn_actions": turn_actions,
         }
 
     except Exception:

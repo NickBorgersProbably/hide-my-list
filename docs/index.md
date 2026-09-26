@@ -21,6 +21,7 @@ An AI-powered task manager where users never directly view their task list. The 
   - [Cannot Finish](ai-prompts/cannot-finish.md) - Progress gathering, sub-task creation
   - [Check-In](ai-prompts/check-in.md) - Timing, shame-safe templates
   - [Breakdown](ai-prompts/breakdown.md) - Confidence detection, response levels
+  - [Interaction Review](ai-prompts/interaction-review.md) - Post-send review: correction policy, verdict schema, shame prevention
 - [Notion Schema](notion-schema.md) - Database schema and data model
 - [Task Lifecycle](task-lifecycle.md) - Task states and transitions
 - [User Interactions](user-interactions.md) - User interaction patterns

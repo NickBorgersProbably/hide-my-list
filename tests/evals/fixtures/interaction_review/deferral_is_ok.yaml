@@ -1,0 +1,38 @@
+---
+# Interaction review: after being asked which task was done, the user put it
+# off ("never mind, I'll check later"). The latest message decides: verdict
+# ok, action none — the open reminder stays untouched.
+id: interaction-review-deferral-ok-001
+node: interaction_review
+tier: medium
+peer: "<test-peer-34>"
+inbound: "never mind, I'll check later"
+prior_state:
+  intent: CHAT
+  messages:
+    - role: user
+      content: "remind me to renew my library card tomorrow at 9am"
+    - role: assistant
+      content: "Got it — I'll remind you about Renew my library card tomorrow at 9am."
+    - role: user
+      content: "Done!"
+    - role: assistant
+      content: "I can mark that done. Which task did you mean?"
+    - role: user
+      content: "never mind, I'll check later"
+    - role: assistant
+      content: "No problem — whenever you're ready."
+  recent_tasks: []
+  turn_actions: []
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Renew my library card"
+    status: "Pending"
+    is_reminder: true
+contracts:
+  - kind: json_schema
+    schema_ref: interaction_review_verdict
+  - kind: regex_require
+    pattern: "\"verdict\":\\s*\"ok\""
+  - kind: regex_forbid
+    pattern: "complete_task"
