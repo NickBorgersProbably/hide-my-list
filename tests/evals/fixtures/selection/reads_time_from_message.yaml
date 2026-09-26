@@ -1,0 +1,49 @@
+---
+# The user states their available time in the message itself; nothing in
+# state carries it (`available_minutes` and `mood` are null). The selection
+# prompt carries the incoming message and reads time from it when state has
+# none. Both tasks share work type and energy, so mood cannot decide. With the
+# stated two hours both fit and urgency decides: the 90-minute urgent task
+# wins. A prompt that ignores the message falls back to the no-duration
+# short-task bias (or a fabricated short window) and picks the 10-minute task,
+# which fails the judge contract below.
+id: selection-reads-time-from-message-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-time>"
+inbound: "I've got 2 hours free — what should I work on?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: null
+  mood: null
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Draft the project proposal"
+    work_type: "Independent"
+    energy_required: "Medium"
+    urgency: 95
+    time_estimate: 90
+  - id: "<placeholder-page-id-2>"
+    title: "Update the shared calendar"
+    work_type: "Independent"
+    energy_required: "Medium"
+    urgency: 15
+    time_estimate: 10
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user said they have two hours free. The pending tasks are "Draft
+      the project proposal" (90 minutes, urgency 95) and "Update the shared
+      calendar" (10 minutes, urgency 15); both are the same work type and
+      energy. Both fit in two hours, so the far more urgent proposal is the
+      right suggestion. Score 1.0 when the response suggests "Draft the
+      project proposal", 0.0 when it suggests "Update the shared calendar"
+      or says nothing fits the time available.
+    threshold: 0.7

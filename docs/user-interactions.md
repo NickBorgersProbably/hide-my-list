@@ -178,12 +178,15 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Request([User requests task]) --> ParseContext[Parse time + mood]
+    Request([User requests task]) --> ParseContext[Time + mood from state<br/>or the current message]
     ParseContext --> FetchTasks[Fetch pending tasks]
     FetchTasks --> HasTasks{Any tasks?}
 
     HasTasks -->|No| NoTasks["Your slate is clear!<br/>Want to add something?"]
-    HasTasks -->|Yes| FilterTime[Filter by time constraint]
+    HasTasks -->|Yes| KnownTime{Duration stated?}
+    KnownTime -->|Yes| FilterTime[Filter by time constraint]
+    KnownTime -->|No| ShortBias[Bias toward short tasks<br/>exclude nothing on time]
+    ShortBias --> ScoreTasks
 
     FilterTime --> HasMatches{Any fit time?}
     HasMatches -->|No| NoFit["Nothing fits that timeframe.<br/>Got more time?"]

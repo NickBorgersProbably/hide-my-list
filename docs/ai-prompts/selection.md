@@ -35,15 +35,21 @@ flowchart TD
 Select the best task for the user based on their current context.
 
 USER CONTEXT:
-- Available time: {available_minutes} minutes
-- Current mood: {mood} (maps to: {preferred_work_type})
+- Available time (minutes): {available_minutes, or "not stated"}
+- Current mood: {mood, or "not stated"} (maps to: {preferred_work_type})
 - Time of day: {time_of_day}
+- User's message: "{user_message}"
+
+When time or mood says "not stated", read it from the user's message ("I've
+got 2 hours", "I'm wiped"). No duration there either: score Time Fit by
+time_estimate — 15 min or less: 1.0; 30 or less: 0.75; 60 or less: 0.5; over
+60: 0.25 — and exclude nothing on time. No mood: treat it as neutral.
 
 PENDING TASKS:
 {tasks_json}
 
 SCORING RULES:
-1. Time Fit (30% weight):
+1. Time Fit (30% weight; with no duration, use the task-length scale above):
    - Task fits with buffer: 1.0
    - Tight fit (within 10%): 0.5
    - Doesn't fit: 0.0 (EXCLUDE)
@@ -75,7 +81,11 @@ OUTPUT (JSON):
   "user_message": "conversational suggestion"
 }
 
-If no tasks fit, explain why and suggest alternatives.
+selected_task_id is null or exactly one id copied from PENDING TASKS, for a
+task with a non-empty title. Never invent or alter an id.
+
+If no task fits, set selected_task_id to null and user_message to exactly:
+"Nothing quite fits right now. Want to add something quick?"
 ```
 
 ### Mood to Work Type Affinity
@@ -128,6 +138,42 @@ cannot drift.
 
 The bracketed slots that remain (`[time]`, `[mood]`, `[urgency level]`) are
 prose the module writes itself.
+
+### User Context Inputs
+
+The selection prompt receives the incoming message alongside the scored task
+list. Available time and mood come from state when a node has set them;
+otherwise the prompt shows "not stated" and the module reads both from the
+user's current message ("I've got 2 hours", "I'm wiped"). When the current
+message states no duration either, Time Fit is scored by the task's own
+length — 15 minutes or less: 1.0; 30 or less: 0.75; 60 or less: 0.5; over 60:
+0.25 — and nothing is excluded on time. Mood that is neither in state nor in
+the message is neutral.
+
+Why this design: a fabricated duration excludes tasks that fit the time the
+user actually has, and the short-task bias favours an easy start at the
+initiation moment without offering a long task to someone who has only a few
+minutes. Conversation history stays out of this prompt: an earlier turn's "2
+hours" or "feeling sharp" may no longer be true, and every extra line
+lengthens a reasoning-tier deliberation, so the prompt wording stays short.
+
+### Unknown Selection Guard
+
+A selection counts only when `selected_task_id` names a task in the scored
+list and that task has a non-empty title. Any other id is no selection: no
+task is marked In Progress, no active task is set, nothing is recorded in the
+recent-task ledger, and the user receives a neutral retry reply ("Couldn't
+land on one just now — ask me again in a sec?"). The module logs
+`selection_node.unknown_page_id` with shape-only fields (`has_selection`,
+`in_candidates`, `blank_title`, `candidate_count`), never the id itself. A
+reply that writes `{task}` with a `null` selection receives the no-match reply
+("Nothing quite fits right now. Want to add something quick?").
+
+Why this design: an id outside the list, or a page with no name, would mark an
+unknown page In Progress and suggest a task the user cannot identify. That
+case is invalid model output, not an empty fit, so the reply invites a retry
+rather than a new task: offering to add a task there grows the list and adds a
+decision the user does not need.
 
 
 ---

@@ -839,6 +839,148 @@ async def test_selection_node_records_suggested_task() -> None:
         ("suggest", "<page_A>", ""),
     ]
 
+_SELECTION_RETRY = "Couldn't land on one just now — ask me again in a sec?"
+
+
+async def _run_selection(
+    pages: list[dict[str, Any]], payload: dict[str, Any], **state: Any
+) -> tuple[dict[str, Any], AsyncMock, list[Any], Any]:
+    update_status = AsyncMock()
+    model = _mock_llm_response(json.dumps(payload))
+    with (
+        patch("app.tools.notion.query_pending", AsyncMock(return_value={"results": pages})),
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.models.llm", return_value=model),
+        capture_logs() as logs,
+    ):
+        from app.graph.nodes.selection import selection_node
+
+        result = await selection_node(_ledger_state(**state))
+    return result, update_status, logs, model
+
+
+@pytest.mark.asyncio
+async def test_selection_node_unknown_page_id_is_not_suggested() -> None:
+    """A selected id outside the scored list is no selection at all.
+
+    Treating it as a suggestion wrote In Progress to an unknown page and built an
+    ActiveTask with an empty title, so the user was offered a task with no name.
+    """
+    result, update_status, logs, _ = await _run_selection(
+        [_pending_page("<page_A>", "Water the plants")],
+        {
+            "selected_task_id": "<page_unknown>",
+            "score": 0.9,
+            "reasoning": "fits",
+            "user_message": "How about this focus task?",
+        },
+        incoming="anything I can knock out?",
+    )
+
+    update_status.assert_not_awaited()
+    assert result["active_task"] is None
+    assert result["conversation_state"] == "selection"
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] is None
+    assert "notion_page_title" not in draft
+    assert draft["body"] == _SELECTION_RETRY
+    assert result["recent_tasks"] == []
+    assert _actions_view(result) == []
+    unknown = [e for e in logs if e.get("event") == "selection_node.unknown_page_id"]
+    assert len(unknown) == 1
+    # Shape-only: the model-supplied id is never logged.
+    assert set(unknown[0]) - {"event", "log_level"} == {
+        "has_selection", "in_candidates", "blank_title", "candidate_count",
+    }
+    assert unknown[0]["has_selection"] is True
+    assert unknown[0]["in_candidates"] is False
+    assert unknown[0]["blank_title"] is False
+    assert unknown[0]["candidate_count"] == 1
+    assert "<page_unknown>" not in repr(unknown[0])
+    assert "selection_node.error" not in {e.get("event") for e in logs}
+
+
+@pytest.mark.asyncio
+async def test_selection_node_blank_title_is_not_suggested() -> None:
+    """A listed page with no title cannot be named, so it is not offered."""
+    result, update_status, logs, _ = await _run_selection(
+        [_pending_page("<page_blank>", "   ")],
+        {
+            "selected_task_id": "<page_blank>",
+            "score": 0.9,
+            "reasoning": "fits",
+            "user_message": "How about {task}?",
+        },
+        incoming="what now?",
+    )
+
+    update_status.assert_not_awaited()
+    assert result["active_task"] is None
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] is None
+    assert "notion_page_title" not in draft
+    assert draft["body"] == _SELECTION_RETRY
+    assert result["recent_tasks"] == []
+    unknown = [e for e in logs if e.get("event") == "selection_node.unknown_page_id"]
+    assert len(unknown) == 1
+    assert unknown[0]["in_candidates"] is True
+    assert unknown[0]["blank_title"] is True
+    assert "<page_blank>" not in repr(unknown[0])
+
+
+@pytest.mark.asyncio
+async def test_selection_node_token_without_selection_gets_no_match_reply() -> None:
+    result, update_status, _, _ = await _run_selection(
+        [_pending_page("<page_A>", "Water the plants")],
+        {"selected_task_id": None, "score": 0.0, "reasoning": "", "user_message": "How about {task}?"},
+        incoming="what now?",
+    )
+
+    update_status.assert_not_awaited()
+    assert result["active_task"] is None
+    assert result["pending_outbound"][0]["body"] == (
+        "Nothing quite fits right now. Want to add something quick?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_selection_prompt_carries_user_message_not_history() -> None:
+    """Time and mood come from the current message when state has none; history stays out."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    _, _, _, model = await _run_selection(
+        [_pending_page("<page_A>", "Water the plants")],
+        {"selected_task_id": None, "score": 0.0, "reasoning": "", "user_message": "Nothing quite fits."},
+        incoming="I have 2 hours and feel sharp",
+        messages=[
+            HumanMessage(content="earlier placeholder turn"),
+            AIMessage(content="earlier placeholder reply"),
+        ],
+    )
+
+    system_prompt = model.ainvoke.await_args.args[0][0].content
+    assert 'User\'s message: "I have 2 hours and feel sharp"' in system_prompt
+    assert "earlier placeholder turn" not in system_prompt
+    assert "earlier placeholder reply" not in system_prompt
+    # No fabricated default when state carries no time or mood.
+    assert "Available time (minutes): not stated" in system_prompt
+    assert "Current mood: not stated" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_selection_prompt_uses_state_time_and_mood_when_set() -> None:
+    _, _, _, model = await _run_selection(
+        [_pending_page("<page_A>", "Water the plants")],
+        {"selected_task_id": None, "score": 0.0, "reasoning": "", "user_message": "Nothing quite fits."},
+        incoming="what should I do?",
+        available_minutes=45,
+        mood="tired",
+    )
+
+    system_prompt = model.ainvoke.await_args.args[0][0].content
+    assert "Available time (minutes): 45" in system_prompt
+    assert "Current mood: tired" in system_prompt
+
 
 def _intake_response(
     *, title: str, is_reminder: bool = False, remind_at: str | None = None
