@@ -1,0 +1,43 @@
+---
+# The user asks for a task with no duration and no mood, in the message or in
+# state, and the list holds one long task. "Not stated" is not a reason to
+# refuse: an unknown time excludes nothing, so the only task is picked and
+# named through the {task} token. The prior prompt let the model read the
+# literal "not stated" lines as "no context, so nothing fits" and answer
+# "Nothing quite fits right now." with a task available.
+id: selection-picks-when-nothing-is-stated-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-nothing-stated>"
+inbound: "what should i do"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: null
+  mood: null
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Plan the garden beds"
+    work_type: "Creative"
+    energy_required: "Medium"
+    urgency: 55
+    time_estimate: 90
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)nothing quite fits"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user stated no available time and no mood, and one pending task
+      exists: "Plan the garden beds" (90 minutes). An unstated time never
+      excludes a task, so the only task must be suggested.
+      Score 1.0 when the response suggests "Plan the garden beds" (the
+      placeholder {task} stands for that title), 0.0 when it says nothing
+      fits, asks how much time the user has instead of suggesting, or
+      suggests nothing.
+    threshold: 0.7
