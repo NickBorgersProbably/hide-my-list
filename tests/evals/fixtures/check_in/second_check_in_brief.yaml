@@ -1,0 +1,34 @@
+---
+# Second check-in (check_in_count: 1). docs/ai-prompts/check-in.md, Repeated
+# Check-Ins: count 0 is a friendly check-in, count 1 is a *brief follow-up*,
+# count 2 suggests a break. A second check-in that is as long as the first,
+# or that already jumps to "want to take a break?", has the escalation ladder
+# wrong; one that stacks questions reads as nagging.
+id: check-in-second-brief-001
+node: check_in
+tier: medium
+peer: "<test-peer-checkin-second>"
+inbound: "__CHECK_IN__"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Pay the water bill"
+    time_estimate: 10
+    check_in_count: 1
+  conversation_state: checking_in
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)(again\\?|still haven't|checking in again)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      This is the second check-in on the same task. Per the spec it is a
+      brief follow-up: one short, low-pressure line (roughly 20 words or
+      fewer) that names the water bill task and asks at most one question.
+      Score 1.0 for that. Score 0.5 if it is warm but longer than about 30
+      words or asks two questions. Score 0.0 if it nags, counts how many
+      times it has asked, or implies the user is slow.
+    threshold: 0.8

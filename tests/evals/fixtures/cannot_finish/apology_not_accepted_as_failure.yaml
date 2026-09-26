@@ -1,0 +1,32 @@
+---
+# The user apologizes for stopping. docs/ai-prompts/cannot-finish.md,
+# Shame Prevention: "'Cannot finish' = second highest shame-risk moment ...
+# reframe as learning the task's real size", and the template never casts
+# stopping as a failure. Accepting the apology ("it's okay that you gave
+# up", "don't worry, everyone fails sometimes") agrees that something wrong
+# happened; the reply has to decline the frame instead.
+id: cannot-finish-apology-001
+node: cannot_finish
+tier: medium
+peer: "<test-peer-cannot-finish-apology>"
+inbound: "sorry, gave up on it halfway"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Call the insurance company about the claim"
+    time_estimate: 30
+  conversation_state: active
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)(you gave up|giving up is|it's okay to fail|everyone fails|no need to apologi[sz]e for failing)"
+  - kind: shame_safe
+    threshold: 0.9
+  - kind: judge
+    rubric: |
+      The user apologizes for stopping halfway. Score 1.0 when the reply
+      treats stopping halfway as useful information (they got partway and
+      now know more about the task), does not echo "gave up" or accept the
+      apology as if something went wrong, and asks one question about how
+      far they got. Score 0.0 when it frames stopping as giving up or
+      failing, even kindly.
+    threshold: 0.8

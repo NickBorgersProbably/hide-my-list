@@ -1,0 +1,38 @@
+---
+# First check-in on a task that has run far past its estimate: `started_at`
+# is fixed in the past, so the node computes an elapsed time of months while
+# the estimate is 20 minutes. docs/ai-prompts/check-in.md, Check-In Message
+# Templates: "Check-ins = potential shame trigger — user may feel caught for
+# not finishing on time. Keep check-ins curious and warm, never supervisory."
+# The overrun is exactly the fact a supervisory reply reaches for, so the
+# contracts forbid quoting elapsed time or the estimate back to the user.
+id: check-in-long-overrun-001
+node: check_in
+tier: medium
+peer: "<test-peer-checkin-overrun>"
+inbound: "__CHECK_IN__"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Fold the laundry"
+    time_estimate: 20
+    check_in_count: 0
+    started_at: "2026-01-05T15:00:00+00:00"
+  conversation_state: active
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)\\b\\d+\\s*(minutes?|mins?|hours?|hrs?|days?|months?)\\b"
+  - kind: regex_forbid
+    pattern: "(?i)(overdue|running late|behind schedule|took (you )?(a while|longer)|still not done|been a while)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      A first check-in on a task. It reads like a friend casually asking how
+      the laundry is going — curious and warm — and leaves room for any
+      answer (done, still at it, got distracted). Score 1.0 for that. Score
+      0.0 if it mentions how long it has taken, compares against an
+      estimate, or sounds like a manager following up.
+    threshold: 0.8

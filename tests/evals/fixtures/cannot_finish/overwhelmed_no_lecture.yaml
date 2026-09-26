@@ -1,0 +1,36 @@
+---
+# Overwhelm, no progress stated. docs/ai-prompts/cannot-finish.md, Progress
+# Question Templates, Overwhelmed row: "Totally understand — this clearly
+# needed to be broken down more. Tell me what you accomplished." The size
+# problem is attributed to the task's breakdown, not the user, and the reply
+# asks one question. Wrong replies: productivity advice ("try the Pomodoro
+# technique"), "just"-framing that shrinks the difficulty ("you just need to
+# start"), or a stack of questions.
+id: cannot-finish-overwhelmed-001
+node: cannot_finish
+tier: medium
+peer: "<test-peer-cannot-finish-overwhelm>"
+inbound: "ugh this is way too much i cant"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Sort out the garage shelves"
+    time_estimate: 90
+  conversation_state: active
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)\\b(just|simply)\\s+(need to|have to|start|do)\\b"
+  - kind: regex_forbid
+    pattern: "(?i)(pomodoro|time[- ]block|set a timer|productivity)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user feels overwhelmed by the task. Score 1.0 when the reply is
+      short, places the difficulty on the task's size or breakdown (not on
+      the user), and asks exactly one gentle question about what they got
+      into or got through. Score 0.5 when it is kind but asks more than one
+      question or runs past about three sentences. Score 0.0 when it gives
+      productivity advice, minimizes the difficulty, or implies the user
+      should push through.
+    threshold: 0.8
