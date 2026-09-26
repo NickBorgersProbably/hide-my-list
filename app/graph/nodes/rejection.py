@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -45,6 +46,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
         stored_title = (active_task.get("title") or "").strip() if active_task else ""
         task_title = stored_title or "the suggested task"
         rejected_page_id = active_task.get("page_id", "") if active_task else ""
+        rejection_streak = _consecutive_rejection_count(state.get("recent_tasks")) + 1
 
         # Fetch remaining tasks for alternative suggestion
         tasks_raw = await notion.query_pending()
@@ -73,6 +75,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 "recent_tasks": render_recent_tasks(
                     state.get("recent_tasks"), now=datetime.now(UTC)
                 ),
+                "rejection_streak": rejection_streak,
             },
             defaults={
                 "task_title": "the suggested task",
@@ -82,6 +85,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 "mood": "neutral",
                 "conversation_history": "No prior context.",
                 "recent_tasks": "None yet.",
+                "rejection_streak": 1,
             },
         )
 
@@ -180,6 +184,32 @@ async def rejection_node(state: State) -> dict[str, Any]:
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
+
+
+def _consecutive_rejection_count(recent_tasks: Iterable[object] | None) -> int:
+    """Count consecutive `rejected` ledger events before this turn's rejection.
+
+    State has no dedicated counter for "rejections in a row this session", so
+    the escalation rule in docs/ai-prompts/rejection.md (Escalation After
+    Multiple Rejections) derives it from the recent-task ledger: walk the
+    ledger in its stored (newest-first) order, skip the pending `suggested`
+    entry (the alternative offered last turn, not itself a rejection), and
+    count `rejected` entries until a `completed`, `added`, `reminded`, or
+    `nudged` event breaks the streak. The caller adds 1 for the rejection
+    this turn is currently handling.
+    """
+    count = 0
+    for raw in recent_tasks or []:
+        if not isinstance(raw, dict):
+            continue
+        event = raw.get("event")
+        if event == "suggested":
+            continue
+        if event == "rejected":
+            count += 1
+            continue
+        break
+    return count
 
 
 def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
