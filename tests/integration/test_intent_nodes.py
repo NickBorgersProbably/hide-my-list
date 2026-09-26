@@ -787,6 +787,11 @@ def _ledger_state(**overrides: Any) -> State:
     return state  # type: ignore[return-value]
 
 
+def _actions_view(result: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """The turn's recorded actions, for the post-send interaction review."""
+    return [(a["action"], a["page_id"], a["status"]) for a in result.get("turn_actions", [])]
+
+
 def _ledger_view(ledger: list[dict[str, Any]]) -> list[tuple[str, str, str, str]]:
     """Ledger entries without the timestamp, which the node stamps itself."""
     for entry in ledger:
@@ -828,6 +833,10 @@ async def test_selection_node_records_suggested_task() -> None:
     assert result["active_task"]["title"] == "Water the plants"
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_A>", "Water the plants", "task", "suggested"),
+    ]
+    assert _actions_view(result) == [
+        ("notion.update_status", "<page_A>", "In Progress"),
+        ("suggest", "<page_A>", ""),
     ]
 
 
@@ -871,6 +880,7 @@ async def test_intake_node_records_added_task() -> None:
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_new>", "Sort the mail", "task", "added"),
     ]
+    assert _actions_view(result) == [("notion.create_task", "<page_new>", "")]
 
 
 @pytest.mark.asyncio
@@ -899,6 +909,7 @@ async def test_intake_node_records_added_reminder() -> None:
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_rem>", "Take the bins out", "reminder", "added"),
     ]
+    assert _actions_view(result) == [("notion.create_reminder", "<page_rem>", "")]
 
 
 @pytest.mark.asyncio
@@ -920,6 +931,7 @@ async def test_intake_node_clarify_records_the_question_only() -> None:
 
     assert result["pending_outbound"][0]["body"] == "Which one?"
     assert result.get("recent_tasks", existing) == existing
+    assert _actions_view(result) == [("clarify", "", "")]
 
 
 @pytest.mark.asyncio
@@ -942,6 +954,10 @@ async def test_complete_node_records_completed_task() -> None:
 
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_A>", "Water the plants", "task", "completed"),
+    ]
+    assert _actions_view(result) == [
+        ("notion.update_status", "<page_A>", "Completed"),
+        ("reward", "<page_A>", ""),
     ]
 
 
@@ -989,6 +1005,11 @@ async def test_complete_node_from_a_delivered_reminder_records_no_body_as_title(
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_R>", "Take the bins out", "reminder", "completed"),
     ]
+    assert _actions_view(result) == [
+        ("notion.update_status", "<page_R>", "Completed"),
+        ("reminder.cancel", "<page_R>", ""),
+        ("reward", "<page_R>", ""),
+    ]
 
 
 @pytest.mark.asyncio
@@ -1006,6 +1027,7 @@ async def test_complete_node_clarify_records_the_question() -> None:
     update_status.assert_not_awaited()
     assert result["pending_clarification"] is not None
     assert result.get("recent_tasks", []) == []
+    assert _actions_view(result) == [("clarify", "", "")]
 
 
 @pytest.mark.asyncio
@@ -1124,6 +1146,10 @@ async def test_rejection_node_records_rejected_and_suggested() -> None:
     assert _ledger_view(result["recent_tasks"]) == [
         ("<page_B>", "Sort the mail", "task", "suggested"),
         ("<page_A>", "Water the plants", "task", "rejected"),
+    ]
+    assert _actions_view(result) == [
+        ("notion.update_property", "<page_A>", ""),
+        ("suggest", "<page_B>", ""),
     ]
     # The offer leaves nothing active; the ledger is the next turn's only anchor.
     assert result["active_task"] is None

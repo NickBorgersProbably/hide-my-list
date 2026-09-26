@@ -10,7 +10,10 @@ created or the reminder the worker had just delivered, so a bare "Done!" or a
 - renders the ledger and the message history for prompts
   (`render_recent_tasks`, `render_history`);
 - hydrates the ledger from Postgres at the start of every turn
-  (`hydrate_context`, the graph's entry node).
+  (`hydrate_context`, the graph's entry node), which also resets the turn's
+  action record;
+- records what an intent node did this turn (`record_turn_action`) for the
+  post-send interaction review.
 
 Privacy: titles and message text are the user's own words. They go into
 prompts and the checkpoint, never into logs — log ids, counts, booleans, and
@@ -34,6 +37,8 @@ from app.graph.state import (
     RecentTaskEvent,
     RecentTaskKind,
     State,
+    TurnAction,
+    TurnActionKind,
 )
 
 log = structlog.get_logger(__name__)
@@ -60,6 +65,10 @@ TITLE_LOOKUP_TIMEOUT_SECONDS = 5.0
 _NO_HISTORY = "No prior context."
 _NO_RECENT_TASKS = "None yet."
 _UNDATED = "1970-01-01T00:00:00+00:00"
+
+# Actions kept per turn. A turn does a handful of things; the cap only guards a
+# loop that records far more.
+TURN_ACTION_CAP = 16
 
 _KINDS: frozenset[str] = frozenset({"task", "reminder"})
 _EVENTS: frozenset[str] = frozenset(
@@ -191,6 +200,26 @@ def record_task_event(
             new["title"] = previous["title"]
 
     return prune_recent_tasks([new, *others], now=at)
+
+
+def record_turn_action(
+    existing: Iterable[object] | None,
+    *,
+    action: TurnActionKind,
+    page_id: str = "",
+    status: str = "",
+) -> list[TurnAction]:
+    """Return a new turn-action list with this action appended.
+
+    Plain replace semantics like the ledger: the writer returns the whole list
+    under `turn_actions`. Entries that are not mappings are dropped; the input
+    is not mutated. Ids and enum values only.
+    """
+    current: list[TurnAction] = [
+        cast(TurnAction, dict(raw)) for raw in (existing or []) if isinstance(raw, Mapping)
+    ]
+    current.append({"action": action, "page_id": page_id or "", "status": status or ""})
+    return current[-TURN_ACTION_CAP:]
 
 
 def _relative_age(at: datetime, now: datetime) -> str:
@@ -329,6 +358,9 @@ async def _resolve_delivery_titles(ledger: list[RecentTaskEntry]) -> list[Recent
 async def hydrate_context(state: State) -> dict[str, Any]:
     """Graph entry node: merge the peer's recent deliveries into the ledger.
 
+    Also resets `turn_actions` to [] so the list only ever describes the
+    current turn.
+
     Reminder deliveries happen outside the graph, so the checkpoint never sees
     them. Each turn this node reads the peer's `recent_outbound` rows from the
     last `LEDGER_MAX_AGE` and records each as `reminded` (or `nudged` for a
@@ -350,7 +382,7 @@ async def hydrate_context(state: State) -> dict[str, Any]:
 
     peer = state.get("peer", "")
     if not peer or not os.environ.get("DATABASE_URL"):
-        return {"recent_tasks": ledger}
+        return {"recent_tasks": ledger, "turn_actions": []}
 
     try:
         from app.tools.reminders import fetch_recent_outbound
@@ -392,7 +424,7 @@ async def hydrate_context(state: State) -> dict[str, Any]:
             row_count=len(rows),
             ledger_count=len(merged),
         )
-        return {"recent_tasks": merged}
+        return {"recent_tasks": merged, "turn_actions": []}
     except Exception as exc:
         # Error type and counts only: the rows carry page ids tied to a peer,
         # and a driver error string can echo connection details.
@@ -401,4 +433,4 @@ async def hydrate_context(state: State) -> dict[str, Any]:
             error_type=type(exc).__name__,
             existing_count=len(existing) if isinstance(existing, list) else 0,
         )
-        return {"recent_tasks": ledger}
+        return {"recent_tasks": ledger, "turn_actions": []}

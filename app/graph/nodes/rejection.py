@@ -17,6 +17,7 @@ import structlog
 from app.graph.context import (
     ledger_entry,
     record_task_event,
+    record_turn_action,
     render_history,
     render_recent_tasks,
 )
@@ -98,6 +99,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
         user_message = render_task_token(user_message, title=alternative_title)
 
         # Update rejection count in Notion
+        turn_actions = list(state.get("turn_actions") or [])
         if rejected_page_id:
             try:
                 await notion.update_property(
@@ -111,6 +113,9 @@ async def rejection_node(state: State) -> dict[str, Any]:
                             }
                         }
                     },
+                )
+                turn_actions = record_turn_action(
+                    turn_actions, action="notion.update_property", page_id=rejected_page_id
                 )
             except Exception:
                 log.exception("rejection_node.notion_update_failed", page_id=rejected_page_id)
@@ -150,6 +155,9 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 event="suggested",
                 now=now,
             )
+            turn_actions = record_turn_action(
+                turn_actions, action="suggest", page_id=alternative_id
+            )
 
         log.info(
             "rejection_node.alternative",
@@ -161,6 +169,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
             "active_task": None,
             "conversation_state": "selection",
             "recent_tasks": recent_tasks,
+            "turn_actions": turn_actions,
         }
 
     except Exception:

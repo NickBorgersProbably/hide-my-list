@@ -344,7 +344,7 @@ async def test_db_failure_keeps_the_existing_ledger(monkeypatch: pytest.MonkeyPa
             {"peer": "<recipient>", "incoming": "hi", "recent_tasks": [fresh, stale]}  # type: ignore[typeddict-item]
         )
 
-    assert result == {"recent_tasks": [fresh]}
+    assert result == {"recent_tasks": [fresh], "turn_actions": []}
     failures = [e for e in logs if e.get("event") == "hydrate_context.recent_outbound_failed"]
     assert len(failures) == 1
     failure = failures[0]
@@ -386,7 +386,7 @@ async def test_no_database_configured_is_a_quiet_no_op(monkeypatch: pytest.Monke
     monkeypatch.delenv("DATABASE_URL", raising=False)
     with capture_logs() as logs:
         result = await hydrate_context({"peer": "<recipient>", "incoming": "hi"})  # type: ignore[typeddict-item]
-    assert result == {"recent_tasks": []}
+    assert result == {"recent_tasks": [], "turn_actions": []}
     assert not [e for e in logs if str(e.get("event", "")).endswith("_failed")]
 
 

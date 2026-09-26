@@ -13,7 +13,7 @@ from typing import Any, TypedDict, cast
 
 import structlog
 
-from app.graph.context import record_task_event
+from app.graph.context import record_task_event, record_turn_action
 from app.graph.state import ActiveTask, OutboundDraft, State
 
 log = structlog.get_logger(__name__)
@@ -135,9 +135,16 @@ async def selection_node(state: State) -> dict[str, Any]:
         # and maybe_reward, breaking the dopamine timing loop.
         active_task: ActiveTask | None = None
         recent_tasks = list(state.get("recent_tasks") or [])
+        turn_actions = list(state.get("turn_actions") or [])
         if selected_page_id:
             try:
                 await notion.update_status(selected_page_id, "In Progress")
+                turn_actions = record_turn_action(
+                    turn_actions,
+                    action="notion.update_status",
+                    page_id=selected_page_id,
+                    status="In Progress",
+                )
             except Exception:
                 log.exception("selection_node.mark_in_progress_failed", notion_page_id=selected_page_id)
 
@@ -164,6 +171,9 @@ async def selection_node(state: State) -> dict[str, Any]:
                 event="suggested",
                 now=datetime.now(UTC),
             )
+            turn_actions = record_turn_action(
+                turn_actions, action="suggest", page_id=selected_page_id
+            )
 
         log.info("selection_node.suggestion", notion_page_id=selected_page_id)
         return {
@@ -171,6 +181,7 @@ async def selection_node(state: State) -> dict[str, Any]:
             "active_task": active_task,
             "conversation_state": "active" if active_task else "selection",
             "recent_tasks": recent_tasks,
+            "turn_actions": turn_actions,
         }
 
     except Exception:
