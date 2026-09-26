@@ -86,9 +86,9 @@ sequenceDiagram
     Note over AI: COMPLETE — no open task matches
     AI->>U: "Nice one! Which task should I mark done?"
     U->>AI: "no it's new, just log it"
-    Note over AI: ADD_TASK — title taken from the earlier message
-    AI->>N: Create task
-    AI->>U: "Got it — Pay the gas bill."
+    Note over AI: ADD_TASK — title taken from the earlier message, already finished
+    AI->>N: Create task with Status Completed
+    AI->>U: "Pay the gas bill — done. Nice work! ✨"
 ```
 
 The confirmation is one sentence naming the task plus the deadline or
@@ -97,7 +97,12 @@ first step. Work type, time estimate, the numbered plan, and a step count
 never appear in it; the steps are stored with the task, where breakdown help
 reads them. When a deadline series is scheduled, the reply adds one sentence
 naming the earliest nudge. A message that reports a task as already finished
-is never saved as a new task: intake hands it to the completion flow.
+is never saved as a new task: intake hands it to the completion flow. When
+the user answers that flow's question by saying the thing is new and asking
+to log it, it is still already done: intake creates the page Completed (or
+completes the open task it duplicates), runs the reward path, and replies with
+the completion celebration, so an accomplishment never becomes another open
+item on the list.
 
 > **Decision Fatigue Prevention:** System prefers inference over questions. All labels (urgency, time, work type) inferred from context — never asked. When task too vague to identify (e.g., "do the thing"), up to 3 simple clarifying questions, one at a time. User can correct after ("actually that's urgent") but never forced to decide on labels.
 

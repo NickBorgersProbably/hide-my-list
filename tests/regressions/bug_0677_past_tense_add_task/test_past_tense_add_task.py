@@ -70,3 +70,59 @@ async def test_intake_already_done_saves_nothing_and_hands_off() -> None:
     assert result is handoff
     create_task.assert_not_awaited()
     create_reminder.assert_not_awaited()
+
+
+def test_intake_prompt_logs_a_finished_item_as_already_finished() -> None:
+    from app.prompts.loader import render_with_defaults
+
+    rendered = render_with_defaults("intake.md.j2", {})
+    assert '"already_finished": true' in rendered
+    assert "Every other save sets \"already_finished\": false." in rendered
+
+
+@pytest.mark.asyncio
+async def test_logging_a_finished_item_creates_a_completed_page_and_celebrates() -> None:
+    response = MagicMock()
+    response.content = json.dumps({
+        "action": "save",
+        "title": "Pay the placeholder bill",
+        "work_type": "independent",
+        "urgency": 50,
+        "time_estimate_minutes": 10,
+        "energy_required": "Low",
+        "is_reminder": False,
+        "remind_at": None,
+        "due_at": None,
+        "use_hidden_subtasks": False,
+        "sub_tasks": [],
+        "confirmation_message": "",
+        "already_finished": True,
+    })
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=response)
+    state = {"peer": "<test-peer>", "incoming": "no it's new, just log it", "messages": []}
+
+    async def query_all() -> dict[str, list[object]]:
+        return {"results": []}
+
+    with (
+        patch("app.models.llm", return_value=model),
+        patch("app.tools.notion.query_all", query_all),
+        patch(
+            "app.tools.notion.create_task", AsyncMock(return_value={"id": "<page_id>"})
+        ) as create_task,
+        patch(
+            "app.tools.rewards.maybe_reward",
+            AsyncMock(return_value={"text": "Nice work!", "attachment_path": None}),
+        ) as maybe_reward,
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(state)  # type: ignore[arg-type]
+
+    assert create_task.await_args.kwargs["status"] == "Completed"
+    maybe_reward.assert_awaited_once()
+    draft = result["pending_outbound"][0]
+    assert draft["body"] == "{task} — done. Nice work!"
+    assert draft["notion_page_title"] == "Pay the placeholder bill"
+    assert result["recent_tasks"][-1]["event"] == "completed"

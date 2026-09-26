@@ -21,11 +21,24 @@ while a completion clarification is open is ADD_TASK). As a backstop, the
 intake model can return `action: "already_done"`; intake then saves nothing,
 logs `intake_node.already_done_handoff`, and returns `complete_node(state)`.
 
+When the user then answers "which task was that?" with "no it's new, just log
+it", the thing is still already done. Intake returns a save marked
+`"already_finished": true`: the page is created with Status Completed (or, when
+the title matches an open task at the dedup threshold, that task is completed
+instead), `maybe_reward` runs, the ledger records `completed`, and the reply is
+the completion celebration naming `{task}`. An accomplishment never becomes
+another open obligation.
+
 ## Regression Tests
 
 - `test_past_tense_add_task.py` pins the classifier rule and examples and the
   intake handoff (no page created, `complete_node` awaited with the same state).
 - The model-behavior test lives in `tests/evals/fixtures/classify_intent/past_tense_report.yaml`;
   the intake backstop is `tests/evals/fixtures/intake/already_done_handoff.yaml`.
+- `test_past_tense_add_task.py` also pins the intake prompt's
+  `already_finished` rule and asserts that a save marked `already_finished`
+  creates a Completed page and replies with the celebration.
+- The logging turn's model behavior is `tests/evals/fixtures/intake/log_new_from_history.yaml`.
 - The two-turn conversation (report, then "no it's new, just log it") is
-  `tests/e2e/scenarios/test_loop_past_tense_then_log_new.py`.
+  `tests/e2e/scenarios/test_loop_past_tense_then_log_new.py`; turn 2 asserts
+  the new page is Completed and the reply names it.

@@ -51,8 +51,15 @@ paid the gas bill!", "finished the dishes" — the user is not asking to add a
 task. Return {"action": "already_done"} and nothing else. Do not save it.
 
 Exception: when the user is answering a question about which task they
-finished and says the thing is new and should be logged, save it as a task.
-Never return already_done for that answer.
+finished and says the thing is new and should be logged, it is a finished
+accomplishment to record, not something still to do. Return the normal save
+object with "already_finished": true, the title in imperative form from
+Previous context, "is_reminder": false, "remind_at": null, "due_at": null,
+"use_hidden_subtasks": false, and "sub_tasks": []. The application stores the
+task as Completed and replies with the completion celebration, so
+confirmation_message may be empty. Never return already_done for that answer.
+
+Every other save sets "already_finished": false.
 
 ### Decision Fatigue Prevention
 
@@ -151,7 +158,8 @@ If task is clear enough to save:
   "use_hidden_subtasks": false,
   "sub_tasks": [{"title": "...", "time_estimate_minutes": 10, "done_criteria": "...", "sequence": 1}],
   "inline_steps": "1. First step\n2. Second step",
-  "confirmation_message": "Got it — {task}, due Friday. First step: open the form."
+  "confirmation_message": "Got it — {task}, due Friday. First step: open the form.",
+  "already_finished": false
 }
 
 If the message reports the task as already finished:

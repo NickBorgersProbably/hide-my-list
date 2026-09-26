@@ -1,8 +1,9 @@
 ---
 # After a completion clarification the user says the thing is new and asks to
 # log it. The task lives in the earlier message, not the current one: intake
-# saves it from Previous context instead of asking what to add, and never
-# returns already_done for this answer.
+# takes it from Previous context instead of asking what to add, never returns
+# already_done for this answer, and marks the save already_finished so it is
+# stored Completed and the reply is the completion celebration.
 id: intake-log-new-from-history-001
 node: intake
 tier: medium
@@ -23,7 +24,9 @@ contracts:
     pattern: "\\{task\\}"
   - kind: judge
     rubric: |
-      The reply confirms saving a task about the gas bill (the delivered text
-      names it). Score 1.0 when a gas-bill task is confirmed. Score 0.0 when
-      it asks what to add, asks which task again, or names a different task.
+      The reply celebrates a finished task about the gas bill (the delivered
+      text names it); it does not present it as something still to do. Score
+      1.0 when it celebrates the gas-bill task as done. Score 0.0 when it
+      confirms adding it as an open task or to-do, asks what to add, asks
+      which task again, or names a different task.
     threshold: 0.8

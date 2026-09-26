@@ -4,8 +4,11 @@
    COMPLETE even though nothing on the list matches; production routed this
    shape to ADD_TASK. Neither open task is touched. The reply asks whether to
    add it — its wording is not the contract here.
-2. "no it's new, just log it" answers that question. It classifies ADD_TASK, which drops the open clarification, and
-   intake takes the task from the earlier message instead of asking again.
+2. "no it's new, just log it" answers that question. It classifies ADD_TASK,
+   which drops the open clarification, and intake takes the task from the
+   earlier message instead of asking again. The thing is already done, so the
+   page is created Completed and the reply celebrates it by name — an
+   accomplishment is never recorded as another open obligation.
 
 The handoff is cross-turn: turn 2's intake reads turn 1's user message from the
 checkpointed history, so only a conversation can show it.
@@ -42,6 +45,7 @@ async def test_past_tense_report_then_log_it_as_new(conversation: Conversation) 
             intent="ADD_TASK",
             notion_untouched=[dentist, landlord],
             sent_count=1,
+            regex_require=[r"(?i)gas"],
         ),
     )
 
@@ -54,4 +58,6 @@ async def test_past_tense_report_then_log_it_as_new(conversation: Conversation) 
     created_id = next(iter(new_creates))
     title = conversation.notion.title_of(created_id).lower()
     assert "gas bill" in title, f"expected a page about the gas bill, got {title!r}"
+    status = conversation.notion.status_of(created_id)
+    assert status == "Completed", f"a logged finished item must be Completed, got {status!r}"
     assert logged.state.get("pending_clarification") is None

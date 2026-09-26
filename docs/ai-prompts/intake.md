@@ -113,8 +113,18 @@ runtime hands the turn to the completion module, which completes the matching
 task or asks which one the user means.
 
 Exception: when the user is answering a question about which task they
-finished and says the thing is new and should be logged, save it as a task.
-Never return already_done for that answer.
+finished and says the thing is new and should be logged, it is a finished
+accomplishment to record, not something still to do. Return the normal save
+object with "already_finished": true, the title in imperative form from
+Previous context, "is_reminder": false, "remind_at": null, "due_at": null,
+"use_hidden_subtasks": false, and "sub_tasks": []. The runtime stores the task
+as Completed — or completes the open task it duplicates — runs the reward
+path, and replies with the same celebration the completion module sends
+("{task} — done." plus the reward text), so confirmation_message may be empty.
+No sub-tasks, deadline series, or reminder are created for it. Never return
+already_done for that answer.
+
+Every other save sets "already_finished": false.
 
 DECISION FATIGUE PREVENTION:
 Prefer inference over questions. Each question is a decision point that depletes
@@ -300,7 +310,8 @@ If task is clear enough to save:
   ],
   "inline_steps": "1. First step\n2. Second step\n3. Third step" (if use_hidden_subtasks=false),
   "presentable_title": "..." (first actionable step if use_hidden_subtasks=true),
-  "confirmation_message": "..." (see CONFIRMATION MESSAGE FORMAT)
+  "confirmation_message": "..." (see CONFIRMATION MESSAGE FORMAT),
+  "already_finished": false (true only for the clarification exception under ALREADY DONE REPORTS)
 }
 
 If the message reports the task as already finished:
@@ -429,7 +440,7 @@ Every task stores its steps; the confirmation shows at most the first one.
 | User Says | Output |
 |-----------|--------|
 | "I also paid the gas bill!" | `{"action": "already_done"}` (nothing saved; the completion module takes the turn) |
-| "No it's new, just log it" (after being asked which task was finished) | Save "Pay the gas bill" from Previous context |
+| "No it's new, just log it" (after being asked which task was finished) | Save "Pay the gas bill" from Previous context with `"already_finished": true` (stored Completed; the reply celebrates it) |
 
 ### Work Type Inference Rules
 

@@ -1181,3 +1181,172 @@ async def test_intake_prompt_carries_the_earlier_message_for_a_follow_up() -> No
     system_prompt = str(model.ainvoke.await_args.args[0][0].content)
     assert "user: I also paid the placeholder bill!" in system_prompt
     assert "assistant: Nice — which task was that?" in system_prompt
+
+
+# ---------------------------------------------------------------------------
+# Logging a finished item ("no it's new, just log it")
+# ---------------------------------------------------------------------------
+
+
+def _finished_save_response(title: str = "Pay the placeholder bill") -> str:
+    raw = json.loads(_llm_save_response(title=title, confirmation=""))
+    raw["already_finished"] = True
+    raw["inline_steps"] = ""
+    return json.dumps(raw)
+
+
+def _assert_maybe_reward_call(
+    mock: AsyncMock, *, peer: str, page_id: str, title: str, streak: int
+) -> None:
+    """Bind intake's maybe_reward call against the real signature (clause 10).
+
+    The call runs under intake's try/except, so a renamed parameter would turn
+    every logged accomplishment into the "send it again" fallback silently.
+    """
+    from app.tools.rewards import maybe_reward as real_maybe_reward
+
+    mock.assert_awaited_once()
+    call = mock.await_args
+    inspect.signature(real_maybe_reward).bind(*call.args, **call.kwargs)
+    assert call.args == ()
+    assert set(call.kwargs) == {
+        "peer", "task_title", "notion_page_id", "streak", "work_type", "energy_required",
+    }
+    assert set(call.kwargs) <= set(inspect.signature(real_maybe_reward).parameters)
+    assert call.kwargs["peer"] == peer
+    assert call.kwargs["task_title"] == title
+    assert call.kwargs["notion_page_id"] == page_id
+    assert call.kwargs["streak"] == streak
+
+
+@pytest.mark.asyncio
+async def test_logging_a_finished_item_creates_it_completed_and_celebrates() -> None:
+    """A save marked already_finished is stored Completed and rewarded.
+
+    Recording it open would turn an accomplishment into another obligation.
+    """
+    from app.tools import notion
+
+    page_id = "<page_id_logged>"
+    peer = "<test-peer-logged>"
+    create_task = AsyncMock(return_value=_make_notion_page(page_id=page_id))
+    maybe_reward = AsyncMock(return_value={"text": "Nice work!", "attachment_path": "/tmp/<reward>.png"})
+    schedule_series = AsyncMock(return_value=[])
+    create_reminder = AsyncMock()
+    state = _base_state(incoming="no it's new, just log it", peer=peer)
+    state["streak"] = 2
+    state["tasks_completed_today"] = 1
+
+    with (
+        patch("app.models.llm", return_value=_model_returning(_finished_save_response())),
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.tools.notion.create_reminder", create_reminder),
+        patch("app.tools.rewards.maybe_reward", maybe_reward),
+        patch("app.graph.nodes.intake._schedule_deadline_series", schedule_series),
+        capture_logs() as logs,
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(state)
+
+    create_task.assert_awaited_once()
+    create_kwargs = create_task.await_args.kwargs
+    inspect.signature(notion.create_task).bind(**create_kwargs)
+    assert create_kwargs["status"] == "Completed"
+    assert create_kwargs["title"] == "Pay the placeholder bill"
+    assert "parent_id" not in create_kwargs
+    assert create_kwargs.get("due_at_iso") is None
+    create_reminder.assert_not_awaited()
+    schedule_series.assert_not_awaited()
+
+    _assert_maybe_reward_call(
+        maybe_reward, peer=peer, page_id=page_id, title="Pay the placeholder bill", streak=3
+    )
+
+    draft = result["pending_outbound"][0]
+    assert draft["body"] == "{task} — done. Nice work!"
+    assert draft["notion_page_title"] == "Pay the placeholder bill"
+    assert draft["notion_page_id"] == page_id
+    assert draft["attachment_path"] == "/tmp/<reward>.png"
+    assert result["streak"] == 3
+    assert result["tasks_completed_today"] == 2
+    assert result["conversation_state"] == "idle"
+    assert result["pending_clarification"] is None
+    assert [(e["page_id"], e["event"]) for e in result["recent_tasks"]] == [(page_id, "completed")]
+
+    logged = [e for e in logs if e["event"] == "intake_node.logged_finished"]
+    assert len(logged) == 1
+    assert logged[0]["duplicate_matched"] is False
+    assert "Pay the placeholder bill" not in str(logged[0])
+    assert "/tmp/" not in str(logged[0])
+
+
+@pytest.mark.asyncio
+async def test_logging_a_finished_item_that_matches_an_open_task_completes_that_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A finished item that duplicates an open task completes that page instead."""
+    matched_page_id = "<page_id_open>"
+
+    async def query_all() -> dict[str, Any]:
+        return {"results": [_make_query_page(matched_page_id, "Pay the placeholder bill")]}
+
+    monkeypatch.setattr("app.tools.notion.query_all", query_all)
+    dedup_model = _model_returning(json.dumps({"matched_page_id": matched_page_id, "confidence": 0.95}))
+    create_task = AsyncMock()
+    update_status = AsyncMock(return_value={"id": matched_page_id})
+    maybe_reward = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
+
+    with (
+        patch(
+            "app.models.llm",
+            side_effect=[_model_returning(_finished_save_response()), dedup_model],
+        ),
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.rewards.maybe_reward", maybe_reward),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="no it's new, just log it"))
+
+    create_task.assert_not_awaited()
+    update_status.assert_awaited_once_with(page_id=matched_page_id, new_status="Completed")
+    _assert_maybe_reward_call(
+        maybe_reward,
+        peer="<test-peer-1>",
+        page_id=matched_page_id,
+        title="Pay the placeholder bill",
+        streak=1,
+    )
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] == matched_page_id
+    assert draft["body"].startswith("{task} — done.")
+    assert "attachment_path" not in draft
+    assert result["recent_tasks"][-1]["event"] == "completed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flag", [None, False, "true"])
+async def test_save_without_already_finished_true_stays_open(flag: object) -> None:
+    """Only a JSON boolean true logs a finished item; anything else is a normal save."""
+    raw = json.loads(_llm_save_response(title="Placeholder task", confirmation="Got it — {task}."))
+    if flag is not None:
+        raw["already_finished"] = flag
+    create_task = AsyncMock(return_value=_make_notion_page(page_id="<page_id_open>"))
+    maybe_reward = AsyncMock()
+
+    with (
+        patch("app.models.llm", return_value=_model_returning(json.dumps(raw))),
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.tools.rewards.maybe_reward", maybe_reward),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="placeholder task"))
+
+    assert create_task.await_args.kwargs.get("status", "Pending") == "Pending"
+    maybe_reward.assert_not_awaited()
+    assert result["pending_outbound"][0]["body"] == "Got it — {task}."
+    assert "streak" not in result
+    assert result["recent_tasks"][-1]["event"] == "added"

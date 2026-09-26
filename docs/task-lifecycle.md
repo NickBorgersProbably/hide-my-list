@@ -72,6 +72,8 @@ stateDiagram-v2
 | Reminder Sent | Reminder delivered | `Completed` (reminder_status=sent) |
 | Completed | Task finished | `Completed` |
 
+A task logged as already finished — the user reports something done that was never on the list and asks to log it — is created with Status `Completed` and celebrated through the reward path; it never passes through Pending.
+
 ## Phase 1: Task Intake
 
 ```mermaid
