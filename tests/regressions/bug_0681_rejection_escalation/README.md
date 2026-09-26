@@ -1,6 +1,6 @@
-# Bug NNNN: Rejection Escalation and Distress Handling Missing From Runtime Prompt
+# Bug 0681: Rejection Escalation and Distress Handling Missing From Runtime Prompt
 
-**Issue:** #99999 (placeholder — rename this directory and reference to the real PR/issue number once this fix's PR is opened)
+**Issue:** #681 (placeholder — rename this directory and reference to the real PR/issue number once this fix's PR is opened)
 
 ## Bug Story
 
