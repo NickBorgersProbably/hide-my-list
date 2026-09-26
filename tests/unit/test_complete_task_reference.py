@@ -597,7 +597,7 @@ def test_an_unlisted_report_offers_the_context_task_by_token() -> None:
         ],
     )
     draft = result["pending_outbound"][0]
-    assert draft["body"] == "Nice one — want me to log that as done, or did you mean {task}?"
+    assert draft["body"] == "Nice one! Did you mean {task}?"
     assert draft["notion_page_title"] == "Fold the laundry"
     assert draft["notion_page_id"] is None
     assert result["active_task"] is None
@@ -612,7 +612,7 @@ def test_an_unlisted_report_offers_the_context_task_by_token() -> None:
 def test_an_unlisted_report_with_nothing_to_name_asks_to_add_it() -> None:
     result = _ask_about_unlisted_report("<test-peer>", attempts=0, options=[])
     draft = result["pending_outbound"][0]
-    assert draft["body"] == "Nice one — want me to log that as done?"
+    assert draft["body"] == "Nice one! Which task should I mark done?"
     assert "notion_page_title" not in draft
     assert result["pending_clarification"]["candidates"] == []
 

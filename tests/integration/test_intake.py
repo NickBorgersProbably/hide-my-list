@@ -1059,7 +1059,7 @@ async def test_already_done_for_an_unlisted_task_completes_nothing() -> None:
     update_status.assert_not_awaited()
     reward.assert_not_awaited()
     create_task.assert_not_awaited()
-    assert "want me to log that as done" in result["pending_outbound"][0]["body"]
+    assert result["pending_outbound"][0]["body"].startswith("Nice one!")
     assert result["pending_clarification"] is not None
 
 

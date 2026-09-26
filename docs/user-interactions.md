@@ -84,7 +84,7 @@ sequenceDiagram
 
     U->>AI: "I also paid the gas bill!"
     Note over AI: COMPLETE — no open task matches
-    AI->>U: "Nice one — want me to log that as done?"
+    AI->>U: "Nice one! Which task should I mark done?"
     U->>AI: "no it's new, just log it"
     Note over AI: ADD_TASK — title taken from the earlier message
     AI->>N: Create task
@@ -243,9 +243,10 @@ flowchart LR
    is about the gas bill. That report is answered with a question, never with
    a context completion: the active or most recent task stays open and no
    reward goes out. The question celebrates first and never contrasts the
-   report against the list — "Nice one — want me to log that as done, or did
-   you mean {task}?", naming the conversation's current task when there is one,
-   or "Nice one — want me to log that as done?" when there is none. The model
+   report against the list — "Nice one! Did you mean {task}?", naming the
+   conversation's current task when there is one, or "Nice one! Which task
+   should I mark done?" when there is none. Logging a new task is not offered:
+   the reply asks only what the node can act on. The model
    is asked even when the list holds no open tasks, so a concrete report still
    gets the question. A bare "done" or a feeling
    ("done :) feeling good") names no task and still resolves from context.

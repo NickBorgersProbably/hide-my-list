@@ -16,8 +16,8 @@ import pytest
 from app.graph.nodes import complete as complete_module
 from app.graph.state import State
 
-_WITH_OPTION = "Nice one — want me to log that as done, or did you mean {task}?"
-_NO_OPTION = "Nice one — want me to log that as done?"
+_WITH_OPTION = "Nice one! Did you mean {task}?"
+_NO_OPTION = "Nice one! Which task should I mark done?"
 
 
 def _notion_page(page_id: str, title: str) -> dict[str, Any]:
