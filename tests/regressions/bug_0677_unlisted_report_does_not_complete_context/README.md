@@ -19,9 +19,27 @@ message clearly reports finishing a specific, concrete task that matches none
 of the candidates. A null match with that flag set — over the scored shortlist
 or the widened list alike — never falls through to the ledger, the recent
 delivery, or the active task. The node asks instead, with positive copy that
-never contrasts the report against the list, offering the context task by name
-when there is one, and records the question in `pending_clarification`.
+never contrasts the report against the list, and records the question in
+`pending_clarification` as an `unlisted_report` clarification.
 `complete_node.unlisted_report` logs booleans and counts only.
+
+Every form of the question is a yes/no choice where one is possible, so the
+user never has to recall and retype what they just reported. The match prompt
+also returns `unlisted_task_title`, a short title for the report; it is kept
+only when it shares a task-naming word with the message.
+
+- With a context task: "Nice one! Did you mean {task}?". "yes" (or "that
+  one") completes that task. "no" offers to log the report — "Got it. Want me
+  to log '<title>' as done?" — when a title was kept, and otherwise leaves
+  everything open.
+- With no context task and a title: "Nice one! Want me to log '<title>' as
+  done?". "yes" creates the page Completed (or completes the open task it
+  duplicates), rewards it, and celebrates it by name through the shared
+  `app/graph/nodes/_log_finished.py`; "no" leaves everything open.
+- With neither: "Nice one! Which task should I mark done?".
+
+An answer to any of these never falls back to the ledger, the recent delivery,
+or the active task.
 
 An empty open list is no exception: with at least two task-naming words
 left after the completion words, the node still asks the model (with no
@@ -35,7 +53,11 @@ resolve, so "done :) feeling good" keeps completing the active task
 ## Regression Tests
 
 - `test_unlisted_report.py` pins the node behavior with a stubbed model,
-  including the empty-list case.
-- The model-behavior test is `tests/evals/fixtures/complete/unlisted_report_asks.yaml`.
+  including the empty-list case, the title grounding, the log stage, and an
+  unmatched answer that must not complete the context task.
+- `tests/integration/test_unlisted_report_flow.py` drives report → "no" →
+  "yes" and report → "yes" through `classify_intent` and `complete_node`.
+- The model-behavior tests are `tests/evals/fixtures/complete/unlisted_report_asks.yaml`
+  and `tests/evals/fixtures/complete/unlisted_report_log_stage.yaml`.
 - The intake `already_done` handoff, which delegates to `complete_node`, is
   covered in `tests/integration/test_intake.py`.

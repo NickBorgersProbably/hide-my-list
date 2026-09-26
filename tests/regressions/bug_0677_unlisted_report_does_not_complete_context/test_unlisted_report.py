@@ -2,7 +2,9 @@
 
 "I also paid the gas bill!" names a finished task that is on none of the
 candidates. The model says so (`names_unlisted_task: true`), and the node asks
-rather than completing whatever the conversation last touched.
+rather than completing whatever the conversation last touched. Every question
+on this path is a yes/no choice where one is possible, so the user never has to
+repeat the report, and an answer to it never falls back to a context task.
 """
 from __future__ import annotations
 
@@ -112,7 +114,7 @@ async def test_an_unlisted_report_does_not_complete_the_active_task() -> None:
     assert draft["notion_page_title"] == "Fold the laundry"
     assert draft["notion_page_id"] is None
     clarification = result["pending_clarification"]
-    assert clarification["kind"] == "complete_target"
+    assert clarification["kind"] == "unlisted_report"
     assert clarification["candidates"][0]["page_id"] == "<page_A>"
     assert "recent_tasks" not in result
 
@@ -230,3 +232,107 @@ async def test_an_empty_list_with_a_one_word_residue_skips_the_model() -> None:
 
     model.ainvoke.assert_not_awaited()
     assert result["pending_outbound"][0]["body"] != _NO_OPTION
+
+
+_TITLED = dict(_UNLISTED, unlisted_task_title="Pay the gas bill")
+
+
+@pytest.mark.asyncio
+async def test_a_titled_report_with_no_context_offers_to_log_it() -> None:
+    result, update_status, reward_mock = await _run(
+        "I also paid the gas bill!", pages=_DECOYS, verdict=_TITLED
+    )
+
+    update_status.assert_not_awaited()
+    reward_mock.assert_not_awaited()
+    assert result["pending_outbound"][0]["body"] == (
+        "Nice one! Want me to log 'Pay the gas bill' as done?"
+    )
+    clarification = result["pending_clarification"]
+    assert clarification["kind"] == "unlisted_report"
+    assert clarification["candidates"] == []
+    assert clarification["title"] == "Pay the gas bill"
+
+
+@pytest.mark.asyncio
+async def test_an_ungrounded_title_is_never_offered() -> None:
+    """A title sharing no word with the message is the model's invention."""
+    result, _, _ = await _run(
+        "I also paid the gas bill!",
+        pages=_DECOYS,
+        verdict=dict(_UNLISTED, unlisted_task_title="Water the plants"),
+    )
+
+    assert result["pending_outbound"][0]["body"] == _NO_OPTION
+    assert result["pending_clarification"]["title"] == ""
+
+
+def _pending(*, candidates: list[dict[str, str]], title: str, attempts: int) -> dict[str, Any]:
+    return {
+        "kind": "unlisted_report",
+        "asked_at": datetime.now(UTC).isoformat(),
+        "attempts": attempts,
+        "candidates": candidates,
+        "title": title,
+    }
+
+
+@pytest.mark.asyncio
+async def test_yes_at_the_log_stage_creates_a_completed_page() -> None:
+    state = _state("yes", active_task=_live_active("<page_A>", "Fold the laundry"))
+    state["pending_clarification"] = _pending(  # type: ignore[typeddict-item]
+        candidates=[], title="Pay the gas bill", attempts=2
+    )
+    update_status = AsyncMock()
+    create_task = AsyncMock(return_value={"id": "<page_new>"})
+    reward_mock = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.tools.notion.query_all", AsyncMock(return_value={"results": _DECOYS})),
+        patch("app.tools.rewards.maybe_reward", reward_mock),
+        patch("app.models.llm", return_value=_model({"matched_page_id": None, "confidence": 0.0})),
+    ):
+        result = await complete_module.complete_node(state)
+
+    update_status.assert_not_awaited()
+    assert create_task.await_args.kwargs["status"] == "Completed"
+    assert create_task.await_args.kwargs["title"] == "Pay the gas bill"
+    reward_mock.assert_awaited_once()
+    assert result["pending_outbound"][0]["notion_page_title"] == "Pay the gas bill"
+    assert result["pending_clarification"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_unmatched_answer_never_falls_back_to_the_context_task() -> None:
+    """"hmm" answers nothing; the live active task stays open and the question closes."""
+    state = _state("hmm, not sure", active_task=_live_active("<page_A>", "Fold the laundry"))
+    state["pending_clarification"] = _pending(
+        candidates=[{"page_id": "<page_A>", "title": "Fold the laundry"}],
+        title="Pay the gas bill",
+        attempts=1,
+    )  # type: ignore[typeddict-item]
+    result, update_status, reward_mock = await _run_state(state)
+
+    update_status.assert_not_awaited()
+    reward_mock.assert_not_awaited()
+    assert result["pending_outbound"][0]["notion_page_id"] is None
+    # The question closes rather than asking the user to name the task again.
+    assert result["pending_clarification"] is None
+    assert "?" not in result["pending_outbound"][0]["body"]
+
+
+async def _run_state(state: State) -> tuple[dict[str, Any], AsyncMock, AsyncMock]:
+    update_status = AsyncMock()
+    reward_mock = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", AsyncMock(return_value={"results": _DECOYS})),
+        patch("app.tools.rewards.maybe_reward", reward_mock),
+        patch.object(
+            complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
+        ),
+        patch("app.models.llm", return_value=_model({"matched_page_id": None, "confidence": 0.0})),
+    ):
+        result = await complete_module.complete_node(state)
+    return result, update_status, reward_mock

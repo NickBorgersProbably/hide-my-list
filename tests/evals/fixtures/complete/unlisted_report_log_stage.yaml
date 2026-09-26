@@ -1,0 +1,43 @@
+---
+# Complete scenario: the user reported finishing something that matched no
+# open task, declined the task offered back, and was asked "Want me to log
+# 'Pay the gas bill' as done?". This "yes" answers that question: the node
+# logs the report as a Completed page and celebrates it by name, without
+# asking the user to repeat what they did. The active decoy stays open.
+id: complete-unlisted-report-log-stage-001
+node: complete
+tier: cheap
+peer: "<test-peer-12>"
+inbound: "yes"
+prior_state:
+  streak: 1
+  tasks_completed_today: 0
+  conversation_state: idle
+  pending_clarification:
+    kind: unlisted_report
+    asked_at: "2026-01-01T00:00:00+00:00"
+    attempts: 2
+    candidates: []
+    title: "Pay the gas bill"
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Fold the laundry"
+    status: "In Progress"
+    work_type: "Physical"
+    energy_required: "Low"
+    time_estimate: 20
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)which task|what.s the task (called|again)"
+  - kind: judge
+    rubric: |
+      The response celebrates a finished task by name — the {task} token
+      stands for the logged task's title — and treats it as done. Score 1.0
+      when it celebrates the task as finished without asking another question
+      or presenting it as something still to do, 0.0 when it asks the user to
+      name or repeat the task, or treats it as open.
+    threshold: 0.7

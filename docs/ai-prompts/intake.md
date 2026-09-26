@@ -46,11 +46,8 @@ Analyze the task and provide structured output:
 TASK_ANALYSIS:
 - title: (concise task name, max 200 chars)
 - work_type: (focus|creative|social|independent)
-- work_type_confidence: (0.0-1.0)
 - urgency: (0-100)
-- urgency_confidence: (0.0-1.0)
 - time_estimate_minutes: (number)
-- time_confidence: (0.0-1.0)
 - energy_required: (high|medium|low)
 
 SUB-TASK GENERATION (ALWAYS REQUIRED):
@@ -290,11 +287,8 @@ If task is clear enough to save:
   "action": "save",
   "title": "...",
   "work_type": "...",
-  "work_type_confidence": 0.0,
   "urgency": 0,
-  "urgency_confidence": 0.0,
   "time_estimate_minutes": 0,
-  "time_confidence": 0.0,
   "energy_required": "...",
   "is_reminder": false,
   "remind_at": null,
@@ -304,12 +298,10 @@ If task is clear enough to save:
     {
       "title": "...",
       "time_estimate_minutes": 0,
-      "done_criteria": "what 'done' looks like",
       "sequence": 1
     }
   ],
   "inline_steps": "1. First step\n2. Second step\n3. Third step" (if use_hidden_subtasks=false),
-  "presentable_title": "..." (first actionable step if use_hidden_subtasks=true),
   "confirmation_message": "..." (see CONFIRMATION MESSAGE FORMAT),
   "already_finished": false (true only for the clarification exception under ALREADY DONE REPORTS)
 }
@@ -322,9 +314,7 @@ If the message reports the task as already finished:
 If task is too vague and clarification_count < 3:
 {
   "action": "clarify",
-  "clarification_question": "...",
-  "clarification_count": 1,
-  "reason": "brief explanation of what is unclear"
+  "clarification_question": "..."
 }
 
 CONFIRMATION MESSAGE FORMAT:

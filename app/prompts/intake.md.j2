@@ -156,7 +156,7 @@ If task is clear enough to save:
   "remind_at": null,
   "due_at": null,
   "use_hidden_subtasks": false,
-  "sub_tasks": [{"title": "...", "time_estimate_minutes": 10, "done_criteria": "...", "sequence": 1}],
+  "sub_tasks": [{"title": "...", "time_estimate_minutes": 10, "sequence": 1}],
   "inline_steps": "1. First step\n2. Second step",
   "confirmation_message": "Got it — {task}, due Friday. First step: open the form.",
   "already_finished": false
@@ -170,8 +170,7 @@ If the message reports the task as already finished:
 If task is too vague and clarification_count < 3:
 {
   "action": "clarify",
-  "clarification_question": "...",
-  "clarification_count": 1
+  "clarification_question": "..."
 }
 
 ### Confirmation Message Format

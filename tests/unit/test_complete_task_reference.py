@@ -34,9 +34,11 @@ from app.graph.nodes.complete import (
     _clarification_candidates,
     _CompletionTarget,
     _deterministic_answer,
+    _grounded_unlisted_title,
     _ledger_options,
     _ledger_targets,
     _parse_names_unlisted,
+    _parse_unlisted_title,
     _target_from_ledger,
     _task_reference_tokens,
     _TitleMatch,
@@ -587,7 +589,6 @@ def test_the_title_match_defaults_to_no_unlisted_report() -> None:
 def test_an_unlisted_report_offers_the_context_task_by_token() -> None:
     result = _ask_about_unlisted_report(
         "<test-peer>",
-        attempts=0,
         options=[
             DedupCandidate("<page_A>", "Fold the laundry", 0.0),
             DedupCandidate("<page_B>", "Book the dentist", 0.0),
@@ -602,24 +603,108 @@ def test_an_unlisted_report_offers_the_context_task_by_token() -> None:
     assert draft["notion_page_id"] is None
     assert result["active_task"] is None
     clarification = result["pending_clarification"]
-    assert clarification["kind"] == "complete_target"
+    assert clarification["kind"] == "unlisted_report"
     assert clarification["attempts"] == 1
+    assert clarification["title"] == ""
     # Only the option the question names is stored: a positional answer can
     # point only at what the user was shown.
     assert [c["page_id"] for c in clarification["candidates"]] == ["<page_A>"]
 
 
 def test_an_unlisted_report_with_nothing_to_name_asks_to_add_it() -> None:
-    result = _ask_about_unlisted_report("<test-peer>", attempts=0, options=[])
+    result = _ask_about_unlisted_report("<test-peer>", options=[])
     draft = result["pending_outbound"][0]
     assert draft["body"] == "Nice one! Which task should I mark done?"
     assert "notion_page_title" not in draft
     assert result["pending_clarification"]["candidates"] == []
+    assert result["pending_clarification"]["title"] == ""
+
+
+def test_an_unlisted_report_with_a_title_and_no_option_offers_to_log_it() -> None:
+    """No task to offer: a yes/no choice to log the report, never a recall question."""
+    result = _ask_about_unlisted_report(
+        "<test-peer>", options=[], title="Pay the placeholder bill"
+    )
+    draft = result["pending_outbound"][0]
+    assert draft["body"] == "Nice one! Want me to log 'Pay the placeholder bill' as done?"
+    # The proposed title is not a stored Notion title: rendered directly.
+    assert "notion_page_title" not in draft
+    assert "{task}" not in draft["body"]
+    clarification = result["pending_clarification"]
+    assert clarification["kind"] == "unlisted_report"
+    assert clarification["attempts"] == 1
+    assert clarification["candidates"] == []
+    assert clarification["title"] == "Pay the placeholder bill"
+
+
+def test_an_unlisted_report_with_an_option_keeps_the_title_for_a_no() -> None:
+    result = _ask_about_unlisted_report(
+        "<test-peer>",
+        options=[DedupCandidate("<page_A>", "Fold the laundry", 0.0)],
+        title="Pay the placeholder bill",
+    )
+    assert result["pending_outbound"][0]["body"] == "Nice one! Did you mean {task}?"
+    clarification = result["pending_clarification"]
+    assert [c["page_id"] for c in clarification["candidates"]] == ["<page_A>"]
+    assert clarification["title"] == "Pay the placeholder bill"
+
+
+@pytest.mark.parametrize(
+    ("response_text", "expected"),
+    [
+        ('{"names_unlisted_task": true, "unlisted_task_title": "Pay the gas bill"}',
+         "Pay the gas bill"),
+        ('{"names_unlisted_task": true, "unlisted_task_title": "  Pay the\\n gas   bill "}',
+         "Pay the gas bill"),
+        ('{"names_unlisted_task": true}', ""),
+        ('{"names_unlisted_task": true, "unlisted_task_title": null}', ""),
+        ('{"names_unlisted_task": true, "unlisted_task_title": "null"}', ""),
+        ('{"names_unlisted_task": true, "unlisted_task_title": 7}', ""),
+        ('{"names_unlisted_task": true, "unlisted_task_title": ""}', ""),
+        ('{"names_unlisted_task": true, "unlisted_task_title": "{task} gas"}', ""),
+        ("not json", ""),
+        ('{"unlisted_task_title": "Pay the gas bill"', ""),
+    ],
+)
+def test_unlisted_title_parser_tolerates_every_shape(response_text: str, expected: str) -> None:
+    assert _parse_unlisted_title(response_text) == expected
+
+
+def test_unlisted_title_parser_caps_the_length() -> None:
+    long_title = "Pay " + "x" * 400
+    parsed = _parse_unlisted_title(
+        '{"unlisted_task_title": "' + long_title + '"}'
+    )
+    assert len(parsed) <= 200
+    assert parsed.startswith("Pay ")
+
+
+def test_unlisted_title_must_share_a_word_with_the_message() -> None:
+    residue = _task_reference_tokens("I also paid the gas bill!")
+    assert _grounded_unlisted_title("Pay the gas bill", residue) == "Pay the gas bill"
+    # Invented from nothing the user said: never offered back.
+    assert _grounded_unlisted_title("Water the plants", residue) == ""
+    assert _grounded_unlisted_title("", residue) == ""
+
+
+def test_the_standalone_prompt_asks_for_a_short_title() -> None:
+    candidates = [DedupCandidate("<page_A>", "Call mom", 0.9)]
+    standalone = _build_completion_match_prompt("I also paid the gas bill!", candidates)
+    answering = _build_completion_match_prompt(
+        "the mom one", candidates, answering_clarification=True
+    )
+    assert '"unlisted_task_title": null' in standalone
+    assert "under 8 words" in standalone
+    assert "unlisted_task_title" not in answering
 
 
 def test_the_unlisted_copy_never_contrasts_against_the_list() -> None:
-    for options in ([], [DedupCandidate("<page_A>", "Fold the laundry", 0.0)]):
-        body = _ask_about_unlisted_report("<p>", attempts=0, options=options)[
+    for options, title in (
+        ([], ""),
+        ([], "Pay the placeholder bill"),
+        ([DedupCandidate("<page_A>", "Fold the laundry", 0.0)], ""),
+    ):
+        body = _ask_about_unlisted_report("<p>", options=options, title=title)[
             "pending_outbound"
         ][0]["body"].lower()
         for phrase in ("but ", "only ", "instead", "not done", "wrong", "didn't"):

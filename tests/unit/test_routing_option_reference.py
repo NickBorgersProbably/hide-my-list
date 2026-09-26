@@ -224,3 +224,135 @@ async def test_expired_or_malformed_clarification_disables_the_guard(pending: An
     assert fake.calls == 1
     assert result["intent"] == "ADD_TASK"
     assert result["pending_clarification"] is None
+
+
+# ---------------------------------------------------------------------------
+# unlisted_report: the question after a report that matched no open task
+# ---------------------------------------------------------------------------
+
+_TITLE = "Pay the placeholder bill"
+_OPTION = {"page_id": "<page-id-1>", "title": "Test task one"}
+
+
+def _unlisted(stage: str) -> dict[str, Any]:
+    """The three shapes an unlisted-report question can take.
+
+    - ``option``: "Did you mean <option>?" with a proposed title kept for a "no";
+    - ``log``: "Want me to log '<title>' as done?" (title, no candidates);
+    - ``no_title``: "Did you mean <option>?" with no title to fall back on.
+    """
+    if stage == "option":
+        return _clarification(
+            kind="unlisted_report", candidates=[dict(_OPTION)], title=_TITLE
+        )
+    if stage == "log":
+        return _clarification(kind="unlisted_report", attempts=2, candidates=[], title=_TITLE)
+    return _clarification(kind="unlisted_report", candidates=[dict(_OPTION)], title="")
+
+
+def test_live_clarification_accepts_the_unlisted_report_kind() -> None:
+    from app.graph import routing
+
+    for stage in ("option", "log", "no_title"):
+        pending = _unlisted(stage)
+        assert routing._live_clarification(_state("x", pending)) == pending
+
+
+@pytest.mark.parametrize(
+    "pending",
+    [
+        _clarification(
+            kind="unlisted_report", asked_at=datetime.now(UTC) - timedelta(hours=2), title=_TITLE
+        ),
+        _clarification(kind="unlisted_report", attempts=3, title=_TITLE),
+        _clarification(kind="unlisted_report", title=7),
+    ],
+    ids=["expired", "past-attempt-cap", "non-string-title"],
+)
+def test_live_clarification_applies_the_same_rules_to_unlisted_reports(pending: Any) -> None:
+    from app.graph import routing
+
+    assert routing._live_clarification(_state("x", pending)) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["option", "log", "no_title"])
+@pytest.mark.parametrize("reply", ["yes", "yeah", "the first one", "that one"])
+async def test_affirmative_or_positional_reply_to_an_unlisted_report_routes_complete(
+    stage: str, reply: str
+) -> None:
+    from app.graph import routing
+
+    pending = _unlisted(stage)
+    fake = _RecordingLLM("ADD_TASK")
+    with patch("app.models.llm", new=fake):
+        result = await routing.classify_intent(_state(reply, pending))
+
+    assert fake.calls == 0
+    assert result["intent"] == "COMPLETE"
+    assert result["pending_clarification"] == pending
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", ["no", "nope", "neither"])
+async def test_no_to_the_named_option_offers_to_log_the_report(reply: str) -> None:
+    """Declining the option is not declining the accomplishment."""
+    from app.graph import routing
+
+    fake = _RecordingLLM("COMPLETE")
+    with patch("app.models.llm", new=fake):
+        result = await routing.classify_intent(_state(reply, _unlisted("option")))
+
+    assert fake.calls == 0
+    assert result["intent"] == "CHAT"
+    assert result["classification_error_fallback"] is True
+    body = result["pending_outbound"][0]["body"]
+    assert body == f"Got it. Want me to log '{_TITLE}' as done?"
+    assert "notion_page_title" not in result["pending_outbound"][0]
+    stage_two = result["pending_clarification"]
+    assert stage_two["kind"] == "unlisted_report"
+    assert stage_two["candidates"] == []
+    assert stage_two["attempts"] == 2
+    assert stage_two["title"] == _TITLE
+    # The stage-two record is itself live, so its "yes" reaches complete_node.
+    assert routing._live_clarification(_state("yes", stage_two)) == stage_two
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["log", "no_title"])
+@pytest.mark.parametrize("reply", ["no", "nope"])
+async def test_no_at_the_log_stage_or_without_a_title_leaves_it_open(
+    stage: str, reply: str
+) -> None:
+    from app.graph import routing
+
+    fake = _RecordingLLM("COMPLETE")
+    with patch("app.models.llm", new=fake):
+        result = await routing.classify_intent(_state(reply, _unlisted(stage)))
+
+    assert fake.calls == 0
+    assert result["intent"] == "CHAT"
+    assert result["pending_clarification"] is None
+    assert result["pending_outbound"][0]["body"] == routing._CLARIFICATION_DECLINED_REPLY
+
+
+@pytest.mark.parametrize(
+    ("reply", "affirmative", "selects"),
+    [
+        ("yes", True, True),
+        ("Yeah!", True, True),
+        ("the first one", False, True),
+        ("that one", False, True),
+        ("1", False, True),
+        ("the second one", False, False),
+        ("no", False, False),
+        ("yes log it please", False, False),
+    ],
+)
+def test_affirmative_and_single_option_readers(
+    reply: str, affirmative: bool, selects: bool
+) -> None:
+    from app.graph import routing
+
+    assert routing.is_affirmative_answer(reply) is affirmative
+    assert routing.selects_single_option(reply) is selects

@@ -83,10 +83,12 @@ sequenceDiagram
     Note over U,AI: Past-tense report of something never added
 
     U->>AI: "I also paid the gas bill!"
-    Note over AI: COMPLETE — no open task matches
-    AI->>U: "Nice one! Which task should I mark done?"
-    U->>AI: "no it's new, just log it"
-    Note over AI: ADD_TASK — title taken from the earlier message, already finished
+    Note over AI: COMPLETE — no open task matches, active task offered
+    AI->>U: "Nice one! Did you mean Review the proposal?"
+    U->>AI: "no"
+    Note over AI: Declined the task, not the accomplishment
+    AI->>U: "Got it. Want me to log 'Pay the gas bill' as done?"
+    U->>AI: "yes"
     AI->>N: Create task with Status Completed
     AI->>U: "Pay the gas bill — done. Nice work! ✨"
 ```
@@ -97,12 +99,15 @@ first step. Work type, time estimate, the numbered plan, and a step count
 never appear in it; the steps are stored with the task, where breakdown help
 reads them. When a deadline series is scheduled, the reply adds one sentence
 naming the earliest nudge. A message that reports a task as already finished
-is never saved as a new task: intake hands it to the completion flow. When
-the user answers that flow's question by saying the thing is new and asking
-to log it, it is still already done: intake creates the page Completed (or
-completes the open task it duplicates), runs the reward path, and replies with
-the completion celebration, so an accomplishment never becomes another open
-item on the list.
+is never saved as a new task: intake hands it to the completion flow. That
+flow answers with yes/no choices, so the user never retypes what they did:
+it offers the task in play ("Did you mean …?"), and when the user says no — or
+when there is no task to offer — it offers to log the report under a short
+proposed title. A "yes" to that, like answering with "it's new, just log it",
+logs the report as already done: the page is created Completed (or the open
+task it duplicates is completed), the reward path runs, and the reply is the
+completion celebration, so an accomplishment never becomes another open item
+on the list.
 
 > **Decision Fatigue Prevention:** System prefers inference over questions. All labels (urgency, time, work type) inferred from context — never asked. When task too vague to identify (e.g., "do the thing"), up to 3 simple clarifying questions, one at a time. User can correct after ("actually that's urgent") but never forced to decide on labels.
 
@@ -248,12 +253,23 @@ flowchart LR
    is about the gas bill. That report is answered with a question, never with
    a context completion: the active or most recent task stays open and no
    reward goes out. The question celebrates first and never contrasts the
-   report against the list — "Nice one! Did you mean {task}?", naming the
-   conversation's current task when there is one, or "Nice one! Which task
-   should I mark done?" when there is none. Logging a new task is not offered:
-   the reply asks only what the node can act on. The model
-   is asked even when the list holds no open tasks, so a concrete report still
-   gets the question. A bare "done" or a feeling
+   report against the list, and it is a yes/no choice so the user never has
+   to repeat what they just said:
+   - "Nice one! Did you mean {task}?" names the conversation's current task
+     when there is one. "yes" completes it. "no" offers to log the report
+     instead — "Got it. Want me to log 'Pay the gas bill' as done?" — using a
+     short title the model proposes from the user's own words.
+   - With no current task, the log offer comes first: "Nice one! Want me to
+     log 'Pay the gas bill' as done?".
+   - "yes" to the log offer creates the task already Completed (or completes
+     the open task it duplicates), rewards it, and celebrates it by name. "no"
+     leaves everything open.
+   - Only when the model proposes no usable title does the reply ask "Nice
+     one! Which task should I mark done?".
+
+   An answer to any of these never falls back to the current or most recent
+   task. The model is asked even when the list holds no open tasks, so a
+   concrete report still gets the question. A bare "done" or a feeling
    ("done :) feeling good") names no task and still resolves from context.
 2. **The most recent context** — whichever is newest among the tasks this
    conversation just touched (the recent-task ledger: tasks added, suggested,

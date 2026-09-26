@@ -81,11 +81,20 @@ class PendingClarification(TypedDict, total=False):
     `asked_at` is an ISO-8601 UTC timestamp; a stale clarification expires
     rather than binding a much later "yeah" to a question the user has
     forgotten asking.
+
+    `kind` says which question is open. `complete_target` asks which task a
+    completion was about. `unlisted_report` follows a report of a finished task
+    that matches nothing on the list; `title` is the model's proposed title for
+    that accomplishment (grounded in the user's own words, or "" when there is
+    none). With a candidate it asks "did you mean <candidate>?"; with a title
+    and no candidates it asks whether to log `title` as done. The title is
+    private; log booleans only, never the title itself.
     """
-    kind: Literal["complete_target"]
+    kind: Literal["complete_target", "unlisted_report"]
     asked_at: str
     attempts: int
     candidates: list[ClarificationCandidate]
+    title: NotRequired[str]
 
 
 RecentTaskKind = Literal["task", "reminder"]

@@ -69,8 +69,28 @@ _NEGATIVE_ANSWER_RE = re.compile(
     r"|none(?: of (?:them|those))?"
 )
 
+# Bare affirmatives. They also match _OPTION_REFERENCE_RE (so they route to
+# COMPLETE); complete_node reads them separately to answer a yes/no question.
+_AFFIRMATIVE_ANSWER_RE = re.compile(r"yes|yep|yeah")
+
+# Replies that select the only option of a one-option question: an
+# affirmative, or a position that can only mean that option.
+_SINGLE_OPTION_RE = re.compile(
+    r"(?:the )?(?:first|1st|last)(?: one)?"
+    r"|(?:number )?1"
+    r"|that one|this one"
+    r"|yes|yep|yeah"
+)
+
+_CLARIFICATION_KINDS: frozenset[str] = frozenset({"complete_target", "unlisted_report"})
+
 # Sent when the user declines the clarification; the task remains open.
 _CLARIFICATION_DECLINED_REPLY = "Got it, leaving that open."
+
+# Sent when the user declines the named option of an unlisted-report question
+# and the report carries a proposed title: the accomplishment is still offered,
+# as a yes/no choice, so the user never has to repeat it.
+_OFFER_TO_LOG_AFTER_DECLINE = "Got it. Want me to log '{title}' as done?"
 
 
 def _normalize_reply(text: str) -> str:
@@ -85,6 +105,16 @@ def _is_option_reference(text: str) -> bool:
 
 def _is_negative_answer(text: str) -> bool:
     return _NEGATIVE_ANSWER_RE.fullmatch(_normalize_reply(text)) is not None
+
+
+def is_affirmative_answer(text: str) -> bool:
+    """Whether the whole message is a bare yes ("yes", "yep", "yeah")."""
+    return _AFFIRMATIVE_ANSWER_RE.fullmatch(_normalize_reply(text)) is not None
+
+
+def selects_single_option(text: str) -> bool:
+    """Whether the whole message picks the one option a question named."""
+    return _SINGLE_OPTION_RE.fullmatch(_normalize_reply(text)) is not None
 
 
 _INTENT_SYSTEM_PROMPT = """\
@@ -150,7 +180,9 @@ def _live_clarification(state: State) -> PendingClarification | None:
     pending = state.get("pending_clarification")
     if not isinstance(pending, dict):
         return None
-    if pending.get("kind") != "complete_target":
+    if pending.get("kind") not in _CLARIFICATION_KINDS:
+        return None
+    if "title" in pending and not isinstance(pending.get("title"), str):
         return None
 
     raw_asked_at = pending.get("asked_at")
@@ -250,18 +282,56 @@ def _resolve_with_backend_fallback(state: State) -> dict[str, Any]:
     }
 
 
-def _resolve_with_negative_answer(state: State) -> dict[str, Any]:
+def _resolve_with_negative_answer(
+    state: State, pending: PendingClarification
+) -> dict[str, Any]:
     """Handle a bare negative reply to an open completion clarification.
 
-    The user declined the offered option(s). Clear the clarification, leave
-    every task open, and send a brief acknowledgement. Never writes Completed
-    or issues a reward. Routes straight to send via classification_error_fallback
-    so chat_node does not run and send a second reply.
+    The user declined the offered option(s). Leave every task open and send a
+    brief reply; never write Completed or issue a reward. Routes straight to
+    send via classification_error_fallback so chat_node does not run and send a
+    second reply.
+
+    One case keeps the conversation going: an unlisted-report question that
+    named an option and carries a proposed title. Declining the option does not
+    decline the accomplishment, so the reply offers to log the title — a yes/no
+    choice rather than a request to repeat it — and stores that as the next
+    stage of the same clarification (no candidates, attempts 2). Every other
+    negative clears the clarification.
     """
     peer = state.get("peer", "")
+    title = str(pending.get("title") or "").strip()
+    candidates = pending.get("candidates") or []
+    if pending.get("kind") == "unlisted_report" and candidates and title:
+        # Booleans only — the title is the user's own words.
+        log.info(
+            "classify_intent.clarification_offer_to_log",
+            has_peer=bool(peer),
+        )
+        offer: PendingClarification = {
+            "kind": "unlisted_report",
+            "asked_at": datetime.now(UTC).isoformat(),
+            "attempts": _MAX_CLARIFICATION_ATTEMPTS,
+            "candidates": [],
+            "title": title,
+        }
+        return {
+            "intent": "CHAT",
+            "pending_clarification": offer,
+            "pending_outbound": [
+                {
+                    "recipient": peer,
+                    "body": _OFFER_TO_LOG_AFTER_DECLINE.format(title=title),
+                    "notion_page_id": None,
+                }
+            ],
+            "classification_error_fallback": True,
+        }
+
     log.info(
         "classify_intent.clarification_declined",
         has_peer=bool(peer),
+        kind=pending.get("kind"),
     )
     return {
         "intent": "CHAT",
@@ -287,8 +357,9 @@ async def classify_intent(state: State) -> dict[str, Any]:
     # A bare negative reply to an open clarification declines without selecting.
     # Check before the affirmative option-reference guard so "no" never steers
     # to COMPLETE and never reaches complete_node's context fallback.
-    if _live_clarification(state) is not None and _is_negative_answer(incoming):
-        return _resolve_with_negative_answer(state)
+    live = _live_clarification(state)
+    if live is not None and _is_negative_answer(incoming):
+        return _resolve_with_negative_answer(state, live)
 
     # A positional reply to an open clarification ("the first one", "yes") is
     # its answer. Resolve it here, before a model label can drop the
