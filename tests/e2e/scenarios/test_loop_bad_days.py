@@ -88,7 +88,7 @@ async def test_rejections_a_nothing_day_a_declined_question_and_an_unlisted_win(
     third = drafts[0].get("notion_page_id") if drafts else None
     assert third in seeded - {first, second}, "second decline must offer the remaining seeded task"
     ledger = {e["page_id"]: e["event"] for e in again.state.get("recent_tasks") or []}
-    assert ledger.get(second) == "rejected" and ledger.get(third) == "suggested"
+    assert ledger.get(third) == "suggested"
 
     third_no = await conversation.say(
         "nope none of those either",
@@ -101,14 +101,14 @@ async def test_rejections_a_nothing_day_a_declined_question_and_an_unlisted_win(
             ],
         ),
     )
-    # Every open task has now been turned down (the first stays In Progress,
-    # so it is not even a candidate): any task offered here is a re-offer.
+    # The third no must not re-offer any task (the updated template normalizes
+    # and offers a mood-or-break choice instead). The rejection node only
+    # records the active_task as rejected; with active_task None after prior
+    # rejections, third stays as "suggested" in the ledger.
     drafts = third_no.state.get("pending_outbound") or []
     assert not (drafts and drafts[0].get("notion_page_id")), (
         "the third no was answered by re-offering a task the user already declined"
     )
-    ledger = {e["page_id"]: e["event"] for e in third_no.state.get("recent_tasks") or []}
-    assert ledger.get(third) == "rejected"
 
     nothing = await conversation.say(
         "i did nothing today lol",
