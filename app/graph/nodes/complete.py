@@ -1409,11 +1409,18 @@ async def complete_node(state: State) -> dict[str, Any]:
             ledger_targets=ledger_targets,
         )
 
-        # The message names a finished task that is none of the candidates —
-        # scored or widened alike. It is about something else, so no context
-        # task may be completed on its behalf; ask instead. The live context
-        # task leads the options, since the user may have meant it after all.
-        if title_match.target is None and title_match.names_unlisted:
+        # The message names a finished task that overlapped no candidate: the
+        # list was widened or empty and the model still found nothing. It is
+        # about something else, so no context task may be completed on its
+        # behalf; ask instead, with the live context task leading the options.
+        # Over a scored shortlist a null match keeps the existing question
+        # that names those overlapping options — the message was about one of
+        # them, however the model read it.
+        if (
+            title_match.target is None
+            and title_match.names_unlisted
+            and (title_match.widened or title_match.candidate_count == 0)
+        ):
             unlisted_options: list[DedupCandidate] = []
             if (
                 target is not None

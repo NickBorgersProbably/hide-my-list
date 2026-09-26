@@ -254,9 +254,11 @@ title is kept only when it is a single line of at most 200 characters with no
 braces and shares at least one task-naming word with the message; a title
 built from nothing the user said is dropped.
 
-A null match with that report set, over either list or an empty one, is
-answered with a question and never with a context completion: nothing is
-written and no reward goes out. The question celebrates first, never contrasts
+A null match with that report set over the widened list, or over an empty
+one, is answered with a question and never with a context completion: nothing
+is written and no reward goes out. Over the scored shortlist a null match keeps
+the existing question that names those overlapping options: the message was
+about one of them, however the model read it. The question celebrates first, never contrasts
 the report against the list, and is a yes/no choice whenever one is possible,
 so the user never has to recall and retype what they just said:
 

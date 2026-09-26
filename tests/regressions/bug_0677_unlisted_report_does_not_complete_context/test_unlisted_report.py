@@ -120,8 +120,13 @@ async def test_an_unlisted_report_does_not_complete_the_active_task() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_unlisted_report_over_a_scored_shortlist_also_asks() -> None:
-    """The flag wins whether or not the message overlapped a title."""
+async def test_an_unlisted_report_over_a_scored_shortlist_asks_with_those_options() -> None:
+    """Over a scored shortlist the flag does not take over.
+
+    The message overlapped an open task's title, so it was about one of those
+    options however the model read it; the existing question names them, and
+    no context task is completed on the report's behalf.
+    """
     result, update_status, reward_mock = await _run(
         "paid the dentist bill",
         pages=_DECOYS,
@@ -131,8 +136,12 @@ async def test_an_unlisted_report_over_a_scored_shortlist_also_asks() -> None:
 
     update_status.assert_not_awaited()
     reward_mock.assert_not_awaited()
-    assert result["pending_outbound"][0]["body"] == _WITH_OPTION
-    assert result["pending_clarification"] is not None
+    body = result["pending_outbound"][0]["body"]
+    assert body != _WITH_OPTION and body != _NO_OPTION
+    assert "dentist" in body.lower()
+    clarification = result["pending_clarification"]
+    assert clarification is not None and clarification["kind"] == "complete_target"
+    assert any("dentist" in c["title"].lower() for c in clarification["candidates"])
 
 
 @pytest.mark.asyncio

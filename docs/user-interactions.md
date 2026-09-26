@@ -250,9 +250,11 @@ flowchart LR
 
    The model also says whether the message names a specific finished task that
    is on none of the candidates — "I also paid the gas bill!" when no open task
-   is about the gas bill. That report is answered with a question, never with
+   is about the gas bill. When the message overlapped no open task (the
+   widened or empty list), that report is answered with a question, never with
    a context completion: the active or most recent task stays open and no
-   reward goes out. The question celebrates first and never contrasts the
+   reward goes out. When the message overlapped open tasks, the existing
+   question names those options instead. The question celebrates first and never contrasts the
    report against the list, and it is a yes/no choice so the user never has
    to repeat what they just said:
    - "Nice one! Did you mean {task}?" names the conversation's current task
