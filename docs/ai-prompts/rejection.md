@@ -91,7 +91,8 @@ State field tracks it directly; the application derives it from the
 recent-task ledger (see `docs/ai-prompts/shared.md`, Recent Task Ledger), walking
 newest-first, skipping the pending `suggested` alternative, and counting
 `rejected` entries until a `completed`, `added`, `reminded`, or `nudged`
-event breaks the streak.
+event breaks the streak. A `rejected` entry older than 24 hours also breaks
+it: a "no" from a different day is a different sitting.
 
 At the 3rd rejection and every one after, the response does not suggest
 another task at all — it normalizes explicitly first, then offers the
