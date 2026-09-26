@@ -6,8 +6,9 @@ Four turns, the shape of a real session:
 2. "sure" — accepting is CHAT, not a new request. The reply names the task the
    user just took on; nothing is written, because the status flip already
    happened when the task was offered.
-3. "that got complicated, something else?" — rejection clears the active task
-   and offers the other task by name.
+3. "that got complicated, something else?" — rejection clears the active task,
+   offers the other task by name, and records the decline and the offer in the
+   recent-task ledger. The alternative is not written to.
 4. The user reports the alternative done by name — title match completes it
    and leaves the rejected task alone.
 
@@ -75,6 +76,9 @@ async def test_suggest_accept_reject_then_complete_the_alternative(
         "that got complicated, something else?",
         expect=Expect(
             intent="REJECT",
+            # Offering the alternative writes nothing to it; the rejected page
+            # only gets its rejection count bumped.
+            notion_untouched=[alt],
             sent_count=1,
             regex_require=[by_page[alt][1]],
         ),
