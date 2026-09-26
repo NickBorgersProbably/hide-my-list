@@ -278,6 +278,30 @@ def test_inputs_carry_the_delivered_reply_and_this_turns_completions() -> None:
     assert inputs.open_tasks == ({"id": "<page_open>", "title": "Sort the mail", "kind": "task"},)
 
 
+def test_completed_this_turn_reads_both_completion_forms() -> None:
+    """A status write to Completed and a page created Completed both count.
+
+    COMPLETE writes the status; logging finished work (COMPLETE's unlisted
+    report, intake's already-finished save) creates the page Completed, or
+    writes the status when it matches an open task.
+    """
+    actions = [
+        {"action": "notion.update_status", "page_id": "<page_A>", "status": "Completed"},
+        {"action": "notion.create_task", "page_id": "<page_B>", "status": "Completed"},
+        {"action": "notion.create_task", "page_id": "<page_C>", "status": ""},
+        {"action": "notion.update_status", "page_id": "<page_D>", "status": "In Progress"},
+        {"action": "reward", "page_id": "<page_A>", "status": ""},
+    ]
+    ledger = [{
+        "page_id": "<page_B>", "title": "Pay the placeholder bill", "kind": "task",
+        "event": "completed", "at": datetime.now(UTC).isoformat(),
+    }]
+    assert review.completed_this_turn(actions, ledger) == [
+        {"id": "<page_A>", "title": ""},
+        {"id": "<page_B>", "title": "Pay the placeholder bill"},
+    ]
+
+
 def test_prompt_renders_every_input_and_section() -> None:
     now = datetime.now(UTC)
     inputs = review.inputs_from_state(
