@@ -32,9 +32,11 @@ contracts:
     rubric: |
       The user already got "find the claim number in your email" and is
       still stuck. Score 1.0 when the reply acknowledges that without blame
-      and offers an even smaller, physical first action (for example
-      picking up the phone, opening the email app, or putting the phone
-      number on screen) — one action, not a plan. Score 0.0 when it repeats
-      the same step, gives a multi-step plan, or implies the user should
-      be able to do it by now.
+      and offers an even smaller, physical first action — one action, not a
+      plan. A smaller piece of the earlier step counts as smaller, not as a
+      repeat: "just open your email app, don't search yet" is smaller than
+      "find the claim number in your email", as are "pick up your phone" or
+      "put the insurer's number on screen". Score 0.0 when it restates the
+      same step at the same size, gives a multi-step plan, or implies the
+      user should be able to do it by now.
     threshold: 0.8

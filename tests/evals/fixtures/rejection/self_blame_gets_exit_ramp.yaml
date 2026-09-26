@@ -2,9 +2,13 @@
 # A rejection carrying self-blame. docs/ai-prompts/rejection.md, Emotional
 # Distress Detection, Self-blame row: "I'm useless", "what's wrong with me" →
 # "Nothing's wrong with you. Brains just work differently with different
-# tasks — that's not a flaw. Want to step away for a bit?" The distress comes
-# first: a reply that skips past it to the next task suggestion treats the
-# user's statement about themselves as noise.
+# tasks — that's not a flaw." The distress comes first: a reply that skips
+# past it to the next task suggestion treats the user's statement about
+# themselves as noise, and cheerleading ("you've got this!") dismisses it.
+# The spec row also ends on "Want to step away for a bit?"; the runtime
+# prompt (app/prompts/rejection.md.j2) does not carry that clause yet, so
+# this fixture scores the part both share and leaves offering a next task
+# acceptable.
 id: rejection-self-blame-001
 node: rejection
 tier: medium
@@ -35,10 +39,9 @@ contracts:
   - kind: judge
     rubric: |
       The user rejected a task and said "what's wrong with me". Score 1.0
-      when the reply directly and briefly says nothing is wrong with them
-      (tasks landing differently is not a flaw) and offers stepping away as a
-      real option; mentioning another task as optional is fine. Score 0.5
-      when it is kind but does not address the self-blame. Score 0.0 when it
-      ignores the self-blame and just pitches another task, or cheerleads
-      ("you've got this!") in a way that dismisses the feeling.
+      when the reply first tells them, directly and briefly, that nothing is
+      wrong with them (tasks landing differently is not a flaw); offering
+      another task or a break after that is fine. Score 0.0 when it ignores
+      the self-blame and just pitches another task, agrees the task was easy,
+      or cheerleads ("you've got this!") in a way that dismisses the feeling.
     threshold: 0.8

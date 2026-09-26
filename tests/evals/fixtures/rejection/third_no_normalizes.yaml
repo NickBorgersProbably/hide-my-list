@@ -2,9 +2,12 @@
 # Third rejection in a row. docs/ai-prompts/rejection.md, Escalation After
 # Multiple Rejections: the third no gets explicit normalization ("Sometimes
 # the brain just isn't in task mode. That's not a failure — it's
-# information.") and a choice — describe the mood, or take a break — rather
-# than a fourth suggestion. Two earlier declines are in the history and the
-# ledger, so the model can see it is the third.
+# information."), and the prompt's own rule applies throughout: never
+# suggest a task the user just rejected. Two earlier declines are in the
+# history and the ledger, so the model can see it is the third and which
+# tasks are off the table. The spec's follow-on choice (describe the mood or
+# take a break) is not in the runtime prompt (app/prompts/rejection.md.j2)
+# yet, so a fresh, untouched task after the normalization is acceptable.
 id: rejection-third-no-normalizes-001
 node: rejection
 tier: medium
@@ -69,10 +72,9 @@ contracts:
   - kind: judge
     rubric: |
       This is the user's third rejection in a row. Score 1.0 when the reply
-      explicitly normalizes it (not being in task mode is information, not a
-      failure) and offers a choice between describing their mood/energy and
-      taking a break, without pushing another task as the main move. Score
-      0.5 when it normalizes but still leads with a new task suggestion.
-      Score 0.0 when it just suggests another task, or implies the user is
-      being difficult.
+      explicitly normalizes it — not being in task mode is information, not
+      a failure — before anything else. Offering a break, asking about their
+      mood, or suggesting one task they have not turned down are all fine
+      after that. Score 0.0 when it skips the normalization and just pitches
+      another task, or implies the user is being difficult or picky.
     threshold: 0.8

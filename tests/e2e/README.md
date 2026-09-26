@@ -127,12 +127,13 @@ the way an ADHD user texts a task bot (short, lowercase, past tense, "done!",
   open-ended task, a reminder); the reminder fires and "done!" resolves it;
   "whats left?" names the open tasks; a deadline nudge meets a cannot-finish
   that writes nothing; a title match a day later; a suggestion, then "done".
-- `test_loop_reminder_lifecycle.py` — a reminder added, its time changed,
-  fired, ignored for an unrelated message, answered "done", recalled by
-  "what was that?", and a stray "done" a day later that completes nothing.
-- `test_loop_bad_days.py` — two declines and an exit ramp, "i did nothing
-  today", a clarification declined with "nope" (no model call), and an
-  unlisted win logged Completed after "yes".
+- `test_loop_reminder_lifecycle.py` — a reminder added, fired, ignored for
+  an unrelated message, answered "done", recalled by "what was that?", and a
+  stray "done" a day later that completes nothing; plus "actually make it
+  6pm", which leaves a pending reminder at the new time.
+- `test_loop_bad_days.py` — three declines in a row with no declined task
+  offered again, "i did nothing today", a clarification declined with
+  "nope" (no model call), and an unlisted win logged Completed after "yes".
 
 Each stays under twelve live turns and asserts Notion status per page, the
 awaiting-reply count, checkpoint fields, and the deterministic routing events

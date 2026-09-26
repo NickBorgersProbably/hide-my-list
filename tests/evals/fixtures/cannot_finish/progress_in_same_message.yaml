@@ -30,8 +30,10 @@ contracts:
       The user emptied the pantry and threw out expired items, then stopped
       because they are worn out. Score 1.0 when the reply first acknowledges
       that progress (emptying the pantry / tossing expired food), then offers
-      ONE small, specific next piece of what remains (for example putting
-      one shelf's items back) as optional — later is fine. Score 0.5 when it
+      ONE small, concrete next piece of what remains as optional — later is
+      fine. Any single concrete action counts (wiping the empty shelves,
+      putting one shelf's items back, grouping cans together); do not
+      require a particular one. Score 0.5 when it
       acknowledges progress but offers a vague or large next step. Score 0.0
       when it asks what they accomplished, leads with how much is left, or
       pressures them to finish now.
