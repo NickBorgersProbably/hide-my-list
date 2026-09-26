@@ -1,0 +1,39 @@
+---
+# Interaction review: the user asked a question and nothing needs writing.
+# The reply did not name the reminder the user just added, so the review may
+# answer with a send_only follow-up naming it — or leave the turn alone. It
+# must never write anything: no completion, creation, or reopen.
+id: interaction-review-question-turn-001
+node: interaction_review
+tier: medium
+peer: "<test-peer-32>"
+inbound: "wait, what was that reminder for?"
+prior_state:
+  intent: CHAT
+  messages:
+    - role: user
+      content: "remind me to call the pharmacy at 3pm"
+    - role: assistant
+      content: "Got it — I'll remind you about Call the pharmacy at 3pm."
+    - role: user
+      content: "wait, what was that reminder for?"
+    - role: assistant
+      content: "Not sure which one you mean — can you tell me the name?"
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Call the pharmacy"
+      kind: reminder
+      event: added
+  turn_actions: []
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Call the pharmacy"
+    status: "Pending"
+    is_reminder: true
+contracts:
+  - kind: json_schema
+    schema_ref: interaction_review_verdict
+  - kind: regex_require
+    pattern: "\"action\":\\s*\"(none|send_only)\""
+  - kind: regex_forbid
+    pattern: "complete_task|create_task|reopen_task"

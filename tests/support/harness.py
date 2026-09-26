@@ -143,6 +143,13 @@ class _ObservedGraph:
         finally:
             self.done.set()
 
+    def __getattr__(self, name: str) -> Any:
+        # The post-send interaction review reads and writes the checkpoint
+        # through the graph the listener holds (`aget_state`,
+        # `aupdate_state`); those go straight to the real graph and are not
+        # counted as turns.
+        return getattr(self._graph, name)
+
 
 class Conversation:
     """Drives a scripted multi-turn exchange with one peer."""
@@ -158,8 +165,10 @@ class Conversation:
         database_url: str,
         enqueue_envelope: Callable[[dict[str, Any]], None],
         call_meter: Any = None,
+        listener: Any = None,
     ) -> None:
         self.call_meter = call_meter
+        self.listener = listener
         self.peer = peer
         self.graph = graph
         self.notion = notion
@@ -436,6 +445,81 @@ class Conversation:
             gap_seconds=gap_seconds,
             expected_call_delta=1,
         )
+
+    async def settle_review(self, *, expect: Expect | None = None) -> TurnResult:
+        """Wait for the post-send interaction review of the last turn to finish.
+
+        The review runs in the listener's background after the reply is sent
+        (`SignalListener.wait_for_review`). Any follow-up it sends is captured
+        like a turn's replies and checked against the same per-turn invariants
+        and the scenario's `expect`. `intent` in `expect` is not meaningful
+        here — the review does not classify — so leave it unset.
+        """
+        from tests.support.invariants import assert_expectations, assert_turn_invariants
+
+        if self.listener is None:
+            raise AssertionError(
+                "this conversation has no listener handle; use the "
+                "conversation_with_review fixture"
+            )
+        expect = expect or Expect()
+        sent_cursor = self.signal.mark()
+        notion_cursor = self.notion.mark()
+        awaiting_before = await self.awaiting_reply_count()
+        with structlog.testing.capture_logs() as logs:
+            try:
+                await asyncio.wait_for(
+                    self.listener.wait_for_review(self.peer), timeout=_TURN_TIMEOUT_SECONDS
+                )
+            except TimeoutError:
+                raise AssertionError(
+                    f"review did not finish within {_TURN_TIMEOUT_SECONDS}s"
+                ) from None
+        if self.call_meter is not None:
+            self.call_meter.record(list(logs))
+
+        sent = self.signal.since(sent_cursor)
+        state = await self.state()
+        # The review writes no draft to `pending_outbound`; what is left there
+        # is the previous turn's, already checked when that turn ran.
+        state["pending_outbound"] = []
+        result = TurnResult(
+            text=" ".join(message.body for message in sent),
+            sent=sent,
+            state=state,
+            logs=list(logs),
+            notion_writes_since=notion_cursor,
+            awaiting_reply_before=awaiting_before,
+            awaiting_reply_after=await self.awaiting_reply_count(),
+            graph_invoked=False,
+        )
+        assert_turn_invariants(self, result, expect)
+        assert_expectations(self, result, expect)
+        return result
+
+    async def review_rows(self) -> list[dict[str, Any]]:
+        """This peer's `interaction_reviews` rows, oldest first."""
+        async with self.db() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT verdict, action, action_page_id, executed, follow_up_sent
+                  FROM interaction_reviews
+                 WHERE peer = %s
+                 ORDER BY created_at ASC
+                """,
+                (self.peer,),
+            )
+            rows = await cursor.fetchall()
+        return [
+            {
+                "verdict": row[0],
+                "action": row[1],
+                "action_page_id": row[2],
+                "executed": row[3],
+                "follow_up_sent": row[4],
+            }
+            for row in rows
+        ]
 
     async def unauthorized(self, text: str, *, peer: str) -> TurnResult:
         """Send a message from a peer outside the allowlist.

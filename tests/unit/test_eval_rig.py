@@ -139,3 +139,69 @@ def test_invoke_node_injects_fresh_selected_at_for_complete() -> None:
     body, _title = _invoke_node("complete", fixture)
     assert body
     assert "which task did you mean" not in body.lower()
+
+
+def test_invoke_node_scores_the_validated_interaction_review_verdict(monkeypatch) -> None:
+    """The review branch scores what production would act on.
+
+    `judge_turn` is stubbed (no model under unit tests); the runner must feed
+    it the fixture's turn and open tasks, validate the text with the real
+    `parse_verdict` against those ids, and return the re-serialized verdict.
+    """
+    import json
+
+    from app.graph import interaction_review
+
+    fixture = _fixture("interaction-review-recovers-completion-001")
+    seen: list[object] = []
+
+    async def fake_judge_turn(inputs):
+        seen.append(inputs)
+        return json.dumps({
+            "verdict": "correct",
+            "reason": "placeholder",
+            "action": "complete_task",
+            "page_id": "<placeholder-page-id-1>",
+            "title": None,
+            "due": None,
+            "follow_up_message": "{task} — marked that one done.",
+        })
+
+    monkeypatch.setattr(interaction_review, "judge_turn", fake_judge_turn)
+    body, title = _invoke_node("interaction_review", fixture)
+
+    assert title is None
+    verdict = json.loads(body)
+    assert (verdict["verdict"], verdict["action"], verdict["page_id"]) == (
+        "correct", "complete_task", "<placeholder-page-id-1>",
+    )
+    (inputs,) = seen
+    assert inputs.user_message == "Done!"
+    assert inputs.intent == "COMPLETE"
+    assert inputs.reply == "I can mark that done. Which task did you mean?"
+    assert [task["id"] for task in inputs.open_tasks] == ["<placeholder-page-id-1>"]
+    assert inputs.open_tasks[0]["kind"] == "reminder"
+    assert "- clarify" in inputs.turn_actions
+
+
+def test_invoke_node_marks_an_invalid_review_verdict(monkeypatch) -> None:
+    """A verdict production would discard must fail the fixture's json_schema."""
+    from app.graph import interaction_review
+    from tests.evals.runner import Contract, evaluate_contracts
+
+    fixture = _fixture("interaction-review-recovers-completion-001")
+
+    async def fake_judge_turn(_inputs):
+        # An id the model invented: parse_verdict refuses it.
+        return (
+            '{"verdict": "correct", "reason": "x", "action": "complete_task", '
+            '"page_id": "<invented>", "title": null, "due": null, '
+            '"follow_up_message": "{task} done."}'
+        )
+
+    monkeypatch.setattr(interaction_review, "judge_turn", fake_judge_turn)
+    body, _title = _invoke_node("interaction_review", fixture)
+
+    assert body.startswith("INVALID_VERDICT:")
+    (result,) = evaluate_contracts([Contract(kind="json_schema", spec={})], body)
+    assert result.passed is False

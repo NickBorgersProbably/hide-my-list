@@ -37,6 +37,7 @@ _ERROR_EVENT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^[a-z_]+_node\.error$"),
     re.compile(r"^classify_intent\.error$"),
     re.compile(r"^signal_listener\.graph_error$"),
+    re.compile(r"^interaction_review\.error$"),
     re.compile(r"_failed$"),
 )
 
@@ -47,6 +48,8 @@ _EXPECTED_TIERS: dict[str, str] = {
     "classify": "cheap",
     "complete_title_match": "cheap",
     "intake_dedup": "cheap",
+    # app/graph/interaction_review.py judge_turn: the post-send review.
+    "interaction_review": "medium",
     # app/tools/rewards.py classify_task_motif: labels the completed task on the cheap tier.
     "reward_motif": "cheap",
     "selection": "expensive",

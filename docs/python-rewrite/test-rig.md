@@ -337,6 +337,13 @@ every other scenario gets one graph call per `say()`; only the
 `conversation_debounced` fixture (`tests/e2e/conftest.py`, 2s debounce)
 exercises coalescing.
 
+**The post-send review is settled explicitly.** The interaction review runs in
+the listener's background after the reply, so a scenario that tests it uses the
+`conversation_with_review` fixture and calls `Conversation.settle_review()`,
+which awaits `SignalListener.wait_for_review(peer)` and checks any follow-up
+against the same invariants as a turn. Every other fixture turns the review
+off. `interaction_review.error` counts as an I1 fallback event.
+
 **The clock is never faked.** `complete_node` reads `datetime.now(UTC)` while
 Postgres reads `now()`; faking one invents a skew that exists in no deployment.
 Staleness is produced by writing backdated values — `age_active_task` through

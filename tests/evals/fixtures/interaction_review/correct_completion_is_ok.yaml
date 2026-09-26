@@ -1,0 +1,41 @@
+---
+# Interaction review: the turn already did what the user asked — it completed
+# the named task and celebrated it. The review must leave it alone: verdict
+# ok, action none, and above all no reopen of the page completed this turn.
+id: interaction-review-correct-turn-ok-001
+node: interaction_review
+tier: medium
+peer: "<test-peer-31>"
+inbound: "finished watering the plants"
+prior_state:
+  intent: COMPLETE
+  messages:
+    - role: user
+      content: "finished watering the plants"
+    - role: assistant
+      content: "Water the plants — done. 🎉"
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Water the plants"
+      kind: task
+      event: completed
+  turn_actions:
+    - action: notion.update_status
+      page_id: "<placeholder-page-id-1>"
+      status: Completed
+    - action: reward
+      page_id: "<placeholder-page-id-1>"
+      status: ""
+notion_tasks:
+  - id: "<placeholder-page-id-2>"
+    title: "Sort the mail"
+    status: "Pending"
+contracts:
+  - kind: json_schema
+    schema_ref: interaction_review_verdict
+  - kind: regex_require
+    pattern: "\"verdict\":\\s*\"ok\""
+  - kind: regex_require
+    pattern: "\"action\":\\s*\"none\""
+  - kind: regex_forbid
+    pattern: "reopen_task|complete_task|create_task"

@@ -122,6 +122,7 @@ async def _live_conversations(
     call_meter: _CallMeter,
     *,
     debounce_seconds: float = 0,
+    review: bool = False,
 ) -> AsyncIterator[list[Conversation]]:
     """Stand up one listener, one graph, and one faked world for `peers`.
 
@@ -136,6 +137,11 @@ async def _live_conversations(
     (`app/ingress/signal_listener.py::_process_messages`), so the stacked-
     message loop needs a separate fixture with a nonzero value rather than a
     change to the shared default.
+
+    `review` defaults to False: the post-send interaction review sends its own
+    follow-ups and makes its own model call, which would break every existing
+    scenario's `sent_count` and call budget. Only `conversation_with_review`
+    turns it on.
     """
     from app.graph.graph import build_graph, build_postgres_checkpointer
     from app.ingress import signal_listener as listener_module
@@ -164,6 +170,7 @@ async def _live_conversations(
                 graph=observed,
                 authorized_peers=frozenset(peers),
                 message_debounce_seconds=debounce_seconds,
+                interaction_review_enabled=review,
             )
             runner = asyncio.create_task(listener.run())
             try:
@@ -177,6 +184,7 @@ async def _live_conversations(
                         database_url=database_url,
                         enqueue_envelope=inbound.put_nowait,
                         call_meter=call_meter,
+                        listener=listener,
                     )
                     for peer in peers
                 ]
@@ -230,5 +238,21 @@ async def conversation_debounced(
     """
     async with _live_conversations(
         [peer], database_url, call_meter, debounce_seconds=_DEBOUNCED_SECONDS
+    ) as conversations:
+        yield conversations[0]
+
+
+@pytest.fixture()
+async def conversation_with_review(
+    peer: str, database_url: str, call_meter: _CallMeter
+) -> AsyncIterator[Conversation]:
+    """A live conversation with the post-send interaction review turned on.
+
+    Uses the production review delay (`INTERACTION_REVIEW_DELAY_SECONDS`,
+    default 3 s). Settle each review with `Conversation.settle_review()`
+    before asserting on what it did.
+    """
+    async with _live_conversations(
+        [peer], database_url, call_meter, review=True
     ) as conversations:
         yield conversations[0]
