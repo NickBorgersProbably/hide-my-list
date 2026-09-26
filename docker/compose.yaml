@@ -55,6 +55,9 @@ services:
       - LLM_REQUEST_TIMEOUT_SECONDS=${LLM_REQUEST_TIMEOUT_SECONDS:-120}
       # LLM_MAX_RETRIES: retry count per LLM call; 0 disables retries (default 1).
       - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-1}
+      # LLM_REASONING_TIERS: comma-separated tiers that run with model reasoning
+      # ("think") on; every other tier sends think=false (default: none).
+      - LLM_REASONING_TIERS=${LLM_REASONING_TIERS:-}
       # Post-send interaction review (app/graph/interaction_review.py): after a
       # reply is sent, the medium model re-reads the turn and may send one
       # corrective follow-up.

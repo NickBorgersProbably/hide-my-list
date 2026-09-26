@@ -246,36 +246,49 @@ def test_llm_raises_when_llm_proxy_api_key_missing() -> None:
     models_module._load_model_tiers.cache_clear()
 
 
-def test_cheap_tier_sets_think_false_extra_body() -> None:
-    """llm('cheap') must construct ChatOpenAI with extra_body={'think': False}.
+def _llm_env() -> dict[str, str]:
+    env = dict(os.environ)
+    env.pop("LANGSMITH_TRACING", None)
+    env.pop("LLM_REASONING_TIERS", None)
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
+    return env
 
-    The proxy forwards `think` to Ollama; cheap is the label-only classifier
-    path where reasoning is wasted overhead (significant output-token
-    reduction measured). Other tiers must NOT set think=false because their callers
-    (chat, rejection, breakdown coaching, selection) rely on reasoning for
-    shame-safe phrasing and scoring nuance.
+
+def test_every_tier_sends_think_false_by_default() -> None:
+    """With LLM_REASONING_TIERS unset, every tier sends extra_body={'think': False}.
+
+    The proxy forwards `think` to Ollama. Reasoning turns spend thousands of
+    tokens per call on a single-slot model host and run into the proxy's
+    per-request timeout, so no tier reasons unless an operator opts it in.
+    The flag is always explicit so the backend default never decides.
     """
     from app import models as models_module
     models_module._load_model_tiers.cache_clear()
 
-    env = dict(os.environ)
-    env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
-    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
-
-    with patch.dict(os.environ, env, clear=True):
-        cheap = models_module.llm("cheap").bound  # unwrap RunnableBinding
-        assert getattr(cheap, "extra_body", None) == {"think": False}, (
-            f"cheap tier must send think=false; got extra_body={getattr(cheap, 'extra_body', None)!r}"
-        )
-
-        for tier in ("medium", "expensive", "reminder"):
-            other = models_module.llm(tier).bound
-            extra = getattr(other, "extra_body", None) or {}
-            assert "think" not in extra, (
-                f"{tier} tier must NOT set think (defaults to thinking=on); "
-                f"got extra_body={extra!r}"
+    with patch.dict(os.environ, _llm_env(), clear=True):
+        for tier in ("cheap", "medium", "expensive", "reminder"):
+            bound = models_module.llm(tier).bound  # unwrap RunnableBinding
+            assert getattr(bound, "extra_body", None) == {"think": False}, (
+                f"{tier} tier must send think=false; "
+                f"got extra_body={getattr(bound, 'extra_body', None)!r}"
             )
+
+    models_module._load_model_tiers.cache_clear()
+
+
+def test_llm_reasoning_tiers_env_turns_think_on_per_tier() -> None:
+    """LLM_REASONING_TIERS names the tiers that send think=true; others stay off."""
+    from app import models as models_module
+    models_module._load_model_tiers.cache_clear()
+
+    env = _llm_env()
+    env["LLM_REASONING_TIERS"] = " expensive , medium,not-a-tier"
+    with patch.dict(os.environ, env, clear=True):
+        assert models_module.llm("expensive").bound.extra_body == {"think": True}
+        assert models_module.llm("medium").bound.extra_body == {"think": True}
+        assert models_module.llm("cheap").bound.extra_body == {"think": False}
+        assert models_module.llm("reminder").bound.extra_body == {"think": False}
 
     models_module._load_model_tiers.cache_clear()
 

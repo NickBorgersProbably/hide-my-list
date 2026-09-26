@@ -441,11 +441,12 @@ max_retries, and tier-specific `extra_body`) to catch routing regressions that
 would still pass a class-assertion-only check. `timeout` and `max_retries` must
 be asserted for all tiers — an unbounded call holds the only inference slot and
 stalls every queued conversation. `max_tokens` is tier-conditional: the `cheap`
-tier sends it (capped output) and must be asserted; reasoning tiers
-(expensive/medium/reminder) omit it and tests must assert its absence. Tests
-must assert that the `cheap` tier includes `extra_body={'think': False}` and
-that all other tiers do not set `think` unless a deliberate future change adds
-it.
+tier sends it (capped output) and must be asserted; the uncapped tiers
+(expensive/medium/reminder) omit it and tests must assert its absence. `think`
+is always explicit: tests must assert that every tier sends
+`extra_body={'think': False}` when `LLM_REASONING_TIERS` is unset, and that a
+tier named in `LLM_REASONING_TIERS` sends `{'think': True}` while the others
+stay off.
 
 Three cost gates for eval runs:
 - `ENABLE_LIVE_LLM_EVALS=true` — required for any real LLM call; absent = `pytest.skip`
