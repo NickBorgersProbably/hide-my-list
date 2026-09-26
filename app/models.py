@@ -8,7 +8,10 @@ are set here):
   expensive -> gemma4-small, uncapped (GET_TASK scoring)
   medium    -> gemma4-small, uncapped (user-facing replies + intake's
                                         structured JSON)
-  cheap     -> gemma4-small, max_tokens=1024 (label-only classification)
+  cheap     -> gemma4-small, max_tokens=1024 (capped short-output work:
+                                               intent classification, reward
+                                               motif, intake dedup, completion
+                                               title match, theme evolution)
   reminder  -> gemma4-small, uncapped (reminder cron; currently no caller)
 
 Reasoning ("think") is decided per caller, not per tier. The model host serves
@@ -113,8 +116,9 @@ def _caller_extra_body(caller: str | None) -> dict[str, Any]:
     return {"think": caller is not None and caller in _reasoning_callers()}
 
 
-# Per-tier output-token cap. Only the cheap tier is capped: its sole caller
-# (intent classifier) emits a single label, so a small ceiling is free safety.
+# Per-tier output-token cap. Only the cheap tier is capped: its callers
+# (intent classification, reward motif, intake dedup, completion title match,
+# theme evolution) emit short labels or scores, so a small ceiling is safe.
 # The other tiers (expensive/medium/reminder) are intentionally absent — they
 # emit structured JSON (e.g. intake's full task object), and a cap truncates
 # that output mid-JSON. Truncated JSON then fails to parse and the task is

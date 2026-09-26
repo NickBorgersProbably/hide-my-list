@@ -85,7 +85,7 @@ LiteLLM proxy at `LLM_PROXY_BASE_URL`; LiteLLM dispatches by model alias.
 | Tier | Role |
 |------|------|
 | `expensive` | Higher-capacity tasks (e.g. task scoring) |
-| `medium` | Intent classification and most graph nodes |
+| `medium` | User-facing replies and structured JSON graph nodes |
 | `cheap` | Lightweight tasks |
 | `reminder` | Reminder delivery cron |
 

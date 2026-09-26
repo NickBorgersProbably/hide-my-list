@@ -346,9 +346,10 @@ def _resolve_with_negative_answer(
 async def classify_intent(state: State) -> dict[str, Any]:
     """Classify the incoming message intent using an LLM.
 
-    Uses the cheap tier, which routes to a think=false model configuration
-    in app/models.py — classification needs a label, not reasoning. Defaults
-    low-confidence to CHAT as a prompt-injection mitigation.
+    Uses the cheap tier. Reasoning is off by default: `classify` is absent
+    from the default reasoning caller set; `LLM_REASONING_CALLERS` can
+    override that. Defaults low-confidence to CHAT as a prompt-injection
+    mitigation.
     """
     incoming = state.get("incoming", "").strip()
     if not incoming:
