@@ -7,6 +7,7 @@ Uses expensive-tier LLM for nuanced scoring and suggestion text.
 """
 from __future__ import annotations
 
+import html
 import json
 from datetime import UTC, datetime
 from typing import Any, TypedDict, cast
@@ -126,7 +127,7 @@ async def selection_node(state: State) -> dict[str, Any]:
             "preferred_work_type": preferred_work_type,
             "time_of_day": time_of_day,
             "tasks_json": tasks_json,
-            "user_message": incoming,
+            "user_message": html.escape(incoming),
         }
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 
@@ -292,7 +293,7 @@ _SELECTION_REQUEST = "Select the best task for me right now."
 
 def _human_turn(incoming: str) -> str:
     """The human turn: the user's message as delimited data, then the request."""
-    text = incoming.strip()
+    text = html.escape(incoming.strip())
     if not text:
         return _SELECTION_REQUEST
     return f"<user_message>{text}</user_message>\n\n{_SELECTION_REQUEST}"
