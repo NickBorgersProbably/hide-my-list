@@ -83,7 +83,7 @@ flowchart TD
     Act --> Current{Checkpoint still turn_ref?}
     Current -->|Yes| Send[Send the fixed follow-up]
     Send --> Write[Write checkpoint, finalize correct]
-    Current -->|No| Stale[Finalize error, no follow-up sent, nothing written]
+    Current -->|No| Stale[Finalize error; no follow-up or checkpoint write; preserve any executed action]
 ```
 
 ### Inputs
