@@ -63,7 +63,10 @@ raising. Only event names and non-private fields are printed — booleans,
 counts, ids, and enum values (`intent`, `tier`, …) — never message text,
 titles, or peers, so the printout is safe to paste into a PR comment or issue.
 This is what tells you which intent the classifier chose and which node ran
-without re-running the scenario with a debugger attached.
+without re-running the scenario with a debugger attached. An entry logged
+from inside an `except` block (a node's `*.error` fallback) also carries
+`exception_class` — the exception's class name, never its message — so a
+fallback reply in CI names what raised.
 
 ## Failure taxonomy
 

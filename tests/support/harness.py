@@ -30,8 +30,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, MutableMapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -81,6 +82,27 @@ _ALWAYS_PRIVATE_KEYS = frozenset(
 
 def _debug_turns_enabled() -> bool:
     return os.environ.get(_DEBUG_TURNS_KEY, "").lower() in ("1", "true", "yes")
+
+
+def _record_exception_class(
+    _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    """structlog processor: name the exception class behind a `log.exception`.
+
+    `structlog.testing.capture_logs` keeps only `exc_info: True` for an
+    entry logged inside an `except` block, so a node's fallback event says
+    nothing about what raised. This runs at log-call time, while the
+    exception is still current, and records its class name only — never
+    its message, which can carry private text — under `exception_class`.
+    """
+    if event_dict.get("exc_info") is True and "exception_class" not in event_dict:
+        current = sys.exc_info()[1]
+        if current is not None:
+            event_dict["exception_class"] = type(current).__name__
+    return event_dict
+
+
+_CAPTURE_PROCESSORS = (_record_exception_class,)
 
 
 def _safe_event_fields(entry: dict[str, Any]) -> dict[str, Any]:
@@ -542,7 +564,7 @@ class Conversation:
         sent_cursor = self.signal.mark()
         notion_cursor = self.notion.mark()
         awaiting_before = await self.awaiting_reply_count()
-        with structlog.testing.capture_logs() as logs:
+        with structlog.testing.capture_logs(processors=_CAPTURE_PROCESSORS) as logs:
             try:
                 await asyncio.wait_for(
                     self.listener.wait_for_review(self.peer), timeout=_TURN_TIMEOUT_SECONDS
@@ -563,7 +585,7 @@ class Conversation:
             text=" ".join(message.body for message in sent),
             sent=sent,
             state=state,
-            logs=list(logs),
+            logs=[dict(entry) for entry in logs],
             notion_writes_since=notion_cursor,
             awaiting_reply_before=awaiting_before,
             awaiting_reply_after=await self.awaiting_reply_count(),
@@ -625,7 +647,7 @@ class Conversation:
         calls_before = self._observed.call_count
         self._observed.done.clear()
 
-        with structlog.testing.capture_logs() as logs:
+        with structlog.testing.capture_logs(processors=_CAPTURE_PROCESSORS) as logs:
             for index, envelope in enumerate(envelopes):
                 if index > 0:
                     await asyncio.sleep(gap_seconds)
@@ -695,7 +717,7 @@ class Conversation:
             text=" ".join(message.body for message in sent),
             sent=sent,
             state=state,
-            logs=list(logs),
+            logs=[dict(entry) for entry in logs],
             notion_writes_since=notion_cursor,
             awaiting_reply_before=awaiting_before,
             awaiting_reply_after=await self.awaiting_reply_count(),

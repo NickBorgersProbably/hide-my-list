@@ -74,3 +74,30 @@ def test_drops_event_and_timestamp_keys() -> None:
 def test_drops_nested_structures() -> None:
     entry = {"event": "x", "payload": {"a": 1}, "items": [1, 2, 3]}
     assert _safe_event_fields(entry) == {}
+
+
+def test_exception_class_processor_names_the_class_only() -> None:
+    """Inside an `except`, a `log.exception` entry gains the class name, not the message."""
+    import structlog
+
+    from tests.support.harness import _CAPTURE_PROCESSORS
+
+    log = structlog.get_logger("test")
+    with structlog.testing.capture_logs(processors=_CAPTURE_PROCESSORS) as logs:
+        try:
+            raise ValueError("private text that must not be captured")
+        except ValueError:
+            log.exception("intake_node.error", has_peer=True)
+        log.info("intake_node.parsed", is_reminder=True)
+
+    error_entry = next(e for e in logs if e["event"] == "intake_node.error")
+    assert error_entry["exception_class"] == "ValueError"
+    assert "private text" not in repr(error_entry)
+    assert _safe_event_fields(error_entry) == {
+        "has_peer": True,
+        "exc_info": True,
+        "exception_class": "ValueError",
+        "log_level": "error",
+    }
+    info_entry = next(e for e in logs if e["event"] == "intake_node.parsed")
+    assert "exception_class" not in info_entry
