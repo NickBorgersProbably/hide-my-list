@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import UTC, datetime
+from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import structlog
@@ -21,14 +22,85 @@ from app.graph.context import (
     render_history,
     render_recent_tasks,
 )
-from app.graph.nodes._task_token import render_task_token
+from app.graph.nodes._task_token import TASK_TOKEN, render_task_token
 from app.graph.state import OutboundDraft, State
 
 log = structlog.get_logger(__name__)
 
+# The reply when nothing is on the hook: no active task and no fresh
+# suggestion in the ledger. It names nothing, so it cannot name the wrong
+# thing, and it leaves the next step with the user.
+NOTHING_ACTIVE_BODY = (
+    "No problem — nothing's on the hook right now. Want a suggestion when you're ready?"
+)
+
+# The reply when the model's message refers to an alternative the application
+# cannot fill in (no listed alternative id, or no title for it).
+NO_ALTERNATIVE_BODY = (
+    "No problem — that helps me learn what works for you. "
+    "Want me to find something different?"
+)
+
+# A "not that one" is about a suggestion made recently. An older ledger
+# suggestion is not what the user is turning down.
+_SUGGESTION_FRESHNESS = timedelta(hours=24)
+
+
+def _has_fresh_suggestion(entries: Iterable[object] | None, *, now: datetime) -> bool:
+    """Whether the recent-task ledger shows a titled suggestion from the last day.
+
+    The checkpoint's `active_task` can be empty while the conversation still
+    holds the suggestion the user is turning down (history and ledger carry
+    it), and the rejection prompt reads that context. Only when both are
+    empty is there nothing to reject.
+    """
+    for raw in entries or []:
+        if not isinstance(raw, Mapping) or raw.get("event") != "suggested":
+            continue
+        title = raw.get("title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        raw_at = raw.get("at")
+        if isinstance(raw_at, str):
+            try:
+                at = datetime.fromisoformat(raw_at.replace("Z", "+00:00"))
+            except ValueError:
+                return True
+            if at.tzinfo is None:
+                at = at.replace(tzinfo=UTC)
+            if now - at > _SUGGESTION_FRESHNESS:
+                continue
+        return True
+    return False
+
+
+def _without_orphan_token(user_message: str) -> str:
+    """Drop every sentence carrying a `{task}` token that no title can fill.
+
+    Falls back to the no-alternative reply when nothing is left.
+    """
+    if TASK_TOKEN not in user_message:
+        return user_message
+    sentences = re.split(r"(?<=[.!?])\s+", user_message.strip())
+    remainder = " ".join(s for s in sentences if TASK_TOKEN not in s).strip()
+    return remainder or NO_ALTERNATIVE_BODY
+
 async def rejection_node(state: State) -> dict[str, Any]:
     """REJECT handler: classify rejection and suggest alternative."""
     peer = state.get("peer", "")
+
+    if not state.get("active_task") and not _has_fresh_suggestion(
+        state.get("recent_tasks"), now=datetime.now(UTC)
+    ):
+        # Nothing to turn down: no prompt, no Notion read or write, no ledger
+        # event. Running the prompt here invites a `{task}` with no title.
+        log.info("rejection_node.nothing_active")
+        nothing: OutboundDraft = {
+            "recipient": peer,
+            "body": NOTHING_ACTIVE_BODY,
+            "notion_page_id": None,
+        }
+        return {"pending_outbound": [nothing]}
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -96,7 +168,17 @@ async def rejection_node(state: State) -> dict[str, Any]:
 
         user_message, alternative_id = _parse_rejection_response(response_text)
         alternative_title = _alternative_task_title(alternative_id, remaining)
-        user_message = render_task_token(user_message, title=alternative_title)
+        if alternative_title:
+            user_message = render_task_token(user_message, title=alternative_title)
+        elif TASK_TOKEN in user_message:
+            # A token with no listed, titled alternative behind it would reach
+            # the user verbatim, and the id names nothing the user was shown.
+            log.info(
+                "rejection_node.orphan_task_token",
+                had_alternative_id=bool(alternative_id),
+            )
+            user_message = _without_orphan_token(user_message)
+            alternative_id = None
 
         # Update rejection count in Notion
         turn_actions = list(state.get("turn_actions") or [])

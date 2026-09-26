@@ -63,8 +63,19 @@ async def log_finished(
             page_id=page_id,
             status="Completed",
         )
+        from app.tools import reminders
         try:
-            from app.tools import reminders
+            # The open task it duplicates may have deadline nudges queued; a
+            # completed task is never nudged. Best-effort: the worker's
+            # pre-send check skips a nudge whose page is already Completed.
+            await reminders.cancel_pending_nudges(peer=peer, notion_page_id=page_id)
+        except Exception as exc:
+            log.warning(
+                "log_finished.nudge_cancel_failed",
+                has_peer=bool(peer),
+                error_type=type(exc).__name__,
+            )
+        try:
             await reminders.resolve_recent_outbound(
                 peer=peer,
                 signal_timestamp=0,

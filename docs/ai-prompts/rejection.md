@@ -69,6 +69,33 @@ When `alternative_task_id` is non-null, `user_message` uses the literal token
 `{task}` wherever it refers to the alternative task. The application substitutes
 the exact selected title before sending the message.
 
+A `{task}` token is only ever filled from a listed, titled alternative. When
+`alternative_task_id` is null, names no listed task, or names one with no
+title, the application drops every sentence carrying the token; if nothing is
+left, it sends "No problem — that helps me learn what works for you. Want me to
+find something different?" and offers no alternative. `send_node` replaces
+any `{task}` still left in an untitled draft with "that one", so a literal
+token never reaches the user.
+
+### Nothing on the Hook
+
+REJECT with no active task and no titled suggestion in the recent-task ledger
+from the last 24 hours has nothing to turn down ("never mind, I'll check later"
+before anything was suggested). The rejection prompt does not run. The reply
+is fixed and names nothing:
+
+> No problem — nothing's on the hook right now. Want a suggestion when you're ready?
+
+Nothing is read from or written to Notion, and nothing is recorded in the
+ledger. Why this design: a prompt run with no task invites an alternative
+template whose `{task}` has no title behind it, and a fixed reply that names
+nothing cannot name the wrong thing. It leaves the next step with the user,
+which is the shame-safe exit for a user stepping away.
+
+When the checkpoint has no active task but the ledger shows a fresh
+suggestion, the prompt runs: the conversation history and ledger tell it which
+task the user is turning down.
+
 ### Rejection Response Templates (Shame-Safe)
 
 > **Shame Prevention:** Every rejection response must reinforce that rejecting tasks is helpful, not failure. User gives info about what works. Say so.

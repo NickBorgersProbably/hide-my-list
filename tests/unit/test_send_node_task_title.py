@@ -168,3 +168,40 @@ async def test_send_message_kwargs_match_signature(monkeypatch: pytest.MonkeyPat
     assert "message" in called_kwargs
     assert "idempotency_key" in called_kwargs
     assert "attachment_paths" not in called_kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("title", [None, ""])
+async def test_orphan_task_token_never_reaches_the_user(
+    signal: _CapturingSignalClient, title: str | None
+) -> None:
+    """The inverse invariant: a `{task}` with no title behind it is replaced.
+
+    A literal token is a template placeholder, never a message. It becomes
+    "that one" and the draft is still sent, with the key hashed from the
+    body that actually goes out.
+    """
+    from structlog.testing import capture_logs
+
+    from app.graph.nodes.send import send_node
+
+    draft: dict[str, Any] = {
+        "recipient": "<recipient>",
+        "body": "No problem. How about {task}?",
+        "notion_page_id": None,
+    }
+    if title is not None:
+        draft["notion_page_title"] = title
+
+    with capture_logs() as logs:
+        await send_node(_state(draft))
+
+    assert len(signal.sent) == 1
+    sent = signal.sent[0]
+    assert sent["message"] == "No problem. How about that one?"
+    expected = hashlib.sha256(f"<recipient>:{sent['message']}".encode()).hexdigest()[:32]
+    assert sent["idempotency_key"] == expected
+    orphan = [e for e in logs if e["event"] == "send_node.orphan_task_token"]
+    assert len(orphan) == 1
+    assert orphan[0]["has_title"] is False
+    assert "body" not in orphan[0]

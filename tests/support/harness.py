@@ -394,6 +394,64 @@ class Conversation:
             body=body,
         )
 
+    async def schedule_deadline_series(
+        self, *, page_id: str, deadline_at: datetime, title: str = "", urgency: int = 80
+    ) -> list[uuid.UUID]:
+        """Queue a deadline nudge series for `page_id` the way intake does.
+
+        Runs the production scheduler helper (`schedule_for_task`), so the
+        outbox rows and their ledger rows have the shape a completion has to
+        cancel. Returns the outbox row ids; none is due yet.
+        """
+        import psycopg
+
+        from app.scheduler.reminder_scheduling import schedule_for_task
+
+        async with await psycopg.AsyncConnection.connect(
+            self._database_url, autocommit=False
+        ) as conn:
+            scheduled, failures = await schedule_for_task(
+                conn,
+                notion_page_id=page_id,
+                peer=self.peer,
+                deadline_at=deadline_at,
+                urgency=urgency,
+                now=datetime.now(UTC),
+                user_tz="UTC",
+                title=title,
+            )
+        if failures or not scheduled:
+            raise AssertionError(f"deadline series did not schedule: {failures!r}")
+        return [item.outbox_id for item in scheduled]
+
+    async def run_reminder_worker(self, *, make_due: str | None = None) -> list[SentMessage]:
+        """Run one real worker cycle and return what it sent.
+
+        `make_due` moves every undelivered outbox row for that page to one
+        minute ago first, so rows scheduled for later are claimed now — a dead
+        row stays dead and is never claimed.
+        """
+        import psycopg
+
+        from app.scheduler.reminder_worker import dispatch_due_reminders
+
+        if make_due:
+            async with self.db() as conn:
+                await conn.execute(
+                    """
+                    UPDATE reminder_outbox SET due_at = now() - interval '1 minute'
+                     WHERE peer = %s AND notion_page_id = %s
+                       AND state IN ('pending', 'scheduled')
+                    """,
+                    (self.peer, make_due),
+                )
+        before = self.signal.mark()
+        async with await psycopg.AsyncConnection.connect(
+            self._database_url, autocommit=False
+        ) as conn:
+            await dispatch_due_reminders(conn, signal_send_fn=self.signal.send_message)
+        return self.signal.since(before)
+
     # -- turns -------------------------------------------------------------
 
     def _envelope(self, text: str, *, peer: str) -> dict[str, Any]:

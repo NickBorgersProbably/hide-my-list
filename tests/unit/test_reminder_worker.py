@@ -333,10 +333,10 @@ async def test_a_failed_presend_read_sends_anyway(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.asyncio
-async def test_a_pending_page_is_sent_and_a_deadline_row_skips_the_read(
+async def test_a_pending_page_is_sent_for_both_kinds(
     monkeypatch: pytest.MonkeyPatch, _pending_page: AsyncMock
 ) -> None:
-    """Only `kind='reminder'` rows are checked: a deadline nudge's task is open by design."""
+    """Both kinds are checked, and an open page sends either one."""
     from app.scheduler import reminder_worker
     from app.tools import notion
 
@@ -352,4 +352,70 @@ async def test_a_pending_page_is_sent_and_a_deadline_row_skips_the_read(
     await reminder_worker.dispatch_due_reminders(FakeConnection(), signal_send_fn=signal_send)
 
     assert signal_send.await_count == 2
-    _pending_page.assert_awaited_once_with(page_id="<page-id>")
+    assert _pending_page.await_count == 2
+    for call in _pending_page.await_args_list:
+        assert call.args == () and call.kwargs == {"page_id": "<page-id>"}
+
+
+@pytest.mark.asyncio
+async def test_a_deadline_nudge_whose_task_is_completed_is_dead_not_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A completed task is never nudged, even when its outbox row survived."""
+    from structlog.testing import capture_logs
+
+    from app.scheduler import reminder_worker
+    from app.tools import notion
+
+    row = _reminder_row("deadline")
+
+    async def fake_claim(conn: Any, worker_id: str) -> list[dict[str, Any]]:
+        return [row]
+
+    monkeypatch.setattr(reminder_worker, "_claim_due_reminders", fake_claim)
+    get_page = AsyncMock(return_value=_page("Completed"))
+    monkeypatch.setattr(notion, "get_page", get_page)
+    complete_reminder = AsyncMock(return_value={})
+    monkeypatch.setattr(notion, "complete_reminder", complete_reminder)
+    signal_send = AsyncMock(return_value={"timestamp": 12345})
+    conn = FakeConnection()
+
+    with capture_logs() as logs:
+        await reminder_worker.dispatch_due_reminders(conn, signal_send_fn=signal_send)
+
+    get_page.assert_awaited_once_with(page_id="<page-id>")
+    signal_send.assert_not_awaited()
+    complete_reminder.assert_not_awaited()
+    dead = [(q, p) for q, p in conn.executed if "state = 'dead'" in q]
+    assert len(dead) == 1
+    assert "last_error = 'page already completed'" in dead[0][0]
+    assert dead[0][1] == (str(row["id"]),)
+    assert not any("INSERT INTO recent_outbound" in q for q, _ in conn.executed)
+    skipped = [e for e in logs if e["event"] == "reminder_worker.skipped_completed_page"]
+    assert [e["kind"] for e in skipped] == ["deadline"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_presend_read_sends_a_deadline_nudge_anyway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-open for deadline nudges too: a Notion outage never swallows one."""
+    from app.scheduler import reminder_worker
+    from app.tools import notion
+
+    row = _reminder_row("deadline")
+
+    async def fake_claim(conn: Any, worker_id: str) -> list[dict[str, Any]]:
+        return [row]
+
+    monkeypatch.setattr(reminder_worker, "_claim_due_reminders", fake_claim)
+    monkeypatch.setattr(notion, "get_page", AsyncMock(side_effect=RuntimeError("notion down")))
+    signal_send = AsyncMock(return_value={"timestamp": 12345})
+    conn = FakeConnection()
+
+    await reminder_worker.dispatch_due_reminders(conn, signal_send_fn=signal_send)
+
+    signal_send.assert_awaited_once_with(
+        recipient="<peer>", message="Test reminder", idempotency_key=row["idempotency_key"]
+    )
+    assert not any("state = 'dead'" in q for q, _ in conn.executed)

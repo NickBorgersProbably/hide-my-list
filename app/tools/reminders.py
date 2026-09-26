@@ -187,6 +187,64 @@ async def cancel_pending_for_page(
     return cancelled
 
 
+async def cancel_pending_nudges_for_page(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    notion_page_id: str,
+    peer: str,
+) -> int:
+    """Kill the undelivered deadline nudges of a task the user completed.
+
+    A completed task must not keep getting nudged toward its deadline. Only
+    `kind='deadline'` rows still waiting to go out (`pending` or `scheduled`)
+    are marked `dead` with `last_error='task completed'`; a `delivering` row
+    is in the worker's hands, and the worker's pre-send check skips it. The
+    series' active `reminder_scheduling_ledger` rows for this peer's outbox
+    rows are marked superseded, the way a deadline edit retires a series, so
+    the series stops holding load-balancing slots and reads as inactive.
+    Scoped to `peer`. The caller commits.
+
+    Returns the number of outbox rows cancelled.
+    """
+    cursor = await conn.execute(
+        """
+        UPDATE reminder_outbox
+           SET state = 'dead',
+               last_error = 'task completed',
+               locked_until = NULL,
+               worker_id = NULL
+         WHERE notion_page_id = %s
+           AND peer = %s
+           AND kind = 'deadline'
+           AND state IN ('pending', 'scheduled')
+        """,
+        (notion_page_id, peer),
+    )
+    cancelled = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+    ledger_cursor = await conn.execute(
+        """
+        UPDATE reminder_scheduling_ledger AS l
+           SET superseded_at = now()
+          FROM reminder_outbox AS o
+         WHERE l.reminder_outbox_id = o.id
+           AND l.notion_page_id = %s
+           AND l.superseded_at IS NULL
+           AND o.peer = %s
+        """,
+        (notion_page_id, peer),
+    )
+    superseded = (
+        ledger_cursor.rowcount if ledger_cursor.rowcount and ledger_cursor.rowcount > 0 else 0
+    )
+    log.info(
+        "reminders.nudges_cancelled_for_page",
+        notion_page_id=notion_page_id,
+        cancelled_count=cancelled,
+        superseded_count=superseded,
+    )
+    return cancelled
+
+
 async def mark_dead(
     conn: psycopg.AsyncConnection[Any],
     *,
@@ -314,6 +372,28 @@ async def cancel_pending_reminders(peer: str, notion_page_id: str) -> int:
 
     async with get_db_conn() as conn:
         cancelled = await cancel_pending_for_page(
+            conn, notion_page_id=notion_page_id, peer=peer
+        )
+        await conn.commit()
+    return cancelled
+
+
+async def cancel_pending_nudges(peer: str, notion_page_id: str) -> int:
+    """Stop the deadline nudges of a task the user completed.
+
+    Opens a connection, runs `cancel_pending_nudges_for_page`, and commits.
+    Returns the number of outbox rows cancelled; 0 with no peer, no page id,
+    or no database. Raises on a database error; every caller treats that as
+    best-effort, because the worker's pre-send check skips a nudge whose page
+    is already Completed.
+    """
+    if not notion_page_id or not _db_configured(peer):
+        return 0
+
+    from app.tools.db import get_db_conn
+
+    async with get_db_conn() as conn:
+        cancelled = await cancel_pending_nudges_for_page(
             conn, notion_page_id=notion_page_id, peer=peer
         )
         await conn.commit()

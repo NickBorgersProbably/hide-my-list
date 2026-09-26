@@ -906,6 +906,24 @@ async def _cancel_pending_reminders(peer: str, page_id: str) -> None:
         )
 
 
+async def _cancel_pending_nudges(peer: str, page_id: str) -> None:
+    """Stop the queued deadline nudges of a task the user just completed.
+
+    Best-effort: the completion stands when this fails, and the delivery
+    worker's pre-send check skips a nudge whose page is already Completed.
+    """
+    from app.tools import reminders
+
+    try:
+        await reminders.cancel_pending_nudges(peer=peer, notion_page_id=page_id)
+    except Exception as exc:
+        log.warning(
+            "complete_node.nudge_cancel_failed",
+            page_id=page_id,
+            error_type=type(exc).__name__,
+        )
+
+
 def _merge_same_page(group: list[_CompletionTarget]) -> _CompletionTarget:
     """Collapse one page's targets from several sources into one.
 
@@ -1513,6 +1531,8 @@ async def complete_node(state: State) -> dict[str, Any]:
             turn_actions = record_turn_action(
                 turn_actions, action="reminder.cancel", page_id=page_id
             )
+        # A completed task's queued deadline nudges must not fire either.
+        await _cancel_pending_nudges(peer, page_id)
 
         streak = state.get("streak", 0) + 1
         tasks_today = state.get("tasks_completed_today", 0) + 1

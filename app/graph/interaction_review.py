@@ -555,6 +555,15 @@ async def _complete(
                 error_type=type(exc).__name__,
             )
     try:
+        # A completed task's queued deadline nudges must not fire either.
+        await reminders.cancel_pending_nudges(peer=peer, notion_page_id=page_id)
+    except Exception as exc:
+        log.warning(
+            "interaction_review.nudge_cancel_failed",
+            page_id=page_id,
+            error_type=type(exc).__name__,
+        )
+    try:
         await reminders.resolve_recent_outbound(
             peer=peer, signal_timestamp=0, notion_page_id=page_id
         )

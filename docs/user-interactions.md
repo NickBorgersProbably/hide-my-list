@@ -552,6 +552,15 @@ flowchart TD
     R4 -->|No| Continue[Continue suggesting]
 ```
 
+### Nothing to Reject
+
+A REJECT-shaped message when nothing is on the hook — no active task and no
+fresh suggestion in the recent-task ledger, as in "never mind, I'll check
+later" before anything was suggested — gets one fixed reply that names
+nothing: "No problem — nothing's on the hook right now. Want a suggestion when
+you're ready?" Nothing is written to Notion. See
+[rejection.md](ai-prompts/rejection.md#nothing-on-the-hook).
+
 ## Flow 5: Cannot Finish (Task Breakdown)
 
 User says cannot finish → task too large, needs sub-tasks. **AI must first acknowledge progress, then ask what they accomplished** to understand what remains.
@@ -934,6 +943,8 @@ Example:
 A deadline nudge is different: it names the task ("Deadline nudge: <task>. Want one tiny next step?", or "Deadline nudge for this task. Want one tiny next step?" when no stored title is available) and points at a task page that delivery leaves open. The worker records the delivery with `reminder_type = 'deadline'`, so a "done" in reply writes the task Completed rather than assuming delivery already did.
 
 A reminder can also be finished before it fires. "Done!" right after "remind me to…" resolves to the new reminder through the recent-task ledger, writes its page Completed, and cancels its pending outbox row, so the reminder never goes out.
+
+A completed task is never nudged. Every completion — a "done" through COMPLETE, a finished-item report that completes an open task, and the interaction review's `complete_task` correction — also cancels the page's undelivered deadline nudges (`last_error='task completed'`) and retires the series in the scheduling ledger. Before sending any outbox row, reminder or deadline nudge, the worker reads the page and marks the row `dead` instead when the page is already Completed; a failed read sends the row.
 
 `recent_outbound` rows expire. Once one has, a shorthand reply carries nothing
 to match and the agent falls back to the resolution order in Flow 3: a task
