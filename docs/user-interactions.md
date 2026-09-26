@@ -189,9 +189,7 @@ flowchart TD
     HasMatches -->|No| NoMatch
     HasMatches -->|Yes| ScoreTasks[Score remaining tasks]
 
-    ScoreTasks --> BestScore{Best score > 0.5?}
-    BestScore -->|Yes| Suggest[Suggest task confidently]
-    BestScore -->|No| Unsure["Nothing's a perfect match.<br/>Want to try X anyway?"]
+    ScoreTasks --> Suggest[Suggest task with best score]
 
     Suggest --> Present([Present to user])
 ```
@@ -1008,15 +1006,15 @@ flowchart TD
     Null --> Reply["Nothing quite fits right now.<br/>Want to add something quick?"]
 ```
 
-### No Good Match
+### Low-Score Match
 
 ```mermaid
 flowchart TD
     Request(["User: #quot;15 min, feeling focused#quot;"]) --> Check[Check tasks]
     Check --> Score[Score candidates]
-    Score --> Null["selected_task_id: null"]
+    Score --> Suggest["selected_task_id: &lt;best candidate&gt;"]
 
-    Null --> Reply["Nothing quite fits right now.<br/>Want to add something quick?"]
+    Suggest --> Reply["Best I can find is {task}. Not perfect, but might work?"]
 ```
 
 ### User Asks About Their List

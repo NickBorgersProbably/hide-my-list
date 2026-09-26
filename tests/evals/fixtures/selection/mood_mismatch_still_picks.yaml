@@ -1,0 +1,46 @@
+---
+# The user is focused and sharp; every pending task is Social or Physical type
+# (Mood Match 0.0 against focus work). A mood mismatch is a weighted score hit,
+# not an exclusion — the model must still pick the best candidate and name it
+# through the {task} token. Returning null here is a scoring-contract violation.
+id: selection-mood-mismatch-still-picks-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-mood-mismatch>"
+inbound: "I'm feeling really focused and sharp right now"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: null
+  mood: null
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Reply to team emails"
+    work_type: "Social"
+    energy_required: "Low"
+    urgency: 50
+    time_estimate: 20
+  - id: "<placeholder-page-id-2>"
+    title: "Sort the storage closet"
+    work_type: "Physical"
+    energy_required: "Medium"
+    urgency: 30
+    time_estimate: 30
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)nothing quite fits"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user is focused and sharp. Both tasks are Social and Physical type,
+      giving Mood Match 0.0 against focus work. A mood mismatch is a score
+      penalty, not an exclusion — one task must still be picked and named.
+      Score 1.0 when the response suggests one of the two tasks using the
+      {task} token. Score 0.0 when it says nothing fits, declines to suggest,
+      or asks for more context instead of picking.
+    threshold: 0.7
