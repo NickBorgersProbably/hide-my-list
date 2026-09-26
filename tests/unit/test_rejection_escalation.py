@@ -63,6 +63,15 @@ def test_template_carries_self_blame_step_away_anchor() -> None:
     assert "reframe without judgment and offer" in rendered
 
 
+def _fresh_iso() -> str:
+    from datetime import UTC, datetime, timedelta
+
+    return (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+
+
+_recent_at = _fresh_iso()
+
+
 @pytest.mark.parametrize(
     "recent_tasks,expected",
     [
@@ -93,12 +102,25 @@ def test_template_carries_self_blame_step_away_anchor() -> None:
             ["not-a-dict", {"page_id": "p1", "event": "rejected"}],
             1,
         ),
+        # A rejection older than 24 hours belongs to a different sitting: it
+        # breaks the streak instead of extending it.
+        (
+            [
+                {"page_id": "p3", "event": "suggested"},
+                {"page_id": "p2", "event": "rejected", "at": "2026-01-02T11:00:00+00:00"},
+                {"page_id": "p1", "event": "rejected", "at": "2025-12-30T00:00:00+00:00"},
+            ],
+            1,
+        ),
     ],
 )
 def test_consecutive_rejection_count(recent_tasks: Any, expected: int) -> None:
+    from datetime import UTC, datetime
+
     from app.graph.nodes.rejection import _consecutive_rejection_count
 
-    assert _consecutive_rejection_count(recent_tasks) == expected
+    now = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
+    assert _consecutive_rejection_count(recent_tasks, now=now) == expected
 
 
 class _FakeResponse:
@@ -163,21 +185,21 @@ async def test_rejection_node_passes_session_streak_to_prompt(
                     "title": "Placeholder third task",
                     "kind": "task",
                     "event": "suggested",
-                    "at": "2026-01-01T00:00:00+00:00",
+                    "at": _recent_at,
                 },
                 {
                     "page_id": "<page-id-002>",
                     "title": "Placeholder second task",
                     "kind": "task",
                     "event": "rejected",
-                    "at": "2026-01-01T00:00:00+00:00",
+                    "at": _recent_at,
                 },
                 {
                     "page_id": "<page-id-001>",
                     "title": "Placeholder first task",
                     "kind": "task",
                     "event": "rejected",
-                    "at": "2026-01-01T00:00:00+00:00",
+                    "at": _recent_at,
                 },
             ],
             "streak": 0,

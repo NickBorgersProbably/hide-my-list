@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import structlog
@@ -46,7 +46,10 @@ async def rejection_node(state: State) -> dict[str, Any]:
         stored_title = (active_task.get("title") or "").strip() if active_task else ""
         task_title = stored_title or "the suggested task"
         rejected_page_id = active_task.get("page_id", "") if active_task else ""
-        rejection_streak = _consecutive_rejection_count(state.get("recent_tasks")) + 1
+        rejection_streak = (
+            _consecutive_rejection_count(state.get("recent_tasks"), now=datetime.now(UTC))
+            + 1
+        )
 
         # Fetch remaining tasks for alternative suggestion
         tasks_raw = await notion.query_pending()
@@ -186,7 +189,14 @@ async def rejection_node(state: State) -> dict[str, Any]:
         return {"pending_outbound": [fallback]}
 
 
-def _consecutive_rejection_count(recent_tasks: Iterable[object] | None) -> int:
+_REJECTION_STREAK_FRESHNESS = timedelta(hours=24)
+
+
+def _consecutive_rejection_count(
+    recent_tasks: Iterable[object] | None,
+    *,
+    now: datetime | None = None,
+) -> int:
     """Count consecutive `rejected` ledger events before this turn's rejection.
 
     State has no dedicated counter for "rejections in a row this session", so
@@ -195,9 +205,12 @@ def _consecutive_rejection_count(recent_tasks: Iterable[object] | None) -> int:
     ledger in its stored (newest-first) order, skip the pending `suggested`
     entry (the alternative offered last turn, not itself a rejection), and
     count `rejected` entries until a `completed`, `added`, `reminded`, or
-    `nudged` event breaks the streak. The caller adds 1 for the rejection
-    this turn is currently handling.
+    `nudged` event breaks the streak. A `rejected` entry older than
+    `_REJECTION_STREAK_FRESHNESS` also breaks it: a "no" from days ago is a
+    different sitting, not part of this run. The caller adds 1 for the
+    rejection this turn is currently handling.
     """
+    reference = now or datetime.now(UTC)
     count = 0
     for raw in recent_tasks or []:
         if not isinstance(raw, dict):
@@ -206,10 +219,25 @@ def _consecutive_rejection_count(recent_tasks: Iterable[object] | None) -> int:
         if event == "suggested":
             continue
         if event == "rejected":
+            at = _parse_entry_at(raw.get("at"))
+            if at is not None and reference - at > _REJECTION_STREAK_FRESHNESS:
+                break
             count += 1
             continue
         break
     return count
+
+
+def _parse_entry_at(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
