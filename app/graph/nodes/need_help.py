@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -30,14 +30,22 @@ log = structlog.get_logger(__name__)
 # about to start.
 _HELPABLE_EVENTS = frozenset({"added", "suggested"})
 
+# "how do I start?" right after adding or suggesting a task is about that task.
+# An entry outside this window is too stale to be the current referent.
+_LEDGER_HELP_FRESHNESS = timedelta(hours=24)
 
-def _ledger_task(entries: Iterable[object] | None) -> tuple[str, str] | None:
-    """Return `(page_id, title)` of the newest added/suggested ledger entry.
+
+def _ledger_task(
+    entries: Iterable[object] | None, *, now: datetime
+) -> tuple[str, str] | None:
+    """Return `(page_id, title)` of the newest fresh added/suggested ledger entry.
 
     The ledger is stored newest first with one entry per page, so the first
     entry whose latest event is added or suggested is the task the user most
     recently took on. An entry with no title is skipped: help that cannot name
-    its task is the failure this fallback exists to avoid.
+    its task is the failure this fallback exists to avoid. An entry outside
+    `_LEDGER_HELP_FRESHNESS` is skipped: a "how do I start?" is about a task
+    the user just added, not one from days ago.
     """
     for raw in entries or []:
         if not isinstance(raw, Mapping):
@@ -50,6 +58,18 @@ def _ledger_task(entries: Iterable[object] | None) -> tuple[str, str] | None:
             continue
         if not isinstance(title, str) or not title.strip():
             continue
+        raw_at = raw.get("at")
+        if isinstance(raw_at, str):
+            try:
+                at = datetime.fromisoformat(raw_at.replace("Z", "+00:00"))
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=UTC)
+                else:
+                    at = at.astimezone(UTC)
+                if now - at > _LEDGER_HELP_FRESHNESS:
+                    continue
+            except ValueError:
+                pass
         return page_id, title.strip()
     return None
 
@@ -73,7 +93,8 @@ async def need_help_node(state: State) -> dict[str, Any]:
             # inline_steps may be stored in active_task or fetched from Notion
             inline_steps = active_task.get("inline_steps", "No steps recorded yet.")
         else:
-            ledger_task = _ledger_task(state.get("recent_tasks"))
+            now = datetime.now(UTC)
+            ledger_task = _ledger_task(state.get("recent_tasks"), now=now)
             if ledger_task is None:
                 no_task_draft: OutboundDraft = {
                     "recipient": peer,
@@ -83,6 +104,23 @@ async def need_help_node(state: State) -> dict[str, Any]:
                 return {"pending_outbound": [no_task_draft]}
             page_id, real_title = ledger_task
             inline_steps = "No steps recorded yet."
+            try:
+                from app.tools import notion as _notion_mod
+                page = await _notion_mod.get_page(page_id=page_id)
+                props = page.get("properties", {}) if isinstance(page, dict) else {}
+                il_prop = (
+                    props.get("Inline Steps", {}) if isinstance(props, dict) else {}
+                )
+                items = il_prop.get("rich_text", []) if isinstance(il_prop, dict) else []
+                fetched = " ".join(
+                    str(item.get("plain_text", ""))
+                    for item in items
+                    if isinstance(item, dict)
+                ).strip()
+                if fetched:
+                    inline_steps = fetched
+            except Exception:
+                log.info("need_help_node.inline_steps_fetch_failed", has_page_id=bool(page_id))
             log.info("need_help_node.ledger_task", has_page_id=bool(page_id))
 
         task_title = (real_title or "").strip() or "your task"

@@ -1265,8 +1265,10 @@ async def test_need_help_without_active_task_helps_with_newest_ledger_task() -> 
          "event": "suggested", "at": (now - timedelta(minutes=30)).isoformat()},
     ]
     model = _mock_llm_response(json.dumps({"user_message": "Start {task} by opening the site."}))
+    get_page = AsyncMock(return_value=_notion_task_page("<page_new>", "Book the placeholder appointment"))
     with (
         patch("app.models.llm", return_value=model),
+        patch("app.tools.notion.get_page", get_page),
         capture_logs() as logs,
     ):
         from app.graph.nodes.need_help import need_help_node
@@ -1304,3 +1306,85 @@ async def test_need_help_without_active_task_or_helpable_ledger_entry_redirects(
 
     llm.assert_not_called()
     assert result["pending_outbound"][0]["body"].startswith("Let's get you a task first")
+
+
+@pytest.mark.asyncio
+async def test_need_help_stale_ledger_entry_does_not_become_current_task() -> None:
+    """A ledger entry outside _LEDGER_HELP_FRESHNESS is skipped; node redirects."""
+    stale_at = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+    ledger = [
+        {"page_id": "<page_stale>", "title": "Water the plants", "kind": "task",
+         "event": "added", "at": stale_at},
+    ]
+    llm = MagicMock()
+    with patch("app.models.llm", llm):
+        from app.graph.nodes.need_help import need_help_node
+
+        result = await need_help_node(
+            _ledger_state(incoming="how do I start?", intent="NEED_HELP", recent_tasks=ledger)
+        )
+
+    llm.assert_not_called()
+    assert result["pending_outbound"][0]["body"].startswith("Let's get you a task first")
+
+
+@pytest.mark.asyncio
+async def test_need_help_ledger_task_includes_stored_inline_steps() -> None:
+    """Stored inline steps from Notion appear in the prompt, not 'No steps recorded yet.'"""
+    def _page_with_steps(page_id: str, title: str, steps: str) -> dict:
+        return {
+            "id": page_id,
+            "properties": {
+                "Title": {"title": [{"plain_text": title}]},
+                "Status": {"select": {"name": "Pending"}},
+                "Is Reminder": {"checkbox": False},
+                "Inline Steps": {"rich_text": [{"plain_text": steps}]},
+            },
+        }
+
+    now = datetime.now(UTC)
+    ledger = [
+        {"page_id": "<page_new>", "title": "Book the placeholder appointment", "kind": "task",
+         "event": "added", "at": (now - timedelta(minutes=5)).isoformat()},
+    ]
+    model = _mock_llm_response('{"user_message": "Step 1: do the thing."}')
+    get_page = AsyncMock(return_value=_page_with_steps(
+        "<page_new>", "Book the placeholder appointment", "Step 1. Call the office."
+    ))
+    with (
+        patch("app.models.llm", return_value=model),
+        patch("app.tools.notion.get_page", get_page),
+    ):
+        from app.graph.nodes.need_help import need_help_node
+
+        result = await need_help_node(
+            _ledger_state(incoming="help me start", intent="NEED_HELP", recent_tasks=ledger)
+        )
+
+    get_page.assert_awaited_once_with(page_id="<page_new>")
+    system_prompt = str(model.ainvoke.await_args.args[0][0].content)
+    assert "Step 1. Call the office." in system_prompt
+    assert "No steps recorded yet." not in system_prompt
+    assert "get you a task first" not in result["pending_outbound"][0]["body"]
+
+
+@pytest.mark.asyncio
+async def test_need_help_ledger_task_falls_back_when_notion_fetch_fails() -> None:
+    """A Notion failure fetching inline_steps leaves the node functional."""
+    now = datetime.now(UTC)
+    ledger = [
+        {"page_id": "<page_new>", "title": "Book the placeholder appointment", "kind": "task",
+         "event": "added", "at": (now - timedelta(minutes=5)).isoformat()},
+    ]
+    model = _mock_llm_response('{"user_message": "Step 1: do the thing."}')
+    with (
+        patch("app.models.llm", return_value=model),
+        patch("app.tools.notion.get_page", AsyncMock(side_effect=RuntimeError("Notion down"))),
+    ):
+        from app.graph.nodes.need_help import need_help_node
+
+        result = await need_help_node(
+            _ledger_state(incoming="help me start", intent="NEED_HELP", recent_tasks=ledger)
+        )
+
+    assert "get you a task first" not in result["pending_outbound"][0]["body"]

@@ -28,17 +28,13 @@ user never has to recall and retype what they just reported. The match prompt
 also returns `unlisted_task_title`, a short title for the report; it is kept
 only when it shares a task-naming word with the message.
 
-- With a context task: "Nice one! Did you mean {task}?". "yes" (or "that
-  one") completes that task. "no" offers to log the report — "Got it. Want me
-  to log '<title>' as done?" — when a title was kept, and otherwise leaves
-  everything open.
-- With no context task and a title: "Nice one! Want me to log '<title>' as
-  done?". "yes" creates the page Completed (or completes the open task it
-  duplicates), rewards it, and celebrates it by name through the shared
+- With a grounded title: "Nice one! Want me to log '<title>' as done?". "yes"
+  creates the page Completed (or completes the open task it duplicates), rewards
+  it, and celebrates it by name through the shared
   `app/graph/nodes/_log_finished.py`; "no" leaves everything open.
 - With neither: "Nice one! I've left your list as it is.".
 
-An answer to any of these never falls back to the ledger, the recent delivery,
+An answer to either form never falls back to the ledger, the recent delivery,
 or the active task.
 
 An empty open list is no exception: with at least two task-naming words

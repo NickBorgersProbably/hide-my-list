@@ -92,7 +92,7 @@ flowchart TD
     AskCount -->|No, limit reached| Save
     Ask --> UserAnswer[User answers]
     UserAnswer --> Infer
-    Save --> Confirm([Confirm with inferred labels])
+    Save --> Confirm([Confirm task name and deadline])
     Confirm --> Correction{User corrects?}
     Correction -->|Yes| Update[Update task]
     Correction -->|No / Moves on| Done([Done])
@@ -967,7 +967,7 @@ journey
     section Intake
       User describes task: 5: User
       AI infers labels from context: 4: AI
-      AI confirms with inferred labels: 4: AI
+      AI confirms task name and deadline: 4: AI
     section Waiting
       Task sits in Notion: 3: System
       2 days pass: 2: System

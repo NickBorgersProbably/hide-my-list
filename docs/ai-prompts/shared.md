@@ -256,12 +256,15 @@ built from nothing the user said is dropped.
 
 A null match with that report set over the widened list, or over an empty
 one, is answered with a question and never with a context completion: nothing
-is written and no reward goes out. Over the scored shortlist, a null match
-keeps the existing `complete_target` question naming those overlapping options:
-the message was about one of them, however the model read it. For the widened
-or empty list, the question celebrates first, never contrasts the report
-against the list, and is a yes/no choice whenever one is possible, so the
-user never has to recall and retype what they just said:
+is written and no reward goes out. `names_unlisted_task` governs only the
+widened and empty cases. Over the scored shortlist, a null match keeps the
+`complete_target` question naming those overlapping options regardless of
+`names_unlisted_task`: the message's words actively overlapped those
+candidates, so the model's null verdict means the completion did not resolve
+cleanly against them — not that the report is definitively about a different
+task. For the widened or empty list, the question celebrates first, never
+contrasts the report against the list, and is a yes/no choice whenever one is
+possible, so the user never has to recall and retype what they just said:
 
 | Situation | Question |
 |-----------|----------|

@@ -1300,6 +1300,7 @@ async def test_logging_a_finished_item_that_matches_an_open_task_completes_that_
     create_task = AsyncMock()
     update_status = AsyncMock(return_value={"id": matched_page_id})
     maybe_reward = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
+    resolve_recent_outbound = AsyncMock(return_value=0)
 
     with (
         patch(
@@ -1309,6 +1310,7 @@ async def test_logging_a_finished_item_that_matches_an_open_task_completes_that_
         patch("app.tools.notion.create_task", create_task),
         patch("app.tools.notion.update_status", update_status),
         patch("app.tools.rewards.maybe_reward", maybe_reward),
+        patch("app.tools.reminders.resolve_recent_outbound", resolve_recent_outbound),
     ):
         from app.graph.nodes.intake import intake_node
 
@@ -1318,6 +1320,15 @@ async def test_logging_a_finished_item_that_matches_an_open_task_completes_that_
     update_status.assert_awaited_once_with(page_id=matched_page_id, new_status="Completed")
     call = update_status.await_args
     inspect.signature(notion.update_status).bind(*call.args, **call.kwargs)
+    resolve_recent_outbound.assert_awaited_once()
+    rro_call = resolve_recent_outbound.await_args
+    from app.tools import reminders as reminders_mod
+    bound = inspect.signature(reminders_mod.resolve_recent_outbound).bind(
+        *rro_call.args, **rro_call.kwargs
+    )
+    assert bound.arguments["peer"] == "<test-peer-1>"
+    assert bound.arguments["notion_page_id"] == matched_page_id
+    assert bound.arguments["signal_timestamp"] == 0
     _assert_maybe_reward_call(
         maybe_reward,
         peer="<test-peer-1>",
@@ -1330,6 +1341,37 @@ async def test_logging_a_finished_item_that_matches_an_open_task_completes_that_
     assert draft["body"].startswith("{task} — done.")
     assert "attachment_path" not in draft
     assert result["recent_tasks"][-1]["event"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_logging_a_finished_dedup_still_completes_when_outbound_resolve_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raise from resolve_recent_outbound is swallowed; the completion still succeeds."""
+    matched_page_id = "<page_id_open_2>"
+
+    async def query_all() -> dict[str, Any]:
+        return {"results": [_make_query_page(matched_page_id, "Another placeholder task")]}
+
+    monkeypatch.setattr("app.tools.notion.query_all", query_all)
+    dedup_model = _model_returning(json.dumps({"matched_page_id": matched_page_id, "confidence": 0.95}))
+
+    with (
+        patch(
+            "app.models.llm",
+            side_effect=[_model_returning(_finished_save_response()), dedup_model],
+        ),
+        patch("app.tools.notion.create_task", AsyncMock()),
+        patch("app.tools.notion.update_status", AsyncMock(return_value={"id": matched_page_id})),
+        patch("app.tools.rewards.maybe_reward", AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})),
+        patch("app.tools.reminders.resolve_recent_outbound", AsyncMock(side_effect=RuntimeError("db down"))),
+    ):
+        from app.graph.nodes.intake import intake_node
+
+        result = await intake_node(_base_state(incoming="no it's new, just log it"))
+
+    assert result["recent_tasks"][-1]["event"] == "completed"
+    assert result["pending_outbound"][0]["body"].startswith("{task} — done.")
 
 
 @pytest.mark.asyncio
