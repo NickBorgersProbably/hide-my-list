@@ -2,7 +2,7 @@
 # Interaction review: the user asked a question and nothing needs writing.
 # The reply did not name the reminder the user just added, so the review may
 # answer with a send_only follow-up naming it — or leave the turn alone. It
-# must never write anything: no completion, creation, or reopen.
+# must never write anything: no completion.
 id: interaction-review-question-turn-001
 node: interaction_review
 tier: medium
@@ -36,4 +36,4 @@ contracts:
   - kind: regex_require
     pattern: "\"action\":\\s*\"(none|send_only)\""
   - kind: regex_forbid
-    pattern: "complete_task|create_task|reopen_task"
+    pattern: "complete_task"

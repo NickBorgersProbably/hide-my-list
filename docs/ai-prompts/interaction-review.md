@@ -24,8 +24,13 @@ delays the initial reply. It yields to live conversation:
 
 Each review is a durable job. Before the review runs, a `pending` row keyed
 by peer and `turn_ref` (the reviewed turn's checkpoint id) is stored in
-`interaction_reviews`; every way the review ends moves that row to a final
-state:
+`interaction_reviews`. Before its first external effect (Notion write,
+reward, or send) the review claims the row: it becomes `executing` and
+records the action and page. Each effect is stored the moment it lands —
+`executed=true` right after the `complete_task` Notion write succeeds,
+`follow_up_sent=true` right after delivery (and `executed=true` with it for
+`send_only`, whose whole correction is the delivery). Every way the review
+ends moves the row to a final state:
 
 | Final state | When | `reason` |
 |---|---|---|
@@ -38,18 +43,26 @@ state:
 | `skipped` | On startup its turn is no longer the latest, or the row is over an hour old | `superseded` |
 | `skipped` | On startup the review is off | `disabled` |
 | `error` | The verdict fails validation | `invalid_verdict` |
-| `error` | The checkpoint moved past `turn_ref` before the write | `stale_checkpoint` |
+| `error` | The checkpoint moved past `turn_ref` before the follow-up | `stale_checkpoint` |
+| `error` | A `send_only` follow-up could not be delivered | `send_failed` |
+| `error` | On startup the row is still `executing` | `interrupted` |
 | `error` | Any other failure | The exception type |
 
-A row that ends after the correction's Notion write carries `executed=true`
-and the action and page, whichever state it ends in; the write is idempotent
-and counts toward the limits below. The review finalizes its own row, and the
-side that cancels it finalizes the row again; the first finalize wins.
+A final row keeps the action, page, `executed`, and `follow_up_sent` its
+claim and effects stored, whichever state it ends in; executed rows count
+toward the limits below. The review finalizes its own row, and the side that
+cancels it finalizes the row again; the first finalize wins.
 
-On startup the listener reads the pending rows before it consumes messages.
-A row under an hour old whose `turn_ref` is still the peer's latest checkpoint
-is reviewed again from that checkpoint's state; every other row ends
-`skipped`.
+On startup the listener reads the unfinished rows before it consumes
+messages:
+
+- An `executing` row was claimed, so its effects may have run. It ends
+  `error(interrupted)` with its recorded action and page, and it is never
+  reviewed again: the Notion write is idempotent, and a follow-up that may
+  already have been delivered is not repeated.
+- A `pending` row was never claimed, so nothing ran. When it is under an hour
+  old and its `turn_ref` is still the peer's latest checkpoint, it is
+  reviewed again from that checkpoint's state; otherwise it ends `skipped`.
 
 The model is the medium tier (caller `interaction_review`).
 
@@ -65,9 +78,10 @@ flowchart TD
     Judge --> Valid{Verdict valid?}
     Valid -->|No| Final[Finalize ok or error]
     Valid -->|ok| Final
-    Valid -->|correct| Act[Run one action]
+    Valid -->|correct| Claim[Claim row: executing, action, page]
+    Claim --> Act[Run the action, store each effect]
     Act --> Current{Checkpoint still turn_ref?}
-    Current -->|Yes| Send[Send one follow-up]
+    Current -->|Yes| Send[Send the fixed follow-up]
     Send --> Write[Write checkpoint, finalize correct]
     Current -->|No| Stale[Finalize error, no follow-up sent, nothing written]
 ```
@@ -105,42 +119,41 @@ The model returns exactly one JSON object and nothing else:
 {
   "verdict": "ok | correct",
   "reason": "one sentence explaining the verdict",
-  "action": "none | complete_task | create_task | reopen_task | send_only",
-  "page_id": "id from the lists above, or null",
-  "title": "new task title for create_task, or null",
-  "due": "ISO-8601 deadline for create_task, or null",
-  "follow_up_message": "one short message containing {task}, or empty"
+  "action": "none | complete_task | send_only",
+  "page_id": "id from the lists above, or null"
 }
 ```
+
+The model writes no user-facing text. `reason` is stored on the row for the
+operator; it is never sent and never logged.
 
 The application validates the verdict before acting and discards it on any
 violation (logged as `interaction_review.verdict_rejected` with a rejection
 code, stored with verdict `error`):
 
-- Only the seven keys above; `verdict` and `action` from their enums.
-- `ok` goes with action `none`, `page_id` null, and an empty follow-up.
-  `correct` goes with any action except `none`.
+- Only the four keys above; `verdict` and `action` from their enums. Any
+  other action is rejected.
+- `ok` goes with action `none` and `page_id` null. `correct` goes with
+  `complete_task` or `send_only`.
 - `complete_task`: `page_id` is one of the open task ids.
-- `reopen_task`: `page_id` is one of the pages completed this turn, and the
-  follow-up says the task is back on the list.
-- `create_task`: `page_id` null, `title` non-empty, at most 200 characters,
-  one line; `due` an ISO-8601 timestamp or null.
 - `send_only`: `page_id` is an open id or a page completed this turn.
-- Every corrective follow-up contains the literal `{task}` token, is at most
-  400 characters, and carries no blame phrasing.
 
 ### Correction Policy
 
 `ok` is the expected verdict for most turns. The review corrects only a clear
-gap between what the user meant and what happened:
+gap between what the user meant and what happened, and only with these
+actions:
 
 | Action | When | What the application does |
 |---|---|---|
-| `complete_task` | The user reported finishing something, the turn did not complete it, and exactly one open task plausibly matches | Writes Completed, cancels the reminder's pending outbox rows for a reminder page, clears its awaiting deliveries, runs the reward, and records `completed` in the ledger |
-| `create_task` | The user clearly asked to track something and the turn saved nothing | Creates the task (with `due` when given) and records `added` |
-| `reopen_task` | This turn completed a page the user did not report finishing | Writes Pending and records `added` |
+| `complete_task` | The user reported finishing something, the turn did not complete it, and exactly one open task plausibly matches | Writes Completed, cancels the reminder's pending outbox rows for a reminder page, clears its awaiting deliveries, reads the page's `Work Type`, `Energy Required`, and `Time Estimate (min)` and runs the reward sized by them (the reward defaults when the read fails), and records `completed` in the ledger |
 | `send_only` | Nothing needs writing, but the reply left the user without an answer they asked for (for example, which task a question was about) | Sends the follow-up only |
 | `none` | Everything else | Nothing |
+
+The review never creates tasks or reminders and never reopens a task. A gap
+that would need one of those — a request that saved nothing, a completion
+that should not have happened — gets `ok`; the intake and completion modules
+own those writes, with their own inference, breakdown, and reminder rules.
 
 Rules:
 
@@ -150,18 +163,26 @@ Rules:
 - A question that is still waiting on the user's answer is not a gap: `ok`.
 - When more than one task could match, the verdict is `ok` — the clarification
   already asked is the right move.
-- The follow-up names the task through the `{task}` token and the draft's
-  `notion_page_title`. The application substitutes the exact stored title
-  (`render_task_token`) before sending; the model never writes the title
-  itself.
-- After a correction the application re-reads the thread's latest checkpoint
-  id before sending any follow-up; when it no longer equals `turn_ref`, no
-  message is sent, nothing is written, and the row ends
-  `error(stale_checkpoint)`. When the checkpoint is still current the
-  follow-up is sent and the application writes the checkpoint as the terminal
-  `send` node: the follow-up joins `messages`, the ledger records the event,
-  and any open clarification clears, so the next turn starts from the
-  corrected state.
+- The follow-up is a fixed application template per action, and it is the
+  only text a review ever sends:
+
+  | Action | Follow-up |
+  |---|---|
+  | `complete_task` | "{task} — marked that one done." followed by the reward text |
+  | `send_only` | "That was {task}." |
+
+  The application renders `{task}` through `render_task_token` with the
+  page's stored title (the draft's `notion_page_title`); with no stored
+  title, "that one" stands in for it.
+- After a correction's action runs, the application re-reads the thread's
+  latest checkpoint id before sending the follow-up; when it no longer equals
+  `turn_ref`, no message is sent, nothing is written to the checkpoint, and
+  the row ends `error(stale_checkpoint)`. When the checkpoint is still
+  current the follow-up is sent and the application writes the checkpoint as
+  the terminal `send` node: the follow-up joins `messages`, the ledger
+  records the event, and any open clarification clears, so the next turn
+  starts from the corrected state. A `send_only` follow-up that cannot be
+  delivered ends `error(send_failed)` with no checkpoint write.
 
 Limits: at most `INTERACTION_REVIEW_MAX_PER_HOUR` (default 3) executed
 corrections per peer per hour; past that the review is skipped before the
@@ -174,12 +195,15 @@ row.
 ### Shame Prevention
 
 The follow-up arrives unasked, seconds after the reply, so it must read as the
-assistant tidying up its own work, never as a correction of the user:
+assistant tidying up its own work, never as a correction of the user. The
+fixed templates carry that contract:
 
-- Say what happened, positively: "{task} — marked that one done." or
-  "Added {task} to your list."
-- Never point at a gap the user left — never use "you forgot", "you didn't", "you missed", or "you should have".
-- Never contrast what the user said with the list ("that wasn't on your list").
-- Never apologize at length or explain internals (no mention of reviews,
-  models, Notion, or checks).
-- One sentence, no question unless the action is `send_only` answering one.
+- They say what happened, positively, in one sentence: "{task} — marked that
+  one done." or "That was {task}."
+- They never point at a gap the user left, never contrast what the user said
+  with the list, never apologize, and never explain internals (no mention of
+  reviews, models, Notion, or checks).
+- They ask no question.
+
+The model chooses `correct` only when its action's sentence is plainly true
+and welcome — a completion the user reported, or the name they asked for.

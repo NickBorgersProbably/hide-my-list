@@ -44,4 +44,4 @@ contracts:
   - kind: regex_require
     pattern: "\"verdict\":\\s*\"ok\""
   - kind: regex_forbid
-    pattern: "complete_task|create_task|reopen_task"
+    pattern: "complete_task"

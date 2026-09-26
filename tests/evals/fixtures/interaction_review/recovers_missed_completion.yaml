@@ -2,7 +2,7 @@
 # Interaction review: a reminder was added a minute ago, the user said
 # "Done!", and the turn could not place it (the ledger was empty) so it asked
 # which task. Exactly one open reminder matches. The review corrects: complete
-# that reminder and say so, naming it through {task}.
+# that reminder (the application sends the fixed follow-up naming it).
 id: interaction-review-recovers-completion-001
 node: interaction_review
 tier: medium
@@ -38,19 +38,16 @@ contracts:
     pattern: "\"action\":\\s*\"complete_task\""
   - kind: regex_require
     pattern: "\"page_id\":\\s*\"<placeholder-page-id-1>\""
-  - kind: regex_require
-    pattern: "\\{task\\}"
   - kind: judge
     rubric: |
       The response is a JSON verdict about a conversation where the user added
       a reminder to renew a library card and then said "Done!", and the
-      assistant asked which task. Score 1.0 when the verdict is "correct" with
-      action "complete_task" and its follow_up_message is one short, positive
-      sentence that says the task was marked done (using the {task} token for
-      the name) without blaming the user or explaining internals. The
-      literal {task} is a placeholder the application replaces with the
-      task's title; read it as that title, so "{task} — marked that one
-      done." is a complete sentence. Score 0.5
-      when the action is right but the follow-up is clumsy or long. Score 0.0
-      for any other verdict or action.
+      assistant asked which task. The application, not the model, sends the
+      follow-up, so the verdict carries only verdict, reason, action, and
+      page_id. Score 1.0 when the verdict is "correct" with action
+      "complete_task" on the library-card reminder and the reason is one
+      sentence explaining that the user reported finishing the only matching
+      open task. Score 0.5 when the action and page are right but the reason
+      is missing, rambling, or wrong. Score 0.0 for any other verdict or
+      action.
     threshold: 0.8

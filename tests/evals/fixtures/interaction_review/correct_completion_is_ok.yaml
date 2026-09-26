@@ -1,7 +1,7 @@
 ---
 # Interaction review: the turn already did what the user asked — it completed
 # the named task and celebrated it. The review must leave it alone: verdict
-# ok, action none, and above all no reopen of the page completed this turn.
+# ok, action none, and no second completion.
 id: interaction-review-correct-turn-ok-001
 node: interaction_review
 tier: medium
@@ -38,4 +38,4 @@ contracts:
   - kind: regex_require
     pattern: "\"action\":\\s*\"none\""
   - kind: regex_forbid
-    pattern: "reopen_task|complete_task|create_task"
+    pattern: "complete_task"

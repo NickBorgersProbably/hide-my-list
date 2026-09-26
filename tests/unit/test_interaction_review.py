@@ -39,9 +39,6 @@ def _json(**fields: Any) -> str:
         "reason": "placeholder reason",
         "action": "complete_task",
         "page_id": "<page_open>",
-        "title": None,
-        "due": None,
-        "follow_up_message": "{task} — marked that one done.",
     }
     base.update(fields)
     return json.dumps(base)
@@ -57,7 +54,7 @@ def _parse(text: str):
 
 
 def test_ok_verdict_is_accepted() -> None:
-    verdict = _parse(_json(verdict="ok", action="none", page_id=None, follow_up_message=""))
+    verdict = _parse(_json(verdict="ok", action="none", page_id=None))
     assert verdict is not None
     assert (verdict.verdict, verdict.action, verdict.page_id) == ("ok", "none", None)
 
@@ -66,33 +63,23 @@ def test_complete_task_on_an_open_page_is_accepted() -> None:
     verdict = _parse(_json())
     assert verdict is not None
     assert (verdict.action, verdict.page_id) == ("complete_task", "<page_open>")
-    assert "{task}" in verdict.follow_up_message
+
+
+def test_the_action_set_is_complete_or_name_only() -> None:
+    """The review never creates, reopens, or schedules: two actions and none."""
+    assert set(review.ACTIONS) == {"none", "complete_task", "send_only"}
+    assert set(review.FOLLOW_UP_TEMPLATES) == {"complete_task", "send_only"}
 
 
 def test_code_fenced_verdict_is_accepted() -> None:
     assert _parse(f"```json\n{_json()}\n```") is not None
 
 
-def test_create_task_is_accepted_with_title_and_due() -> None:
-    verdict = _parse(_json(
-        action="create_task", page_id=None, title="Renew the library card",
-        due="2026-01-02T09:00:00+00:00", follow_up_message="Added {task} to your list.",
-    ))
-    assert verdict is not None
-    assert (verdict.title, verdict.due) == ("Renew the library card", "2026-01-02T09:00:00+00:00")
-
-
-def test_reopen_of_a_page_completed_this_turn_is_accepted() -> None:
-    verdict = _parse(_json(
-        action="reopen_task", page_id="<page_done>",
-        follow_up_message="{task} is back on your list.",
-    ))
-    assert verdict is not None and verdict.action == "reopen_task"
-
-
 def test_send_only_naming_a_listed_page_is_accepted() -> None:
-    verdict = _parse(_json(action="send_only", follow_up_message="That was {task}."))
+    verdict = _parse(_json(action="send_only"))
     assert verdict is not None and verdict.action == "send_only"
+    completed = _parse(_json(action="send_only", page_id="<page_done>"))
+    assert completed is not None and completed.page_id == "<page_done>"
 
 
 # ---------------------------------------------------------------------------
@@ -109,30 +96,16 @@ def test_send_only_naming_a_listed_page_is_accepted() -> None:
         (_json(verdict="maybe"), "unknown_verdict"),
         (_json(action="delete_task"), "unknown_action"),
         (_json(verdict="ok", action="complete_task"), "ok_with_action"),
-        (_json(verdict="ok", action="none", page_id=None), "ok_with_action"),
+        (_json(verdict="ok", action="none", page_id="<page_open>"), "ok_with_action"),
         (_json(action="none", page_id=None), "correct_without_action"),
-        (_json(follow_up_message="Marked that one done."), "follow_up_missing_task_token"),
-        (_json(follow_up_message=""), "follow_up_missing_task_token"),
-        (_json(follow_up_message="{task} " + "x" * 400), "follow_up_too_long"),
+        # The model writes no text and names no new task: extra keys are refused.
+        (_json(message="Test message"), "unknown_key"),
+        (_json(title="Test task"), "unknown_key"),
         (_json(page_id="<page_invented>"), "page_not_open"),
         (_json(page_id=None), "page_not_open"),
         (_json(page_id="<page_done>"), "page_not_open"),
-        (
-            _json(action="reopen_task", page_id="<page_open>",
-                  follow_up_message="{task} is back on your list."),
-            "page_not_completed_this_turn",
-        ),
-        (
-            _json(action="reopen_task", page_id="<page_done>",
-                  follow_up_message="{task} — nice work!"),
-            "reopen_not_stated",
-        ),
         (_json(action="send_only", page_id="<page_invented>"), "page_not_listed"),
-        (_json(action="create_task", page_id="<page_open>", title="X"), "create_with_page_id"),
-        (_json(action="create_task", page_id=None, title=None), "bad_title"),
-        (_json(action="create_task", page_id=None, title="x" * 201), "bad_title"),
-        (_json(action="create_task", page_id=None, title="two\nlines"), "bad_title"),
-        (_json(action="create_task", page_id=None, title="X", due="next tuesday"), "bad_due"),
+        (_json(action="send_only", page_id=None), "page_not_listed"),
         (_json(page_id=7), "bad_type"),
         (_json(reason=["x"]), "bad_type"),
     ],
@@ -142,32 +115,19 @@ def test_invalid_verdicts_are_rejected_with_a_code(text: str, code: str) -> None
         assert _parse(text) is None
     rejected = [e for e in logs if e["event"] == "interaction_review.verdict_rejected"]
     assert [e["rejection"] for e in rejected] == [code]
-    # Only the code is logged: never the reason, the follow-up, or a title.
+    # Only the code is logged: never the reason or a title.
     assert set(rejected[0]) <= {"event", "rejection", "log_level"}
 
 
-@pytest.mark.parametrize(
-    "follow_up",
-    [
-        "Looks like you forgot {task}, marked it done.",
-        "You didn't mention {task}, so I marked it done.",
-        "{task} wasn't on your list, so I added it.",
-        "You missed {task} — done now.",
-    ],
-)
-def test_blame_phrasing_is_rejected(follow_up: str) -> None:
-    with capture_logs() as logs:
-        assert _parse(_json(follow_up_message=follow_up)) is None
-    assert [e["rejection"] for e in logs] == ["follow_up_blame"]
-
-
-def test_blame_patterns_cover_the_shame_catalog() -> None:
-    """Every phrase the tests score delivered text against is refused up front."""
+def test_follow_up_templates_are_fixed_and_shame_safe() -> None:
+    """The only text a review sends: one sentence, `{task}`, no blame, no question."""
     from tests.support.shame import BANNED_PATTERNS
 
-    guarded = {pattern.pattern for pattern in review._BLAME_PATTERNS}
-    missing = [p.pattern for p in BANNED_PATTERNS if p.pattern not in guarded]
-    assert not missing
+    for action, template in review.FOLLOW_UP_TEMPLATES.items():
+        assert template.count("{task}") == 1, action
+        assert "?" not in template, action
+        rendered = review.render_task_token(template, title="Sort the mail")
+        assert not [p.pattern for p in BANNED_PATTERNS if p.search(rendered)], action
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +275,9 @@ def test_prompt_renders_every_input_and_section() -> None:
     for anchor in (
         "## Interaction Review", "### Inputs", "### Verdict Schema",
         "### Correction Policy", "### Shame Prevention", "{task}",
-        "<page_open>", '"Done!"', "complete_task", "reopen_task", "send_only",
+        "<page_open>", '"Done!"', "complete_task", "send_only",
+        "never creates tasks or reminders",
+        "{task} — marked that one done.", "That was {task}.",
     ):
         assert anchor in rendered, anchor
 
@@ -325,16 +287,23 @@ def test_prompt_renders_every_input_and_section() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _page(page_id: str, title: str, *, reminder: bool = False) -> dict[str, Any]:
-    return {
-        "id": page_id,
-        "properties": {
-            "Title": {"title": [{"plain_text": title}]},
-            "Status": {"select": {"name": "Pending"}},
-            "Is Reminder": {"checkbox": reminder},
-        },
+def _page(
+    page_id: str, title: str, *, reminder: bool = False, **props: Any
+) -> dict[str, Any]:
+    properties: dict[str, Any] = {
+        "Title": {"title": [{"plain_text": title}]},
+        "Status": {"select": {"name": "Pending"}},
+        "Is Reminder": {"checkbox": reminder},
     }
+    properties.update(props)
+    return {"id": page_id, "properties": properties}
 
+
+_SIZED = {
+    "Work Type": {"select": {"name": "Focus"}},
+    "Energy Required": {"select": {"name": "High"}},
+    "Time Estimate (min)": {"number": 90},
+}
 
 _REVIEW_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
 
@@ -352,16 +321,42 @@ def _bind(real: Any, call: Any) -> dict[str, Any]:
 
 
 async def _run(
-    verdict_json: str, *, final_state: dict[str, Any], update_status_error: Exception | None = None
+    verdict_json: str,
+    *,
+    final_state: dict[str, Any],
+    update_status_error: Exception | None = None,
+    get_page_error: Exception | None = None,
+    send_error: Exception | None = None,
+    claimed: bool = True,
 ) -> dict[str, Any]:
-    """Run review_turn with every dependency mocked; return the mocks."""
+    """Run review_turn with every dependency mocked; return the mocks.
+
+    `order` records the external effects and row writes in the order they ran.
+    """
     from app.tools import interaction_reviews, notion, ops_alerts, reminders, signal_client
     from app.tools import rewards as rewards_module
+
+    order: list[str] = []
+
+    def recorded(name: str, mock: AsyncMock) -> AsyncMock:
+        inner = mock.side_effect
+
+        async def effect(*args: Any, **kwargs: Any) -> Any:
+            order.append(name)
+            if isinstance(inner, Exception):
+                raise inner
+            return mock.return_value
+
+        mock.side_effect = effect
+        return mock
 
     mocks: dict[str, Any] = {
         "real": {
             "update_status": notion.update_status,
-            "create_task": notion.create_task,
+            "get_page": notion.get_page,
+            "claim": interaction_reviews.claim,
+            "mark_executed": interaction_reviews.mark_executed,
+            "mark_follow_up_sent": interaction_reviews.mark_follow_up_sent,
             "finalize": interaction_reviews.finalize,
             "count": interaction_reviews.count_executed_corrections,
             "send_message": signal_client.send_message,
@@ -370,14 +365,24 @@ async def _run(
             "resolve": reminders.resolve_recent_outbound,
             "enqueue": ops_alerts.enqueue,
         },
-        "update_status": AsyncMock(return_value={}, side_effect=update_status_error),
-        "create_task": AsyncMock(return_value={"id": "<page_new>"}),
-        "finalize": AsyncMock(return_value=True),
+        "order": order,
+        "update_status": recorded("update_status", AsyncMock(
+            return_value={}, side_effect=update_status_error)),
+        "get_page": recorded("get_page", AsyncMock(
+            return_value=_page("<page_open>", "Renew the library card", **_SIZED),
+            side_effect=get_page_error,
+        )),
+        "claim": recorded("claim", AsyncMock(return_value=claimed)),
+        "mark_executed": recorded("mark_executed", AsyncMock(return_value=None)),
+        "mark_follow_up_sent": recorded("mark_follow_up_sent", AsyncMock(return_value=None)),
+        "finalize": recorded("finalize", AsyncMock(return_value=True)),
         # First call: the hour's count (under the limit); second: the day's
         # count (over the alert threshold).
         "count": AsyncMock(side_effect=[0, 9]),
-        "send_message": AsyncMock(return_value={"timestamp": 1}),
-        "maybe_reward": AsyncMock(return_value={"text": "🎉", "attachment_path": None}),
+        "send_message": recorded("send_message", AsyncMock(
+            return_value={"timestamp": 1}, side_effect=send_error)),
+        "maybe_reward": recorded("maybe_reward", AsyncMock(
+            return_value={"text": "🎉", "attachment_path": None})),
         "cancel": AsyncMock(return_value=1),
         "resolve": AsyncMock(return_value=0),
         "enqueue": AsyncMock(),
@@ -390,7 +395,10 @@ async def _run(
     with (
         patch("app.tools.notion.query_all", query_all),
         patch("app.tools.notion.update_status", mocks["update_status"]),
-        patch("app.tools.notion.create_task", mocks["create_task"]),
+        patch("app.tools.notion.get_page", mocks["get_page"]),
+        patch("app.tools.interaction_reviews.claim", mocks["claim"]),
+        patch("app.tools.interaction_reviews.mark_executed", mocks["mark_executed"]),
+        patch("app.tools.interaction_reviews.mark_follow_up_sent", mocks["mark_follow_up_sent"]),
         patch("app.tools.interaction_reviews.finalize", mocks["finalize"]),
         patch("app.tools.interaction_reviews.count_executed_corrections", mocks["count"]),
         patch("app.tools.signal_client.send_message", mocks["send_message"]),
@@ -430,8 +438,14 @@ async def test_complete_task_call_shapes_match_real_signatures() -> None:
     mocks = await _run(_json(), final_state=_STATE)
     real = mocks["real"]
 
+    assert _bind(real["claim"], mocks["claim"].await_args) == {
+        "review_id": _REVIEW_ID, "action": "complete_task", "page_id": "<page_open>",
+    }
     assert _bind(real["update_status"], mocks["update_status"].await_args) == {
         "page_id": "<page_open>", "new_status": "Completed",
+    }
+    assert _bind(real["mark_executed"], mocks["mark_executed"].await_args) == {
+        "review_id": _REVIEW_ID,
     }
     assert _bind(real["cancel"], mocks["cancel"].await_args) == {
         "peer": "<recipient>", "notion_page_id": "<page_open>",
@@ -439,15 +453,20 @@ async def test_complete_task_call_shapes_match_real_signatures() -> None:
     assert _bind(real["resolve"], mocks["resolve"].await_args) == {
         "peer": "<recipient>", "signal_timestamp": 0, "notion_page_id": "<page_open>",
     }
+    assert _bind(real["get_page"], mocks["get_page"].await_args) == {"page_id": "<page_open>"}
     assert _bind(real["maybe_reward"], mocks["maybe_reward"].await_args) == {
         "peer": "<recipient>", "task_title": "Renew the library card",
         "notion_page_id": "<page_open>", "streak": 3,
+        "work_type": "Focus", "energy_required": "High", "time_estimate": 90,
     }
     sent = _bind(real["send_message"], mocks["send_message"].await_args)
     assert sent["recipient"] == "<recipient>"
     assert sent["message"] == "Renew the library card — marked that one done. 🎉"
     assert isinstance(sent["idempotency_key"], str) and len(sent["idempotency_key"]) == 32
     assert "attachment_paths" not in sent
+    assert _bind(real["mark_follow_up_sent"], mocks["mark_follow_up_sent"].await_args) == {
+        "review_id": _REVIEW_ID, "executed": False,
+    }
 
     stored = _bind(real["finalize"], mocks["finalize"].await_args)
     assert stored == {
@@ -455,8 +474,12 @@ async def test_complete_task_call_shapes_match_real_signatures() -> None:
         "action": "complete_task", "action_page_id": "<page_open>", "executed": True,
         "follow_up_sent": True,
     }
-    # Finalized once, after the checkpoint write.
-    mocks["finalize"].assert_awaited_once()
+    # Claimed before the first effect; each effect stored right after it lands;
+    # finalized once, after the checkpoint write.
+    assert mocks["order"] == [
+        "claim", "update_status", "mark_executed", "get_page", "maybe_reward",
+        "send_message", "mark_follow_up_sent", "finalize",
+    ]
     assert [_bind(real["count"], c) for c in mocks["count"].await_args_list] == [
         {"peer": "<recipient>", "window_seconds": 3600.0},
         {"peer": None, "window_seconds": 86400.0},
@@ -490,54 +513,83 @@ async def test_complete_task_call_shapes_match_real_signatures() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_task_call_shape_matches_real_signature() -> None:
-    mocks = await _run(
-        _json(action="create_task", page_id=None, title="Renew the passport",
-              due="2026-02-01T09:00:00+00:00", follow_up_message="Added {task} to your list."),
-        final_state=_STATE,
-    )
-    assert _bind(mocks["real"]["create_task"], mocks["create_task"].await_args) == {
-        "title": "Renew the passport", "work_type": "focus",
-        "due_at_iso": "2026-02-01T09:00:00+00:00",
-    }
-    sent = _bind(mocks["real"]["send_message"], mocks["send_message"].await_args)
-    assert sent["message"] == "Added Renew the passport to your list."
-    values = mocks["graph"].aupdate_state.await_args.args[1]
-    assert values["recent_tasks"][0]["page_id"] == "<page_new>"
-    assert values["recent_tasks"][0]["event"] == "added"
+async def test_reward_kwargs_are_parameters_of_maybe_reward() -> None:
+    """Clause 10: every reward kwarg the review passes is a real parameter.
+
+    `maybe_reward` sits inside the review's reward handler, which swallows a
+    TypeError into a logged `reward_failed`; a renamed parameter must fail
+    here instead.
+    """
+    from app.tools.rewards import maybe_reward
+
+    mocks = await _run(_json(), final_state=_STATE)
+    call = mocks["maybe_reward"].await_args
+    parameters = inspect.signature(maybe_reward).parameters
+    assert call.args == ()
+    assert set(call.kwargs) <= set(parameters)
+    for name in ("work_type", "energy_required", "time_estimate"):
+        assert name in call.kwargs, name
+        assert parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
+    assert isinstance(call.kwargs["time_estimate"], int)
 
 
 @pytest.mark.asyncio
-async def test_reopen_task_writes_pending() -> None:
-    state = {
-        **_STATE,
-        "turn_actions": [
-            {"action": "notion.update_status", "page_id": "<page_done>", "status": "Completed"},
-        ],
-        "recent_tasks": [{
-            "page_id": "<page_done>", "title": "Water the plants", "kind": "task",
-            "event": "completed", "at": datetime.now(UTC).isoformat(),
-        }],
-    }
-    mocks = await _run(
-        _json(action="reopen_task", page_id="<page_done>",
-              follow_up_message="{task} is back on your list."),
-        final_state=state,
+async def test_a_failed_page_read_rewards_with_the_defaults() -> None:
+    mocks = await _run(_json(), final_state=_STATE, get_page_error=RuntimeError("down"))
+    kwargs = mocks["maybe_reward"].await_args.kwargs
+    assert (kwargs["work_type"], kwargs["energy_required"], kwargs["time_estimate"]) == (
+        "", "", 30,
     )
-    assert _bind(mocks["real"]["update_status"], mocks["update_status"].await_args) == {
-        "page_id": "<page_done>", "new_status": "Pending",
-    }
+    failed = [e for e in mocks["logs"] if e["event"] == "interaction_review.page_read_failed"]
+    assert failed and set(failed[0]) <= {"event", "error_type", "log_level"}
+    assert failed[0]["error_type"] == "RuntimeError"
+    assert mocks["finalize"].await_args.kwargs["verdict"] == "correct"
+
+
+@pytest.mark.asyncio
+async def test_send_only_writes_nothing_and_sends_the_fixed_template() -> None:
+    mocks = await _run(_json(action="send_only", page_id="<page_other>"), final_state=_STATE)
+    for name in ("update_status", "mark_executed", "get_page", "maybe_reward"):
+        mocks[name].assert_not_awaited()
     sent = _bind(mocks["real"]["send_message"], mocks["send_message"].await_args)
-    assert sent["message"] == "Water the plants is back on your list."
+    assert sent["message"] == "That was Sort the mail."
+    assert mocks["mark_follow_up_sent"].await_args.kwargs == {"executed": True}
+    stored = mocks["finalize"].await_args.kwargs
+    assert (stored["verdict"], stored["action"], stored["action_page_id"], stored["executed"],
+            stored["follow_up_sent"]) == ("correct", "send_only", "<page_other>", True, True)
+    assert mocks["order"] == ["claim", "send_message", "mark_follow_up_sent", "finalize"]
+
+
+@pytest.mark.asyncio
+async def test_an_undelivered_send_only_ends_send_failed_without_a_checkpoint_write() -> None:
+    mocks = await _run(
+        _json(action="send_only", page_id="<page_other>"),
+        final_state=_STATE,
+        send_error=RuntimeError("down"),
+    )
+    mocks["graph"].aupdate_state.assert_not_awaited()
+    mocks["mark_follow_up_sent"].assert_not_awaited()
+    stored = mocks["finalize"].await_args.kwargs
+    assert (stored["verdict"], stored["reason"], stored["executed"],
+            stored["follow_up_sent"]) == ("error", "send_failed", False, False)
+
+
+@pytest.mark.asyncio
+async def test_a_lost_claim_runs_no_effect() -> None:
+    mocks = await _run(_json(), final_state=_STATE, claimed=False)
+    for name in ("update_status", "maybe_reward", "send_message", "finalize"):
+        mocks[name].assert_not_awaited()
+    mocks["graph"].aupdate_state.assert_not_awaited()
+    assert "interaction_review.claim_lost" in [e["event"] for e in mocks["logs"]]
 
 
 @pytest.mark.asyncio
 async def test_ok_verdict_writes_nothing_but_the_row() -> None:
     mocks = await _run(
-        _json(verdict="ok", action="none", page_id=None, follow_up_message=""),
+        _json(verdict="ok", action="none", page_id=None),
         final_state=_STATE,
     )
-    for name in ("update_status", "create_task", "send_message", "maybe_reward", "enqueue"):
+    for name in ("claim", "update_status", "send_message", "maybe_reward", "enqueue"):
         mocks[name].assert_not_awaited()
     mocks["graph"].aupdate_state.assert_not_awaited()
     stored = mocks["finalize"].await_args.kwargs
@@ -547,6 +599,7 @@ async def test_ok_verdict_writes_nothing_but_the_row() -> None:
 @pytest.mark.asyncio
 async def test_invalid_verdict_is_stored_as_error_without_acting() -> None:
     mocks = await _run("Sure! I think the user meant the library card.", final_state=_STATE)
+    mocks["claim"].assert_not_awaited()
     mocks["update_status"].assert_not_awaited()
     mocks["send_message"].assert_not_awaited()
     stored = mocks["finalize"].await_args.kwargs
@@ -564,6 +617,8 @@ async def test_a_failure_is_logged_and_stored_never_raised() -> None:
     assert (stored["verdict"], stored["reason"], stored["executed"]) == (
         "error", "RuntimeError", False,
     )
+    mocks["claim"].assert_awaited_once()
+    mocks["mark_executed"].assert_not_awaited()
     mocks["send_message"].assert_not_awaited()
 
 
@@ -583,7 +638,9 @@ def test_skip_reasons_match_the_literal_and_the_spec() -> None:
     spec = (
         Path(__file__).resolve().parents[2] / "docs" / "ai-prompts" / "interaction-review.md"
     ).read_text()
-    for reason in review.SKIP_REASONS + ("invalid_verdict", "stale_checkpoint"):
+    for reason in review.SKIP_REASONS + (
+        "invalid_verdict", "stale_checkpoint", "send_failed", "interrupted",
+    ):
         assert f"`{reason}`" in spec, reason
 
 
@@ -599,6 +656,10 @@ def _lifecycle_patches(
     for target, value in (
         ("app.tools.notion.query_all", query_all),
         ("app.tools.notion.update_status", update_status),
+        ("app.tools.notion.get_page", AsyncMock(return_value=_page("<page_open>", "x"))),
+        ("app.tools.interaction_reviews.claim", AsyncMock(return_value=True)),
+        ("app.tools.interaction_reviews.mark_executed", AsyncMock(return_value=None)),
+        ("app.tools.interaction_reviews.mark_follow_up_sent", AsyncMock(return_value=None)),
         ("app.tools.interaction_reviews.finalize", finalize),
         ("app.tools.interaction_reviews.count_executed_corrections", AsyncMock(return_value=0)),
         ("app.tools.signal_client.send_message", AsyncMock(return_value={"timestamp": 1})),

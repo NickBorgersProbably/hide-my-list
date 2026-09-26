@@ -16,14 +16,18 @@ waits for it up to a bound and then cancels it (see
 `parse_verdict` enforces it before anything is written.
 
 Guardrails, all deterministic:
-- one action per turn; page ids must come from the lists the model was shown
-  (`complete_task`/`send_only`: open tasks; `reopen_task`: this turn's
-  completions only);
-- every follow-up carries `{task}` and is sent through `render_task_token`
-  with the stored title, so the model never authors a task name;
-- follow-ups with blame phrasing are rejected;
-- the checkpoint is written only when it is still the reviewed turn's
-  (`turn_ref`), so a review never overwrites a newer turn;
+- one action per turn, `complete_task` or `send_only`; the review never
+  creates a task or a reminder and never reopens one. Page ids must come from
+  the lists the model was shown (`complete_task`: open tasks; `send_only`:
+  open tasks or this turn's completions);
+- the model writes no user-facing text: the follow-up is a fixed template per
+  action, rendered through `render_task_token` with the stored title;
+- the row is claimed (`executing`, with its action and page) before the first
+  external effect, and each effect is recorded as it lands, so a restart never
+  replays a claimed job;
+- the follow-up is sent and the checkpoint written only while the thread's
+  latest checkpoint is still the reviewed turn's (`turn_ref`), so a review
+  never speaks about or overwrites a newer turn;
 - executed corrections are rate limited per peer per hour and raise an ops
   alert past a 24-hour threshold; every exit path, cancellation included,
   finalizes the job's `interaction_reviews` row (via
@@ -59,16 +63,11 @@ from app.graph.nodes._task_token import TASK_TOKEN, render_task_token
 log = structlog.get_logger(__name__)
 
 VerdictKind = Literal["ok", "correct"]
-ReviewAction = Literal["none", "complete_task", "create_task", "reopen_task", "send_only"]
+ReviewAction = Literal["none", "complete_task", "send_only"]
 
-ACTIONS: tuple[str, ...] = ("none", "complete_task", "create_task", "reopen_task", "send_only")
+ACTIONS: tuple[str, ...] = ("none", "complete_task", "send_only")
 _VERDICTS: frozenset[str] = frozenset({"ok", "correct"})
-_KEYS: frozenset[str] = frozenset(
-    {"verdict", "reason", "action", "page_id", "title", "due", "follow_up_message"}
-)
-
-TITLE_MAX_CHARS = 200
-FOLLOW_UP_MAX_CHARS = 400
+_KEYS: frozenset[str] = frozenset({"verdict", "reason", "action", "page_id"})
 
 _HOUR_SECONDS = 3600.0
 _DAY_SECONDS = 86400.0
@@ -76,31 +75,6 @@ _DAY_SECONDS = 86400.0
 _DEFAULT_DELAY_SECONDS = 3.0
 _DEFAULT_MAX_PER_HOUR = 3
 _DEFAULT_ALERT_THRESHOLD = 5
-
-# A reopen follow-up must say the task is open again; a model that reopens a
-# page while its message celebrates would contradict the write.
-_REOPEN_WORDING = re.compile(
-    r"(?i)\b(re-?open(ed)?|back on (your|the) list|open again|still open)\b"
-)
-
-# Blame phrasing the follow-up may never carry. Mirrors the shame catalog the
-# tests score delivered text against (tests/support/shame.py), plus the
-# list-contrast framing a corrective message is prone to.
-_BLAME_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\byou didn'?t\b", re.IGNORECASE),
-    re.compile(r"\byou should have\b", re.IGNORECASE),
-    re.compile(r"\byou forgot\b", re.IGNORECASE),
-    re.compile(r"\byou failed\b", re.IGNORECASE),
-    re.compile(r"\byou never\b", re.IGNORECASE),
-    re.compile(r"\byou haven'?t\b", re.IGNORECASE),
-    re.compile(r"\byou missed\b", re.IGNORECASE),
-    re.compile(r"\bfailed to\b", re.IGNORECASE),
-    re.compile(r"\byou were supposed to\b", re.IGNORECASE),
-    re.compile(r"\byou were meant to\b", re.IGNORECASE),
-    re.compile(r"\byou are lazy\b", re.IGNORECASE),
-    re.compile(r"\byou're lazy\b", re.IGNORECASE),
-    re.compile(r"\b(wasn'?t|isn'?t|was not|is not) on your list\b", re.IGNORECASE),
-)
 
 # Why a review ended without a verdict of its own. The listener cancels a
 # review with one of these as the cancellation message.
@@ -111,12 +85,16 @@ SKIP_REASONS: tuple[str, ...] = (
     "buffer_non_empty", "superseded", "cancelled", "rate_limited", "disabled", "timeout",
 )
 
-_FOLLOW_UP_TEMPLATES: dict[str, str] = {
+# The only text a review ever sends. The model writes none of it: `{task}`
+# is filled with the stored title by `render_task_token`.
+FOLLOW_UP_TEMPLATES: dict[str, str] = {
     "complete_task": "{task} — marked that one done.",
-    "create_task": "Added {task} to your list.",
-    "reopen_task": "{task} is back on your list.",
     "send_only": "That was {task}.",
 }
+
+# Reward sizing defaults, the same ones `maybe_reward` applies when a page
+# carries no metadata.
+_DEFAULT_TIME_ESTIMATE = 30
 
 
 @dataclass(frozen=True)
@@ -127,9 +105,6 @@ class Verdict:
     reason: str
     action: ReviewAction
     page_id: str | None
-    title: str | None
-    due: str | None
-    follow_up_message: str
 
 
 @dataclass(frozen=True)
@@ -338,14 +313,6 @@ def _optional_str(value: object) -> str | None:
     raise TypeError
 
 
-def _valid_iso(value: str) -> bool:
-    try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    return True
-
-
 def parse_verdict(
     text: str,
     *,
@@ -386,78 +353,35 @@ def parse_verdict(
         _reject("unknown_action")
         return None
     reason = loaded.get("reason", "")
-    follow_up = loaded.get("follow_up_message", "")
-    if not isinstance(reason, str) or not isinstance(follow_up, str):
+    if not isinstance(reason, str):
         _reject("bad_type")
         return None
     try:
         page_id = _optional_str(loaded.get("page_id"))
-        title = _optional_str(loaded.get("title"))
-        due = _optional_str(loaded.get("due"))
     except TypeError:
         _reject("bad_type")
         return None
-    follow_up = follow_up.strip()
 
     if verdict == "ok":
-        if action != "none" or page_id or title or due or follow_up:
+        if action != "none" or page_id:
             _reject("ok_with_action")
             return None
-        return Verdict("ok", reason.strip(), "none", None, None, None, "")
+        return Verdict("ok", reason.strip(), "none", None)
 
     if action == "none":
         _reject("correct_without_action")
         return None
-    if not follow_up or TASK_TOKEN not in follow_up:
-        _reject("follow_up_missing_task_token")
-        return None
-    if len(follow_up) > FOLLOW_UP_MAX_CHARS:
-        _reject("follow_up_too_long")
-        return None
-    if any(pattern.search(follow_up) for pattern in _BLAME_PATTERNS):
-        _reject("follow_up_blame")
-        return None
-
     open_ids = set(open_page_ids)
     completed_ids = set(completed_this_turn)
     if action == "complete_task":
         if not page_id or page_id not in open_ids:
             _reject("page_not_open")
             return None
-        title, due = None, None
-    elif action == "reopen_task":
-        if not page_id or page_id not in completed_ids:
-            _reject("page_not_completed_this_turn")
-            return None
-        if not _REOPEN_WORDING.search(follow_up):
-            _reject("reopen_not_stated")
-            return None
-        title, due = None, None
-    elif action == "send_only":
-        if not page_id or page_id not in open_ids | completed_ids:
-            _reject("page_not_listed")
-            return None
-        title, due = None, None
-    else:  # create_task
-        if page_id:
-            _reject("create_with_page_id")
-            return None
-        if not title or len(title) > TITLE_MAX_CHARS or "\n" in title:
-            _reject("bad_title")
-            return None
-        if due is not None and not _valid_iso(due):
-            _reject("bad_due")
-            return None
+    elif not page_id or page_id not in open_ids | completed_ids:  # send_only
+        _reject("page_not_listed")
+        return None
 
-    return Verdict(
-        "correct",
-        reason.strip(),
-        cast(ReviewAction, action),
-        page_id,
-        title,
-        due,
-        follow_up,
-    )
+    return Verdict("correct", reason.strip(), cast(ReviewAction, action), page_id)
 
 
 # ---------------------------------------------------------------------------
@@ -546,14 +470,63 @@ async def finalize_skipped(
         log.warning("interaction_review.store_failed", error_type=type(exc).__name__)
 
 
+async def finalize_interrupted(review_id: uuid.UUID) -> None:
+    """Finalize a claimed job a stopped process left `executing`. Never raises.
+
+    The row is closed `error(interrupted)` and keeps the action, page, and
+    progress it recorded. It is never re-reviewed: its Notion write may
+    already have run (and is idempotent), and a follow-up that may already
+    have been delivered is not repeated.
+    """
+    try:
+        await _finalize(review_id, verdict="error", reason="interrupted")
+    except Exception as exc:
+        log.warning("interaction_review.store_failed", error_type=type(exc).__name__)
+
+
 def _titles(open_list: Sequence[Mapping[str, str]], completed: Sequence[Mapping[str, str]]) -> dict[str, str]:
     titles = {str(task["id"]): str(task.get("title") or "") for task in completed}
     titles.update({str(task["id"]): str(task.get("title") or "") for task in open_list})
     return titles
 
 
+def _number(props: Mapping[str, Any], key: str, default: int) -> int:
+    prop = props.get(key)
+    value = prop.get("number") if isinstance(prop, Mapping) else None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    return int(value)
+
+
+async def reward_metadata(page_id: str) -> tuple[str, str, int]:
+    """The page's reward sizing: `(work_type, energy_required, time_estimate)`.
+
+    Read from the page's `Work Type`, `Energy Required`, and
+    `Time Estimate (min)` properties, the fields `complete_node` takes from
+    the active task. Fail-soft: a read error logs its type only and returns
+    the defaults `maybe_reward` applies (`""`, `""`, 30), so a lookup never
+    costs the celebration.
+    """
+    from app.graph.nodes._task_match import extract_select
+    from app.tools import notion
+
+    try:
+        page = await notion.get_page(page_id=page_id)
+    except Exception as exc:
+        log.warning("interaction_review.page_read_failed", error_type=type(exc).__name__)
+        return "", "", _DEFAULT_TIME_ESTIMATE
+    raw = page.get("properties") if isinstance(page, Mapping) else None
+    props: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    return (
+        extract_select(props, "Work Type"),
+        extract_select(props, "Energy Required"),
+        _number(props, "Time Estimate (min)", _DEFAULT_TIME_ESTIMATE),
+    )
+
+
 async def _complete(
     *,
+    review_id: uuid.UUID,
     peer: str,
     page_id: str,
     title: str,
@@ -562,11 +535,14 @@ async def _complete(
     now: datetime,
     progress: _Progress,
 ) -> _Execution:
-    from app.tools import notion, reminders
+    from app.tools import interaction_reviews, notion, reminders
     from app.tools.rewards import maybe_reward
 
     await notion.update_status(page_id=page_id, new_status="Completed")
     progress.executed = True
+    # Recorded as soon as it lands, so a crash after this point leaves a row
+    # that says the write ran.
+    await interaction_reviews.mark_executed(review_id)
     if kind == "reminder":
         # A reminder finished before it fired must not fire afterwards. The
         # worker's pre-send check covers a row this call fails to cancel.
@@ -592,9 +568,16 @@ async def _complete(
     streak = int(state.get("streak") or 0) + 1
     reward_text = ""
     attachment: str | None = None
+    work_type, energy_required, time_estimate = await reward_metadata(page_id)
     try:
         reward = await maybe_reward(
-            peer=peer, task_title=title, notion_page_id=page_id, streak=streak
+            peer=peer,
+            task_title=title,
+            notion_page_id=page_id,
+            streak=streak,
+            work_type=work_type,
+            energy_required=energy_required,
+            time_estimate=time_estimate,
         )
         reward_text = reward["text"]
         attachment = reward["attachment_path"]
@@ -629,6 +612,7 @@ async def _complete(
 async def _execute(
     verdict: Verdict,
     *,
+    review_id: uuid.UUID,
     peer: str,
     state: Mapping[str, Any],
     open_list: Sequence[Mapping[str, str]],
@@ -636,14 +620,13 @@ async def _execute(
     now: datetime,
     progress: _Progress,
 ) -> _Execution:
-    from app.tools import notion
-
     titles = _titles(open_list, completed)
     kinds = {str(task["id"]): str(task.get("kind") or "task") for task in open_list}
     page_id = verdict.page_id or ""
 
     if verdict.action == "complete_task":
         return await _complete(
+            review_id=review_id,
             peer=peer,
             page_id=page_id,
             title=titles.get(page_id, ""),
@@ -653,49 +636,7 @@ async def _execute(
             progress=progress,
         )
 
-    if verdict.action == "create_task":
-        title = verdict.title or ""
-        page = await notion.create_task(title=title, work_type="focus", due_at_iso=verdict.due)
-        created_id = str((page or {}).get("id") or "")
-        progress.executed = True
-        progress.page_id = created_id or None
-        return _Execution(
-            created_id,
-            title,
-            {
-                "recent_tasks": record_task_event(
-                    state.get("recent_tasks"),
-                    page_id=created_id,
-                    title=title,
-                    kind="task",
-                    event="added",
-                    now=now,
-                ),
-            },
-        )
-
-    if verdict.action == "reopen_task":
-        await notion.update_status(page_id=page_id, new_status="Pending")
-        progress.executed = True
-        known = ledger_entry(state.get("recent_tasks"), page_id)
-        title = titles.get(page_id, "") or (known["title"] if known else "")
-        return _Execution(
-            page_id,
-            title,
-            {
-                "recent_tasks": record_task_event(
-                    state.get("recent_tasks"),
-                    page_id=page_id,
-                    title=title,
-                    kind=known["kind"] if known else "task",
-                    event="added",
-                    now=now,
-                ),
-            },
-        )
-
-    # send_only: the follow-up is the whole correction.
-    progress.executed = True
+    # send_only: nothing is written; the follow-up is the whole correction.
     return _Execution(page_id, titles.get(page_id, ""), {})
 
 
@@ -760,17 +701,21 @@ async def review_turn(
 
     `review_id` is the job's pending `interaction_reviews` row; every exit
     path finalizes it. `turn_ref` is the reviewed turn's checkpoint id: the
-    checkpoint is written only while it is still the thread's latest.
+    follow-up is sent and the checkpoint written only while it is still the
+    thread's latest.
 
     `still_current` returns False once the peer has a newer message waiting;
     the review is then skipped before the model call. `claim_execution` is
-    asked right before the first write: False means the peer spoke in the
+    asked right before the first effect: False means the peer spoke in the
     meantime and the correction is dropped; True commits the listener to wait
     for this review (up to its bound) before running the peer's next turn.
+    The row is then claimed (`executing`, with the action and page) before
+    any external effect, and `executed` / `follow_up_sent` are stored as each
+    effect lands.
 
     Cancellation finalizes the row as skipped, with the cancellation message
     as the reason when it is one of `SKIP_REASONS` (else `cancelled`), and
-    records any write that already ran; then it propagates. Nothing else
+    records any effect that already ran; then it propagates. Nothing else
     raises: failures are logged and stored.
     """
     from app.tools import interaction_reviews, notion
@@ -821,9 +766,18 @@ async def review_turn(
         if claim_execution is not None and not claim_execution():
             await _skip(review_id, reason="buffer_non_empty", intent=intent, progress=progress)
             return
+        # Claimed before the first external effect: from here on a restart
+        # finalizes this row instead of reviewing the turn again.
+        if not await interaction_reviews.claim(
+            review_id, action=verdict.action, page_id=verdict.page_id or ""
+        ):
+            # Another side already finalized the row; nothing has run.
+            log.info("interaction_review.claim_lost", action=verdict.action)
+            return
 
         execution = await _execute(
             verdict,
+            review_id=review_id,
             peer=peer,
             state=final_state,
             open_list=open_list,
@@ -831,11 +785,10 @@ async def review_turn(
             now=now,
             progress=progress,
         )
-        progress.page_id = execution.page_id or None
 
         # Guard before sending or writing: when the thread has moved past the
-        # reviewed turn, sending a follow-up would refer to stale context.
-        # The Notion write already ran and is recorded on the row.
+        # reviewed turn, a follow-up would refer to stale context. A Notion
+        # write that already ran is recorded on the row.
         if not turn_ref or await current_turn_ref(graph, config) != turn_ref:
             log.warning(
                 "interaction_review.stale_checkpoint",
@@ -847,7 +800,7 @@ async def review_turn(
             )
             return
 
-        body = render_task_token(_FOLLOW_UP_TEMPLATES[verdict.action], title=execution.title or None)
+        body = render_task_token(FOLLOW_UP_TEMPLATES[verdict.action], title=execution.title or None)
         if not execution.title:
             # No stored name to put in the token's place: say it without one.
             body = body.replace(TASK_TOKEN, "that one")
@@ -859,7 +812,18 @@ async def review_turn(
             body=body,
             attachment_path=execution.attachment_path,
         )
-        progress.follow_up_sent = delivered is not None
+        if delivered is not None:
+            progress.follow_up_sent = True
+            # send_only's entire correction is the delivery.
+            if verdict.action == "send_only":
+                progress.executed = True
+            await interaction_reviews.mark_follow_up_sent(
+                review_id, executed=verdict.action == "send_only"
+            )
+        elif verdict.action == "send_only":
+            # Nothing was delivered, so nothing happened: no checkpoint write.
+            await _finalize(review_id, verdict="error", reason="send_failed", progress=progress)
+            return
 
         # Written as the terminal node, so the next turn starts fresh at the
         # entry node with the correction in its history, ledger, and state.

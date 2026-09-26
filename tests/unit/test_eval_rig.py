@@ -162,9 +162,6 @@ def test_invoke_node_scores_the_validated_interaction_review_verdict(monkeypatch
             "reason": "placeholder",
             "action": "complete_task",
             "page_id": "<placeholder-page-id-1>",
-            "title": None,
-            "due": None,
-            "follow_up_message": "{task} — marked that one done.",
         })
 
     monkeypatch.setattr(interaction_review, "judge_turn", fake_judge_turn)
@@ -195,8 +192,7 @@ def test_invoke_node_marks_an_invalid_review_verdict(monkeypatch) -> None:
         # An id the model invented: parse_verdict refuses it.
         return (
             '{"verdict": "correct", "reason": "x", "action": "complete_task", '
-            '"page_id": "<invented>", "title": null, "due": null, '
-            '"follow_up_message": "{task} done."}'
+            '"page_id": "<invented>"}'
         )
 
     monkeypatch.setattr(interaction_review, "judge_turn", fake_judge_turn)

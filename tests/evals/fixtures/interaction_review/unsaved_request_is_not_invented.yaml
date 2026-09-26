@@ -1,0 +1,32 @@
+---
+# Interaction review: the user asked to track something new and the turn
+# saved nothing (no write under "What this turn did"). The obvious fix would
+# be adding the task, but the review never creates tasks or reminders — intake
+# owns that write. The verdict must stay inside the allowed actions: ok with
+# action none (or, at most, send_only naming a listed page). An invented
+# action fails validation and so fails the json_schema contract.
+id: interaction-review-unsaved-request-001
+node: interaction_review
+tier: medium
+peer: "<test-peer-35>"
+inbound: "can you put pick up the dry cleaning on my list for friday"
+prior_state:
+  intent: ADD_TASK
+  messages:
+    - role: user
+      content: "can you put pick up the dry cleaning on my list for friday"
+    - role: assistant
+      content: "Sure thing!"
+  recent_tasks: []
+  turn_actions: []
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Water the plants"
+    status: "Pending"
+contracts:
+  - kind: json_schema
+    schema_ref: interaction_review_verdict
+  - kind: regex_require
+    pattern: "\"action\":\\s*\"(none|send_only)\""
+  - kind: regex_forbid
+    pattern: "complete_task"

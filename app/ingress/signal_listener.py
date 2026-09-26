@@ -17,8 +17,10 @@ has a message waiting, and is cancelled when the peer's next message is picked
 up. Once it has started writing, that next turn waits for it — at most
 `_REVIEW_EXECUTION_WAIT_SECONDS`, after which the review is cancelled — so no
 review writes after the next turn starts. Every cancellation finalizes the row
-as skipped. On startup, pending rows left by a stopped process are resumed
-when their turn is still the peer's latest checkpoint, and retired otherwise.
+as skipped. On startup, rows a stopped process left unfinished are settled:
+a `pending` row (never claimed) is reviewed again when its turn is still the
+peer's latest checkpoint and retired otherwise; an `executing` row (claimed,
+effects possibly run) is finalized `error(interrupted)` and never replayed.
 
 This module is one of three authorised sites for httpx.AsyncClient usage.
 """
@@ -494,26 +496,39 @@ class SignalListener:
             )
 
     async def _resume_pending_reviews(self) -> None:
-        """Resume or retire the pending reviews a stopped process left behind.
+        """Settle the reviews a stopped process left unfinished.
 
-        A row is resumed when reviews are on, it is younger than
-        `_REVIEW_RESUME_MAX_AGE_SECONDS`, and its `turn_ref` is still the
-        peer's latest checkpoint; the review then runs from that checkpoint's
-        state. Every other row is finalized as skipped (`disabled` or
-        `superseded`). Only authorized peers' rows are touched. Best effort:
-        a failure here is logged and startup continues.
+        An `executing` row was claimed: its correction may have written Notion
+        and sent its follow-up. It is finalized `error(interrupted)` with the
+        action and page it recorded, and never reviewed again, so no effect
+        repeats. A `pending` row was never claimed. It is resumed when reviews
+        are on, it is younger than `_REVIEW_RESUME_MAX_AGE_SECONDS`, and its
+        `turn_ref` is still the peer's latest checkpoint; the review then runs
+        from that checkpoint's state. Every other pending row is finalized as
+        skipped (`disabled` or `superseded`). Only authorized peers' rows are
+        touched. Best effort: a failure here is logged and startup continues.
         """
-        from app.graph.interaction_review import checkpoint_id_of, finalize_skipped
+        from app.graph.interaction_review import (
+            checkpoint_id_of,
+            finalize_interrupted,
+            finalize_skipped,
+        )
         from app.tools import interaction_reviews
 
         try:
             rows = await asyncio.wait_for(
-                interaction_reviews.list_pending(), timeout=_REVIEW_RESUME_TIMEOUT_SECONDS
+                interaction_reviews.list_unfinished(), timeout=_REVIEW_RESUME_TIMEOUT_SECONDS
             )
         except Exception as exc:
             log.warning("interaction_review.resume_failed", error_type=type(exc).__name__)
             return
         rows = [row for row in rows if row.get("peer") in self._authorized_peers]
+        claimed = [row for row in rows if row.get("verdict") == "executing"]
+        for row in claimed:
+            await finalize_interrupted(row["id"])
+        if claimed:
+            log.info("interaction_review.interrupted", count=len(claimed))
+        rows = [row for row in rows if row.get("verdict") == "pending"]
         if not rows:
             return
 

@@ -7,13 +7,15 @@ Signal are the shared doubles (`FakeNotion`, `SignalSink`); the model is a
 stub returning a fixed verdict; Postgres is real, so the verdict store, the
 rate limit, and the reminder cancellation are real round trips.
 
-Covered: a correction that completes a reminder the turn could not place; the
-durable job row (pending before the review runs, finalized on every exit
-path); the skip when the peer already has a message waiting; cancellation by
-the peer's next message; the bounded wait and its timeout cancel; the
-stale-checkpoint guard; resuming or retiring pending rows on startup; the
-feature flag; the rate limit; and the `interaction_reviews` store helpers on
-their own.
+Covered: a correction that completes a reminder the turn could not place,
+with the reward sized from the page; the durable job row (pending before the
+review runs, claimed `executing` before the first effect, finalized on every
+exit path); the skip when the peer already has a message waiting;
+cancellation by the peer's next message; the bounded wait and its timeout
+cancel; the stale-checkpoint guard; resuming or retiring pending rows on
+startup, and finalizing a claimed row a crash left `executing` without
+replaying it; the feature flag; the rate limit; and the `interaction_reviews`
+store helpers on their own.
 
 Requires DATABASE_URL. Placeholder data only.
 """
@@ -143,9 +145,6 @@ def _verdict(page_id: str) -> str:
         "reason": "The user finished the only open reminder.",
         "action": "complete_task",
         "page_id": page_id,
-        "title": None,
-        "due": None,
-        "follow_up_message": "{task} — marked that one done.",
     })
 
 
@@ -251,7 +250,10 @@ async def test_review_completes_the_reminder_the_turn_could_not_place(
     from app.tools import notion as real_notion_module
     from app.tools.rewards import maybe_reward as real_maybe_reward
 
-    page_id = world.notion.seed_task(title=_TITLE, status="Pending", is_reminder=True)
+    page_id = world.notion.seed_task(
+        title=_TITLE, status="Pending", is_reminder=True,
+        work_type="Focus", energy_required="High", time_estimate=90,
+    )
     await _seed_outbox(peer, page_id)
     graph = _StubGraph([_clarified_state(peer, page_id)])
     model = _Model(_verdict(page_id))
@@ -295,6 +297,8 @@ async def test_review_completes_the_reminder_the_turn_could_not_place(
         *reward_call.args, **reward_call.kwargs
     ).arguments == {
         "peer": peer, "task_title": _TITLE, "notion_page_id": page_id, "streak": 1,
+        # Sized from the page, the way complete_node sizes a completion.
+        "work_type": "Focus", "energy_required": "High", "time_estimate": 90,
     }
 
     # Exactly one follow-up, naming the task.
@@ -376,7 +380,6 @@ async def test_the_peers_next_message_cancels_the_running_review(
     graph = _StubGraph([_clarified_state(peer, page_id), later])
     ok = json.dumps({
         "verdict": "ok", "reason": "Deferred.", "action": "none", "page_id": None,
-        "title": None, "due": None, "follow_up_message": "",
     })
     # The first review's model call hangs until cancelled; the second answers ok.
     model = _Model(_verdict(page_id), ok, block=asyncio.Event())
@@ -682,6 +685,72 @@ async def test_startup_retires_pending_reviews_that_are_superseded_or_off(
     )
 
 
+class _Crash(BaseException):
+    """Stands in for the process dying: no `except Exception` handler sees it."""
+
+
+@pytest.mark.asyncio
+async def test_a_crash_after_the_claim_is_finalized_interrupted_never_replayed(
+    peer: str, world: Any
+) -> None:
+    from app.graph.interaction_review import review_turn
+    from app.tools import interaction_reviews
+
+    page_id = world.notion.seed_task(title=_TITLE, status="Pending", is_reminder=True)
+    graph = _StubGraph([], values=_clarified_state(peer, page_id))
+    review_id = await interaction_reviews.create_pending(
+        peer=peer, turn_ref="<ckpt-0>", intent="COMPLETE"
+    )
+
+    async def crash(**_kwargs: Any) -> Any:
+        # The Notion write has landed; the process dies before the follow-up.
+        raise _Crash
+
+    with (
+        patch("app.models.llm", _llm_factory(_Model(_verdict(page_id)), [])),
+        patch("app.tools.rewards.maybe_reward", crash),
+        pytest.raises(_Crash),
+    ):
+        await review_turn(
+            peer=peer, final_state=_clarified_state(peer, page_id), graph=graph,
+            config={"configurable": {"thread_id": peer}},
+            review_id=review_id, turn_ref="<ckpt-0>",
+        )
+    (row,) = await _rows(peer)
+    assert (row["verdict"], row["action"], row["action_page_id"], row["executed"],
+            row["follow_up_sent"]) == ("executing", "complete_task", page_id, True, False)
+    notion_writes = len(world.notion.writes)
+
+    # Restart: the turn is still the latest checkpoint, so a pending row would
+    # be reviewed again. A claimed one must not be.
+    model = _Model(_verdict(page_id))
+    reward = AsyncMock(return_value={"text": "", "attachment_path": None})
+    listener = _listener(graph, peer)
+    inbound: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+    inbound.put_nowait(None)
+    with (
+        patch("app.models.llm", _llm_factory(model, [])),
+        patch("app.tools.rewards.maybe_reward", reward),
+        capture_logs() as logs,
+    ):
+        await _listen(listener, inbound)
+        await listener.wait_for_review(peer)
+
+    assert model.calls == 0
+    assert len(world.notion.writes) == notion_writes
+    reward.assert_not_awaited()
+    assert world.signal.sent == []
+    graph.aupdate_state.assert_not_awaited()
+    assert [(r["id"], r["verdict"], r["reason"], r["action"], r["action_page_id"],
+             r["executed"], r["follow_up_sent"]) for r in await _rows(peer)] == [
+        (review_id, "error", "interrupted", "complete_task", page_id, True, False),
+    ]
+    counts = {e["event"]: e["count"] for e in logs if e["event"] in (
+        "interaction_review.interrupted", "interaction_review.resumed",
+    )}
+    assert counts == {"interaction_review.interrupted": 1}
+
+
 @pytest.mark.asyncio
 async def test_flag_off_schedules_nothing(peer: str, world: Any) -> None:
     page_id = world.notion.seed_task(title=_TITLE, status="Pending", is_reminder=True)
@@ -742,7 +811,7 @@ async def test_rate_limit_reached_skips_before_the_model_call(
 
 
 @pytest.mark.asyncio
-async def test_create_pending_finalize_and_list_pending_round_trip(peer: str) -> None:
+async def test_create_pending_finalize_and_list_unfinished_round_trip(peer: str) -> None:
     from app.tools import interaction_reviews
 
     review_id = await interaction_reviews.create_pending(
@@ -757,28 +826,80 @@ async def test_create_pending_finalize_and_list_pending_round_trip(peer: str) ->
             row["action_page_id"], row["executed"], row["follow_up_sent"]) == (
         "<ckpt>", "COMPLETE", "pending", "", None, None, False, False,
     )
-    pending = [r for r in await interaction_reviews.list_pending() if r["peer"] == peer]
-    assert pending == [{
+    unfinished = [r for r in await interaction_reviews.list_unfinished() if r["peer"] == peer]
+    assert unfinished == [{
         "id": review_id, "peer": peer, "turn_ref": "<ckpt>", "intent": "COMPLETE",
-        "created_at": row["created_at"],
+        "verdict": "pending", "created_at": row["created_at"],
     }]
 
     assert await interaction_reviews.finalize(
-        review_id, verdict="correct", reason="r" * 600, action="create_task",
-        action_page_id="<page_new>", executed=True, follow_up_sent=False,
+        review_id, verdict="correct", reason="r" * 600, action="send_only",
+        action_page_id="<page_open>", executed=True, follow_up_sent=False,
     ) is True
     row = (await _rows(peer))[0]
     assert (row["verdict"], row["action"], row["action_page_id"], row["executed"],
-            row["follow_up_sent"]) == ("correct", "create_task", "<page_new>", True, False)
+            row["follow_up_sent"]) == ("correct", "send_only", "<page_open>", True, False)
     assert row["reason"] == "r" * interaction_reviews.REASON_MAX_CHARS
     assert row["updated_at"] >= row["created_at"]
-    assert [r for r in await interaction_reviews.list_pending() if r["peer"] == peer] == []
+    assert [r for r in await interaction_reviews.list_unfinished() if r["peer"] == peer] == []
 
     # Idempotent: a final row is never overwritten.
     assert await interaction_reviews.finalize(
         review_id, verdict="skipped", reason="cancelled"
     ) is False
     assert (await _rows(peer))[0]["verdict"] == "correct"
+
+
+@pytest.mark.asyncio
+async def test_claim_marks_and_finalize_keep_what_the_claim_stored(peer: str) -> None:
+    from app.tools import interaction_reviews
+
+    review_id = await interaction_reviews.create_pending(
+        peer=peer, turn_ref="<ckpt>", intent="COMPLETE"
+    )
+    # Marks before a claim change nothing: only a claimed row records effects.
+    await interaction_reviews.mark_executed(review_id)
+    assert (await _rows(peer))[0]["executed"] is False
+
+    assert await interaction_reviews.claim(
+        review_id, action="complete_task", page_id="<page_open>"
+    ) is True
+    row = (await _rows(peer))[0]
+    assert (row["verdict"], row["action"], row["action_page_id"], row["executed"]) == (
+        "executing", "complete_task", "<page_open>", False,
+    )
+    # A claimed row is no longer claimable, and is listed as executing.
+    assert await interaction_reviews.claim(
+        review_id, action="complete_task", page_id="<page_open>"
+    ) is False
+    assert [r["verdict"] for r in await interaction_reviews.list_unfinished()
+            if r["id"] == review_id] == ["executing"]
+
+    await interaction_reviews.mark_executed(review_id)
+    await interaction_reviews.mark_follow_up_sent(review_id)
+    row = (await _rows(peer))[0]
+    assert (row["executed"], row["follow_up_sent"]) == (True, True)
+    # An executing row counts toward the limits before it is finalized.
+    assert await interaction_reviews.count_executed_corrections(
+        peer=peer, window_seconds=3600
+    ) == 1
+
+    # Finalize without progress (the cancelling side's call) keeps it all.
+    assert await interaction_reviews.finalize(
+        review_id, verdict="error", reason="interrupted"
+    ) is True
+    row = (await _rows(peer))[0]
+    assert (row["verdict"], row["reason"], row["action"], row["action_page_id"],
+            row["executed"], row["follow_up_sent"]) == (
+        "error", "interrupted", "complete_task", "<page_open>", True, True,
+    )
+
+    other = await interaction_reviews.create_pending(peer=peer, turn_ref="", intent=None)
+    assert await interaction_reviews.claim(other, action="send_only", page_id="<page_open>")
+    await interaction_reviews.mark_follow_up_sent(other, executed=True)
+    row = next(r for r in await _rows(peer) if r["id"] == other)
+    assert (row["executed"], row["follow_up_sent"]) == (True, True)
+    await interaction_reviews.finalize(other, verdict="correct", reason="r")
 
 
 @pytest.mark.asyncio
@@ -799,6 +920,13 @@ async def test_finalize_refuses_pending_and_the_table_rejects_an_unknown_verdict
         async with get_db_conn() as conn:
             await conn.execute(
                 "UPDATE interaction_reviews SET verdict = 'maybe' WHERE id = %s", (review_id,)
+            )
+    # Only the narrowed action set is storable.
+    with pytest.raises(psycopg.errors.CheckViolation):
+        async with get_db_conn() as conn:
+            await conn.execute(
+                "UPDATE interaction_reviews SET action = 'delete_task' WHERE id = %s",
+                (review_id,),
             )
 
 
