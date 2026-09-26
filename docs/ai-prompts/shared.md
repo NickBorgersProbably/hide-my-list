@@ -264,7 +264,7 @@ so the user never has to recall and retype what they just said:
 |-----------|----------|
 | A context or shortlist task can be named | "Nice one! Did you mean {task}?" |
 | No task to name, a kept title | "Nice one! Want me to log '<title>' as done?" |
-| No task to name, no title | "Nice one! Which task should I mark done?" |
+| No task to name, no title | "Nice one! I've left your list as it is." — an acknowledgement; no clarification is stored |
 
 The question is stored as an `unlisted_report` clarification (see Pending
 Clarification below). Only the one named option is stored as a candidate, so a
@@ -290,7 +290,7 @@ through two stages:
 
 A report with no task to name starts at stage 2 (attempts 1); a "no" at stage
 1 moves to stage 2 (attempts 2). A report with neither a task nor a title asks
-"Nice one! Which task should I mark done?" with no candidates and no title.
+"Nice one! I've left your list as it is." with no candidates and no title.
 
 | Answer | Stage 1 (candidate) | Stage 2 (title, no candidates) | No candidate, no title |
 |--------|---------------------|--------------------------------|------------------------|

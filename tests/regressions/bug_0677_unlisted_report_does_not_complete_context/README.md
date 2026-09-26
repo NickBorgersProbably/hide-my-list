@@ -36,7 +36,7 @@ only when it shares a task-naming word with the message.
   done?". "yes" creates the page Completed (or completes the open task it
   duplicates), rewards it, and celebrates it by name through the shared
   `app/graph/nodes/_log_finished.py`; "no" leaves everything open.
-- With neither: "Nice one! Which task should I mark done?".
+- With neither: "Nice one! I've left your list as it is.".
 
 An answer to any of these never falls back to the ledger, the recent delivery,
 or the active task.

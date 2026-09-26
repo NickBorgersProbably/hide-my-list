@@ -601,7 +601,7 @@ def test_an_unlisted_report_offers_the_context_task_by_token() -> None:
     assert draft["body"] == "Nice one! Did you mean {task}?"
     assert draft["notion_page_title"] == "Fold the laundry"
     assert draft["notion_page_id"] is None
-    assert result["active_task"] is None
+    assert result.get("active_task") is None
     clarification = result["pending_clarification"]
     assert clarification["kind"] == "unlisted_report"
     assert clarification["attempts"] == 1
@@ -611,13 +611,13 @@ def test_an_unlisted_report_offers_the_context_task_by_token() -> None:
     assert [c["page_id"] for c in clarification["candidates"]] == ["<page_A>"]
 
 
-def test_an_unlisted_report_with_nothing_to_name_asks_to_add_it() -> None:
+def test_an_unlisted_report_with_nothing_to_name_is_acknowledged() -> None:
     result = _ask_about_unlisted_report("<test-peer>", options=[])
     draft = result["pending_outbound"][0]
-    assert draft["body"] == "Nice one! Which task should I mark done?"
+    assert draft["body"] == "Nice one! I've left your list as it is."
     assert "notion_page_title" not in draft
-    assert result["pending_clarification"]["candidates"] == []
-    assert result["pending_clarification"]["title"] == ""
+    # Nothing to offer: an acknowledgement, and no clarification to answer.
+    assert result["pending_clarification"] is None
 
 
 def test_an_unlisted_report_with_a_title_and_no_option_offers_to_log_it() -> None:

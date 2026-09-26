@@ -265,7 +265,7 @@ flowchart LR
      the open task it duplicates), rewards it, and celebrates it by name. "no"
      leaves everything open.
    - Only when the model proposes no usable title does the reply ask "Nice
-     one! Which task should I mark done?".
+     one! I've left your list as it is.".
 
    An answer to any of these never falls back to the current or most recent
    task. The model is asked even when the list holds no open tasks, so a

@@ -1138,7 +1138,7 @@ _UNLISTED_REPORT_WITH_OPTION = (
     f"Nice one! Did you mean {TASK_TOKEN}?"
 )
 _UNLISTED_REPORT_OFFER_TO_LOG = "Nice one! Want me to log '{title}' as done?"
-_UNLISTED_REPORT_NO_OPTION = "Nice one! I couldn't match that to a task, so I left your list unchanged."
+_UNLISTED_REPORT_NO_OPTION = "Nice one! I've left your list as it is."
 
 
 def _ask_about_unlisted_report(

@@ -19,7 +19,7 @@ from app.graph.nodes import complete as complete_module
 from app.graph.state import State
 
 _WITH_OPTION = "Nice one! Did you mean {task}?"
-_NO_OPTION = "Nice one! Which task should I mark done?"
+_NO_OPTION = "Nice one! I've left your list as it is."
 
 
 def _notion_page(page_id: str, title: str) -> dict[str, Any]:
@@ -136,7 +136,7 @@ async def test_an_unlisted_report_over_a_scored_shortlist_also_asks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_unlisted_report_with_no_context_asks_to_add_it() -> None:
+async def test_an_unlisted_report_with_no_context_is_acknowledged() -> None:
     result, update_status, reward_mock = await _run(
         "I also paid the gas bill!", pages=_DECOYS, verdict=_UNLISTED
     )
@@ -144,7 +144,7 @@ async def test_an_unlisted_report_with_no_context_asks_to_add_it() -> None:
     update_status.assert_not_awaited()
     reward_mock.assert_not_awaited()
     assert result["pending_outbound"][0]["body"] == _NO_OPTION
-    assert result["pending_clarification"]["candidates"] == []
+    assert result["pending_clarification"] is None
 
 
 @pytest.mark.asyncio
@@ -177,7 +177,7 @@ async def test_a_confident_match_ignores_a_contradictory_flag() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_unlisted_report_with_an_empty_list_asks_to_add_it() -> None:
+async def test_an_unlisted_report_with_an_empty_list_is_acknowledged() -> None:
     """No open tasks: the model is still asked, and a concrete report gets the add question."""
     model = _model(_UNLISTED)
     update_status = AsyncMock()
@@ -200,7 +200,7 @@ async def test_an_unlisted_report_with_an_empty_list_asks_to_add_it() -> None:
     update_status.assert_not_awaited()
     reward_mock.assert_not_awaited()
     assert result["pending_outbound"][0]["body"] == _NO_OPTION
-    assert result["pending_clarification"]["candidates"] == []
+    assert result["pending_clarification"] is None
 
 
 @pytest.mark.asyncio
@@ -264,7 +264,7 @@ async def test_an_ungrounded_title_is_never_offered() -> None:
     )
 
     assert result["pending_outbound"][0]["body"] == _NO_OPTION
-    assert result["pending_clarification"]["title"] == ""
+    assert result["pending_clarification"] is None
 
 
 def _pending(*, candidates: list[dict[str, str]], title: str, attempts: int) -> dict[str, Any]:
