@@ -216,8 +216,9 @@ alias; the app has no direct connection to any provider API.
 require auth, set it to any non-empty placeholder in the runtime environment.
 
 Every request carries an explicit timeout (`LLM_REQUEST_TIMEOUT_SECONDS`,
-default 120s) and retry cap (`LLM_MAX_RETRIES`, default 1), giving a worst case
-of 240s per call. The model host holds one model in RAM and serves one request
+default 120s) and retry cap (`LLM_MAX_RETRIES`, default 2), giving a worst case
+of 360s per call. Two retries because the proxy's first response after an idle
+gap is sometimes an instant 500 that repeats on the immediate retry. The model host holds one model in RAM and serves one request
 at a time, so an unbounded call does not merely delay its own turn — it holds
 the only inference slot while every queued conversation waits behind it. The
 ceiling stays below any gateway timeout in front of the proxy so the app gives
@@ -243,7 +244,8 @@ up on its own clock and can classify the failure, rather than waiting out a
 | `LLM_PROXY_BASE_URL` | OpenAI-compatible LiteLLM proxy endpoint for the primary LLM |
 | `LLM_PROXY_API_KEY` | LiteLLM proxy bearer token for the primary LLM |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | Per-LLM-request timeout (default `120`) |
-| `LLM_MAX_RETRIES` | Retries per LLM request (default `1`) |
+| `LLM_MAX_RETRIES` | Retries per LLM request (default `2`) |
+| `LLM_REASONING_CALLERS` | Call sites that run with model reasoning on (default `cannot_finish,need_help,interaction_review`; the value replaces the set; empty = none) |
 | `INTERACTION_REVIEW_ENABLED` | Post-send interaction review on/off (default `true`) |
 | `INTERACTION_REVIEW_DELAY_SECONDS` | Wait after a reply before its review starts (default `3`) |
 | `INTERACTION_REVIEW_MAX_PER_HOUR` | Executed review corrections per peer per hour (default `3`) |

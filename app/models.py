@@ -3,24 +3,38 @@
 Reads model tier assignments from setup/model-tiers.json and exposes
 a single llm(tier) factory function. Validates model IDs at startup.
 
-Tiers (model alias resolves via setup/model-tiers.json; per-tier reasoning
-behavior is set here):
-  expensive -> gemma4-small, think=on,  uncapped (GET_TASK scoring; nuance matters)
-  medium    -> gemma4-small, think=on,  uncapped (user-facing replies + intake's
-                                        structured JSON; shame-safety contract
-                                        depends on careful phrasing)
-  cheap     -> gemma4-small, think=off, max_tokens=1024 (label-only
-                                        classification; reasoning is wasted
-                                        overhead and a small cap is free safety)
-  reminder  -> gemma4-small, think=on,  uncapped (reminder cron; currently no caller)
+Tiers (model alias resolves via setup/model-tiers.json; per-tier output caps
+are set here):
+  expensive -> gemma4-small, uncapped (GET_TASK scoring)
+  medium    -> gemma4-small, uncapped (user-facing replies + intake's
+                                        structured JSON)
+  cheap     -> gemma4-small, max_tokens=1024 (capped short-output work:
+                                               intent classification, reward
+                                               motif, intake dedup, completion
+                                               title match, theme evolution)
+  reminder  -> gemma4-small, uncapped (reminder cron; currently no caller)
 
-Reasoning tiers send no max_tokens: think+JSON output must not be truncated, or
-the partial JSON fails to parse and a reminder is silently dropped. Only the
-label-only cheap tier carries an output cap (see _TIER_MAX_TOKENS).
+Reasoning ("think") is decided per caller, not per tier. The model host serves
+one request at a time and the proxy in front of it gives up on any single
+request after 110 s; with think on, intake spent 2k–4k tokens reasoning per
+turn (47–103 s observed) and a single long chain of thought timed out the turn
+and queued every conversation behind it. Think-off intake lands in ~12 s and
+think-off selection in ~5 s with no eval regression. cannot_finish and
+need_help lose accuracy without reasoning (measured on the eval suite), and
+interaction_review misreads its verdict enum, so those three keep it by
+default; the review runs in the background after the reply, so its latency
+never reaches the user.
+LLM_REASONING_CALLERS (comma-separated caller names) replaces that default for
+a deployment; an empty value turns reasoning off everywhere.
+
+Uncapped tiers send no max_tokens: structured JSON output must not be
+truncated, or the partial JSON fails to parse and a reminder is silently
+dropped. Only the label-only cheap tier carries an output cap (see
+_TIER_MAX_TOKENS).
 
 All tiers point at the same model alias because the LLM host can only
-hold one Gemma model in RAM at a time. Differentiation lives entirely
-in the think flag for now.
+hold one Gemma model in RAM at a time. Tiers differ only in the output cap
+today; reasoning is decided per caller, not per tier.
 
 Model IDs are sent as OpenAI-format chat-completion requests to the
 LiteLLM proxy at LLM_PROXY_BASE_URL. Adding a new provider family is
@@ -79,22 +93,37 @@ _VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
 # as much as the check that enforces it — see is_local_tier().
 _LOCAL_MODEL_PREFIXES: tuple[str, ...] = ("gemma",)
 
-# Per-tier extra request body forwarded to the LiteLLM proxy. The proxy
-# passes `think` straight through to the Ollama backend. Cheap tier turns
-# reasoning off because its sole caller (intent classifier) only needs a
-# label — significant token reduction with no accuracy loss on the
-# classify prompt.
-_TIER_EXTRA_BODY: dict[str, dict[str, Any]] = {
-    "cheap": {"think": False},
-}
+# Callers that run with reasoning ("think") on unless LLM_REASONING_CALLERS
+# says otherwise. The proxy passes `think` straight through to the Ollama
+# backend; every call sends the flag explicitly so the backend default never
+# decides. Names are the `caller` values passed to llm().
+_DEFAULT_REASONING_CALLERS: frozenset[str] = frozenset(
+    {"cannot_finish", "need_help", "interaction_review"}
+)
+_REASONING_CALLERS_ENV = "LLM_REASONING_CALLERS"
 
-# Per-tier output-token cap. Only the cheap tier is capped: its sole caller
-# (intent classifier) emits a single label, so a small ceiling is free safety.
-# Reasoning tiers (expensive/medium/reminder) are intentionally absent — they
-# run think=on and emit structured JSON (e.g. intake's full task object), and a
-# cap truncates that output mid-JSON. Truncated JSON then fails to parse and the
-# task is silently saved without its reminder. Tokens are cheap; correctness is
-# not — so reasoning tiers send no max_tokens and let the model finish.
+
+def _reasoning_callers() -> frozenset[str]:
+    """Callers that send think=true: LLM_REASONING_CALLERS when set, else the default."""
+    raw = os.environ.get(_REASONING_CALLERS_ENV)
+    if raw is None:
+        return _DEFAULT_REASONING_CALLERS
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _caller_extra_body(caller: str | None) -> dict[str, Any]:
+    """Extra request body for a call: the `think` flag, always explicit."""
+    return {"think": caller is not None and caller in _reasoning_callers()}
+
+
+# Per-tier output-token cap. Only the cheap tier is capped: its callers
+# (intent classification, reward motif, intake dedup, completion title match,
+# theme evolution) emit short labels or scores, so a small ceiling is safe.
+# The other tiers (expensive/medium/reminder) are intentionally absent — they
+# emit structured JSON (e.g. intake's full task object), and a cap truncates
+# that output mid-JSON. Truncated JSON then fails to parse and the task is
+# silently saved without its reminder — so those tiers send no max_tokens and
+# let the model finish.
 _TIER_MAX_TOKENS: dict[str, int] = {
     "cheap": 1024,
 }
@@ -102,17 +131,21 @@ _TIER_MAX_TOKENS: dict[str, int] = {
 # Per-request latency ceiling. The model backend holds one model in RAM and
 # serves one request at a time, so an unbounded call does not just delay its own
 # turn — it holds the only inference slot and every queued conversation waits
-# behind it. Observed successful calls land between 0.6s and 8.2s; the default
-# leaves room for queue wait behind another tenant on the same backend plus a
-# slow reasoning turn, and still gives up long before the reverse proxy in front
+# behind it. Observed successful calls land between 0.5s and ~15s with
+# reasoning off and up to ~40s for the reasoning callers; the default leaves
+# room for queue wait behind another tenant on the same backend plus a slow
+# reasoning turn, and still gives up long before the reverse proxy in front
 # of the LiteLLM proxy synthesizes its own 504 at 600s. Failing on our own clock
 # keeps the error ours to classify instead of an opaque gateway timeout.
 _DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
 
-# Attempts = _max_retries + 1. The OpenAI SDK default of 2 retries multiplies
-# the ceiling by three; one retry absorbs a transient blip while keeping the
-# worst case (2 x 120s = 240s) under the 600s gateway timeout.
-_DEFAULT_MAX_RETRIES = 1
+# Attempts = _max_retries + 1. The proxy's first response after an idle gap is
+# sometimes an instant 500 (LiteLLM reports "Timeout ... time taken=0.0"), and
+# it arrives in pairs: the SDK's first retry lands ~0.5s later on the same
+# stale connection and fails the same way, while a third attempt succeeds.
+# Two retries absorb that; the worst case (3 x 120s = 360s) stays under the
+# 600s gateway timeout.
+_DEFAULT_MAX_RETRIES = 2
 
 
 def _request_timeout_seconds() -> float:
@@ -278,8 +311,9 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
         tier: One of 'expensive', 'medium', 'cheap', 'reminder'.
         temperature: Sampling temperature. Defaults to 0.0 for deterministic output.
         caller: Short string identifying the call site (e.g., "intake", "chat",
-            "classify"). Used as a field in log events for Gravwell filtering.
-            None is valid for callsites that don't pass a caller.
+            "classify"). Used as a field in log events and to decide whether
+            the call reasons (see LLM_REASONING_CALLERS). None is valid for
+            callsites that don't pass a caller; they never reason.
 
     Returns:
         ChatOpenAI configured for the specified tier, with observability
@@ -312,9 +346,7 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     max_tokens = _TIER_MAX_TOKENS.get(tier)
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    extra_body = _TIER_EXTRA_BODY.get(tier)
-    if extra_body:
-        kwargs["extra_body"] = extra_body
+    kwargs["extra_body"] = _caller_extra_body(caller)
     base_model = ChatOpenAI(**kwargs)
 
     # Attach observability callback (one instance per llm() call so tier + caller

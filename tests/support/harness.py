@@ -509,10 +509,31 @@ class Conversation:
             await conn.commit()
             await dispatch_due_reminders(conn, signal_send_fn=self.signal.send_message)
 
-        delivered = self.signal.since(before)
+        # The worker dispatches every due row in the shared database, so an
+        # earlier scenario's reminder that has since come due goes out in the
+        # same cycle. Identify this delivery by the Signal timestamp the worker
+        # wrote on our own outbox row, not by counting sends.
+        delivered_all = self.signal.since(before)
+        async with self.db() as conn:
+            cursor = await conn.execute(
+                "SELECT signal_timestamp, state FROM reminder_outbox WHERE id = %s",
+                (reminder_id,),
+            )
+            outbox_row = await cursor.fetchone()
+        if outbox_row is None or outbox_row[0] is None:
+            raise AssertionError(
+                "the worker did not deliver the enqueued reminder "
+                f"(outbox state: {outbox_row[1] if outbox_row else 'missing'}; "
+                f"sends this cycle: {len(delivered_all)})"
+            )
+        delivered = [
+            m for m in delivered_all
+            if m.recipient == self.peer and m.timestamp == outbox_row[0]
+        ]
         if len(delivered) != 1:
             raise AssertionError(
-                f"expected the worker to deliver exactly one reminder, got {len(delivered)}"
+                "expected exactly one Signal send for the enqueued reminder, "
+                f"got {len(delivered)} (sends this cycle: {len(delivered_all)})"
             )
 
         # Self-check: if the recent_outbound INSERT ever stops running, fail

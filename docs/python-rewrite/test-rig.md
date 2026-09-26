@@ -146,7 +146,7 @@ Each bug class leaves a permanent test. Fix -> regression test ->
 ## Structural Lints (unit speed, always runs)
 
 Six lints in `tests/unit/` that run without LLM or Postgres. Five catch five
-of the eleven bug classes directly; one ensures the pre-commit Python gate stays
+of the twelve bug classes directly; one ensures the pre-commit Python gate stays
 wired.
 
 ### `test_migration_filenames.py`
@@ -391,7 +391,7 @@ regression trips as soon as any scenario walks past it:
 | I4 | A COMPLETE turn resolves every reminder that was awaiting a reply; other intents do not clear context they did not answer | An unresolved reminder that the next "done" completes a second time |
 | I5 | `(recipient, idempotency_key)` unique across the conversation | The duplicate celebration; checked conversation-wide because the second send may be several turns later |
 | I6 | No banned shame phrase in delivered text | Regression in shame-safety at the delivery surface, post-substitution |
-| I7 | Each LLM caller used its documented tier | A node downgraded to `cheap` gets `think=False` and `max_tokens=1024`, truncating structured JSON mid-object |
+| I7 | Each LLM caller used its documented tier | A node downgraded to `cheap` gets `max_tokens=1024`, truncating structured JSON mid-object (`think` is decided per caller, not per tier) |
 
 ---
 
@@ -437,15 +437,18 @@ All LLM routing stays through `app/models.py:llm(tier)`.
 
 Unit tests for provider-boundary behavior must assert the exact `ChatOpenAI`
 constructor payload (model id, temperature, base_url, api_key, timeout,
-max_retries, and tier-specific `extra_body`) to catch routing regressions that
+max_retries, and caller-specific `extra_body`) to catch routing regressions that
 would still pass a class-assertion-only check. `timeout` and `max_retries` must
 be asserted for all tiers — an unbounded call holds the only inference slot and
 stalls every queued conversation. `max_tokens` is tier-conditional: the `cheap`
-tier sends it (capped output) and must be asserted; reasoning tiers
-(expensive/medium/reminder) omit it and tests must assert its absence. Tests
-must assert that the `cheap` tier includes `extra_body={'think': False}` and
-that all other tiers do not set `think` unless a deliberate future change adds
-it.
+tier sends it (capped output) and must be asserted; the uncapped tiers
+(expensive/medium/reminder) omit it and tests must assert its absence. `think`
+is always explicit and decided per caller: when `LLM_REASONING_CALLERS` is
+unset, the active reasoning set is the default (`cannot_finish`, `need_help`,
+`interaction_review`); when set, the env var's parsed value replaces (not
+extends) the default, so an empty value means no caller reasons. Tests must
+assert that a call sends `extra_body={'think': True}` only when its `caller` is
+in the active set, and `{'think': False}` otherwise (including `caller=None`).
 
 Three cost gates for eval runs:
 - `ENABLE_LIVE_LLM_EVALS=true` — required for any real LLM call; absent = `pytest.skip`
@@ -461,7 +464,7 @@ behavioral correctness. See `docs/python-rewrite/llm-observability.md`.
 
 ## Test Discipline Rules (Developer-Facing)
 
-These are the eleven contract clauses the test reviewer enforces (see
+These are the thirteen contract clauses the test reviewer enforces (see
 `.github/scripts/review/prompts/test.md` for the authoritative enforcement spec):
 
 1. **New public function in `app/tools/`, `app/graph/nodes/`, `app/scheduler/`, `app/ingress/`** must have:
@@ -518,6 +521,14 @@ These are the eleven contract clauses the test reviewer enforces (see
     - Cover any new cross-turn handoff — for example, a `recent_outbound` row written by `reminder_worker` several turns before the COMPLETE turn that resolves against it — with a full multi-turn scenario rather than a single-node call with a hand-built `State`.
     - Never retry on `IntentMisrouteError`. Retrying hides the classifier drift this layer exists to detect. (Catches bug class 11 — cross-turn state handoff regressions.)
     - Rely on the seven per-turn invariants in `tests/support/invariants.py`, which run automatically after every `conversation.say()` call.
+
+12. **New public Notion database query verb in `app/tools/notion.py`** must:
+    - Route through the shared `_query_database()` helper, not a bare unpaginated `client.post()` call. (Catches bug class 12 — Notion database query truncation; see `tests/regressions/bug_0668_notion_query_pagination/test_notion_query_pagination.py` as the canonical template.)
+    - Include parametrized coverage in `tests/regressions/bug_0668_notion_query_pagination/` asserting the new verb follows `has_more`/`next_cursor` pagination. Adding the verb to the `_VERBS` parametrize list in the existing regression file is sufficient.
+
+13. **PRs that change the per-caller reasoning default or `LLM_REASONING_CALLERS` semantics in `app/models.py`** must:
+    - Include unit tests asserting `extra_body={'think': <bool>}` for: a caller in the default set, a caller outside it, `caller=None`, a replaced `LLM_REASONING_CALLERS` value, and an empty `LLM_REASONING_CALLERS` value.
+    - Assert `LLM_REASONING_CALLERS` is threaded through the compose stack in `tests/smoke/test_compose_round_trip.py` (clause 4).
 
 If this PR adds a new bug class or extends the layer architecture described in
 this document, update this document AND update

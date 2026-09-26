@@ -27,9 +27,10 @@ that as a normal non-reminder task.
 
 ## Fix
 
-- `app/models.py`: per-tier `max_tokens` (`_TIER_MAX_TOKENS`). Reasoning tiers
+- `app/models.py`: per-tier `max_tokens` (`_TIER_MAX_TOKENS`). Non-cheap tiers
   (expensive/medium/reminder) send no cap; only the label-only `cheap` tier is
-  capped, so structured-JSON output is never truncated.
+  capped, so structured-JSON output is never truncated. Reasoning (`think`) is
+  controlled per caller via `LLM_REASONING_CALLERS`, independent of tier.
 - `app/graph/nodes/intake.py`: `_parse_intake_response` returns `None` on parse
   failure; `intake_node` saves the user's **raw message** as a plain task
   (preserve capture), emits an `intake_parse_failed` ops alert, and returns an
@@ -38,7 +39,7 @@ that as a normal non-reminder task.
 ## Regression Tests
 
 **Output-cap (unit):** test lives in `tests/unit/test_models.py` —
-`test_max_tokens_per_tier` asserts reasoning tiers send no `max_tokens` and
+`test_max_tokens_per_tier` asserts non-cheap tiers send no `max_tokens` and
 `cheap` keeps its cap; `test_llm_constructs_chatopenai_with_expected_kwargs`
 asserts the `medium` tier carries no cap.
 

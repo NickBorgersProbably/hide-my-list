@@ -155,7 +155,7 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
             call_kwargs = mock_cls.call_args.kwargs
             assert call_kwargs["model"] == expected_model
             assert call_kwargs["temperature"] == 0.0
-            # medium is a reasoning tier: it must NOT carry an output-token cap.
+            # medium is an uncapped tier: it must NOT carry an output-token cap.
             # A cap (formerly hardcoded 1024) truncates intake's think+JSON and
             # the truncated output silently falls back to a non-reminder task.
             assert "max_tokens" not in call_kwargs
@@ -165,17 +165,21 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
             # wedged model host turned into a 30-minute hang per call.
             assert call_kwargs["timeout"] == models_module._DEFAULT_REQUEST_TIMEOUT_SECONDS
             assert call_kwargs["max_retries"] == models_module._DEFAULT_MAX_RETRIES
+            # Pinned literally: two retries absorb the proxy's paired instant
+            # 500s after an idle gap (the first SDK retry lands on the same
+            # condition ~0.5 s later); one would not.
+            assert call_kwargs["max_retries"] == 2
 
     models_module._load_model_tiers.cache_clear()
 
 
 def test_max_tokens_per_tier() -> None:
-    """Reasoning tiers send NO max_tokens; only the label-only cheap tier is capped.
+    """Tiers control model aliases and output caps; caller plus LLM_REASONING_CALLERS controls think.
 
     The output-token cap was a Claude-era default that truncated gemma4-small's
-    think+structured-JSON intake output. Reasoning tiers (medium/expensive/reminder)
-    must let the model finish; cheap (intent classifier) only emits a label and
-    keeps a small cap.
+    think+structured-JSON intake output. Non-cheap tiers (medium/expensive/reminder)
+    send no cap so structured-JSON output is never truncated; cheap (intent classifier)
+    only emits a label and keeps a small cap.
     """
     from unittest.mock import MagicMock, patch
 
@@ -246,36 +250,58 @@ def test_llm_raises_when_llm_proxy_api_key_missing() -> None:
     models_module._load_model_tiers.cache_clear()
 
 
-def test_cheap_tier_sets_think_false_extra_body() -> None:
-    """llm('cheap') must construct ChatOpenAI with extra_body={'think': False}.
+def _llm_env() -> dict[str, str]:
+    env = dict(os.environ)
+    env.pop("LANGSMITH_TRACING", None)
+    env.pop("LLM_REASONING_CALLERS", None)
+    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
+    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
+    return env
 
-    The proxy forwards `think` to Ollama; cheap is the label-only classifier
-    path where reasoning is wasted overhead (significant output-token
-    reduction measured). Other tiers must NOT set think=false because their callers
-    (chat, rejection, breakdown coaching, selection) rely on reasoning for
-    shame-safe phrasing and scoring nuance.
+
+def test_think_is_explicit_and_off_unless_the_caller_reasons_by_default() -> None:
+    """Every call sends extra_body={'think': <bool>}; only the default reasoning
+    callers (cannot_finish, need_help, interaction_review) get True when
+    LLM_REASONING_CALLERS is unset.
+
+    The proxy forwards `think` to Ollama. Reasoning turns spend thousands of
+    tokens per call on a single-slot model host and run into the proxy's
+    per-request timeout, so a call reasons only where the eval suite showed
+    accuracy depends on it.
     """
     from app import models as models_module
     models_module._load_model_tiers.cache_clear()
 
-    env = dict(os.environ)
-    env.pop("LANGSMITH_TRACING", None)
-    env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
-    env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
+    with patch.dict(os.environ, _llm_env(), clear=True):
+        for tier in ("cheap", "medium", "expensive", "reminder"):
+            for caller in ("intake", "chat", "classify", "rejection", "selection", None):
+                bound = models_module.llm(tier, caller=caller).bound  # unwrap RunnableBinding
+                assert getattr(bound, "extra_body", None) == {"think": False}, (
+                    f"{tier}/{caller} must send think=false; "
+                    f"got extra_body={getattr(bound, 'extra_body', None)!r}"
+                )
+        for caller in ("cannot_finish", "need_help", "interaction_review"):
+            assert models_module.llm("medium", caller=caller).bound.extra_body == {"think": True}
 
+    models_module._load_model_tiers.cache_clear()
+
+
+def test_llm_reasoning_callers_env_replaces_the_default() -> None:
+    """LLM_REASONING_CALLERS names exactly the callers that send think=true; empty = none."""
+    from app import models as models_module
+    models_module._load_model_tiers.cache_clear()
+
+    env = _llm_env()
+    env["LLM_REASONING_CALLERS"] = " intake , chat"
     with patch.dict(os.environ, env, clear=True):
-        cheap = models_module.llm("cheap").bound  # unwrap RunnableBinding
-        assert getattr(cheap, "extra_body", None) == {"think": False}, (
-            f"cheap tier must send think=false; got extra_body={getattr(cheap, 'extra_body', None)!r}"
-        )
+        assert models_module.llm("medium", caller="intake").bound.extra_body == {"think": True}
+        assert models_module.llm("medium", caller="chat").bound.extra_body == {"think": True}
+        assert models_module.llm("medium", caller="need_help").bound.extra_body == {"think": False}
 
-        for tier in ("medium", "expensive", "reminder"):
-            other = models_module.llm(tier).bound
-            extra = getattr(other, "extra_body", None) or {}
-            assert "think" not in extra, (
-                f"{tier} tier must NOT set think (defaults to thinking=on); "
-                f"got extra_body={extra!r}"
-            )
+    env["LLM_REASONING_CALLERS"] = ""
+    with patch.dict(os.environ, env, clear=True):
+        for caller in ("interaction_review", "cannot_finish", "need_help", "intake"):
+            assert models_module.llm("medium", caller=caller).bound.extra_body == {"think": False}
 
     models_module._load_model_tiers.cache_clear()
 

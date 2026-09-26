@@ -561,8 +561,10 @@ Rules:
 async def classify_task_motif(task_title: str) -> str:
     """Classify a completed task into one motif label from _MOTIFS.
 
-    Runs on the cheap tier, which routes to a think=false configuration in
-    app/models.py — this needs a label, not reasoning.
+    Uses the cheap tier for its output cap. Sends think=false by default
+    because caller `reward_motif` is outside the default reasoning set
+    (_DEFAULT_REASONING_CALLERS in app/models.py); LLM_REASONING_CALLERS
+    can override this.
 
     The task title is private and this is the only place it is sent to a model
     on the reward path. That is acceptable only while the tier stays on the

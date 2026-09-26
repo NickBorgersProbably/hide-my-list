@@ -105,7 +105,18 @@ async def selection_node(state: State) -> dict[str, Any]:
                 "rejection_count": _extract_number(props, "Rejection Count", 0),
             })
 
-        tasks_json = json.dumps(simplified, indent=2)
+        # The model only ever sees titled tasks: a page with no name cannot be
+        # suggested, so offering it invites the model to pick it. `simplified`
+        # keeps every page so a returned id is still classified in the guard
+        # below (in the list but blank vs. never offered).
+        offered = [t for t in simplified if t["title"].strip()]
+        if len(offered) != len(simplified):
+            log.info(
+                "selection_node.blank_titles_withheld",
+                withheld_count=len(simplified) - len(offered),
+                offered_count=len(offered),
+            )
+        tasks_json = json.dumps(offered, indent=2)
 
         # Load and render the selection prompt
         from app.prompts.loader import render_with_defaults
@@ -115,14 +126,20 @@ async def selection_node(state: State) -> dict[str, Any]:
             "preferred_work_type": preferred_work_type,
             "time_of_day": time_of_day,
             "tasks_json": tasks_json,
-            "user_message": incoming,
+            "user_message": _delimiter_safe(incoming),
         }
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 
         model = llm("expensive", caller="selection")
+        # The human turn carries the user's own message, so the model reads
+        # the time and mood it states there — but inside the same
+        # <user_message> delimiters the system prompt uses, followed by the
+        # fixed request, so the text stays data under the untrusted-data rule
+        # rather than becoming the instruction. A blank message (a scheduled
+        # GET_TASK) sends the fixed request alone.
         messages = [
             SystemMessage(content=prompt_text),
-            HumanMessage(content="Select the best task for me right now."),
+            HumanMessage(content=_human_turn(incoming)),
         ]
 
         response = await model.ainvoke(messages)
@@ -268,6 +285,23 @@ def _extract_number(props: dict[str, Any], key: str, default: int = 0) -> int:
     if num is None:
         return default
     return int(num)
+
+
+_SELECTION_REQUEST = "Select the best task for me right now."
+
+
+def _delimiter_safe(text: str) -> str:
+    """Escape only angle brackets, so the message cannot close or open a
+    `<user_message>` delimiter while apostrophes and quotes stay readable."""
+    return text.replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _human_turn(incoming: str) -> str:
+    """The human turn: the user's message as delimited data, then the request."""
+    text = _delimiter_safe(incoming.strip())
+    if not text:
+        return _SELECTION_REQUEST
+    return f"<user_message>{text}</user_message>\n\n{_SELECTION_REQUEST}"
 
 
 def _parse_selection_response(response_text: str, peer: str) -> tuple[str, str | None]:
