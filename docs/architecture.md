@@ -245,6 +245,7 @@ up on its own clock and can classify the failure, rather than waiting out a
 | `LLM_PROXY_API_KEY` | LiteLLM proxy bearer token for the primary LLM |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | Per-LLM-request timeout (default `120`) |
 | `LLM_MAX_RETRIES` | Retries per LLM request (default `2`) |
+| `LLM_REASONING_CALLERS` | Call sites that run with model reasoning on (default `cannot_finish,need_help,interaction_review`; the value replaces the set; empty = none) |
 | `INTERACTION_REVIEW_ENABLED` | Post-send interaction review on/off (default `true`) |
 | `INTERACTION_REVIEW_DELAY_SECONDS` | Wait after a reply before its review starts (default `3`) |
 | `INTERACTION_REVIEW_MAX_PER_HOUR` | Executed review corrections per peer per hour (default `3`) |

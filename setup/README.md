@@ -53,7 +53,8 @@ signal-cli volume management or registration carry-over. The `signal-cli` servic
 | `LLM_PROXY_BASE_URL` | Yes | LiteLLM proxy OpenAI-compatible `/v1` endpoint (e.g. `https://proxy.host/v1`) |
 | `LLM_PROXY_API_KEY` | Yes | Bearer token for LiteLLM proxy; use any non-empty placeholder if proxy needs no auth |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | No | Per-LLM-request timeout (default `120`). Keep `timeout x (retries + 1)` under any gateway timeout in front of the proxy, so the app fails on its own clock rather than reading a 504 |
-| `LLM_MAX_RETRIES` | No | Retries per LLM request (default `1`; `0` disables). Attempts are `retries + 1` |
+| `LLM_MAX_RETRIES` | No | Retries per LLM request (default `2`; `0` disables). Attempts are `retries + 1`. Two because the proxy's first answer after an idle gap is sometimes an instant 500 that repeats on the immediate retry |
+| `LLM_REASONING_CALLERS` | No | Comma-separated LLM call sites that run with model reasoning ("think") on; every other call sends `think=false`. Unset = the code default (`cannot_finish,need_help,interaction_review`); the value **replaces** that set rather than adding to it, and an explicitly empty value turns reasoning off everywhere |
 | `DATABASE_URL` | Compose-managed | Postgres DSN; hardcoded in `docker/compose.yaml` for the compose network. Override only for non-compose runs. |
 | `SIGNAL_CLI_URL` | Compose-managed | WebSocket URL of the signal-cli bridge; hardcoded in `docker/compose.yaml`. Override only for non-compose runs. |
 | `USER_TZ` | No | IANA timezone identifier (default `America/Chicago`) |

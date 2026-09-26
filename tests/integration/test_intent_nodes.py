@@ -968,6 +968,25 @@ async def test_selection_prompt_carries_user_message_not_history() -> None:
 
 
 @pytest.mark.asyncio
+async def test_selection_human_turn_is_the_users_message() -> None:
+    """The model reads time and mood from the human turn, so it must be the
+    user's own message; a blank scheduled GET_TASK keeps the fixed request."""
+    _, _, _, model = await _run_selection(
+        [_pending_page("<page_A>", "Water the plants")],
+        {"selected_task_id": None, "score": 0.0, "reasoning": "", "user_message": "Nothing quite fits."},
+        incoming="I have 2 hours and feel sharp",
+    )
+    assert model.ainvoke.await_args.args[0][1].content == "I have 2 hours and feel sharp"
+
+    _, _, _, model = await _run_selection(
+        [_pending_page("<page_A>", "Water the plants")],
+        {"selected_task_id": None, "score": 0.0, "reasoning": "", "user_message": "Nothing quite fits."},
+        incoming="   ",
+    )
+    assert model.ainvoke.await_args.args[0][1].content == "Select the best task for me right now."
+
+
+@pytest.mark.asyncio
 async def test_selection_prompt_uses_state_time_and_mood_when_set() -> None:
     _, _, _, model = await _run_selection(
         [_pending_page("<page_A>", "Water the plants")],

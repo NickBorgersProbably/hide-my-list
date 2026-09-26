@@ -40,6 +40,20 @@ def test_intake_and_reply_callers_never_reason_by_default(tier: str) -> None:
     models._load_model_tiers.cache_clear()
 
 
+def test_every_call_carries_two_retries_by_default() -> None:
+    """Two retries: the proxy's instant 500 after an idle gap repeats on the
+    first ~0.5 s retry and clears on the next attempt."""
+    from app import models
+
+    models._load_model_tiers.cache_clear()
+    env = _env(None)
+    env.pop("LLM_MAX_RETRIES", None)
+    with patch.dict(os.environ, env, clear=True):
+        for tier in _TIERS:
+            assert models.llm(tier, caller="intake").bound.max_retries == 2
+    models._load_model_tiers.cache_clear()
+
+
 def test_env_replaces_the_reasoning_set_and_empty_means_none() -> None:
     from app import models
 

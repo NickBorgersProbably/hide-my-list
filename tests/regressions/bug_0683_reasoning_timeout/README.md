@@ -27,9 +27,14 @@ the node sends the user's message as the human turn and the prompt says a
 `LLM_REASONING_CALLERS` replaces the default set per deployment; an empty
 value turns reasoning off everywhere.
 
+Every call also carries two retries (`LLM_MAX_RETRIES`, default 2): the
+proxy's first answer after an idle gap is sometimes an instant 500 that
+repeats on the SDK's ~0.5 s retry and clears on the next attempt.
+
 ## Regression Test
 
 `test_reasoning_off_by_default.py` builds the model for every tier and caller
 through the real factory and asserts the request body carries
 `think: false` for intake and the reply nodes, `think: true` only for the
-default reasoning callers, and that `LLM_REASONING_CALLERS` replaces the set.
+default reasoning callers, that `LLM_REASONING_CALLERS` replaces the set, and
+that every call carries two retries.

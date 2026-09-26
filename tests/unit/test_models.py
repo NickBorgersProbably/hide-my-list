@@ -165,6 +165,10 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
             # wedged model host turned into a 30-minute hang per call.
             assert call_kwargs["timeout"] == models_module._DEFAULT_REQUEST_TIMEOUT_SECONDS
             assert call_kwargs["max_retries"] == models_module._DEFAULT_MAX_RETRIES
+            # Pinned literally: two retries absorb the proxy's paired instant
+            # 500s after an idle gap (the first SDK retry lands on the same
+            # condition ~0.5 s later); one would not.
+            assert call_kwargs["max_retries"] == 2
 
     models_module._load_model_tiers.cache_clear()
 
