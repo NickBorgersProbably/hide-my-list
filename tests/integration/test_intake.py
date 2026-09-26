@@ -1059,8 +1059,10 @@ async def test_already_done_for_an_unlisted_task_completes_nothing() -> None:
     update_status.assert_not_awaited()
     reward.assert_not_awaited()
     create_task.assert_not_awaited()
-    assert result["pending_outbound"][0]["body"].startswith("Nice one!")
-    assert result["pending_clarification"] is not None
+    # No title was proposed, so the node acknowledges and stores no
+    # clarification: there is nothing safe to offer.
+    assert result["pending_outbound"][0]["body"] == "Nice one! I've left your list as it is."
+    assert result["pending_clarification"] is None
 
 
 @pytest.mark.asyncio
