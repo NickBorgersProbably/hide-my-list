@@ -502,7 +502,7 @@ class Conversation:
         async with self.db() as conn:
             cursor = await conn.execute(
                 """
-                SELECT verdict, action, action_page_id, executed, follow_up_sent
+                SELECT verdict, action, action_page_id, executed, follow_up_sent, reason
                   FROM interaction_reviews
                  WHERE peer = %s
                  ORDER BY created_at ASC
@@ -517,6 +517,7 @@ class Conversation:
                 "action_page_id": row[2],
                 "executed": row[3],
                 "follow_up_sent": row[4],
+                "reason": row[5],
             }
             for row in rows
         ]

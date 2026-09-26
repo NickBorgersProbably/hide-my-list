@@ -91,15 +91,38 @@ The app container runs four concurrent async tasks:
    `create_task`, `reopen_task`, or `send_only`), sends one follow-up naming
    the task through `render_task_token`, and writes the checkpoint as the
    `send` node (follow-up in `messages`, ledger event, `pending_clarification`
-   cleared). The review yields to the conversation: it is skipped when the
-   peer already has a message waiting and cancelled when the worker picks up
-   the peer's next message; once it has started writing, that next turn waits
-   for it. Executed corrections are capped per peer per hour
+   cleared) — but only when the thread's latest checkpoint id still equals
+   the reviewed turn's (`turn_ref`); otherwise the row ends
+   `error(stale_checkpoint)` and nothing is written.
+
+   Each review is a durable job in the `interaction_reviews` table. The
+   review task's first step, before the delay, stores a `pending` row keyed
+   by peer and `turn_ref`; every exit path finalizes it as `ok`, `correct`,
+   `skipped`, or `error`, and a finalize on a row that is already final
+   changes nothing. The review yields to the conversation:
+
+   - It is skipped (`buffer_non_empty`) when the peer already has a message
+     waiting.
+   - When the worker picks up the peer's next message, a review that has not
+     started writing is cancelled (`cancelled`).
+   - A review that has started writing is awaited by that next turn for at
+     most 60 seconds (`_REVIEW_EXECUTION_WAIT_SECONDS`); past that bound the
+     listener cancels it (`timeout`, recording any Notion write that already
+     ran) and only then runs the turn. No review writes after the next turn
+     starts.
+   - Shutdown cancels running reviews (`cancelled`).
+
+   The cancelling side finalizes the row as well, so a cancel that lands
+   before the review's own handler runs still closes it. On startup, before
+   consuming the WebSocket, the listener reads the pending rows of authorized
+   peers: a row younger than one hour whose `turn_ref` is still the peer's
+   latest checkpoint is reviewed again from that checkpoint's state; the rest
+   are finalized `skipped` (`superseded`, or `disabled` when the review is
+   off). Executed corrections are capped per peer per hour
    (`INTERACTION_REVIEW_MAX_PER_HOUR`); more than
    `INTERACTION_REVIEW_ALERT_THRESHOLD` in 24 hours raises an
-   `interaction_review_excess` ops alert. Every outcome is stored in the
-   `interaction_reviews` table. `INTERACTION_REVIEW_ENABLED=false` turns it
-   off.
+   `interaction_review_excess` ops alert. `INTERACTION_REVIEW_ENABLED=false`
+   turns it off.
 
 2. **LangGraph graph** (`app/graph/graph.py`) — Every turn enters at
    `hydrate_context`, which merges the peer's recent reminder deliveries

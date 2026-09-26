@@ -14,26 +14,61 @@ delays the initial reply. It yields to live conversation:
 
 - It waits `INTERACTION_REVIEW_DELAY_SECONDS` (default 3) after the reply.
 - It is skipped when the peer already has another message waiting.
-- It is cancelled when the peer sends a new message before it starts acting.
-  Once it has started acting, the next same-peer turn waits up to 60 seconds
-  for it to finish, so that turn reads the corrected checkpoint.
+- It is cancelled when the peer's next message is picked up before the
+  review starts acting.
+- Once it has started acting, the peer's next turn waits for it, so that
+  turn reads the corrected checkpoint. The wait is bounded at 60 seconds;
+  past the bound the review is cancelled and then the turn runs. A review
+  never writes the checkpoint after the next turn has started.
 - It is off when `INTERACTION_REVIEW_ENABLED=false`.
+
+Each review is a durable job. Before the review runs, a `pending` row keyed
+by peer and `turn_ref` (the reviewed turn's checkpoint id) is stored in
+`interaction_reviews`; every way the review ends moves that row to a final
+state:
+
+| Final state | When | `reason` |
+|---|---|---|
+| `ok` | The verdict is `ok` | The model's reason |
+| `correct` | The correction ran and the checkpoint was written | The model's reason |
+| `skipped` | A message was waiting (before the model call, or before acting) | `buffer_non_empty` |
+| `skipped` | The rate limit is reached | `rate_limited` |
+| `skipped` | The peer's next message or shutdown cancelled it | `cancelled` |
+| `skipped` | It was still acting when the 60-second wait ran out | `timeout` |
+| `skipped` | On startup its turn is no longer the latest, or the row is over an hour old | `superseded` |
+| `skipped` | On startup the review is off | `disabled` |
+| `error` | The verdict fails validation | `invalid_verdict` |
+| `error` | The checkpoint moved past `turn_ref` before the write | `stale_checkpoint` |
+| `error` | Any other failure | The exception type |
+
+A row that ends after the correction's Notion write carries `executed=true`
+and the action and page, whichever state it ends in; the write is idempotent
+and counts toward the limits below. The review finalizes its own row, and the
+side that cancels it finalizes the row again; the first finalize wins.
+
+On startup the listener reads the pending rows before it consumes messages.
+A row under an hour old whose `turn_ref` is still the peer's latest checkpoint
+is reviewed again from that checkpoint's state; every other row ends
+`skipped`.
 
 The model is the medium tier (caller `interaction_review`).
 
 ```mermaid
 flowchart TD
-    Sent([Reply delivered]) --> Wait[Wait a few seconds]
+    Sent([Reply delivered]) --> Row[Store pending row]
+    Row --> Wait[Wait a few seconds]
     Wait --> Pending{Newer message waiting?}
-    Pending -->|Yes| Skip[Skip]
+    Pending -->|Yes| Skip[Finalize skipped]
     Pending -->|No| Limit{Correction limit reached?}
     Limit -->|Yes| Skip
     Limit -->|No| Judge[Medium model reads the turn]
     Judge --> Valid{Verdict valid?}
-    Valid -->|No| Store[Store verdict]
-    Valid -->|ok| Store
+    Valid -->|No| Final[Finalize ok or error]
+    Valid -->|ok| Final
     Valid -->|correct| Act[Run one action + send one follow-up]
-    Act --> Store
+    Act --> Current{Checkpoint still turn_ref?}
+    Current -->|Yes| Write[Write checkpoint, finalize correct]
+    Current -->|No| Stale[Finalize error, write nothing]
 ```
 
 ### Inputs
@@ -117,14 +152,17 @@ Rules:
 - After a correction the application writes the checkpoint as the terminal
   `send` node: the follow-up joins `messages`, the ledger records the event,
   and any open clarification clears, so the next turn starts from the
-  corrected state.
+  corrected state. Immediately before that write it re-reads the thread's
+  latest checkpoint id; when it no longer equals `turn_ref`, nothing is
+  written and no further message is sent.
 
 Limits: at most `INTERACTION_REVIEW_MAX_PER_HOUR` (default 3) executed
 corrections per peer per hour; past that the review is skipped before the
 model call. When executed corrections across all peers in 24 hours exceed
 `INTERACTION_REVIEW_ALERT_THRESHOLD` (default 5), an ops alert of kind
 `interaction_review_excess` goes to the operator. Every outcome — ok, correct,
-skipped, error — is stored in the `interaction_reviews` table.
+skipped, error — is the final state of the review's `interaction_reviews`
+row.
 
 ### Shame Prevention
 

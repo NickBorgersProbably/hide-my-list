@@ -6,9 +6,11 @@ reminder that the node could not place, a request to track something that
 saved nothing. This module re-reads a finished turn with the medium model and
 may repair one thing and send one short follow-up.
 
-It is not a graph node. `SignalListener` schedules `review_turn` as a
-background task after `graph.ainvoke` returns, so the review never delays the
-reply or the next queued turn, and it yields to live conversation (see
+It is not a graph node. `SignalListener` stores a pending job row and schedules
+`review_turn` as a background task after `graph.ainvoke` returns, so the review
+never delays the reply. It yields to live conversation: before it acts it is
+skipped or cancelled by the peer's next message; once it acts, the next turn
+waits for it up to a bound and then cancels it (see
 `docs/ai-prompts/interaction-review.md`). The spec and the prompt
 (`app/prompts/interaction_review.md.j2`) define the verdict contract;
 `parse_verdict` enforces it before anything is written.
@@ -20,10 +22,12 @@ Guardrails, all deterministic:
 - every follow-up carries `{task}` and is sent through `render_task_token`
   with the stored title, so the model never authors a task name;
 - follow-ups with blame phrasing are rejected;
+- the checkpoint is written only when it is still the reviewed turn's
+  (`turn_ref`), so a review never overwrites a newer turn;
 - executed corrections are rate limited per peer per hour and raise an ops
-  alert past a 24-hour threshold; every outcome is stored in
-  `interaction_reviews` (via `app/tools/interaction_reviews.py`; this module
-  issues no SQL).
+  alert past a 24-hour threshold; every exit path, cancellation included,
+  finalizes the job's `interaction_reviews` row (via
+  `app/tools/interaction_reviews.py`; this module issues no SQL).
 
 Privacy: messages, titles, and the model's `reason` are the user's private
 data. They go into the prompt and the verdict table, never into logs — log
@@ -31,10 +35,12 @@ enum values, ids, counts, and booleans only.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
 import re
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -94,6 +100,15 @@ _BLAME_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\byou are lazy\b", re.IGNORECASE),
     re.compile(r"\byou're lazy\b", re.IGNORECASE),
     re.compile(r"\b(wasn'?t|isn'?t|was not|is not) on your list\b", re.IGNORECASE),
+)
+
+# Why a review ended without a verdict of its own. The listener cancels a
+# review with one of these as the cancellation message.
+SkipReason = Literal[
+    "buffer_non_empty", "superseded", "cancelled", "rate_limited", "disabled", "timeout"
+]
+SKIP_REASONS: tuple[str, ...] = (
+    "buffer_non_empty", "superseded", "cancelled", "rate_limited", "disabled", "timeout",
 )
 
 _FOLLOW_UP_TEMPLATES: dict[str, str] = {
@@ -461,46 +476,74 @@ class _Execution:
     attachment_path: str | None = None
 
 
-async def _turn_ref(graph: Any, config: Mapping[str, Any]) -> str:
-    """The reviewed turn's checkpoint id, or "" when it cannot be read."""
+@dataclass
+class _Progress:
+    """How far a review got; recorded on the row whichever way it ends."""
+
+    action: str | None = None
+    page_id: str | None = None
+    executed: bool = False
+    follow_up_sent: bool = False
+
+
+def checkpoint_id_of(snapshot: Any) -> str:
+    """The checkpoint id in a `StateSnapshot`, or "" when it has none."""
+    configurable = (getattr(snapshot, "config", None) or {}).get("configurable") or {}
+    return str(configurable.get("checkpoint_id") or "")
+
+
+async def current_turn_ref(graph: Any, config: Mapping[str, Any]) -> str:
+    """The thread's latest checkpoint id, or "" when it cannot be read."""
     try:
-        snapshot = await graph.aget_state(config)
-        configurable = (getattr(snapshot, "config", None) or {}).get("configurable") or {}
-        return str(configurable.get("checkpoint_id") or "")
+        return checkpoint_id_of(await graph.aget_state(config))
     except Exception:
         return ""
 
 
-async def _store(
+async def _finalize(
+    review_id: uuid.UUID,
     *,
-    peer: str,
-    turn_ref: str,
-    intent: str | None,
     verdict: str,
     reason: str,
-    action: str | None = None,
-    action_page_id: str | None = None,
-    executed: bool = False,
-    follow_up_sent: bool = False,
-) -> None:
+    progress: _Progress | None = None,
+) -> bool:
     from app.tools import interaction_reviews
 
-    await interaction_reviews.insert_review(
-        peer=peer,
-        turn_ref=turn_ref,
-        intent=intent,
+    progress = progress or _Progress()
+    return await interaction_reviews.finalize(
+        review_id,
         verdict=cast(interaction_reviews.ReviewVerdict, verdict),
         reason=reason,
-        action=action,
-        action_page_id=action_page_id,
-        executed=executed,
-        follow_up_sent=follow_up_sent,
+        action=progress.action,
+        action_page_id=progress.page_id,
+        executed=progress.executed,
+        follow_up_sent=progress.follow_up_sent,
     )
 
 
-async def _skip(*, peer: str, turn_ref: str, intent: str | None, reason: str) -> None:
-    log.info("interaction_review.skipped", reason=reason, intent=intent)
-    await _store(peer=peer, turn_ref=turn_ref, intent=intent, verdict="skipped", reason=reason)
+async def _skip(
+    review_id: uuid.UUID, *, reason: str, intent: str | None, progress: _Progress | None = None
+) -> None:
+    if await _finalize(review_id, verdict="skipped", reason=reason, progress=progress):
+        log.info("interaction_review.skipped", reason=reason, intent=intent)
+
+
+async def finalize_skipped(
+    review_id: uuid.UUID | None, *, reason: str, intent: str | None = None
+) -> None:
+    """Finalize a job as skipped unless it is already final. Never raises.
+
+    The listener calls this after cancelling a review: a cancelled coroutine
+    may not reach its own handler (a cancel during the start delay, before
+    `review_turn` runs), so the cancelling side closes the row too. The first
+    finalize wins; later ones change nothing and log nothing.
+    """
+    if review_id is None:
+        return
+    try:
+        await _skip(review_id, reason=reason, intent=intent)
+    except Exception as exc:
+        log.warning("interaction_review.store_failed", error_type=type(exc).__name__)
 
 
 def _titles(open_list: Sequence[Mapping[str, str]], completed: Sequence[Mapping[str, str]]) -> dict[str, str]:
@@ -510,12 +553,20 @@ def _titles(open_list: Sequence[Mapping[str, str]], completed: Sequence[Mapping[
 
 
 async def _complete(
-    *, peer: str, page_id: str, title: str, kind: str, state: Mapping[str, Any], now: datetime
+    *,
+    peer: str,
+    page_id: str,
+    title: str,
+    kind: str,
+    state: Mapping[str, Any],
+    now: datetime,
+    progress: _Progress,
 ) -> _Execution:
     from app.tools import notion, reminders
     from app.tools.rewards import maybe_reward
 
     await notion.update_status(page_id=page_id, new_status="Completed")
+    progress.executed = True
     if kind == "reminder":
         # A reminder finished before it fired must not fire afterwards. The
         # worker's pre-send check covers a row this call fails to cancel.
@@ -583,6 +634,7 @@ async def _execute(
     open_list: Sequence[Mapping[str, str]],
     completed: Sequence[Mapping[str, str]],
     now: datetime,
+    progress: _Progress,
 ) -> _Execution:
     from app.tools import notion
 
@@ -598,12 +650,15 @@ async def _execute(
             kind=kinds.get(page_id, "task"),
             state=state,
             now=now,
+            progress=progress,
         )
 
     if verdict.action == "create_task":
         title = verdict.title or ""
         page = await notion.create_task(title=title, work_type="focus", due_at_iso=verdict.due)
         created_id = str((page or {}).get("id") or "")
+        progress.executed = True
+        progress.page_id = created_id or None
         return _Execution(
             created_id,
             title,
@@ -621,6 +676,7 @@ async def _execute(
 
     if verdict.action == "reopen_task":
         await notion.update_status(page_id=page_id, new_status="Pending")
+        progress.executed = True
         known = ledger_entry(state.get("recent_tasks"), page_id)
         title = titles.get(page_id, "") or (known["title"] if known else "")
         return _Execution(
@@ -638,7 +694,8 @@ async def _execute(
             },
         )
 
-    # send_only
+    # send_only: the follow-up is the whole correction.
+    progress.executed = True
     return _Execution(page_id, titles.get(page_id, ""), {})
 
 
@@ -694,34 +751,43 @@ async def review_turn(
     final_state: Mapping[str, Any],
     graph: Any,
     config: Mapping[str, Any],
+    review_id: uuid.UUID,
+    turn_ref: str,
     still_current: Callable[[], bool] | None = None,
     claim_execution: Callable[[], bool] | None = None,
 ) -> None:
     """Review one delivered turn and apply at most one correction.
 
+    `review_id` is the job's pending `interaction_reviews` row; every exit
+    path finalizes it. `turn_ref` is the reviewed turn's checkpoint id: the
+    checkpoint is written only while it is still the thread's latest.
+
     `still_current` returns False once the peer has a newer message waiting;
     the review is then skipped before the model call. `claim_execution` is
     asked right before the first write: False means the peer spoke in the
     meantime and the correction is dropped; True commits the listener to wait
-    for this review before running the peer's next turn.
+    for this review (up to its bound) before running the peer's next turn.
 
-    Never raises except for cancellation; failures are logged and stored.
+    Cancellation finalizes the row as skipped, with the cancellation message
+    as the reason when it is one of `SKIP_REASONS` (else `cancelled`), and
+    records any write that already ran; then it propagates. Nothing else
+    raises: failures are logged and stored.
     """
     from app.tools import interaction_reviews, notion
 
     settings = review_settings()
     intent = str(final_state.get("intent") or "") or None
-    turn_ref = await _turn_ref(graph, config)
+    progress = _Progress()
     log.info("interaction_review.start", intent=intent, has_turn_ref=bool(turn_ref))
     try:
         if still_current is not None and not still_current():
-            await _skip(peer=peer, turn_ref=turn_ref, intent=intent, reason="superseded")
+            await _skip(review_id, reason="buffer_non_empty", intent=intent)
             return
         executed_last_hour = await interaction_reviews.count_executed_corrections(
             peer=peer, window_seconds=_HOUR_SECONDS
         )
         if is_rate_limited(executed_last_hour, settings.max_per_hour):
-            await _skip(peer=peer, turn_ref=turn_ref, intent=intent, reason="rate_limited")
+            await _skip(review_id, reason="rate_limited", intent=intent)
             return
 
         from app.graph.nodes._task_match import open_tasks
@@ -736,10 +802,7 @@ async def review_turn(
             completed_this_turn={task["id"] for task in inputs.completed_this_turn},
         )
         if verdict is None:
-            await _store(
-                peer=peer, turn_ref=turn_ref, intent=intent, verdict="error",
-                reason="invalid_verdict",
-            )
+            await _finalize(review_id, verdict="error", reason="invalid_verdict")
             return
 
         log.info(
@@ -749,19 +812,14 @@ async def review_turn(
             intent=intent,
             page_id=verdict.page_id,
         )
+        progress.action = verdict.action
         if verdict.verdict == "ok":
-            await _store(
-                peer=peer, turn_ref=turn_ref, intent=intent, verdict="ok",
-                reason=verdict.reason, action="none",
-            )
+            await _finalize(review_id, verdict="ok", reason=verdict.reason, progress=progress)
             return
 
+        progress.page_id = verdict.page_id
         if claim_execution is not None and not claim_execution():
-            log.info("interaction_review.skipped", reason="superseded", intent=intent)
-            await _store(
-                peer=peer, turn_ref=turn_ref, intent=intent, verdict="correct",
-                reason=verdict.reason, action=verdict.action, action_page_id=verdict.page_id,
-            )
+            await _skip(review_id, reason="buffer_non_empty", intent=intent, progress=progress)
             return
 
         execution = await _execute(
@@ -771,7 +829,9 @@ async def review_turn(
             open_list=open_list,
             completed=inputs.completed_this_turn,
             now=now,
+            progress=progress,
         )
+        progress.page_id = execution.page_id or None
         body = render_task_token(_FOLLOW_UP_TEMPLATES[verdict.action], title=execution.title or None)
         if not execution.title:
             # No stored name to put in the token's place: say it without one.
@@ -784,12 +844,21 @@ async def review_turn(
             body=body,
             attachment_path=execution.attachment_path,
         )
-        await _store(
-            peer=peer, turn_ref=turn_ref, intent=intent, verdict="correct",
-            reason=verdict.reason, action=verdict.action,
-            action_page_id=execution.page_id or None, executed=True,
-            follow_up_sent=delivered is not None,
-        )
+        progress.follow_up_sent = delivered is not None
+
+        # The last check before the checkpoint write: when the thread has
+        # moved past the reviewed turn, writing now would land on a newer
+        # turn's state. The Notion write already ran and is recorded on the row.
+        if not turn_ref or await current_turn_ref(graph, config) != turn_ref:
+            log.warning(
+                "interaction_review.stale_checkpoint",
+                action=verdict.action,
+                has_turn_ref=bool(turn_ref),
+            )
+            await _finalize(
+                review_id, verdict="error", reason="stale_checkpoint", progress=progress
+            )
+            return
 
         # Written as the terminal node, so the next turn starts fresh at the
         # entry node with the correction in its history, ledger, and state.
@@ -799,6 +868,7 @@ async def review_turn(
 
             updates["messages"] = [AIMessage(content=delivered)]
         await graph.aupdate_state(config, updates, as_node="send")
+        await _finalize(review_id, verdict="correct", reason=verdict.reason, progress=progress)
         log.info(
             "interaction_review.corrected",
             action=verdict.action,
@@ -807,12 +877,21 @@ async def review_turn(
             named=bool(execution.title),
         )
         await _maybe_alert(settings)
+    except asyncio.CancelledError as cancelled:
+        message = cancelled.args[0] if cancelled.args else None
+        reason = message if message in SKIP_REASONS else "cancelled"
+        try:
+            await _skip(review_id, reason=str(reason), intent=intent, progress=progress)
+        except Exception as store_exc:
+            log.warning(
+                "interaction_review.store_failed", error_type=type(store_exc).__name__
+            )
+        raise
     except Exception as exc:
         log.warning("interaction_review.error", error_type=type(exc).__name__, intent=intent)
         try:
-            await _store(
-                peer=peer, turn_ref=turn_ref, intent=intent, verdict="error",
-                reason=type(exc).__name__,
+            await _finalize(
+                review_id, verdict="error", reason=type(exc).__name__, progress=progress
             )
         except Exception as store_exc:
             log.warning(

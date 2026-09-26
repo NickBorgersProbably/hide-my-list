@@ -93,7 +93,9 @@ own replies. With `conversation_with_review`, call
 `conversation.settle_review(expect=Expect(...))` after a turn: it waits for
 that turn's background review, captures any follow-up it sent, and runs the
 per-turn invariants and the `expect` against it (leave `intent` unset).
-`conversation.review_rows()` reads the peer's `interaction_reviews` rows. See
+`conversation.review_rows()` reads the peer's `interaction_reviews` rows
+(`verdict` is the job state, `reason` the skip or error code); after a settle
+no row is left `pending`. See
 `tests/e2e/scenarios/test_loop_interaction_review.py`.
 
 ### Stacked messages

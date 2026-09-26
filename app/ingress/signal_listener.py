@@ -10,11 +10,15 @@ attacker who happened to discover the bot's number. An empty or unset
 AUTHORIZED_PEERS refuses startup; the fail-safe default is closed.
 
 After each turn the listener schedules the post-send interaction review
-(`app/graph/interaction_review.py`) as a background task per peer. It yields
-to live conversation: it starts after a short delay, is skipped when the peer
-already has a message waiting, and is cancelled when the peer's next message
-is picked up — unless it has already started writing, in which case that next
-turn waits for it so it reads the corrected checkpoint.
+(`app/graph/interaction_review.py`) as a background task per peer, backed by a
+durable `pending` row in `interaction_reviews`. It yields to live
+conversation: it starts after a short delay, is skipped when the peer already
+has a message waiting, and is cancelled when the peer's next message is picked
+up. Once it has started writing, that next turn waits for it — at most
+`_REVIEW_EXECUTION_WAIT_SECONDS`, after which the review is cancelled — so no
+review writes after the next turn starts. Every cancellation finalizes the row
+as skipped. On startup, pending rows left by a stopped process are resumed
+when their turn is still the peer's latest checkpoint, and retired otherwise.
 
 This module is one of three authorised sites for httpx.AsyncClient usage.
 """
@@ -23,9 +27,11 @@ from __future__ import annotations
 import asyncio
 import functools
 import os
+import uuid
 from collections import deque
 from collections.abc import Coroutine, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -43,8 +49,15 @@ log = structlog.get_logger(__name__)
 _TYPING_REFRESH_SECONDS = 10.0
 _MESSAGE_DEBOUNCE_SECONDS = 3.0
 _DEFAULT_QUEUE_DEPTH = 32
-# Longest the next turn waits for a review that has already started writing.
+# Longest the next turn waits for a review that has already started writing;
+# past it the review is cancelled and the turn runs.
 _REVIEW_EXECUTION_WAIT_SECONDS = 60.0
+# A pending review older than this at startup is retired, not resumed: its
+# follow-up would arrive too long after the turn to make sense.
+_REVIEW_RESUME_MAX_AGE_SECONDS = 3600.0
+# Bound on the startup read of pending reviews, so a slow database cannot hold
+# up the WebSocket consumer.
+_REVIEW_RESUME_TIMEOUT_SECONDS = 10.0
 _OVERFLOW_REPLY = (
     "I'm catching up and can't take more messages right now. Please try again in a minute."
 )
@@ -54,6 +67,16 @@ _OVERFLOW_REPLY = (
 class _QueuedMessage:
     peer: str
     text: str
+
+
+@dataclass
+class _ReviewJob:
+    """One peer's scheduled review: its task, its row, and whether it is writing."""
+
+    review_id: uuid.UUID | None = None
+    turn_ref: str = ""
+    executing: bool = False
+    task: asyncio.Task[None] | None = field(default=None, repr=False)
 
 
 def _load_authorized_peers() -> frozenset[str]:
@@ -273,10 +296,8 @@ class SignalListener:
             settings.delay_seconds if interaction_review_delay_seconds is None
             else interaction_review_delay_seconds
         )
-        # One running review per peer, and the peers whose review has started
-        # writing (those are awaited, never cancelled).
-        self._review_tasks: dict[str, asyncio.Task[None]] = {}
-        self._review_executing: set[str] = set()
+        # One scheduled review per peer.
+        self._review_jobs: dict[str, _ReviewJob] = {}
         # Eagerly load on construction so a misconfiguration fails fast at
         # startup instead of at the first inbound message.
         self._authorized_peers = (
@@ -315,31 +336,81 @@ class SignalListener:
         peer: str,
         final_state: Any,
         config: dict[str, Any],
+        review_id: uuid.UUID | None = None,
+        turn_ref: str = "",
     ) -> None:
-        """Schedule the review of the turn that just finished. Never awaits."""
+        """Schedule the review of the turn that just finished. Never awaits.
+
+        The task's first step stores the pending row, unless `review_id` names
+        one already stored (a review resumed on startup).
+        """
         if not self._review_enabled or not isinstance(final_state, Mapping):
             return
-        task = asyncio.create_task(
-            self._run_review(graph=graph, peer=peer, final_state=final_state, config=config)
+        job = _ReviewJob(review_id=review_id, turn_ref=turn_ref)
+        job.task = asyncio.create_task(
+            self._run_review(
+                job, graph=graph, peer=peer, final_state=final_state, config=config
+            )
         )
-        self._review_tasks[peer] = task
-        task.add_done_callback(functools.partial(self._forget_review, peer))
+        self._review_jobs[peer] = job
+        job.task.add_done_callback(functools.partial(self._forget_review, peer, job))
 
-    def _forget_review(self, peer: str, task: asyncio.Task[None]) -> None:
-        if self._review_tasks.get(peer) is task:
-            del self._review_tasks[peer]
-            self._review_executing.discard(peer)
+    def _forget_review(self, peer: str, job: _ReviewJob, task: asyncio.Task[None]) -> None:
+        if self._review_jobs.get(peer) is job:
+            del self._review_jobs[peer]
         _log_background_task_result(task)
 
-    def _claim_review_execution(self, peer: str) -> bool:
+    def _claim_review_execution(self, peer: str, job: _ReviewJob) -> bool:
         """Let a review start writing unless the peer has a message waiting."""
         if self._message_buffer.has_pending(peer):
             return False
-        self._review_executing.add(peer)
+        job.executing = True
+        return True
+
+    async def _create_pending_review(
+        self, job: _ReviewJob, *, graph: Any, peer: str, final_state: Mapping[str, Any],
+        config: dict[str, Any],
+    ) -> bool:
+        """Store the job's pending row; False when it could not be stored.
+
+        Reading `turn_ref` and inserting the row are shielded as one step:
+        when the task is cancelled meanwhile, the row still lands, its id is
+        kept on the job, and the cancelling side finalizes it. So every
+        scheduled review leaves a row, however early it is cancelled.
+        """
+        from app.graph.interaction_review import current_turn_ref
+        from app.tools import interaction_reviews
+
+        async def insert() -> uuid.UUID:
+            job.turn_ref = await current_turn_ref(graph, config)
+            return await interaction_reviews.create_pending(
+                peer=peer,
+                turn_ref=job.turn_ref,
+                intent=str(final_state.get("intent") or "") or None,
+            )
+
+        creating = asyncio.ensure_future(insert())
+        try:
+            job.review_id = await asyncio.shield(creating)
+        except asyncio.CancelledError:
+            try:
+                job.review_id = await creating
+            except Exception as exc:
+                log.warning(
+                    "interaction_review.pending_store_failed", error_type=type(exc).__name__
+                )
+            raise
+        except Exception as exc:
+            # No durable row, no review: a correction must leave a record.
+            log.warning(
+                "interaction_review.pending_store_failed", error_type=type(exc).__name__
+            )
+            return False
         return True
 
     async def _run_review(
         self,
+        job: _ReviewJob,
         *,
         graph: Any,
         peer: str,
@@ -348,6 +419,11 @@ class SignalListener:
     ) -> None:
         from app.graph.interaction_review import review_turn
 
+        if job.review_id is None and not await self._create_pending_review(
+            job, graph=graph, peer=peer, final_state=final_state, config=config
+        ):
+            return
+        assert job.review_id is not None
         if self._review_delay_seconds > 0:
             await asyncio.sleep(self._review_delay_seconds)
         await review_turn(
@@ -355,30 +431,49 @@ class SignalListener:
             final_state=final_state,
             graph=graph,
             config=config,
+            review_id=job.review_id,
+            turn_ref=job.turn_ref,
             still_current=lambda: not self._message_buffer.has_pending(peer),
-            claim_execution=lambda: self._claim_review_execution(peer),
+            claim_execution=lambda: self._claim_review_execution(peer, job),
         )
+
+    async def _stop_review(self, job: _ReviewJob, *, reason: str) -> None:
+        """Cancel a review, wait for it to stop, and finalize its row as skipped.
+
+        The review finalizes its own row when its handler runs; this second,
+        idempotent finalize covers a cancel that lands before `review_turn`
+        starts (the insert or the start delay).
+        """
+        from app.graph.interaction_review import finalize_skipped
+
+        task = job.task
+        if task is None:
+            return
+        if not task.done():
+            task.cancel(msg=reason)
+            await asyncio.wait({task})
+        await finalize_skipped(job.review_id, reason=reason)
 
     async def _yield_review(self, peer: str) -> None:
         """Make way for the peer's next turn.
 
         A review that has not started writing is cancelled. One that has is
-        awaited (bounded), so the next turn reads the checkpoint it writes.
+        awaited up to `_REVIEW_EXECUTION_WAIT_SECONDS`, so the next turn reads
+        the checkpoint it writes; past that bound it is cancelled. Either way
+        the review has stopped before this returns, so it never writes during
+        or after the next turn.
         """
-        task = self._review_tasks.get(peer)
-        if task is None or task.done():
+        job = self._review_jobs.get(peer)
+        if job is None or job.task is None or job.task.done():
             return
-        if peer in self._review_executing:
-            try:
-                await asyncio.wait_for(
-                    asyncio.shield(task), timeout=_REVIEW_EXECUTION_WAIT_SECONDS
-                )
-            except Exception:
-                log.warning("signal_listener.review_wait_timed_out")
+        if job.executing:
+            done, _ = await asyncio.wait({job.task}, timeout=_REVIEW_EXECUTION_WAIT_SECONDS)
+            if done:
+                return
+            log.warning("signal_listener.review_wait_timed_out")
+            await self._stop_review(job, reason="timeout")
             return
-        task.cancel()
-        log.info("interaction_review.skipped", reason="superseded")
-        await asyncio.wait({task})
+        await self._stop_review(job, reason="cancelled")
 
     async def wait_for_review(self, peer: str) -> None:
         """Wait until the peer's scheduled review (if any) has finished.
@@ -386,16 +481,83 @@ class SignalListener:
         For tests: the review runs in the background, so a harness settles it
         explicitly before asserting on its effects.
         """
-        task = self._review_tasks.get(peer)
-        if task is not None:
-            await asyncio.wait({task})
+        job = self._review_jobs.get(peer)
+        if job is not None and job.task is not None:
+            await asyncio.wait({job.task})
 
     async def _cancel_reviews(self) -> None:
-        tasks = list(self._review_tasks.values())
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.wait(tasks)
+        jobs = list(self._review_jobs.values())
+        if jobs:
+            await asyncio.gather(
+                *(self._stop_review(job, reason="cancelled") for job in jobs),
+                return_exceptions=True,
+            )
+
+    async def _resume_pending_reviews(self) -> None:
+        """Resume or retire the pending reviews a stopped process left behind.
+
+        A row is resumed when reviews are on, it is younger than
+        `_REVIEW_RESUME_MAX_AGE_SECONDS`, and its `turn_ref` is still the
+        peer's latest checkpoint; the review then runs from that checkpoint's
+        state. Every other row is finalized as skipped (`disabled` or
+        `superseded`). Only authorized peers' rows are touched. Best effort:
+        a failure here is logged and startup continues.
+        """
+        from app.graph.interaction_review import checkpoint_id_of, finalize_skipped
+        from app.tools import interaction_reviews
+
+        try:
+            rows = await asyncio.wait_for(
+                interaction_reviews.list_pending(), timeout=_REVIEW_RESUME_TIMEOUT_SECONDS
+            )
+        except Exception as exc:
+            log.warning("interaction_review.resume_failed", error_type=type(exc).__name__)
+            return
+        rows = [row for row in rows if row.get("peer") in self._authorized_peers]
+        if not rows:
+            return
+
+        graph = self._get_graph()
+        now = datetime.now(UTC)
+        resumed = retired = 0
+        # Newest first: only one row per peer can match its latest checkpoint.
+        for row in sorted(rows, key=lambda r: r["created_at"], reverse=True):
+            peer = str(row["peer"])
+            turn_ref = str(row.get("turn_ref") or "")
+            config: dict[str, Any] = {"configurable": {"thread_id": peer}}
+            reason: str | None = None
+            values: Any = None
+            if not self._review_enabled:
+                reason = "disabled"
+            elif (
+                peer in self._review_jobs
+                or not turn_ref
+                or (now - row["created_at"]).total_seconds() > _REVIEW_RESUME_MAX_AGE_SECONDS
+            ):
+                reason = "superseded"
+            else:
+                try:
+                    snapshot = await graph.aget_state(config)
+                except Exception:
+                    snapshot = None
+                values = getattr(snapshot, "values", None)
+                if checkpoint_id_of(snapshot) != turn_ref or not isinstance(values, Mapping):
+                    reason = "superseded"
+            if reason is not None:
+                await finalize_skipped(row["id"], reason=reason)
+                retired += 1
+                continue
+            self._start_review(
+                graph=graph,
+                peer=peer,
+                final_state=dict(values),
+                config=config,
+                review_id=row["id"],
+                turn_ref=turn_ref,
+            )
+            resumed += 1
+        log.info("interaction_review.resumed", count=resumed)
+        log.info("interaction_review.resume_skipped", count=retired)
 
     async def _invoke_graph_for_messages(
         self,
@@ -473,6 +635,7 @@ class SignalListener:
             "signal_listener.started",
             authorized_peer_count=len(self._authorized_peers),
         )
+        await self._resume_pending_reviews()
         worker = asyncio.create_task(self._process_messages())
         worker.add_done_callback(_log_background_task_result)
 

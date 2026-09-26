@@ -78,6 +78,7 @@ async def test_review_completes_the_reminder_the_turn_could_not_place(
     corrections = [row for row in rows if row["verdict"] == "correct"]
     assert [(r["action"], r["action_page_id"], r["executed"], r["follow_up_sent"])
             for r in corrections] == [("complete_task", page, True, True)]
+    assert not [row for row in rows if row["verdict"] == "pending"]
 
 
 async def test_answering_first_cancels_the_review_and_a_deferral_is_left_alone(
@@ -104,7 +105,7 @@ async def test_answering_first_cancels_the_review_and_a_deferral_is_left_alone(
         entry for entry in deferred.logs
         if entry.get("event") == "interaction_review.skipped"
     ]
-    assert [entry.get("reason") for entry in skipped] == ["superseded"]
+    assert [entry.get("reason") for entry in skipped] == ["cancelled"]
 
     await conversation.settle_review(
         expect=Expect(notion_untouched=[page], sent_count=0),
@@ -112,3 +113,6 @@ async def test_answering_first_cancels_the_review_and_a_deferral_is_left_alone(
     assert conversation.notion.status_of(page) == "Pending"
     rows = await conversation.review_rows()
     assert not [row for row in rows if row["executed"]]
+    assert not [row for row in rows if row["verdict"] == "pending"]
+    # The cancelled "Done!" review still closed its durable row.
+    assert [row["reason"] for row in rows if row["verdict"] == "skipped"] == ["cancelled"]

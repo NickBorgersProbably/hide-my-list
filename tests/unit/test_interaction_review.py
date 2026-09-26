@@ -8,8 +8,10 @@ renamed parameter fails here instead of being swallowed into a logged error).
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
+import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -334,6 +336,9 @@ def _page(page_id: str, title: str, *, reminder: bool = False) -> dict[str, Any]
     }
 
 
+_REVIEW_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
+
+
 class _Graph:
     def __init__(self) -> None:
         self.aupdate_state = AsyncMock()
@@ -357,7 +362,7 @@ async def _run(
         "real": {
             "update_status": notion.update_status,
             "create_task": notion.create_task,
-            "insert_review": interaction_reviews.insert_review,
+            "finalize": interaction_reviews.finalize,
             "count": interaction_reviews.count_executed_corrections,
             "send_message": signal_client.send_message,
             "maybe_reward": rewards_module.maybe_reward,
@@ -367,7 +372,7 @@ async def _run(
         },
         "update_status": AsyncMock(return_value={}, side_effect=update_status_error),
         "create_task": AsyncMock(return_value={"id": "<page_new>"}),
-        "insert_review": AsyncMock(),
+        "finalize": AsyncMock(return_value=True),
         # First call: the hour's count (under the limit); second: the day's
         # count (over the alert threshold).
         "count": AsyncMock(side_effect=[0, 9]),
@@ -386,7 +391,7 @@ async def _run(
         patch("app.tools.notion.query_all", query_all),
         patch("app.tools.notion.update_status", mocks["update_status"]),
         patch("app.tools.notion.create_task", mocks["create_task"]),
-        patch("app.tools.interaction_reviews.insert_review", mocks["insert_review"]),
+        patch("app.tools.interaction_reviews.finalize", mocks["finalize"]),
         patch("app.tools.interaction_reviews.count_executed_corrections", mocks["count"]),
         patch("app.tools.signal_client.send_message", mocks["send_message"]),
         patch("app.tools.rewards.maybe_reward", mocks["maybe_reward"]),
@@ -401,6 +406,8 @@ async def _run(
             final_state=final_state,
             graph=mocks["graph"],
             config={"configurable": {"thread_id": "<recipient>"}},
+            review_id=_REVIEW_ID,
+            turn_ref="<ckpt>",
         )
     mocks["logs"] = logs
     return mocks
@@ -442,12 +449,14 @@ async def test_complete_task_call_shapes_match_real_signatures() -> None:
     assert isinstance(sent["idempotency_key"], str) and len(sent["idempotency_key"]) == 32
     assert "attachment_paths" not in sent
 
-    stored = _bind(real["insert_review"], mocks["insert_review"].await_args)
+    stored = _bind(real["finalize"], mocks["finalize"].await_args)
     assert stored == {
-        "peer": "<recipient>", "turn_ref": "<ckpt>", "intent": "COMPLETE",
-        "verdict": "correct", "reason": "placeholder reason", "action": "complete_task",
-        "action_page_id": "<page_open>", "executed": True, "follow_up_sent": True,
+        "review_id": _REVIEW_ID, "verdict": "correct", "reason": "placeholder reason",
+        "action": "complete_task", "action_page_id": "<page_open>", "executed": True,
+        "follow_up_sent": True,
     }
+    # Finalized once, after the checkpoint write.
+    mocks["finalize"].assert_awaited_once()
     assert [_bind(real["count"], c) for c in mocks["count"].await_args_list] == [
         {"peer": "<recipient>", "window_seconds": 3600.0},
         {"peer": None, "window_seconds": 86400.0},
@@ -531,7 +540,7 @@ async def test_ok_verdict_writes_nothing_but_the_row() -> None:
     for name in ("update_status", "create_task", "send_message", "maybe_reward", "enqueue"):
         mocks[name].assert_not_awaited()
     mocks["graph"].aupdate_state.assert_not_awaited()
-    stored = mocks["insert_review"].await_args.kwargs
+    stored = mocks["finalize"].await_args.kwargs
     assert (stored["verdict"], stored["action"], stored["executed"]) == ("ok", "none", False)
 
 
@@ -540,7 +549,7 @@ async def test_invalid_verdict_is_stored_as_error_without_acting() -> None:
     mocks = await _run("Sure! I think the user meant the library card.", final_state=_STATE)
     mocks["update_status"].assert_not_awaited()
     mocks["send_message"].assert_not_awaited()
-    stored = mocks["insert_review"].await_args.kwargs
+    stored = mocks["finalize"].await_args.kwargs
     assert (stored["verdict"], stored["reason"], stored["action"]) == (
         "error", "invalid_verdict", None,
     )
@@ -551,5 +560,231 @@ async def test_a_failure_is_logged_and_stored_never_raised() -> None:
     mocks = await _run(_json(), final_state=_STATE, update_status_error=RuntimeError("down"))
     errors = [e for e in mocks["logs"] if e["event"] == "interaction_review.error"]
     assert [e["error_type"] for e in errors] == ["RuntimeError"]
-    assert mocks["insert_review"].await_args.kwargs["verdict"] == "error"
+    stored = mocks["finalize"].await_args.kwargs
+    assert (stored["verdict"], stored["reason"], stored["executed"]) == (
+        "error", "RuntimeError", False,
+    )
     mocks["send_message"].assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Job lifecycle: skip reasons, cancellation, stale checkpoint, pending row
+# ---------------------------------------------------------------------------
+
+
+def test_skip_reasons_match_the_literal_and_the_spec() -> None:
+    from pathlib import Path
+    from typing import get_args
+
+    assert set(review.SKIP_REASONS) == set(get_args(review.SkipReason))
+    assert set(review.SKIP_REASONS) == {
+        "buffer_non_empty", "superseded", "cancelled", "rate_limited", "disabled", "timeout",
+    }
+    spec = (
+        Path(__file__).resolve().parents[2] / "docs" / "ai-prompts" / "interaction-review.md"
+    ).read_text()
+    for reason in review.SKIP_REASONS + ("invalid_verdict", "stale_checkpoint"):
+        assert f"`{reason}`" in spec, reason
+
+
+def _lifecycle_patches(
+    finalize: AsyncMock, *, judge: Any, update_status: Any, maybe_reward: Any
+) -> Any:
+    from contextlib import ExitStack
+
+    stack = ExitStack()
+    query_all = AsyncMock(return_value={"results": [
+        _page("<page_open>", "Renew the library card"),
+    ]})
+    for target, value in (
+        ("app.tools.notion.query_all", query_all),
+        ("app.tools.notion.update_status", update_status),
+        ("app.tools.interaction_reviews.finalize", finalize),
+        ("app.tools.interaction_reviews.count_executed_corrections", AsyncMock(return_value=0)),
+        ("app.tools.signal_client.send_message", AsyncMock(return_value={"timestamp": 1})),
+        ("app.tools.rewards.maybe_reward", maybe_reward),
+        ("app.tools.reminders.cancel_pending_reminders", AsyncMock(return_value=0)),
+        ("app.tools.reminders.resolve_recent_outbound", AsyncMock(return_value=0)),
+        ("app.tools.ops_alerts.enqueue", AsyncMock()),
+    ):
+        stack.enter_context(patch(target, value))
+    stack.enter_context(patch.object(review, "judge_turn", judge))
+    return stack
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("message", "reason"), [
+    ("timeout", "timeout"),
+    ("cancelled", "cancelled"),
+    (None, "cancelled"),
+    ("not-a-reason", "cancelled"),
+])
+async def test_cancellation_finalizes_skipped_with_the_cancel_message(
+    message: str | None, reason: str
+) -> None:
+    from app.tools import interaction_reviews
+
+    finalize = AsyncMock(return_value=True)
+    started = asyncio.Event()
+
+    async def hanging_judge(_inputs: Any) -> str:
+        started.set()
+        await asyncio.Event().wait()
+        return ""
+
+    graph = _Graph()
+    with _lifecycle_patches(
+        finalize, judge=hanging_judge, update_status=AsyncMock(),
+        maybe_reward=AsyncMock(),
+    ), capture_logs() as logs:
+        task = asyncio.create_task(review.review_turn(
+            peer="<recipient>", final_state=_STATE, graph=graph,
+            config={"configurable": {"thread_id": "<recipient>"}},
+            review_id=_REVIEW_ID, turn_ref="<ckpt>",
+        ))
+        await started.wait()
+        task.cancel(msg=message)
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    stored = _bind(interaction_reviews.finalize, finalize.await_args)
+    assert stored == {
+        "review_id": _REVIEW_ID, "verdict": "skipped", "reason": reason, "action": None,
+        "action_page_id": None, "executed": False, "follow_up_sent": False,
+    }
+    graph.aupdate_state.assert_not_awaited()
+    assert [e["reason"] for e in logs if e["event"] == "interaction_review.skipped"] == [reason]
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_the_notion_write_records_it() -> None:
+    finalize = AsyncMock(return_value=True)
+    rewarding = asyncio.Event()
+
+    async def hanging_reward(**_kwargs: Any) -> Any:
+        rewarding.set()
+        await asyncio.Event().wait()
+
+    graph = _Graph()
+    with _lifecycle_patches(
+        finalize, judge=AsyncMock(return_value=_json()), update_status=AsyncMock(),
+        maybe_reward=hanging_reward,
+    ):
+        task = asyncio.create_task(review.review_turn(
+            peer="<recipient>", final_state=_STATE, graph=graph,
+            config={"configurable": {"thread_id": "<recipient>"}},
+            review_id=_REVIEW_ID, turn_ref="<ckpt>",
+        ))
+        await rewarding.wait()
+        task.cancel(msg="timeout")
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    stored = finalize.await_args.kwargs
+    assert (stored["verdict"], stored["reason"], stored["action"], stored["action_page_id"],
+            stored["executed"], stored["follow_up_sent"]) == (
+        "skipped", "timeout", "complete_task", "<page_open>", True, False,
+    )
+    graph.aupdate_state.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_moved_checkpoint_blocks_the_write() -> None:
+    finalize = AsyncMock(return_value=True)
+    graph = _Graph()
+
+    async def moved(_config: Any) -> Any:
+        return SimpleNamespace(config={"configurable": {"checkpoint_id": "<ckpt-newer>"}})
+
+    graph.aget_state = moved  # type: ignore[method-assign]
+    with _lifecycle_patches(
+        finalize, judge=AsyncMock(return_value=_json()), update_status=AsyncMock(),
+        maybe_reward=AsyncMock(return_value={"text": "", "attachment_path": None}),
+    ), capture_logs() as logs:
+        await review.review_turn(
+            peer="<recipient>", final_state=_STATE, graph=graph,
+            config={"configurable": {"thread_id": "<recipient>"}},
+            review_id=_REVIEW_ID, turn_ref="<ckpt>",
+        )
+
+    graph.aupdate_state.assert_not_awaited()
+    stored = finalize.await_args.kwargs
+    assert (stored["verdict"], stored["reason"], stored["executed"], stored["follow_up_sent"]) == (
+        "error", "stale_checkpoint", True, True,
+    )
+    assert "interaction_review.stale_checkpoint" in [e["event"] for e in logs]
+
+
+@pytest.mark.asyncio
+async def test_finalize_skipped_logs_only_the_first_finalize_and_never_raises() -> None:
+    with patch(
+        "app.tools.interaction_reviews.finalize", AsyncMock(side_effect=[True, False])
+    ), capture_logs() as logs:
+        await review.finalize_skipped(_REVIEW_ID, reason="cancelled")
+        await review.finalize_skipped(_REVIEW_ID, reason="cancelled")
+        await review.finalize_skipped(None, reason="cancelled")
+    assert [e["event"] for e in logs] == ["interaction_review.skipped"]
+
+    with patch(
+        "app.tools.interaction_reviews.finalize", AsyncMock(side_effect=RuntimeError("down"))
+    ), capture_logs() as logs:
+        await review.finalize_skipped(_REVIEW_ID, reason="timeout")
+    assert [(e["event"], e["error_type"]) for e in logs] == [
+        ("interaction_review.store_failed", "RuntimeError"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_listener_stores_the_pending_row_before_the_review_runs() -> None:
+    from app.ingress.signal_listener import SignalListener
+    from app.tools import interaction_reviews
+
+    create = AsyncMock(return_value=_REVIEW_ID)
+    review_turn = AsyncMock()
+    listener = SignalListener(
+        graph=_Graph(), authorized_peers=frozenset({"<recipient>"}),
+        interaction_review_enabled=True, interaction_review_delay_seconds=0,
+    )
+    with (
+        patch("app.tools.interaction_reviews.create_pending", create),
+        patch.object(review, "review_turn", review_turn),
+    ):
+        listener._start_review(
+            graph=listener._graph, peer="<recipient>", final_state=_STATE,
+            config={"configurable": {"thread_id": "<recipient>"}},
+        )
+        await listener.wait_for_review("<recipient>")
+
+    assert _bind(interaction_reviews.create_pending, create.await_args) == {
+        "peer": "<recipient>", "turn_ref": "<ckpt>", "intent": "COMPLETE",
+    }
+    kwargs = review_turn.await_args.kwargs
+    assert (kwargs["review_id"], kwargs["turn_ref"]) == (_REVIEW_ID, "<ckpt>")
+
+
+@pytest.mark.asyncio
+async def test_listener_runs_no_review_when_the_pending_row_cannot_be_stored() -> None:
+    from app.ingress.signal_listener import SignalListener
+
+    review_turn = AsyncMock()
+    listener = SignalListener(
+        graph=_Graph(), authorized_peers=frozenset({"<recipient>"}),
+        interaction_review_enabled=True, interaction_review_delay_seconds=0,
+    )
+    with (
+        patch("app.tools.interaction_reviews.create_pending",
+              AsyncMock(side_effect=RuntimeError("down"))),
+        patch.object(review, "review_turn", review_turn),
+        capture_logs() as logs,
+    ):
+        listener._start_review(
+            graph=listener._graph, peer="<recipient>", final_state=_STATE,
+            config={"configurable": {"thread_id": "<recipient>"}},
+        )
+        await listener.wait_for_review("<recipient>")
+
+    review_turn.assert_not_awaited()
+    assert [(e["event"], e["error_type"]) for e in logs
+            if e["event"] == "interaction_review.pending_store_failed"] == [
+        ("interaction_review.pending_store_failed", "RuntimeError"),
+    ]
