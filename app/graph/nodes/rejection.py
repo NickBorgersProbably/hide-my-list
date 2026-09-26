@@ -183,7 +183,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
         log.exception("rejection_node.error", peer=peer)
         fallback: OutboundDraft = {
             "recipient": peer,
-            "body": "No problem — that helps me learn. Want me to find something different?",
+            "body": "No problem. I'm here whenever you're ready.",
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
@@ -257,7 +257,7 @@ def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
             )
         except json.JSONDecodeError:
             pass
-    return response_text[:300] if response_text else "No problem. Want something different?", None
+    return response_text[:300] if response_text else "No problem. I'm here whenever you're ready.", None
 
 
 def _alternative_task_title(

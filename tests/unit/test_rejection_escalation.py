@@ -214,3 +214,64 @@ async def test_rejection_node_passes_session_streak_to_prompt(
 
     assert model.last_system_prompt is not None
     assert "REJECTION STREAK: 3" in model.last_system_prompt
+
+
+def test_template_carries_streak_reset_rule() -> None:
+    """Rendered template names all four reset events and the 24-hour cutoff."""
+    rendered = _rendered_rejection_template()
+    assert "reminded" in rendered
+    assert "nudged" in rendered
+    assert "24 hours" in rendered
+
+
+def test_parse_rejection_response_empty_is_shame_safe() -> None:
+    """Parser empty-response fallback must not offer another task."""
+    from app.graph.nodes.rejection import _parse_rejection_response
+
+    msg, alt_id = _parse_rejection_response("")
+    assert "find something" not in msg.lower()
+    assert "something different" not in msg.lower()
+    assert alt_id is None
+
+
+@pytest.mark.asyncio
+async def test_rejection_node_exception_fallback_is_shame_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exception fallback must not offer another task (safe for any rejection count or distress)."""
+    from app.graph.nodes.rejection import rejection_node
+    from app.tools import notion
+
+    async def always_raise() -> dict[str, Any]:
+        raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(notion, "query_pending", always_raise)
+
+    result = await rejection_node(
+        {
+            "peer": "<recipient>",
+            "incoming": "no. whats wrong with me",
+            "intent": "REJECT",
+            "messages": [],
+            "active_task": {
+                "page_id": "<page-id>",
+                "title": "Placeholder task",
+                "status": "In Progress",
+                "rejection_count": 2,
+            },
+            "recent_tasks": [],
+            "streak": 0,
+            "tasks_completed_today": 0,
+            "user_prefs": {},
+            "mood": None,
+            "available_minutes": 30,
+            "conversation_state": "active",
+            "pending_outbound": [],
+        }
+    )
+
+    outbound = result.get("pending_outbound", [])
+    assert outbound, "exception fallback must produce a reply"
+    body = outbound[0].get("body", "")
+    assert "find something" not in body.lower()
+    assert "something different" not in body.lower()
