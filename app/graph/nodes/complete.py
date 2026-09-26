@@ -1421,20 +1421,12 @@ async def complete_node(state: State) -> dict[str, Any]:
             and title_match.names_unlisted
             and (title_match.widened or title_match.candidate_count == 0)
         ):
-            unlisted_options: list[DedupCandidate] = []
-            if (
-                target is not None
-                and target.source != "recent_outbound"
-                and target.task_title
-            ):
-                unlisted_options.append(
-                    DedupCandidate(page_id=target.page_id, title=target.task_title, score=0.0)
-                )
-            for option in clarify_candidates:
-                if all(option.page_id != seen.page_id for seen in unlisted_options):
-                    unlisted_options.append(option)
+            # The matcher confirmed nothing on the list matches the report: do
+            # not re-offer a context task the matcher already rejected. Offer to
+            # log the grounded proposed title directly, or acknowledge and leave
+            # the list unchanged when no safe title exists.
             return _ask_about_unlisted_report(
-                peer, options=unlisted_options, title=title_match.unlisted_title
+                peer, options=[], title=title_match.unlisted_title
             )
 
         # When the message appeared to name a task (candidates the message

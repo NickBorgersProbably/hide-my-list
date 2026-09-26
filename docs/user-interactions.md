@@ -83,11 +83,8 @@ sequenceDiagram
     Note over U,AI: Past-tense report of something never added
 
     U->>AI: "I also paid the gas bill!"
-    Note over AI: COMPLETE — no open task matches, active task offered
-    AI->>U: "Nice one! Did you mean Review the proposal?"
-    U->>AI: "no"
-    Note over AI: Declined the task, not the accomplishment
-    AI->>U: "Got it. Want me to log 'Pay the gas bill' as done?"
+    Note over AI: COMPLETE — no open task matches, title proposed
+    AI->>U: "Nice one! Want me to log 'Pay the gas bill' as done?"
     U->>AI: "yes"
     AI->>N: Create task with Status Completed
     AI->>U: "Pay the gas bill — done. Nice work! ✨"
@@ -101,9 +98,7 @@ reads them. When a deadline series is scheduled, the reply adds one sentence
 naming the earliest nudge. A message that reports a task as already finished
 is never saved as a new task: intake hands it to the completion flow. That
 flow answers with yes/no choices, so the user never retypes what they did:
-it offers the task in play ("Did you mean …?"), and when the user says no — or
-when there is no task to offer — it offers to log the report under a short
-proposed title. A "yes" to that, like answering with "it's new, just log it",
+it offers to log the report under a short proposed title. A "yes" to that, like answering with "it's new, just log it",
 logs the report as already done: the page is created Completed (or the open
 task it duplicates is completed), the reward path runs, and the reply is the
 completion celebration, so an accomplishment never becomes another open item
@@ -257,16 +252,15 @@ flowchart LR
    question names those options instead. The question celebrates first and never contrasts the
    report against the list, and it is a yes/no choice so the user never has
    to repeat what they just said:
-   - "Nice one! Did you mean {task}?" names the conversation's current task
-     when there is one. "yes" completes it. "no" offers to log the report
-     instead — "Got it. Want me to log 'Pay the gas bill' as done?" — using a
-     short title the model proposes from the user's own words.
-   - With no current task, the log offer comes first: "Nice one! Want me to
-     log 'Pay the gas bill' as done?".
-   - "yes" to the log offer creates the task already Completed (or completes
-     the open task it duplicates), rewards it, and celebrates it by name. "no"
-     leaves everything open.
-   - Only when the model proposes no usable title does the reply ask "Nice
+   - When the message overlapped open tasks (scored shortlist), the existing
+     multi-option `complete_target` question names those overlapping options.
+     The unlisted-report question applies only when the list was widened or
+     empty.
+   - "Nice one! Want me to log '<title>' as done?" is asked when the model
+     proposes a title grounded in the message. "yes" creates the task already
+     Completed (or completes the open task it duplicates), rewards it, and
+     celebrates it by name. "no" leaves everything open.
+   - Only when the model proposes no usable title does the reply say "Nice
      one! I've left your list as it is.".
 
    An answer to any of these never falls back to the current or most recent

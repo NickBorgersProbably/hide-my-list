@@ -100,22 +100,26 @@ _UNLISTED = {"matched_page_id": None, "confidence": 0.0, "names_unlisted_task": 
 
 @pytest.mark.asyncio
 async def test_an_unlisted_report_does_not_complete_the_active_task() -> None:
+    # The report names a concrete finished task. The node goes directly to a
+    # yes/no log offer without re-offering the active task, so no context task
+    # is completed and the user never has to re-read an unrelated question first.
     result, update_status, reward_mock = await _run(
         "I also paid the gas bill!",
         pages=_DECOYS,
-        verdict=_UNLISTED,
+        verdict=_TITLED,
         active_task=_live_active("<page_A>", "Fold the laundry"),
     )
 
     update_status.assert_not_awaited()
     reward_mock.assert_not_awaited()
     draft = result["pending_outbound"][0]
-    assert draft["body"] == _WITH_OPTION
-    assert draft["notion_page_title"] == "Fold the laundry"
+    assert draft["body"] == "Nice one! Want me to log 'Pay the gas bill' as done?"
+    assert "notion_page_title" not in draft
     assert draft["notion_page_id"] is None
     clarification = result["pending_clarification"]
     assert clarification["kind"] == "unlisted_report"
-    assert clarification["candidates"][0]["page_id"] == "<page_A>"
+    assert clarification["candidates"] == []
+    assert clarification["title"] == "Pay the gas bill"
     assert "recent_tasks" not in result
 
 

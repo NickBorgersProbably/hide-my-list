@@ -31,7 +31,7 @@ flowchart TD
 ### Task Intake Prompt
 
 ```
-The user wants to add a task. Extract details, infer labels, and ALWAYS generate sub-tasks.
+The user wants to add a task. Extract details, infer labels, and for action=save with already_finished=false, ALWAYS generate sub-tasks.
 
 User said: "{user_message}"
 Previous context: {conversation_history}
@@ -39,7 +39,9 @@ User preferences: {user_preferences_context}
 Clarification count so far: {clarification_count} (max 3)
 
 CORE PRINCIPLE: Users interpret vague goals as infinite and avoid them.
-Every task MUST have explicit sub-tasks that define exactly what "done" looks like.
+For action=save with already_finished=false, every task MUST have explicit
+sub-tasks that define exactly what "done" looks like. For already_finished=true,
+MUST use sub_tasks: [] and inline_steps: [].
 
 Analyze the task and provide structured output:
 
@@ -50,8 +52,9 @@ TASK_ANALYSIS:
 - time_estimate_minutes: (number)
 - energy_required: (high|medium|low)
 
-SUB-TASK GENERATION (ALWAYS REQUIRED):
-Every task gets explicit sub-tasks, regardless of complexity.
+SUB-TASK GENERATION (REQUIRED FOR already_finished=false):
+For action=save with already_finished=false, every task gets explicit
+sub-tasks, regardless of complexity.
 - Quick tasks (15-30 min): 2-3 inline steps stored with the task
 - Standard tasks (30-60 min): 3-5 inline steps
 - Large tasks (60+ min): Create as hidden Notion sub-tasks

@@ -256,23 +256,22 @@ built from nothing the user said is dropped.
 
 A null match with that report set over the widened list, or over an empty
 one, is answered with a question and never with a context completion: nothing
-is written and no reward goes out. Over the scored shortlist a null match keeps
-the existing question that names those overlapping options: the message was
-about one of them, however the model read it. The question celebrates first, never contrasts
-the report against the list, and is a yes/no choice whenever one is possible,
-so the user never has to recall and retype what they just said:
+is written and no reward goes out. Over the scored shortlist, a null match
+keeps the existing `complete_target` question naming those overlapping options:
+the message was about one of them, however the model read it. For the widened
+or empty list, the question celebrates first, never contrasts the report
+against the list, and is a yes/no choice whenever one is possible, so the
+user never has to recall and retype what they just said:
 
 | Situation | Question |
 |-----------|----------|
-| A context or shortlist task can be named | "Nice one! Did you mean {task}?" |
-| No task to name, a kept title | "Nice one! Want me to log '<title>' as done?" |
-| No task to name, no title | "Nice one! I've left your list as it is." — an acknowledgement; no clarification is stored |
+| A kept title | "Nice one! Want me to log '<title>' as done?" |
+| No title | "Nice one! I've left your list as it is." — an acknowledgement; no clarification is stored |
 
 The question is stored as an `unlisted_report` clarification (see Pending
-Clarification below). Only the one named option is stored as a candidate, so a
-positional answer can only point at it. The proposed title is rendered into
-the log question directly: it is the model's proposal, not a stored Notion
-title, so it carries no `{task}` token.
+Clarification below). The proposed title is rendered into the log question
+directly: it is the model's proposal, not a stored Notion title, so it carries
+no `{task}` token.
 
 ### Pending Clarification
 
@@ -282,23 +281,22 @@ an unlisted report — the proposed title. `classify_intent` owns that key's
 lifecycle, since it is the only node that runs on every turn.
 
 There are two kinds. `complete_target` asks which task a completion was
-about. `unlisted_report` follows a report that matched no open task and moves
-through two stages:
+about. `unlisted_report` follows a report that matched no open task over a
+widened or empty list:
 
-| Stage | Record | Question |
-|-------|--------|----------|
-| 1 | one candidate, title kept or "" | "Nice one! Did you mean {task}?" |
-| 2 | no candidates, title set | "Nice one! Want me to log '<title>' as done?" (or, after a "no" at stage 1, "Got it. Want me to log '<title>' as done?") |
+| Record | Question |
+|--------|----------|
+| title set, no candidates (attempts 1) | "Nice one! Want me to log '<title>' as done?" |
+| no title, no candidates | "Nice one! I've left your list as it is." — an acknowledgement; no clarification is stored |
 
-A report with no task to name starts at stage 2 (attempts 1); a "no" at stage
-1 moves to stage 2 (attempts 2). A report with neither a task nor a title asks
-"Nice one! I've left your list as it is." with no candidates and no title.
+A bare negative to the log offer clears the clarification. A report with no
+usable title is an acknowledgement with no clarification stored.
 
-| Answer | Stage 1 (candidate) | Stage 2 (title, no candidates) | No candidate, no title |
-|--------|---------------------|--------------------------------|------------------------|
-| "yes", "that one", "the first one" | completes the named task | "yes" logs the title as a Completed task and celebrates it; a positional reply points at nothing and closes the question | closes the question |
-| Any other reply routed to COMPLETE | completes a task the answer names; otherwise closes the question | same | same |
-| "no", "nope", "neither" | offers to log the title (stage 2) when one is kept; otherwise "Got it, leaving that open." | "Got it, leaving that open." | "Got it, leaving that open." |
+| Answer | Title set (attempts 1) | No title |
+|--------|------------------------|----------|
+| "yes", affirmative | logs the title as a Completed task and celebrates it | closes the question |
+| Any other reply routed to COMPLETE | completes a task the answer names; otherwise closes the question | same |
+| "no", "nope", "neither" | "Got it, leaving that open." — clarification cleared | "Got it, leaving that open." |
 
 Logging goes through the same path as intake's "it's new, just log it": a title
 that matches an open task at the intake duplicate threshold completes that
@@ -314,7 +312,7 @@ because the user has already said the report is about something else.
 | Intents treated as an answer | CHAT, COMPLETE (steered to COMPLETE) |
 | Intents that drop the question | every other intent |
 | Affirmative/positional replies answered without classification | a whole-message positional or affirmative reply routes to COMPLETE, clarification kept: "the first one", "second", "number 2", "that one", "yes", "yep", "yeah" |
-| Negative replies answered without classification | a whole-message bare negative sends "Got it, leaving that open." and clears the clarification — tasks stay open: "no", "nope", "neither", "none of them". The one exception is stage 1 of an `unlisted_report` with a kept title, which offers to log it instead |
+| Negative replies answered without classification | a whole-message bare negative sends "Got it, leaving that open." and clears the clarification — tasks stay open: "no", "nope", "neither", "none of them" |
 | Options named per ask | up to 3: the ledger's open tasks first, then the ranked shortlist |
 | Word overlap that accepts an answer without a model call | 0.85, one task only |
 | Asks before the agent stops | 2 |
@@ -323,9 +321,8 @@ A positional or affirmative reply ("the first one", "yes") points at one of the
 named options; while a live question is open `classify_intent` routes it to
 COMPLETE without calling the model and keeps the clarification for `complete_node`
 to read. A bare negative ("no", "nope", "neither") declines without selecting
-and never routes to COMPLETE: `classify_intent` leaves tasks open and either
-clears the clarification with "Got it, leaving that open." or, at stage 1 of an
-`unlisted_report` with a kept title, offers to log that title. Both matches cover the
+and never routes to COMPLETE: `classify_intent` leaves tasks open and clears
+the clarification with "Got it, leaving that open.". Both matches cover the
 whole message after lowercasing and stripping punctuation: "no it's new, just
 log it" contains "no" but is not a bare negative, and it goes to the model like
 any other message.

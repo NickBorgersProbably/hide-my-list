@@ -57,6 +57,19 @@ async def log_finished(
         page_id = dedup_match.page_id
         display_title = dedup_match.title
         await notion.update_status(page_id=page_id, new_status="Completed")
+        try:
+            from app.tools import reminders
+            await reminders.resolve_recent_outbound(
+                peer=peer,
+                signal_timestamp=0,
+                notion_page_id=page_id,
+            )
+        except Exception:
+            log.warning(
+                "log_finished.resolve_outbound_failed",
+                has_peer=bool(peer),
+                exc_info=True,
+            )
     else:
         notion_page = await notion.create_task(
             title=title,

@@ -125,7 +125,10 @@ def _assert_reward_call(mock: AsyncMock, *, page_id: str, title: str, streak: in
 
 
 @pytest.mark.asyncio
-async def test_report_no_yes_logs_the_report_completed_without_touching_the_option() -> None:
+async def test_report_yes_logs_the_report_completed_without_touching_the_option() -> None:
+    # The report matches no open task and carries a grounded title. The node
+    # offers the log question directly (no "Did you mean?" intermediate), so
+    # the user reaches a Completed page in two turns instead of four.
     from app.graph.nodes.complete import complete_node
     from app.graph.routing import classify_intent
     from app.tools import notion
@@ -151,25 +154,22 @@ async def test_report_no_yes_logs_the_report_completed_without_touching_the_opti
     ):
         state = _state(_REPORT)
         asked = await complete_node(state)
-        assert asked["pending_outbound"][0]["body"] == "Nice one! Did you mean {task}?"
-        assert asked["pending_outbound"][0]["notion_page_title"] == _OPTION_TITLE
+        # No "Did you mean?" — the log offer comes first, no candidate stored.
+        assert asked["pending_outbound"][0]["body"] == (
+            f"Nice one! Want me to log '{_PROPOSED}' as done?"
+        )
+        assert "notion_page_title" not in asked["pending_outbound"][0]
         assert asked["pending_clarification"]["kind"] == "unlisted_report"
+        assert asked["pending_clarification"]["candidates"] == []
         assert asked["pending_clarification"]["title"] == _PROPOSED
 
-        state = _advance(state, asked, "no")
-        offered = await classify_intent(state)
-        assert offered["pending_outbound"][0]["body"] == (
-            f"Got it. Want me to log '{_PROPOSED}' as done?"
-        )
-        assert offered["pending_clarification"]["candidates"] == []
-
-        state = _advance(state, offered, "yes")
+        state = _advance(state, asked, "yes")
         routed = await classify_intent(state)
         assert routed["intent"] == "COMPLETE"
         state = _advance(state, routed, "yes")
         logged = await complete_node(state)
 
-    # The declined option is never written or rewarded.
+    # The context option is never written or rewarded.
     update_status.assert_not_awaited()
     create_task.assert_awaited_once()
     create_kwargs = create_task.await_args.kwargs
@@ -201,13 +201,17 @@ async def test_report_no_yes_logs_the_report_completed_without_touching_the_opti
 
 
 @pytest.mark.asyncio
-async def test_report_yes_completes_the_offered_option() -> None:
+async def test_report_yes_logs_proposed_title_and_leaves_option_open() -> None:
+    # After the log offer, "yes" logs the proposed title as Completed. The open
+    # context task is never completed: the no-candidate clarification record
+    # prevents context fallback during the answer.
     from app.graph.nodes.complete import complete_node
     from app.graph.routing import classify_intent
+    from app.tools import notion
 
     factory = _llm_factory(_UNLISTED_VERDICT)
     update_status = AsyncMock()
-    create_task = AsyncMock()
+    create_task = AsyncMock(return_value={"id": _LOGGED_ID})
     maybe_reward = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
     with (
         patch("app.models.llm", side_effect=factory),
@@ -218,7 +222,6 @@ async def test_report_yes_completes_the_offered_option() -> None:
         patch("app.tools.notion.update_status", update_status),
         patch("app.tools.notion.create_task", create_task),
         patch("app.tools.rewards.maybe_reward", maybe_reward),
-        patch("app.tools.reminders.resolve_recent_outbound", AsyncMock()),
         patch(
             "app.graph.nodes.complete._load_recent_outbound_target",
             AsyncMock(return_value=None),
@@ -232,11 +235,15 @@ async def test_report_yes_completes_the_offered_option() -> None:
         state = _advance(state, routed, "yes")
         done = await complete_node(state)
 
-    update_status.assert_awaited_once()
-    assert update_status.await_args.kwargs == {"page_id": _OPTION_ID, "new_status": "Completed"}
-    create_task.assert_not_awaited()
-    _assert_reward_call(maybe_reward, page_id=_OPTION_ID, title=_OPTION_TITLE, streak=3)
-    assert done["pending_outbound"][0]["notion_page_title"] == _OPTION_TITLE
+    # Context option untouched; the proposed title is created Completed.
+    update_status.assert_not_awaited()
+    create_task.assert_awaited_once()
+    create_kwargs = create_task.await_args.kwargs
+    inspect.signature(notion.create_task).bind(**create_kwargs)
+    assert create_kwargs["title"] == _PROPOSED
+    assert create_kwargs["status"] == "Completed"
+    _assert_reward_call(maybe_reward, page_id=_LOGGED_ID, title=_PROPOSED, streak=3)
+    assert done["pending_outbound"][0]["notion_page_title"] == _PROPOSED
     assert done["pending_clarification"] is None
-    # "yes" selects the one offered option without another match call.
+    # "yes" to a no-candidate unlisted_report never triggers another match call.
     assert factory.calls == ["complete_title_match"]
