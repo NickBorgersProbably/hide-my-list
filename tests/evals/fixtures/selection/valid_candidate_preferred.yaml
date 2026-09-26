@@ -1,0 +1,48 @@
+---
+# One candidate has a blank title and high urgency; the other has a named
+# title and lower urgency. Without the prompt contract, scoring alone would
+# prefer the blank-title candidate (urgency 95 vs 40, both same work type,
+# energy, and time estimate). With the prompt contract, `selected_task_id`
+# must name a candidate with a non-empty title, so the model must select the
+# named candidate. A model that ignores the non-empty-title requirement and
+# returns the blank-title id fails the judge contract.
+id: selection-valid-candidate-preferred-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-blank-title>"
+inbound: "I've got 20 minutes and feeling focused"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: null
+  mood: null
+  user_prefs:
+    timezone: America/Chicago
+notion_tasks:
+  - id: "<placeholder-page-id-blank>"
+    title: ""
+    work_type: "Focus"
+    energy_required: "Medium"
+    urgency: 95
+    time_estimate: 15
+  - id: "<placeholder-page-id-named>"
+    title: "Reply to the school email"
+    work_type: "Focus"
+    energy_required: "Medium"
+    urgency: 40
+    time_estimate: 15
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user has 20 minutes and feels focused. Both candidates are Focus
+      tasks with medium energy and a 15-minute estimate — both fit the time.
+      Without the non-empty-title contract, urgency alone picks the
+      blank-title candidate (95 vs 40). With the contract, the model must
+      select "Reply to the school email", the only candidate with a non-empty
+      title. Score 1.0 when the response suggests "Reply to the school
+      email", 0.0 when it suggests any untitled task or says nothing fits.
+    threshold: 0.7

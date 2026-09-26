@@ -771,7 +771,7 @@ AI: "Here's the full breakdown:
 
 ## Flow 7: Check-In Follow-Up
 
-User accepts task → agent records in Notion + stores timing metadata in LangGraph checkpoint state. APScheduler `check_in_dispatcher` job re-enters the conversation graph when the check-in window is reached.
+AI suggests task → agent marks task In Progress in Notion and stores timing metadata in LangGraph checkpoint state at suggestion time. The task is already in_progress when the user acknowledges the suggestion. APScheduler `check_in_dispatcher` job re-enters the conversation graph when the check-in window is reached.
 
 ```mermaid
 sequenceDiagram
@@ -781,8 +781,8 @@ sequenceDiagram
     participant Sched as APScheduler<br/>(check_in_dispatcher)
     participant N as Notion
 
+    Note over AI,N: Task already in_progress (set at suggestion time)
     U->>AI: "Sure, I'll do that"
-    AI->>N: Update status → in_progress
     AI->>State: Save active_task (page_id, title, estimate, selected_at)
     AI->>U: "Great, it's yours. Let me know when you're done!"
 
@@ -1003,12 +1003,9 @@ flowchart TD
     Check --> Empty{Any pending tasks?}
 
     Empty -->|Yes| Normal[Normal selection flow]
-    Empty -->|No| Celebrate["Your slate is clear!"]
+    Empty -->|No| Null["selected_task_id: null"]
 
-    Celebrate --> Prompt["Nothing's waiting for you.<br/>Enjoy it, or add something new?"]
-
-    Prompt --> Add["Add a task"]
-    Prompt --> Leave["Take a break"]
+    Null --> Reply["Nothing quite fits right now.<br/>Want to add something quick?"]
 ```
 
 ### No Good Match
@@ -1016,15 +1013,10 @@ flowchart TD
 ```mermaid
 flowchart TD
     Request(["User: #quot;15 min, feeling focused#quot;"]) --> Check[Check tasks]
-    Check --> NoMatch{Any tasks match?}
+    Check --> Score[Score candidates]
+    Score --> Null["selected_task_id: null"]
 
-    NoMatch -->|All too long| TimeIssue["Nothing fits 15 minutes.<br/>Your shortest task is 30 min."]
-    NoMatch -->|Wrong mood| MoodIssue["No focus tasks available.<br/>Want to try something else?"]
-    NoMatch -->|Both| BothIssue["Tough to find a match right now."]
-
-    TimeIssue --> Options1["Got more time?<br/>Or add a quick task?"]
-    MoodIssue --> Options2["How about [other type]<br/>Or change your mood?"]
-    BothIssue --> Options3["Want to add something<br/>or come back later?"]
+    Null --> Reply["Nothing quite fits right now.<br/>Want to add something quick?"]
 ```
 
 ### User Asks About Their List

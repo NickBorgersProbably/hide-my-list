@@ -53,7 +53,7 @@ erDiagram
         relation parent_task_id FK "Parent task (if sub-task)"
         number sequence "Order within parent (1, 2, 3...)"
         rich_text progress_notes "What user accomplished"
-        date started_at "Set when user accepts task"
+        date started_at "Set when AI suggests task"
         number steps_completed "Sub-steps finished"
         number resume_count "Times user returned to task"
         date last_resumed_at "De-dup guard for resume detection"
@@ -110,7 +110,7 @@ Tracks task lifecycle.
 stateDiagram-v2
     [*] --> pending: Task created
     [*] --> has_subtasks: Complex task broken down
-    pending --> in_progress: User accepts task
+    pending --> in_progress: AI suggests task
     in_progress --> completed: User finishes
     in_progress --> pending: User abandons
     in_progress --> has_subtasks: User cannot finish (breakdown)
@@ -121,7 +121,7 @@ stateDiagram-v2
 | Value | Description | Trigger |
 |-------|-------------|---------|
 | `pending` | Waiting to be worked on | Default on creation |
-| `in_progress` | Currently active | User accepts suggestion |
+| `in_progress` | Currently active | AI suggests task |
 | `completed` | Finished | User marks done |
 | `has_subtasks` | Parent task with hidden sub-tasks | Complex task or CANNOT_FINISH |
 
@@ -416,7 +416,7 @@ Format:
 
 ### Started At (date)
 
-Set when user accepts and begins task. Used for:
+Set when AI suggests task. Used for:
 - Actual duration calc (with CompletedAt)
 - Initiation rewards
 - Per-user time estimation for time blindness compensation
@@ -826,7 +826,7 @@ sequenceDiagram
 
 | Action | Fields Updated |
 |--------|----------------|
-| Accept task | `status → in_progress` |
+| Suggest task | `status → in_progress` |
 | Complete task | `status → completed, completedAt → now` |
 | Reject task | `rejectionCount += 1, rejectionNotes += reason` |
 | Unblock task | Clear blocked status in rejectionNotes |
@@ -859,7 +859,7 @@ flowchart TD
     end
 
     subgraph Update["State Updates"]
-        U1[Accept → in_progress]
+        U1[Suggest → in_progress]
         U2[Complete → completed]
         U3[Reject → append notes]
         U4[Cannot finish → breakdown]

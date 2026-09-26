@@ -38,7 +38,7 @@ USER CONTEXT:
 - Available time (minutes): {available_minutes, or "not stated"}
 - Current mood: {mood, or "not stated"} (maps to: {preferred_work_type})
 - Time of day: {time_of_day}
-- User's message: "{user_message}"
+- User's message: <user_message>{user_message}</user_message>
 
 When time or mood says "not stated", read it from the user's message ("I've
 got 2 hours", "I'm wiped"). No duration there either: score Time Fit by
