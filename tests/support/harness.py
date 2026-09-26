@@ -251,17 +251,18 @@ class Conversation:
         await self._write_state({"recent_tasks": ledger})
 
     async def advance_days(self, days: float) -> None:
-        """Move every stored timestamp this peer's context reads back by `days`.
+        """Backdate the peer's context timestamps by `days`.
 
-        A multi-day scenario needs "yesterday" to look like yesterday to every
-        reader at once: the ledger (`recent_tasks[].at`), the checkpoint's
-        `active_task.selected_at` and `pending_clarification.asked_at`, and the
-        peer's `recent_outbound` rows (`sent_at`, `expires_at`). Aging only
-        some of them invents a state no deployment reaches — a delivery that
-        is a day old in the ledger but a minute old in Postgres, which
-        `hydrate_context` would re-stamp as fresh on the next turn.
+        Moves: `recent_tasks[].at`, `active_task.selected_at`,
+        `active_task.started_at`, `pending_clarification.asked_at`, and
+        the peer's `recent_outbound` rows (`sent_at`, `expires_at`).
+        `reminder_outbox` and all other persisted timestamps are not moved —
+        a scenario that needs a stale outbox row must age it directly.
 
-        The clock itself is never touched, as with every other helper here.
+        Aging only some context timestamps invents a state no deployment
+        reaches — a delivery that is a day old in the ledger but a minute
+        old in Postgres, which `hydrate_context` would re-stamp as fresh on
+        the next turn. The clock itself is never touched.
         """
         delta = timedelta(days=days)
         current = await self.state()
