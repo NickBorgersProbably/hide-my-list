@@ -81,6 +81,26 @@ The app container runs four concurrent async tasks:
    isolation. Typing stop is scheduled after graph completion or graph error;
    queue overflow sends one visible reply to the authorized sender.
 
+   After each turn the listener schedules the **post-send interaction review**
+   (`app/graph/interaction_review.py`, spec in
+   `docs/ai-prompts/interaction-review.md`) as a per-peer background task.
+   Three seconds after the reply (`INTERACTION_REVIEW_DELAY_SECONDS`) the
+   medium model re-reads the turn — history, recent-task ledger, the turn's
+   recorded `turn_actions`, the open Notion tasks — and returns a strict JSON
+   verdict. A valid `correct` verdict runs one action (`complete_task`,
+   `create_task`, `reopen_task`, or `send_only`), sends one follow-up naming
+   the task through `render_task_token`, and writes the checkpoint as the
+   `send` node (follow-up in `messages`, ledger event, `pending_clarification`
+   cleared). The review yields to the conversation: it is skipped when the
+   peer already has a message waiting and cancelled when the worker picks up
+   the peer's next message; once it has started writing, that next turn waits
+   for it. Executed corrections are capped per peer per hour
+   (`INTERACTION_REVIEW_MAX_PER_HOUR`); more than
+   `INTERACTION_REVIEW_ALERT_THRESHOLD` in 24 hours raises an
+   `interaction_review_excess` ops alert. Every outcome is stored in the
+   `interaction_reviews` table. `INTERACTION_REVIEW_ENABLED=false` turns it
+   off.
+
 2. **LangGraph graph** (`app/graph/graph.py`) — Every turn enters at
    `hydrate_context`, which merges the peer's recent reminder deliveries
    (`recent_outbound`, last 7 days) into the checkpointed recent-task ledger,
@@ -194,6 +214,10 @@ up on its own clock and can classify the failure, rather than waiting out a
 | `LLM_PROXY_API_KEY` | LiteLLM proxy bearer token for the primary LLM |
 | `LLM_REQUEST_TIMEOUT_SECONDS` | Per-LLM-request timeout (default `120`) |
 | `LLM_MAX_RETRIES` | Retries per LLM request (default `1`) |
+| `INTERACTION_REVIEW_ENABLED` | Post-send interaction review on/off (default `true`) |
+| `INTERACTION_REVIEW_DELAY_SECONDS` | Wait after a reply before its review starts (default `3`) |
+| `INTERACTION_REVIEW_MAX_PER_HOUR` | Executed review corrections per peer per hour (default `3`) |
+| `INTERACTION_REVIEW_ALERT_THRESHOLD` | Executed review corrections in 24 h above which an ops alert fires (default `5`) |
 | `OPENAI_API_KEY` | Reward image generation |
 | `DATABASE_URL` | Postgres connection string |
 | `SIGNAL_CLI_URL` | signal-cli REST API base URL |

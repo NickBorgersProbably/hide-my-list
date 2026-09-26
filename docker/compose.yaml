@@ -55,6 +55,18 @@ services:
       - LLM_REQUEST_TIMEOUT_SECONDS=${LLM_REQUEST_TIMEOUT_SECONDS:-120}
       # LLM_MAX_RETRIES: retry count per LLM call; 0 disables retries (default 1).
       - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-1}
+      # Post-send interaction review (app/graph/interaction_review.py): after a
+      # reply is sent, the medium model re-reads the turn and may send one
+      # corrective follow-up.
+      # INTERACTION_REVIEW_ENABLED: false turns the review off (default true).
+      - INTERACTION_REVIEW_ENABLED=${INTERACTION_REVIEW_ENABLED:-true}
+      # INTERACTION_REVIEW_DELAY_SECONDS: wait after the reply before reviewing (default 3).
+      - INTERACTION_REVIEW_DELAY_SECONDS=${INTERACTION_REVIEW_DELAY_SECONDS:-3}
+      # INTERACTION_REVIEW_MAX_PER_HOUR: executed corrections per peer per hour (default 3).
+      - INTERACTION_REVIEW_MAX_PER_HOUR=${INTERACTION_REVIEW_MAX_PER_HOUR:-3}
+      # INTERACTION_REVIEW_ALERT_THRESHOLD: executed corrections in 24 h above which
+      # an ops alert fires (default 5).
+      - INTERACTION_REVIEW_ALERT_THRESHOLD=${INTERACTION_REVIEW_ALERT_THRESHOLD:-5}
       # REWARD_ARTIFACTS_DIR: mount path for generated PNG reward images.
       # Must match the volume mount below so images persist across container restarts.
       - REWARD_ARTIFACTS_DIR=/data/reward_artifacts

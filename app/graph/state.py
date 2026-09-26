@@ -141,8 +141,8 @@ class TurnAction(TypedDict):
     The post-send interaction review (`app/graph/interaction_review.py`) reads
     these to judge the turn against what actually happened, not against what
     the reply claims. `page_id` is "" when the action touched no page.
-    `status` is the new Notion status for `notion.update_status` and "" for
-    every other action. Ids and enum values only — never a title or text.
+    `status` is the new Notion status for `notion.update_status`, "Completed"
+    for a `notion.create_task` that logs finished work, and "" otherwise. Ids and enum values only — never a title or text.
     """
     action: TurnActionKind
     page_id: str
