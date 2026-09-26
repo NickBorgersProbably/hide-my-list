@@ -146,6 +146,12 @@ jobs:
         env:
           ENABLE_E2E_CONVERSATIONS: 'true'
           E2E_MAX_LLM_CALLS: ${{ inputs.max_calls || '120' }}
+          # Prints a failing turn's captured structlog events (event name +
+          # booleans, counts, and allowlisted enum/id fields only — never
+          # message text, titles, or peers)
+          # plus the delivered reply's length, so a failing job here shows
+          # which intent and node path the turn took without a re-run.
+          E2E_DEBUG_TURNS: 'true'
           # DATABASE_URL is exported by the "Resolve the Postgres endpoint"
           # step above — a static value cannot express which address is
           # reachable on this runner.
@@ -160,8 +166,26 @@ jobs:
           # generation cost is incurred.
           REWARD_ARTIFACTS_DIR: ${{ runner.temp }}/reward_artifacts
         run: |
+          set -o pipefail
           mkdir -p "$REWARD_ARTIFACTS_DIR"
-          pytest tests/e2e/ -q -rs
+          # Run-unique and cleared first: the runner is persistent, so a fixed
+          # path could carry an earlier run's output into this run's artifact.
+          log_file="$RUNNER_TEMP/e2e-pytest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log"
+          rm -f "$log_file"
+          pytest tests/e2e/ -q -rs 2>&1 | tee "$log_file"
+
+      # The self-hosted runner's job log is not retrievable via the API today,
+      # so the raw pytest output — including the E2E_DEBUG_TURNS printout —
+      # has to travel as an artifact instead. `if: always()` so a failing run
+      # still uploads its own diagnosis.
+      - name: Upload pytest output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-pytest-log
+          path: ${{ runner.temp }}/e2e-pytest-${{ github.run_id }}-${{ github.run_attempt }}.log
+          retention-days: 7
+          if-no-files-found: ignore
 
       # The runner is persistent, so a leaked container would collide with the
       # next run's bind on 5432.

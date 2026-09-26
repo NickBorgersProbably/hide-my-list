@@ -15,6 +15,39 @@ docker run -d --rm --name hml-e2e-pg \
   -e POSTGRES_USER=hml -e POSTGRES_PASSWORD=hml -e POSTGRES_DB=hml \
   -p 5432:5432 postgres:16-alpine
 
+bash scripts/ci-local.sh e2e
+```
+
+`scripts/ci-local.sh e2e [files…]` runs pytest under `env -i`, so pytest
+receives only:
+
+- `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR`, `VIRTUAL_ENV`, `PYTHONPATH`,
+  `TERM` — passed through from the shell when set;
+- `ENABLE_E2E_CONVERSATIONS=true`, always;
+- `DATABASE_URL`, `LLM_PROXY_BASE_URL`, `LLM_PROXY_API_KEY`,
+  `E2E_MAX_LLM_CALLS`, `E2E_DEBUG_TURNS`, `AUTHORIZED_PEERS`,
+  `SIGNAL_ACCOUNT`, `REWARD_ARTIFACTS_DIR` — from the shell when set, else
+  `.github/workflows/e2e.yml`'s value.
+
+Every other variable never reaches pytest: `OPENAI_API_KEY` (so rewards stay
+emoji-only locally too), `E2E_TURN_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`,
+`USER_TZ`, tracing controls, and the rest. To change one of those for a run,
+use pytest directly (below). The script prints `DATABASE_URL` only as
+`host:port/dbname`, never with credentials.
+
+The LLM proxy has exactly one inference slot, shared by `e2e.yml`,
+`nightly-evals.yml`, and `model-swap.yml` (the `homelab-llm-serial`
+concurrency group) — a local run competing with a CI run corrupts both runs'
+latency. So `ci-local.sh e2e` checks all three with `gh run list` and refuses
+to start while any has a `queued` or `in_progress` run. It also fails closed:
+when `gh` is missing, not authenticated, or the lookup fails, it refuses
+rather than guessing. `--force` is the only override, and only `e2e` accepts
+it. See
+`scripts/ci-local.sh --help` for the other modes (`unit`, `db`, `docs`, `all`).
+
+To run pytest directly instead:
+
+```bash
 ENABLE_E2E_CONVERSATIONS=true \
 DATABASE_URL=postgresql://hml:hml@localhost:5432/hml \
 LLM_PROXY_BASE_URL=https://llm.featherback-mermaid.ts.net/v1 \
@@ -31,6 +64,30 @@ runner rather than a GitHub-hosted one.
 
 Without `ENABLE_E2E_CONVERSATIONS`, or with any required variable missing, the
 whole directory skips.
+
+## Diagnosing a CI failure
+
+The self-hosted `homelab` runner's job log is not retrievable via the API
+today, so `.github/workflows/e2e.yml` tees the raw `pytest` output to a file
+and uploads it as the `e2e-pytest-log` workflow artifact (`if: always()`,
+7-day retention) — download it from the failed run rather than trying to
+reconstruct output from the job summary.
+
+`E2E_DEBUG_TURNS` makes a failing invariant or `Expect` assertion inside
+`Conversation._turn` print that turn's captured structlog events and the
+delivered reply's length before raising. It is off when you run pytest
+directly (set `E2E_DEBUG_TURNS=1` to enable it), and on in CI and under
+`scripts/ci-local.sh e2e`, which both default it to `true`. Only event names,
+booleans, counts, and string values under an explicit key allowlist
+(`intent`, `tier`, `node`, `page_id`, …; see `_SAFE_STRING_KEYS` in
+`tests/support/harness.py`) are printed — a string under any other key is
+dropped however short it is, so message text, titles, and peers never
+appear, and the printout is safe to paste into a PR comment or issue.
+This is what tells you which intent the classifier chose and which node ran
+without re-running the scenario with a debugger attached. An entry logged
+from inside an `except` block (a node's `*.error` fallback) also carries
+`exception_class` — the exception's class name, never its message — so a
+fallback reply in CI names what raised.
 
 ## Failure taxonomy
 

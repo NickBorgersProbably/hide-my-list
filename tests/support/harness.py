@@ -30,8 +30,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, MutableMapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -39,6 +40,7 @@ from typing import Any
 
 import structlog
 
+from tests.support.invariants import assert_expectations, assert_turn_invariants
 from tests.support.notion_fake import FakeNotion
 from tests.support.signal_sink import SentMessage, SignalSink
 
@@ -50,6 +52,153 @@ _TURN_TIMEOUT_SECONDS = float(os.environ.get("E2E_TURN_TIMEOUT_SECONDS", "180"))
 # invoking the graph (unauthorized peer, unparseable envelope). Bounded because
 # the assertion is that nothing happens, and "nothing" has no completion signal.
 _DROP_SETTLE_SECONDS = 1.0
+
+# Prints the failing turn's captured structlog events when an invariant or
+# `Expect` assertion fails inside `_turn`, so a failing CI job shows which
+# intent and node path the turn took without opening a debugger. Off when
+# pytest runs directly; on in CI (`.github/workflows/e2e.yml` sets it) and
+# under `scripts/ci-local.sh e2e`, which defaults it to `true`.
+_DEBUG_TURNS_KEY = "E2E_DEBUG_TURNS"
+
+# Keys whose value is free text or a peer identity by construction. Dropped
+# unconditionally, whatever the value's type or shape.
+_ALWAYS_PRIVATE_KEYS = frozenset(
+    {
+        "peer",
+        "recipient",
+        "body",
+        "text",
+        "message",
+        "incoming",
+        "title",
+        "notion_page_title",
+        "content",
+        "prompt",
+        "reply",
+    }
+)
+
+# The only keys whose *string* values are printed. Privacy is enforced by this
+# explicit allowlist, not by the value's shape: a one-token task title or a
+# phone number looks exactly like an id, so a string under any key not named
+# here is dropped. Each key below carries an enum member, a model/tier name,
+# an exception class, or an opaque id in the app's structlog calls.
+# `log_level` is added by structlog's capture itself.
+_SAFE_STRING_KEYS = frozenset(
+    {
+        "intent",
+        "tier",
+        "caller",
+        "source",
+        "reason",
+        "kind",
+        "event_kind",
+        "action",
+        "verdict",
+        "status",
+        "state",
+        "log_level",
+        "error_type",
+        "exception_class",
+        "page_id",
+        "notion_page_id",
+        "review_id",
+        "job_id",
+        "idempotency_key",
+        "clarification_kind",
+        "work_type",
+        "model",
+        "node",
+    }
+)
+
+# Longest string an allowlisted key may print. Enum members and ids fit;
+# anything longer is not the value the key is expected to carry.
+_SAFE_STRING_MAX_LEN = 64
+
+
+def _debug_turns_enabled() -> bool:
+    return os.environ.get(_DEBUG_TURNS_KEY, "").lower() in ("1", "true", "yes")
+
+
+def _record_exception_class(
+    _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    """structlog processor: name the exception class behind a `log.exception`.
+
+    `structlog.testing.capture_logs` keeps only `exc_info: True` for an
+    entry logged inside an `except` block, so a node's fallback event says
+    nothing about what raised. This runs at log-call time, while the
+    exception is still current, and records its class name only — never
+    its message, which can carry private text — under `exception_class`.
+    """
+    if event_dict.get("exc_info") is True and "exception_class" not in event_dict:
+        current = sys.exc_info()[1]
+        if current is not None:
+            event_dict["exception_class"] = type(current).__name__
+    return event_dict
+
+
+_CAPTURE_PROCESSORS = (_record_exception_class,)
+
+
+def _safe_event_fields(entry: dict[str, Any]) -> dict[str, Any]:
+    """Non-private fields of a structlog event: booleans, counts, allowlisted strings.
+
+    Never message text, titles, or peers. `event` and `timestamp` (the
+    structlog-added ones) are handled by the caller, not here. Booleans and
+    ints are kept under any key outside `_ALWAYS_PRIVATE_KEYS`. A string is
+    kept only when its key is in `_SAFE_STRING_KEYS` and the value has no
+    whitespace and is at most `_SAFE_STRING_MAX_LEN` chars. Everything else
+    (strings under other keys, floats, dicts, lists) is dropped rather than
+    guessed at.
+    """
+    safe: dict[str, Any] = {}
+    for key, value in entry.items():
+        if key in ("event", "timestamp"):
+            continue
+        if key in _ALWAYS_PRIVATE_KEYS:
+            continue
+        if isinstance(value, bool | int):
+            safe[key] = value
+        elif isinstance(value, str) and key in _SAFE_STRING_KEYS:
+            if value and not any(ch.isspace() for ch in value) and len(value) <= _SAFE_STRING_MAX_LEN:
+                safe[key] = value
+    return safe
+
+
+def _print_turn_debug(result: TurnResult) -> None:
+    """Print a failing turn's events + reply length for CI diagnosability.
+
+    Only event names and non-private fields are printed — never message text,
+    titles, or peers (see `_safe_event_fields`). This is a diagnostic aid, not
+    an assertion; it never changes pass/fail.
+    """
+    print("[e2e-debug] turn events:")  # noqa: T201 — surfaced in the CI job log
+    for entry in result.logs:
+        event = str(entry.get("event", ""))
+        fields = _safe_event_fields(entry)
+        print(f"[e2e-debug]   {event} {fields}")  # noqa: T201
+    print(  # noqa: T201
+        f"[e2e-debug] delivered reply length: {len(result.text)} chars, "
+        f"{len(result.sent)} message(s)"
+    )
+
+
+def _check_turn(conversation: Conversation, result: TurnResult, expect: Expect) -> None:
+    """Run the per-turn invariants and the scenario's `expect` against `result`.
+
+    On an `AssertionError`, prints the turn's debug dump first when
+    `E2E_DEBUG_TURNS` is enabled, then re-raises the original error
+    unchanged — the dump never alters pass/fail.
+    """
+    try:
+        assert_turn_invariants(conversation, result, expect)
+        assert_expectations(conversation, result, expect)
+    except AssertionError:
+        if _debug_turns_enabled():
+            _print_turn_debug(result)
+        raise
 
 
 class IntentMisrouteError(AssertionError):
@@ -455,8 +604,6 @@ class Conversation:
         and the scenario's `expect`. `intent` in `expect` is not meaningful
         here — the review does not classify — so leave it unset.
         """
-        from tests.support.invariants import assert_expectations, assert_turn_invariants
-
         if self.listener is None:
             raise AssertionError(
                 "this conversation has no listener handle; use the "
@@ -466,7 +613,7 @@ class Conversation:
         sent_cursor = self.signal.mark()
         notion_cursor = self.notion.mark()
         awaiting_before = await self.awaiting_reply_count()
-        with structlog.testing.capture_logs() as logs:
+        with structlog.testing.capture_logs(processors=_CAPTURE_PROCESSORS) as logs:
             try:
                 await asyncio.wait_for(
                     self.listener.wait_for_review(self.peer), timeout=_TURN_TIMEOUT_SECONDS
@@ -487,14 +634,13 @@ class Conversation:
             text=" ".join(message.body for message in sent),
             sent=sent,
             state=state,
-            logs=list(logs),
+            logs=[dict(entry) for entry in logs],
             notion_writes_since=notion_cursor,
             awaiting_reply_before=awaiting_before,
             awaiting_reply_after=await self.awaiting_reply_count(),
             graph_invoked=False,
         )
-        assert_turn_invariants(self, result, expect)
-        assert_expectations(self, result, expect)
+        _check_turn(self, result, expect)
         return result
 
     async def review_rows(self) -> list[dict[str, Any]]:
@@ -541,15 +687,13 @@ class Conversation:
         gap_seconds: float = 0.0,
         expected_call_delta: int = 1,
     ) -> TurnResult:
-        from tests.support.invariants import assert_expectations, assert_turn_invariants
-
         sent_cursor = self.signal.mark()
         notion_cursor = self.notion.mark()
         awaiting_before = await self.awaiting_reply_count()
         calls_before = self._observed.call_count
         self._observed.done.clear()
 
-        with structlog.testing.capture_logs() as logs:
+        with structlog.testing.capture_logs(processors=_CAPTURE_PROCESSORS) as logs:
             for index, envelope in enumerate(envelopes):
                 if index > 0:
                     await asyncio.sleep(gap_seconds)
@@ -619,7 +763,7 @@ class Conversation:
             text=" ".join(message.body for message in sent),
             sent=sent,
             state=state,
-            logs=list(logs),
+            logs=[dict(entry) for entry in logs],
             notion_writes_since=notion_cursor,
             awaiting_reply_before=awaiting_before,
             awaiting_reply_after=await self.awaiting_reply_count(),
@@ -627,6 +771,5 @@ class Conversation:
             resolved_page_id=resolved_page_id,
             resolved_page_awaiting_after=resolved_page_awaiting_after,
         )
-        assert_turn_invariants(self, result, expect)
-        assert_expectations(self, result, expect)
+        _check_turn(self, result, expect)
         return result
