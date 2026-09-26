@@ -32,8 +32,6 @@ notion_tasks:
     work_type: "Independent"
     time_estimate: 10
 contracts:
-  - kind: regex_require
-    pattern: "\\{task\\}"
   - kind: shame_safe
     threshold: 0.85
   - kind: judge

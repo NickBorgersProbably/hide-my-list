@@ -10,7 +10,9 @@ Day 1
 1. "what should i do" offers a task and marks it In Progress.
 2. "nah not that one" declines it; another task is offered by name.
 3. "no" declines the alternative; neither declined task is offered again.
-4. "honestly nothing sounds doable rn" gets an exit ramp, not another push.
+4. "nope none of those either" — the third no — is normalized, and no
+   declined task is offered again (rejection.md, Escalation After Multiple
+   Rejections).
 5. "i did nothing today lol" is CHAT: warm, and nothing is written.
 
 Day 2
@@ -86,13 +88,22 @@ async def test_rejections_a_nothing_day_a_declined_question_and_an_unlisted_win(
     third = drafts[0].get("notion_page_id") if drafts else None
     assert third not in {first, second}, "a task the user just turned down was offered again"
 
-    await conversation.say(
-        "honestly nothing sounds doable rn",
+    third_no = await conversation.say(
+        "nope none of those either",
         expect=Expect(
+            intent="REJECT",
             notion_untouched=sorted(seeded),
             sent_count=1,
-            regex_require=[r"(?i)(break|rest|later|no pressure|here when|whenever)"],
+            regex_require=[
+                r"(?i)(not a failure|task mode|break|rest|later|no pressure|here when|whenever)"
+            ],
         ),
+    )
+    # Every open task has now been turned down (the first stays In Progress,
+    # so it is not even a candidate): any task offered here is a re-offer.
+    drafts = third_no.state.get("pending_outbound") or []
+    assert not (drafts and drafts[0].get("notion_page_id")), (
+        "the third no was answered by re-offering a task the user already declined"
     )
 
     nothing = await conversation.say(
