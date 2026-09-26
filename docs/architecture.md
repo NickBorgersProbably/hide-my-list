@@ -168,8 +168,14 @@ The app container runs four concurrent async tasks:
    `dead` with `last_error='completed by user'`, so the worker never claims
    them. That cancellation is retried once; when it still fails, the
    completion stands (the Notion write already happened) and an ops alert of
-   kind `reminder_cancel_failed` goes to the operator. The worker's pre-send
-   check covers the surviving row: before sending a `kind='reminder'` row it
+   kind `reminder_cancel_failed` goes to the operator. Every completion write
+   (`complete_node`, the shared `_log_finished` path when it completes an
+   open task, and the interaction review's `complete_task`) also calls
+   `reminders.cancel_pending_nudges`, which marks the page's pending and
+   scheduled `kind='deadline'` rows `dead` with `last_error='task completed'`
+   and marks the series' active `reminder_scheduling_ledger` rows superseded;
+   a failure there is logged and the completion stands. The worker's pre-send
+   check covers any surviving row of either kind: before sending a row it
    reads the page, and when the page is already `Completed` it marks the row
    `dead` with `last_error='page already completed'` and sends nothing. A
    failed page read sends anyway — a missed reminder costs the user more than
