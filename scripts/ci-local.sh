@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ci-local.sh — run exactly what CI runs, in CI's environment, from a laptop.
+# ci-local.sh — run the commands CI runs, with CI's environment as defaults.
 #
 # CI and a developer machine drift in ways that waste review-pipeline cycles:
 # a local run misses the image-reward key CI deliberately unsets, doesn't know
@@ -7,7 +7,8 @@
 # has no equivalent of the "was this already checked?" workflow gates. This
 # script closes that gap by shelling out to the *same* commands
 # `.github/workflows/python-validation.yml` and `.github/workflows/e2e.yml`
-# run, with the same env.
+# run, with their env values as defaults (see --help for what may be
+# overridden from the shell).
 #
 # It intentionally does NOT wrap the compose smoke test
 # (tests/smoke/test_compose_round_trip.py, gated by ENABLE_COMPOSE_SMOKE): its
@@ -31,17 +32,24 @@ Modes:
                 (mirrors the pytest-db job). DATABASE_URL defaults to
                 postgresql://hml:hml@localhost:5432/hml; export DATABASE_URL
                 first to point at a different instance.
-  e2e [files…]  pytest tests/e2e/ (or the given files) with e2e.yml's exact
-                env. Refuses to start while the homelab e2e.yml run is
-                in_progress/queued (the LLM proxy has one inference slot,
-                shared with CI) unless --force is given.
+  e2e [files…]  pytest tests/e2e/ (or the given files) with e2e.yml's env
+                values as defaults. These may be overridden from the shell:
+                DATABASE_URL, LLM_PROXY_BASE_URL, LLM_PROXY_API_KEY,
+                E2E_MAX_LLM_CALLS, E2E_DEBUG_TURNS, AUTHORIZED_PEERS,
+                SIGNAL_ACCOUNT, REWARD_ARTIFACTS_DIR. OPENAI_API_KEY is always
+                unset and ENABLE_E2E_CONVERSATIONS is always true.
+                The LLM proxy has one inference slot, shared by e2e.yml,
+                nightly-evals.yml and model-swap.yml. The script refuses to
+                start while any of them has a queued/in_progress run, and
+                also refuses when it cannot check (gh missing, not
+                authenticated, API error). --force skips the check.
   docs          Delegates to `scripts/run-required-checks.sh ci-docs`.
   all           unit, then db, then docs. Does NOT run e2e — e2e costs a
                 shared homelab inference slot and wall-clock minutes, so it
                 is opt-in even inside "all".
 
 Options:
-  --force       (e2e only) start even if e2e.yml is currently running in CI.
+  --force       (e2e only) skip the shared inference slot check.
   -h, --help    Show this help.
 
 NOTE: this script never runs tests/smoke/test_compose_round_trip.py. That
@@ -98,11 +106,37 @@ run_db() {
   pytest tests/integration/ tests/regressions/ -q
 }
 
-_e2e_slot_busy() {
-  command -v gh >/dev/null 2>&1 || return 1
-  local status
-  status="$(gh run list --workflow=e2e.yml --limit 1 --json status --jq '.[0].status' 2>/dev/null || true)"
-  [ "$status" = "in_progress" ] || [ "$status" = "queued" ]
+# Workflows that share the `homelab-llm-serial` concurrency group, and so the
+# LLM proxy's single inference slot. Keep in sync with the `concurrency:`
+# blocks in .github/workflows/.
+E2E_SLOT_WORKFLOWS=(e2e.yml nightly-evals.yml model-swap.yml)
+
+# Checks every slot-sharing workflow for a queued or in-progress run.
+# Returns 0 when the slot is clear, 1 when a run holds or waits for it, and
+# 2 when the check itself cannot be completed (gh missing, not authenticated,
+# API error, unparseable output). The caller treats 2 like 1: fail closed.
+_e2e_slot_check() {
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "[ci-local] cannot check the shared inference slot: 'gh' is not on PATH." >&2
+    return 2
+  fi
+  local wf count busy=0
+  for wf in "${E2E_SLOT_WORKFLOWS[@]}"; do
+    if ! count="$(gh run list --workflow="$wf" --limit 20 --json status \
+        --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "pending" or .status == "requested")] | length' 2>/dev/null)"; then
+      echo "[ci-local] cannot check the shared inference slot: 'gh run list --workflow=$wf' failed (not authenticated, or the API call failed)." >&2
+      return 2
+    fi
+    if ! [[ "$count" =~ ^[0-9]+$ ]]; then
+      echo "[ci-local] cannot check the shared inference slot: unexpected 'gh run list --workflow=$wf' output: '$count'." >&2
+      return 2
+    fi
+    if [ "$count" -gt 0 ]; then
+      echo "[ci-local] $wf has $count queued/in_progress run(s) in CI." >&2
+      busy=1
+    fi
+  done
+  return "$busy"
 }
 
 run_e2e() {
@@ -112,8 +146,16 @@ run_e2e() {
 
   require_command pytest
 
-  if [ "$force" != "true" ] && _e2e_slot_busy; then
-    fail "e2e.yml is currently running in CI (in_progress/queued) and the homelab LLM proxy has one inference slot. Wait for it to finish, or pass --force."
+  if [ "$force" = "true" ]; then
+    log "--force: skipping the shared inference slot check"
+  else
+    local slot_rc=0
+    _e2e_slot_check || slot_rc=$?
+    if [ "$slot_rc" -eq 1 ]; then
+      fail "the homelab LLM proxy has one inference slot, shared by ${E2E_SLOT_WORKFLOWS[*]}, and CI holds or is waiting for it. Wait for those runs to finish, or pass --force."
+    elif [ "$slot_rc" -ne 0 ]; then
+      fail "refusing to start e2e without confirming the shared inference slot is free. Fix 'gh' (install it and run 'gh auth login'), or pass --force if you know the slot is free."
+    fi
   fi
 
   # OPENAI_API_KEY is deliberately unset, always: generate_reward_image()

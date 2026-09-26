@@ -64,15 +64,21 @@ runner and proxy.
 
 ### Running locally
 
-`scripts/ci-local.sh <unit|db|e2e|docs|all>` runs exactly what CI runs, in
-CI's environment, instead of an approximation of it: `unit` mirrors the
-`ruff`/`mypy`/`pytest-unit` jobs verbatim (no `DATABASE_URL`), `db` mirrors
-`pytest-db` against a Postgres instance (`DATABASE_URL` defaults to
-`postgresql://hml:hml@localhost:5432/hml`), `e2e [files…]` mirrors
-`e2e.yml`'s exact env — including always unsetting `OPENAI_API_KEY` so
-rewards stay emoji-only — and refuses to start while `e2e.yml` is running in
-CI, since the LLM proxy has one inference slot shared with every job on the
-`homelab` runner. `docs` delegates to `scripts/run-required-checks.sh
+`scripts/ci-local.sh <unit|db|e2e|docs|all>` runs the commands CI runs, with
+CI's env values as defaults: `unit` mirrors the `ruff`/`mypy`/`pytest-unit`
+jobs verbatim (no `DATABASE_URL`), `db` mirrors `pytest-db` against a
+Postgres instance (`DATABASE_URL` defaults to
+`postgresql://hml:hml@localhost:5432/hml`). `e2e [files…]` sets `e2e.yml`'s
+values as defaults; only `DATABASE_URL`, `LLM_PROXY_BASE_URL`,
+`LLM_PROXY_API_KEY`, `E2E_MAX_LLM_CALLS`, `E2E_DEBUG_TURNS`,
+`AUTHORIZED_PEERS`, `SIGNAL_ACCOUNT`, and `REWARD_ARTIFACTS_DIR` may be
+overridden from the shell. `OPENAI_API_KEY` is always unset, so rewards stay
+emoji-only, and `ENABLE_E2E_CONVERSATIONS` is always `true`. The LLM proxy
+has one inference slot, shared by `e2e.yml`, `nightly-evals.yml`, and
+`model-swap.yml` (the `homelab-llm-serial` concurrency group); `e2e` refuses
+to start while any of them has a queued or in-progress run, and fails closed
+when it cannot check (`gh` missing, not authenticated, or the lookup fails).
+`--force` is the only override. `docs` delegates to `scripts/run-required-checks.sh
 ci-docs`. `all` runs `unit`, `db`, then `docs` — e2e stays opt-in even there,
 since it costs a shared inference slot and several minutes of wall clock. It
 deliberately never runs the compose smoke test: that test's teardown runs
