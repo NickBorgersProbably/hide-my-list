@@ -443,10 +443,11 @@ be asserted for all tiers — an unbounded call holds the only inference slot an
 stalls every queued conversation. `max_tokens` is tier-conditional: the `cheap`
 tier sends it (capped output) and must be asserted; the uncapped tiers
 (expensive/medium/reminder) omit it and tests must assert its absence. `think`
-is always explicit: tests must assert that every tier sends
-`extra_body={'think': False}` when `LLM_REASONING_TIERS` is unset, and that a
-tier named in `LLM_REASONING_TIERS` sends `{'think': True}` while the others
-stay off.
+is always explicit and decided per caller: tests must assert that a call
+sends `extra_body={'think': True}` only when its `caller` is in the default
+reasoning set (`selection`, `cannot_finish`, `need_help`) or in
+`LLM_REASONING_CALLERS`, and `{'think': False}` otherwise (including
+`caller=None`).
 
 Three cost gates for eval runs:
 - `ENABLE_LIVE_LLM_EVALS=true` — required for any real LLM call; absent = `pytest.skip`

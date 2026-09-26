@@ -3,24 +3,23 @@
 Reads model tier assignments from setup/model-tiers.json and exposes
 a single llm(tier) factory function. Validates model IDs at startup.
 
-Tiers (model alias resolves via setup/model-tiers.json; per-tier reasoning
-behavior is set here):
-  expensive -> gemma4-small, think=off by default, uncapped (GET_TASK scoring)
-  medium    -> gemma4-small, think=off by default, uncapped (user-facing replies
-                                        + intake's structured JSON)
-  cheap     -> gemma4-small, think=off, max_tokens=1024 (label-only
-                                        classification)
-  reminder  -> gemma4-small, think=off by default, uncapped (reminder cron;
-                                        currently no caller)
+Tiers (model alias resolves via setup/model-tiers.json; per-tier output caps
+are set here):
+  expensive -> gemma4-small, uncapped (GET_TASK scoring)
+  medium    -> gemma4-small, uncapped (user-facing replies + intake's
+                                        structured JSON)
+  cheap     -> gemma4-small, max_tokens=1024 (label-only classification)
+  reminder  -> gemma4-small, uncapped (reminder cron; currently no caller)
 
-Reasoning ("think") is off for every tier unless the tier is named in
-LLM_REASONING_TIERS (comma-separated). The model host serves one request at a
-time and the proxy in front of it gives up on any single request after 110 s;
-with think on, intake and selection spend 2k–4k tokens reasoning per turn
-(47–110 s observed), so a single long chain of thought times out the turn and
-queues every conversation behind it. Think-off turns land in seconds. Turning a
-tier's reasoning back on is an operator decision per deployment, not a code
-change.
+Reasoning ("think") is decided per caller, not per tier. The model host serves
+one request at a time and the proxy in front of it gives up on any single
+request after 110 s; with think on, intake spent 2k–4k tokens reasoning per
+turn (47–103 s observed) and a single long chain of thought timed out the turn
+and queued every conversation behind it. Think-off intake lands in ~12 s with
+no eval regression. Selection, cannot_finish, and need_help lose accuracy
+without reasoning (measured on the eval suite), so they keep it by default.
+LLM_REASONING_CALLERS (comma-separated caller names) replaces that default for
+a deployment; an empty value turns reasoning off everywhere.
 
 Uncapped tiers send no max_tokens: structured JSON output must not be
 truncated, or the partial JSON fails to parse and a reminder is silently
@@ -88,31 +87,27 @@ _VALID_MODEL_PREFIXES: tuple[str, ...] = ("claude-", "gemma", "gpt-")
 # as much as the check that enforces it — see is_local_tier().
 _LOCAL_MODEL_PREFIXES: tuple[str, ...] = ("gemma",)
 
-# Reasoning is opt-in per tier. LLM_REASONING_TIERS names the tiers that send
-# think=true to the Ollama backend (via the LiteLLM proxy, which passes `think`
-# straight through); every other tier sends think=false. Empty or unset means
-# no tier reasons. Unknown names are ignored with a warning so a typo cannot
-# refuse startup.
-_REASONING_TIERS_ENV = "LLM_REASONING_TIERS"
+# Callers that run with reasoning ("think") on unless LLM_REASONING_CALLERS
+# says otherwise. The proxy passes `think` straight through to the Ollama
+# backend; every call sends the flag explicitly so the backend default never
+# decides. Names are the `caller` values passed to llm().
+_DEFAULT_REASONING_CALLERS: frozenset[str] = frozenset(
+    {"selection", "cannot_finish", "need_help"}
+)
+_REASONING_CALLERS_ENV = "LLM_REASONING_CALLERS"
 
 
-def _reasoning_tiers() -> frozenset[str]:
-    """Tiers that run with reasoning on, from LLM_REASONING_TIERS."""
-    raw = os.environ.get(_REASONING_TIERS_ENV, "")
-    names = {part.strip() for part in raw.split(",") if part.strip()}
-    unknown = names - _VALID_TIERS
-    if unknown:
-        log.warning(
-            "models.unknown_reasoning_tier",
-            unknown_count=len(unknown),
-            valid_tiers=sorted(_VALID_TIERS),
-        )
-    return frozenset(names & _VALID_TIERS)
+def _reasoning_callers() -> frozenset[str]:
+    """Callers that send think=true: LLM_REASONING_CALLERS when set, else the default."""
+    raw = os.environ.get(_REASONING_CALLERS_ENV)
+    if raw is None:
+        return _DEFAULT_REASONING_CALLERS
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
 
 
-def _tier_extra_body(tier: str) -> dict[str, Any]:
-    """Extra request body for a tier: the `think` flag, always explicit."""
-    return {"think": tier in _reasoning_tiers()}
+def _caller_extra_body(caller: str | None) -> dict[str, Any]:
+    """Extra request body for a call: the `think` flag, always explicit."""
+    return {"think": caller is not None and caller in _reasoning_callers()}
 
 
 # Per-tier output-token cap. Only the cheap tier is capped: its sole caller
@@ -305,8 +300,9 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
         tier: One of 'expensive', 'medium', 'cheap', 'reminder'.
         temperature: Sampling temperature. Defaults to 0.0 for deterministic output.
         caller: Short string identifying the call site (e.g., "intake", "chat",
-            "classify"). Used as a field in log events for Gravwell filtering.
-            None is valid for callsites that don't pass a caller.
+            "classify"). Used as a field in log events and to decide whether
+            the call reasons (see LLM_REASONING_CALLERS). None is valid for
+            callsites that don't pass a caller; they never reason.
 
     Returns:
         ChatOpenAI configured for the specified tier, with observability
@@ -339,7 +335,7 @@ def llm(tier: Tier, *, temperature: float = 0.0, caller: str | None = None) -> C
     max_tokens = _TIER_MAX_TOKENS.get(tier)
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    kwargs["extra_body"] = _tier_extra_body(tier)
+    kwargs["extra_body"] = _caller_extra_body(caller)
     base_model = ChatOpenAI(**kwargs)
 
     # Attach observability callback (one instance per llm() call so tier + caller

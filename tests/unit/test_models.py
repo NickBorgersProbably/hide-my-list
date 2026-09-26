@@ -249,46 +249,55 @@ def test_llm_raises_when_llm_proxy_api_key_missing() -> None:
 def _llm_env() -> dict[str, str]:
     env = dict(os.environ)
     env.pop("LANGSMITH_TRACING", None)
-    env.pop("LLM_REASONING_TIERS", None)
+    env.pop("LLM_REASONING_CALLERS", None)
     env.setdefault("LLM_PROXY_API_KEY", "test-key-not-used")
     env.setdefault("LLM_PROXY_BASE_URL", "https://proxy.test/v1")
     return env
 
 
-def test_every_tier_sends_think_false_by_default() -> None:
-    """With LLM_REASONING_TIERS unset, every tier sends extra_body={'think': False}.
+def test_think_is_explicit_and_off_unless_the_caller_reasons_by_default() -> None:
+    """Every call sends extra_body={'think': <bool>}; only the default reasoning
+    callers (selection, cannot_finish, need_help) get True when
+    LLM_REASONING_CALLERS is unset.
 
     The proxy forwards `think` to Ollama. Reasoning turns spend thousands of
     tokens per call on a single-slot model host and run into the proxy's
-    per-request timeout, so no tier reasons unless an operator opts it in.
-    The flag is always explicit so the backend default never decides.
+    per-request timeout, so a call reasons only where the eval suite showed
+    accuracy depends on it.
     """
     from app import models as models_module
     models_module._load_model_tiers.cache_clear()
 
     with patch.dict(os.environ, _llm_env(), clear=True):
         for tier in ("cheap", "medium", "expensive", "reminder"):
-            bound = models_module.llm(tier).bound  # unwrap RunnableBinding
-            assert getattr(bound, "extra_body", None) == {"think": False}, (
-                f"{tier} tier must send think=false; "
-                f"got extra_body={getattr(bound, 'extra_body', None)!r}"
-            )
+            for caller in ("intake", "chat", "classify", "rejection", "interaction_review", None):
+                bound = models_module.llm(tier, caller=caller).bound  # unwrap RunnableBinding
+                assert getattr(bound, "extra_body", None) == {"think": False}, (
+                    f"{tier}/{caller} must send think=false; "
+                    f"got extra_body={getattr(bound, 'extra_body', None)!r}"
+                )
+        for caller in ("selection", "cannot_finish", "need_help"):
+            assert models_module.llm("medium", caller=caller).bound.extra_body == {"think": True}
 
     models_module._load_model_tiers.cache_clear()
 
 
-def test_llm_reasoning_tiers_env_turns_think_on_per_tier() -> None:
-    """LLM_REASONING_TIERS names the tiers that send think=true; others stay off."""
+def test_llm_reasoning_callers_env_replaces_the_default() -> None:
+    """LLM_REASONING_CALLERS names exactly the callers that send think=true; empty = none."""
     from app import models as models_module
     models_module._load_model_tiers.cache_clear()
 
     env = _llm_env()
-    env["LLM_REASONING_TIERS"] = " expensive , medium,not-a-tier"
+    env["LLM_REASONING_CALLERS"] = " intake , chat"
     with patch.dict(os.environ, env, clear=True):
-        assert models_module.llm("expensive").bound.extra_body == {"think": True}
-        assert models_module.llm("medium").bound.extra_body == {"think": True}
-        assert models_module.llm("cheap").bound.extra_body == {"think": False}
-        assert models_module.llm("reminder").bound.extra_body == {"think": False}
+        assert models_module.llm("medium", caller="intake").bound.extra_body == {"think": True}
+        assert models_module.llm("medium", caller="chat").bound.extra_body == {"think": True}
+        assert models_module.llm("expensive", caller="selection").bound.extra_body == {"think": False}
+
+    env["LLM_REASONING_CALLERS"] = ""
+    with patch.dict(os.environ, env, clear=True):
+        for caller in ("selection", "cannot_finish", "need_help", "intake"):
+            assert models_module.llm("medium", caller=caller).bound.extra_body == {"think": False}
 
     models_module._load_model_tiers.cache_clear()
 

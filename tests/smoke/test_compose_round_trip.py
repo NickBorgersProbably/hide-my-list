@@ -70,7 +70,7 @@ def compose_stack() -> object:
         "LLM_PROXY_BASE_URL": "https://proxy.test/v1",
         "LLM_REQUEST_TIMEOUT_SECONDS": "90",
         "LLM_MAX_RETRIES": "0",
-        "LLM_REASONING_TIERS": "expensive",
+        "LLM_REASONING_CALLERS": "selection",
         "REMINDER_SLOT_MINUTES": "30",
         "REMINDER_SLOT_CAPACITY": "2",
         "REMINDER_QUIET_START_HOUR": "22",
@@ -213,7 +213,7 @@ def test_app_receives_llm_proxy_env(compose_stack: object) -> None:
     assert "SIGNAL_INBOUND_SILENCE_ALERT_THRESHOLD_SECONDS=129600" in env_lines
     assert "LLM_REQUEST_TIMEOUT_SECONDS=90" in env_lines
     assert "LLM_MAX_RETRIES=0" in env_lines
-    assert "LLM_REASONING_TIERS=expensive" in env_lines
+    assert "LLM_REASONING_CALLERS=selection" in env_lines
     assert "INTERACTION_REVIEW_ENABLED=false" in env_lines
     assert "INTERACTION_REVIEW_DELAY_SECONDS=5" in env_lines
     assert "INTERACTION_REVIEW_MAX_PER_HOUR=2" in env_lines
