@@ -68,19 +68,26 @@ runner and proxy.
 CI's env values as defaults: `unit` mirrors the `ruff`/`mypy`/`pytest-unit`
 jobs verbatim (no `DATABASE_URL`), `db` mirrors `pytest-db` against a
 Postgres instance (`DATABASE_URL` defaults to
-`postgresql://hml:hml@localhost:5432/hml`). `e2e [files…]` sets `e2e.yml`'s
-values as defaults; only `DATABASE_URL`, `LLM_PROXY_BASE_URL`,
+`postgresql://hml:hml@localhost:5432/hml`). `e2e [files…]` runs pytest
+under `env -i`, so pytest receives only `PATH`, `HOME`, `LANG`, `LC_ALL`,
+`TMPDIR`, `VIRTUAL_ENV`, `PYTHONPATH`, and `TERM` from the shell,
+`ENABLE_E2E_CONVERSATIONS=true`, and `DATABASE_URL`, `LLM_PROXY_BASE_URL`,
 `LLM_PROXY_API_KEY`, `E2E_MAX_LLM_CALLS`, `E2E_DEBUG_TURNS`,
-`AUTHORIZED_PEERS`, `SIGNAL_ACCOUNT`, and `REWARD_ARTIFACTS_DIR` may be
-overridden from the shell. `OPENAI_API_KEY` is always unset, so rewards stay
-emoji-only, and `ENABLE_E2E_CONVERSATIONS` is always `true`. The LLM proxy
+`AUTHORIZED_PEERS`, `SIGNAL_ACCOUNT`, and `REWARD_ARTIFACTS_DIR` — each from
+the shell when set, else `e2e.yml`'s value. Every other variable never
+reaches pytest: `OPENAI_API_KEY` (so rewards stay emoji-only),
+`E2E_TURN_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, tracing controls, and the
+rest. The LLM proxy
 has one inference slot, shared by `e2e.yml`, `nightly-evals.yml`, and
 `model-swap.yml` (the `homelab-llm-serial` concurrency group); `e2e` refuses
 to start while any of them has a queued or in-progress run, and fails closed
 when it cannot check (`gh` missing, not authenticated, or the lookup fails).
-`--force` is the only override. `docs` delegates to `scripts/run-required-checks.sh
-ci-docs`. `all` runs `unit`, `db`, then `docs` — e2e stays opt-in even there,
-since it costs a shared inference slot and several minutes of wall clock. It
+`--force` is the only override; every other mode rejects it. `docs` delegates
+to `scripts/run-required-checks.sh ci-docs`. `all` runs `unit`, `db`, then
+`docs` — e2e stays opt-in even there, since it costs a shared inference slot
+and several minutes of wall clock. `unit` runs in a subshell inside `all`, so
+its `DATABASE_URL` unset does not reach `db`. The script prints `DATABASE_URL`
+only as `host:port/dbname`, never with credentials. It
 deliberately never runs the compose smoke test: that test's teardown runs
 `docker compose down -v`, which on a developer machine tears down the local
 compose stack's volumes rather than a throwaway one; `scripts/ci-local.sh
@@ -478,6 +485,7 @@ These are the eleven contract clauses the test reviewer enforces (see
      through `docker/compose.yaml`. They are documented in
      `docs/python-rewrite/llm-observability.md` and do not require
      `test_compose_round_trip.py` coverage.
+   - **Exception — test-harness-only env vars**: a variable read only by `tests/support/` or `tests/e2e/` (never by `app/`) is exempt from both requirements above, because it never reaches the deployed stack. Document it where the harness reads it and in `tests/e2e/README.md` instead.
 
 5. **PR fixing a production bug** must add:
    - `tests/regressions/bug_<NNNN>_<slug>/` directory with README citing issue/PR.

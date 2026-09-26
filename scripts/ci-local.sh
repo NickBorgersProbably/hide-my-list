@@ -33,11 +33,18 @@ Modes:
                 postgresql://hml:hml@localhost:5432/hml; export DATABASE_URL
                 first to point at a different instance.
   e2e [files…]  pytest tests/e2e/ (or the given files) with e2e.yml's env
-                values as defaults. These may be overridden from the shell:
-                DATABASE_URL, LLM_PROXY_BASE_URL, LLM_PROXY_API_KEY,
-                E2E_MAX_LLM_CALLS, E2E_DEBUG_TURNS, AUTHORIZED_PEERS,
-                SIGNAL_ACCOUNT, REWARD_ARTIFACTS_DIR. OPENAI_API_KEY is always
-                unset and ENABLE_E2E_CONVERSATIONS is always true.
+                values as defaults, in a scrubbed environment (env -i).
+                pytest receives only:
+                  - from the shell, unchanged: PATH, HOME, LANG, LC_ALL,
+                    TMPDIR, VIRTUAL_ENV, PYTHONPATH, TERM (each if set);
+                  - ENABLE_E2E_CONVERSATIONS=true, always;
+                  - these, from the shell when set, else e2e.yml's value:
+                    DATABASE_URL, LLM_PROXY_BASE_URL, LLM_PROXY_API_KEY,
+                    E2E_MAX_LLM_CALLS, E2E_DEBUG_TURNS, AUTHORIZED_PEERS,
+                    SIGNAL_ACCOUNT, REWARD_ARTIFACTS_DIR.
+                Every other variable (OPENAI_API_KEY,
+                E2E_TURN_TIMEOUT_SECONDS, LLM_MAX_RETRIES, USER_TZ,
+                LANGSMITH_TRACING, …) never reaches pytest.
                 The LLM proxy has one inference slot, shared by e2e.yml,
                 nightly-evals.yml and model-swap.yml. The script refuses to
                 start while any of them has a queued/in_progress run, and
@@ -49,7 +56,8 @@ Modes:
                 is opt-in even inside "all".
 
 Options:
-  --force       (e2e only) skip the shared inference slot check.
+  --force       e2e only: skip the shared inference slot check. Any other
+                mode rejects it (exit 2).
   -h, --help    Show this help.
 
 NOTE: this script never runs tests/smoke/test_compose_round_trip.py. That
@@ -61,6 +69,16 @@ EOF
 }
 
 log() { echo "[ci-local] $*"; }
+
+# DATABASE_URL can carry a password, so it is never printed as given. This
+# prints host[:port]/dbname only: scheme, userinfo, and query are stripped.
+redact_db_url() {
+  local url="$1"
+  url="${url#*://}"
+  url="${url##*@}"
+  url="${url%%\?*}"
+  printf '%s' "$url"
+}
 fail() {
   echo "[ci-local] ERROR: $*" >&2
   exit 1
@@ -101,7 +119,7 @@ run_db() {
   export REWARD_ARTIFACTS_DIR="${REWARD_ARTIFACTS_DIR:-$(mktemp -d)}"
   mkdir -p "$REWARD_ARTIFACTS_DIR"
 
-  log "DATABASE_URL=$DATABASE_URL"
+  log "database: $(redact_db_url "$DATABASE_URL")"
   log "pytest tests/integration/ tests/regressions/ -q"
   pytest tests/integration/ tests/regressions/ -q
 }
@@ -158,31 +176,39 @@ run_e2e() {
     fi
   fi
 
-  # OPENAI_API_KEY is deliberately unset, always: generate_reward_image()
-  # short-circuits without it, so rewards stay emoji-only, exactly like the
-  # CI job. A key set in your shell for other projects would otherwise leak
-  # in and incur real image-generation cost.
-  unset OPENAI_API_KEY
+  local database_url="${DATABASE_URL:-postgresql://hml:hml@localhost:5432/hml}"
+  local reward_dir="${REWARD_ARTIFACTS_DIR:-$(mktemp -d)}"
+  mkdir -p "$reward_dir"
 
-  export ENABLE_E2E_CONVERSATIONS=true
-  export E2E_MAX_LLM_CALLS="${E2E_MAX_LLM_CALLS:-120}"
-  export E2E_DEBUG_TURNS="${E2E_DEBUG_TURNS:-true}"
-  export DATABASE_URL="${DATABASE_URL:-postgresql://hml:hml@localhost:5432/hml}"
-  export LLM_PROXY_API_KEY="${LLM_PROXY_API_KEY:-fake-key}"
-  export LLM_PROXY_BASE_URL="${LLM_PROXY_BASE_URL:-https://llm.featherback-mermaid.ts.net/v1}"
-  export AUTHORIZED_PEERS="${AUTHORIZED_PEERS:-+15550000001,+15550000002}"
-  export SIGNAL_ACCOUNT="${SIGNAL_ACCOUNT:-+15550009999}"
-  export REWARD_ARTIFACTS_DIR="${REWARD_ARTIFACTS_DIR:-$(mktemp -d)}"
-  mkdir -p "$REWARD_ARTIFACTS_DIR"
+  # pytest runs under `env -i` with only the variables below, so a developer
+  # shell cannot change the run in ways CI does not: OPENAI_API_KEY (which
+  # would enable paid image generation), E2E_TURN_TIMEOUT_SECONDS,
+  # LLM_MAX_RETRIES, tracing controls, and the rest never reach it.
+  local -a run_env=()
+  local var
+  for var in PATH HOME LANG LC_ALL TMPDIR VIRTUAL_ENV PYTHONPATH TERM; do
+    if [ -n "${!var+x}" ]; then
+      run_env+=("$var=${!var}")
+    fi
+  done
+  run_env+=(
+    "ENABLE_E2E_CONVERSATIONS=true"
+    "DATABASE_URL=$database_url"
+    "LLM_PROXY_BASE_URL=${LLM_PROXY_BASE_URL:-https://llm.featherback-mermaid.ts.net/v1}"
+    "LLM_PROXY_API_KEY=${LLM_PROXY_API_KEY:-fake-key}"
+    "E2E_MAX_LLM_CALLS=${E2E_MAX_LLM_CALLS:-120}"
+    "E2E_DEBUG_TURNS=${E2E_DEBUG_TURNS:-true}"
+    "AUTHORIZED_PEERS=${AUTHORIZED_PEERS:-+15550000001,+15550000002}"
+    "SIGNAL_ACCOUNT=${SIGNAL_ACCOUNT:-+15550009999}"
+    "REWARD_ARTIFACTS_DIR=$reward_dir"
+  )
 
-  log "DATABASE_URL=$DATABASE_URL"
   if [ "${#files[@]}" -eq 0 ]; then
-    log "pytest tests/e2e/ -q -rs"
-    pytest tests/e2e/ -q -rs
-  else
-    log "pytest ${files[*]} -q -rs"
-    pytest "${files[@]}" -q -rs
+    files=(tests/e2e/)
   fi
+  log "database: $(redact_db_url "$database_url")"
+  log "pytest ${files[*]} -q -rs (scrubbed environment)"
+  env -i "${run_env[@]}" pytest "${files[@]}" -q -rs
 }
 
 run_docs() {
@@ -190,7 +216,8 @@ run_docs() {
 }
 
 run_all() {
-  run_unit
+  # Subshell: run_unit unsets DATABASE_URL, and that must not reach run_db.
+  ( run_unit )
   run_db
   run_docs
 }
@@ -222,6 +249,19 @@ main() {
         ;;
     esac
   done
+
+  if [ "$mode" != "e2e" ]; then
+    if [ "$force" = "true" ]; then
+      echo "[ci-local] ERROR: --force applies to e2e only, not '$mode'." >&2
+      usage >&2
+      exit 2
+    fi
+    if [ "${#rest[@]}" -gt 0 ]; then
+      echo "[ci-local] ERROR: mode '$mode' takes no arguments (got: ${rest[*]})." >&2
+      usage >&2
+      exit 2
+    fi
+  fi
 
   case "$mode" in
     unit)

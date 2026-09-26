@@ -168,7 +168,11 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$REWARD_ARTIFACTS_DIR"
-          pytest tests/e2e/ -q -rs 2>&1 | tee "$RUNNER_TEMP/e2e-pytest.log"
+          # Run-unique and cleared first: the runner is persistent, so a fixed
+          # path could carry an earlier run's output into this run's artifact.
+          log_file="$RUNNER_TEMP/e2e-pytest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log"
+          rm -f "$log_file"
+          pytest tests/e2e/ -q -rs 2>&1 | tee "$log_file"
 
       # The self-hosted runner's job log is not retrievable via the API today,
       # so the raw pytest output — including the E2E_DEBUG_TURNS printout —
@@ -179,7 +183,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-pytest-log
-          path: ${{ runner.temp }}/e2e-pytest.log
+          path: ${{ runner.temp }}/e2e-pytest-${{ github.run_id }}-${{ github.run_attempt }}.log
           retention-days: 7
           if-no-files-found: ignore
 

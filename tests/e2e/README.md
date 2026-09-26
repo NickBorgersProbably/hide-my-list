@@ -18,12 +18,22 @@ docker run -d --rm --name hml-e2e-pg \
 bash scripts/ci-local.sh e2e
 ```
 
-`scripts/ci-local.sh e2e [files…]` sets `.github/workflows/e2e.yml`'s env
-values as defaults. Only these may be overridden from the shell:
-`DATABASE_URL`, `LLM_PROXY_BASE_URL`, `LLM_PROXY_API_KEY`,
-`E2E_MAX_LLM_CALLS`, `E2E_DEBUG_TURNS`, `AUTHORIZED_PEERS`, `SIGNAL_ACCOUNT`,
-`REWARD_ARTIFACTS_DIR`. `ENABLE_E2E_CONVERSATIONS` is always `true`, and
-`OPENAI_API_KEY` is always unset so rewards stay emoji-only locally too.
+`scripts/ci-local.sh e2e [files…]` runs pytest under `env -i`, so pytest
+receives only:
+
+- `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR`, `VIRTUAL_ENV`, `PYTHONPATH`,
+  `TERM` — passed through from the shell when set;
+- `ENABLE_E2E_CONVERSATIONS=true`, always;
+- `DATABASE_URL`, `LLM_PROXY_BASE_URL`, `LLM_PROXY_API_KEY`,
+  `E2E_MAX_LLM_CALLS`, `E2E_DEBUG_TURNS`, `AUTHORIZED_PEERS`,
+  `SIGNAL_ACCOUNT`, `REWARD_ARTIFACTS_DIR` — from the shell when set, else
+  `.github/workflows/e2e.yml`'s value.
+
+Every other variable never reaches pytest: `OPENAI_API_KEY` (so rewards stay
+emoji-only locally too), `E2E_TURN_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`,
+`USER_TZ`, tracing controls, and the rest. To change one of those for a run,
+use pytest directly (below). The script prints `DATABASE_URL` only as
+`host:port/dbname`, never with credentials.
 
 The LLM proxy has exactly one inference slot, shared by `e2e.yml`,
 `nightly-evals.yml`, and `model-swap.yml` (the `homelab-llm-serial`
@@ -31,7 +41,8 @@ concurrency group) — a local run competing with a CI run corrupts both runs'
 latency. So `ci-local.sh e2e` checks all three with `gh run list` and refuses
 to start while any has a `queued` or `in_progress` run. It also fails closed:
 when `gh` is missing, not authenticated, or the lookup fails, it refuses
-rather than guessing. `--force` is the only override. See
+rather than guessing. `--force` is the only override, and only `e2e` accepts
+it. See
 `scripts/ci-local.sh --help` for the other modes (`unit`, `db`, `docs`, `all`).
 
 To run pytest directly instead:

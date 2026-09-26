@@ -154,10 +154,13 @@ def test_db_mode_defaults_database_url_to_ci_value() -> None:
     assert "postgresql://hml:hml@localhost:5432/hml" in _script_text()
 
 
-def test_e2e_mode_never_forwards_openai_api_key() -> None:
-    """Image rewards must stay off locally, exactly as e2e.yml relies on."""
-    text = _script_text()
-    assert "unset OPENAI_API_KEY" in text
+def test_e2e_mode_runs_pytest_in_a_scrubbed_environment() -> None:
+    """Image rewards must stay off locally, exactly as e2e.yml relies on.
+
+    The behavioral tests below prove OPENAI_API_KEY never reaches pytest; this
+    pins the mechanism so a refactor cannot quietly swap it for a denylist.
+    """
+    assert 'env -i "${run_env[@]}" pytest' in _script_text()
 
 
 # --- Behavioral e2e-mode tests ------------------------------------------------
@@ -190,10 +193,22 @@ done
 echo 0
 """
 
-# Fake pytest: records its argv (one per line) and its environment.
+# Fake pytest: its log dir is baked in at write time, since e2e mode runs it
+# under `env -i` and FAKE_LOG_DIR does not survive the scrub. Records its argv (one per line) and its environment for the
+# latest call, and appends "<first arg>|<DATABASE_URL or <unset>>" per call.
+# Exits 3 on the db-mode call when FAKE_PYTEST_STOP_AT_DB is set, so an `all`
+# run stops before the docs step (which calls a real repo script).
 _FAKE_PYTEST = """#!{bash}
-printf '%s\\n' "$@" > "$FAKE_LOG_DIR/pytest_args"
-{env} > "$FAKE_LOG_DIR/pytest_env"
+printf '%s\\n' "$@" > "{log_dir}/pytest_args"
+{env} > "{log_dir}/pytest_env"
+echo "$1|${{DATABASE_URL-<unset>}}" >> "{log_dir}/pytest_calls"
+if [ -n "${{FAKE_PYTEST_STOP_AT_DB:-}}" ] && [ "$1" = "tests/integration/" ]; then
+  exit 3
+fi
+exit 0
+"""
+
+_FAKE_NOOP = """#!{bash}
 exit 0
 """
 
@@ -215,9 +230,11 @@ def fake_env(tmp_path: Path) -> dict[str, str]:
         assert real, f"{tool} not found on the test host"
         (bin_dir / tool).symlink_to(real)
     _write_exe(bin_dir / "gh", _FAKE_GH.format(bash=bash))
-    _write_exe(bin_dir / "pytest", _FAKE_PYTEST.format(bash=bash, env=env_bin))
     log_dir = tmp_path / "log"
     log_dir.mkdir()
+    _write_exe(bin_dir / "pytest", _FAKE_PYTEST.format(bash=bash, env=env_bin, log_dir=log_dir))
+    for tool in ("ruff", "mypy"):
+        _write_exe(bin_dir / tool, _FAKE_NOOP.format(bash=bash))
     return {
         "PATH": str(bin_dir),
         "HOME": str(tmp_path),
@@ -226,16 +243,20 @@ def fake_env(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def _run_e2e(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+def _run_mode(env: dict[str, str], mode: str, *args: str) -> subprocess.CompletedProcess[str]:
     bash = shutil.which("bash")
     assert bash
     return subprocess.run(  # noqa: S603
-        [bash, str(_SCRIPT), "e2e", *args],
+        [bash, str(_SCRIPT), mode, *args],
         capture_output=True,
         text=True,
         timeout=30,
         env=env,
     )
+
+
+def _run_e2e(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return _run_mode(env, "e2e", *args)
 
 
 def _pytest_ran(env: dict[str, str]) -> bool:
@@ -245,6 +266,11 @@ def _pytest_ran(env: dict[str, str]) -> bool:
 def _pytest_env(env: dict[str, str]) -> dict[str, str]:
     lines = (Path(env["FAKE_LOG_DIR"]) / "pytest_env").read_text(encoding="utf-8").splitlines()
     return dict(line.split("=", 1) for line in lines if "=" in line)
+
+
+def _pytest_calls(env: dict[str, str]) -> list[str]:
+    path = Path(env["FAKE_LOG_DIR"]) / "pytest_calls"
+    return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 
 
 @pytest.mark.parametrize("workflow", _SLOT_WORKFLOWS)
@@ -303,7 +329,14 @@ def test_e2e_force_bypasses_missing_gh(fake_env: dict[str, str]) -> None:
 
 
 def test_e2e_forwards_files_and_exports_ci_env(fake_env: dict[str, str]) -> None:
-    env = {**fake_env, "OPENAI_API_KEY": "sk-placeholder"}
+    env = {
+        **fake_env,
+        "OPENAI_API_KEY": "sk-placeholder",
+        "E2E_TURN_TIMEOUT_SECONDS": "5",
+        "LANGSMITH_TRACING": "true",
+        "LLM_MAX_RETRIES": "9",
+        "LANG": "C.UTF-8",
+    }
     result = _run_e2e(env, "tests/e2e/test_a.py", "tests/e2e/test_b.py")
     assert result.returncode == 0, result.stderr
 
@@ -311,10 +344,19 @@ def test_e2e_forwards_files_and_exports_ci_env(fake_env: dict[str, str]) -> None
     assert args == ["tests/e2e/test_a.py", "tests/e2e/test_b.py", "-q", "-rs"]
 
     recorded = _pytest_env(env)
-    assert "OPENAI_API_KEY" not in recorded
+    for scrubbed in (
+        "OPENAI_API_KEY",
+        "E2E_TURN_TIMEOUT_SECONDS",
+        "LANGSMITH_TRACING",
+        "LLM_MAX_RETRIES",
+        "FAKE_LOG_DIR",
+    ):
+        assert scrubbed not in recorded, f"{scrubbed} leaked into the e2e environment"
     assert recorded["ENABLE_E2E_CONVERSATIONS"] == "true"
     assert recorded["E2E_DEBUG_TURNS"] == "true"
     assert recorded["E2E_MAX_LLM_CALLS"] == "120"
+    assert recorded["LANG"] == "C.UTF-8"
+    assert recorded["PATH"] == env["PATH"]
 
 
 def test_e2e_defaults_to_whole_suite_and_honors_overrides(fake_env: dict[str, str]) -> None:
@@ -328,3 +370,68 @@ def test_e2e_defaults_to_whole_suite_and_honors_overrides(fake_env: dict[str, st
     recorded = _pytest_env(env)
     assert recorded["E2E_MAX_LLM_CALLS"] == "7"
     assert recorded["ENABLE_E2E_CONVERSATIONS"] == "true"
+
+
+def test_e2e_passes_only_the_allowlisted_variables(fake_env: dict[str, str]) -> None:
+    """The scrubbed env holds the passthrough set plus the e2e variables, nothing else."""
+    env = {**fake_env, "USER_TZ": "UTC", "SOME_UNRELATED_VAR": "x"}
+    result = _run_e2e(env)
+    assert result.returncode == 0, result.stderr
+
+    allowed = {
+        "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "VIRTUAL_ENV", "PYTHONPATH", "TERM",
+        "ENABLE_E2E_CONVERSATIONS", "DATABASE_URL", "LLM_PROXY_BASE_URL",
+        "LLM_PROXY_API_KEY", "E2E_MAX_LLM_CALLS", "E2E_DEBUG_TURNS",
+        "AUTHORIZED_PEERS", "SIGNAL_ACCOUNT", "REWARD_ARTIFACTS_DIR",
+    }  # fmt: skip
+    # bash adds PWD/SHLVL/_ to the fake pytest's own environment when it starts.
+    shell_added = {"PWD", "SHLVL", "_", "OLDPWD"}
+    assert set(_pytest_env(env)) - shell_added <= allowed
+
+
+@pytest.mark.parametrize("mode", ["unit", "db", "docs", "all"])
+def test_force_is_rejected_outside_e2e(fake_env: dict[str, str], mode: str) -> None:
+    result = _run_mode(fake_env, mode, "--force")
+    assert result.returncode == 2
+    assert "--force" in result.stderr
+    assert not _pytest_ran(fake_env)
+
+
+def test_all_mode_keeps_database_url_for_db_step(fake_env: dict[str, str]) -> None:
+    """The unit step unsets DATABASE_URL; that must not leak into the db step."""
+    custom = "postgresql://hml:hml@db.invalid:6543/custom"
+    env = {**fake_env, "DATABASE_URL": custom, "FAKE_PYTEST_STOP_AT_DB": "1"}
+    result = _run_mode(env, "all")
+    # 3 is the fake pytest's exit on the db step, so docs never runs here.
+    assert result.returncode == 3, result.stderr
+    assert _pytest_calls(env) == ["tests/unit/|<unset>", f"tests/integration/|{custom}"]
+
+
+@pytest.mark.parametrize("mode", ["db", "e2e"])
+def test_database_password_is_never_printed(fake_env: dict[str, str], mode: str) -> None:
+    password = "pw-placeholder-7d1c"
+    env = {
+        **fake_env,
+        "DATABASE_URL": f"postgresql://hml:{password}@db.invalid:6543/hml?sslmode=require",
+    }
+    result = _run_mode(env, mode)
+    assert result.returncode == 0, result.stderr
+    assert password not in result.stdout
+    assert password not in result.stderr
+    assert "db.invalid:6543/hml" in result.stdout
+
+
+def test_e2e_workflow_uploads_a_run_unique_pytest_log() -> None:
+    """The homelab runner is persistent: a fixed log path could upload a stale run's output."""
+    text = (_REPO_ROOT / ".github" / "workflows" / "e2e.yml").read_text(encoding="utf-8")
+    run_unique = 'log_file="$RUNNER_TEMP/e2e-pytest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.log"'
+    assert run_unique in text
+    assert 'rm -f "$log_file"' in text
+    assert text.index('rm -f "$log_file"') < text.index('| tee "$log_file"')
+    assert "set -o pipefail" in text
+    upload = text[text.index("- name: Upload pytest output") :]
+    upload = upload[: upload.index("- name:", 1)]
+    assert "if: always()" in upload
+    assert "name: e2e-pytest-log" in upload
+    assert "e2e-pytest-${{ github.run_id }}-${{ github.run_attempt }}.log" in upload
+    assert "if-no-files-found: ignore" in upload
