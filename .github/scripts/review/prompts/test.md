@@ -75,6 +75,10 @@ Lens — twelve contract clauses:
    - Route through the shared `_query_database()` helper rather than calling `client.post(...query)` directly without cursor handling. A bare unpaginated call is a blocker. (Catches bug class 12 — Notion database query truncation; see `tests/regressions/bug_0668_notion_query_pagination/test_notion_query_pagination.py` as the canonical template.)
    - Include parametrized coverage in `tests/regressions/bug_0668_notion_query_pagination/test_notion_query_pagination.py` (or equivalent) asserting the new verb follows `has_more`/`next_cursor` pagination rather than truncating at page 1. Adding the verb to the `_VERBS` parametrize list in the existing regression file is sufficient.
 
+13. **PRs that change the per-caller reasoning default or `LLM_REASONING_CALLERS` semantics in `app/models.py`** MUST have:
+   - Unit tests asserting the exact `extra_body` value for: (a) a caller in the default reasoning set (`cannot_finish`, `need_help`, `interaction_review`) sends `{'think': True}`; (b) a caller not in the default set sends `{'think': False}`; (c) `caller=None` sends `{'think': False}`; (d) `LLM_REASONING_CALLERS` set to a non-default value replaces (not extends) the default — only the configured callers send `{'think': True}`; (e) `LLM_REASONING_CALLERS` set to an empty string means no caller sends `{'think': True}`.
+   - A compose smoke assertion in `tests/smoke/test_compose_round_trip.py` that `LLM_REASONING_CALLERS` is threaded through to the app service (clause 4).
+
 
 ## Scope
 

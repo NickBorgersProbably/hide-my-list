@@ -50,11 +50,9 @@ time_estimate — 15 min or less: 1.0; 30 or less: 0.75; 60 or less: 0.5; over
 60: 0.25 — and exclude nothing on time. No mood: treat it as neutral.
 
 Pick exactly one task whenever at least one titled task fits. `selected_task_id`
-is `null` only when Pending Tasks is empty, when a time limit the user actually
-stated excludes every task (Time Fit 0.0 for all), or when the mood or energy
-the user actually stated is the opposite type (Mood Match 0.0) for every task.
-Time or mood that is "not stated" excludes nothing and is never a reason for
-`null`.
+is `null` only when Pending Tasks is empty or when a time limit the user
+actually stated excludes every task (Time Fit 0.0 for all). Time or mood that
+is "not stated" excludes nothing and is never a reason for `null`.
 
 PENDING TASKS:
 {tasks_json}
@@ -173,9 +171,11 @@ initiation moment without offering a long task to someone who has only a few
 minutes. Conversation history stays out of this prompt: an earlier turn's "2
 hours" or "feeling sharp" may no longer be true, and every extra line
 lengthens the call, so the prompt wording stays short. Selection runs with
-model reasoning off: the rules above are direct enough to apply without a
-hidden chain of thought, and a reasoning turn on the single-slot model host
-runs into the proxy's per-request timeout.
+model reasoning off by default: the rules above are direct enough to apply
+without a hidden chain of thought, and a reasoning turn on the single-slot
+model host runs into the proxy's per-request timeout. Operators can enable
+reasoning for selection by including `selection` in `LLM_REASONING_CALLERS`
+(the env var replaces the default set, not extends it).
 
 ### Unknown Selection Guard
 

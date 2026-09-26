@@ -929,6 +929,36 @@ async def test_selection_node_blank_title_is_not_suggested() -> None:
 
 
 @pytest.mark.asyncio
+async def test_selection_node_blank_title_absent_from_model_prompt() -> None:
+    """Blank-titled pages must not appear in the JSON payload sent to the model."""
+    result, update_status, logs, model = await _run_selection(
+        [
+            _pending_page("<page_blank>", "   "),
+            _pending_page("<page_titled>", "Water the plants"),
+        ],
+        {
+            "selected_task_id": "<page_titled>",
+            "score": 0.9,
+            "reasoning": "fits",
+            "user_message": "How about {task}?",
+        },
+        incoming="what now?",
+    )
+
+    system_content = model.ainvoke.await_args.args[0][0].content
+    assert "<page_blank>" not in system_content
+    assert "<page_titled>" in system_content
+
+    withheld = [e for e in logs if e.get("event") == "selection_node.blank_titles_withheld"]
+    assert len(withheld) == 1
+    assert withheld[0]["withheld_count"] == 1
+    assert withheld[0]["offered_count"] == 1
+
+    assert result["active_task"]["page_id"] == "<page_titled>"
+    update_status.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_selection_node_token_without_selection_gets_no_match_reply() -> None:
     result, update_status, _, _ = await _run_selection(
         [_pending_page("<page_A>", "Water the plants")],
