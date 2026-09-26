@@ -124,7 +124,11 @@ from three sources in priority order:
    result over the scored shortlist returns a clarifying question rather than falling through
    to context — the message asserted something it could not identify. A null or sub-threshold
    result over the widened whole-list fallback means "could not tell" and does not veto
-   context.
+   context — unless the model also returns `names_unlisted_task: true`, indicating the message
+   clearly reports finishing a specific concrete task that matches none of the candidates; in
+   that case context resolution is vetoed and the node asks instead. When the open list is
+   empty but the residue carries at least two task-naming tokens, the model is called anyway
+   (with `Candidates: []`) so a concrete report still reaches the unlisted-task check.
 2. **Context pool.** When no message-named task is resolved, the node pools three sources —
    the recent-task ledger's open entries (added/suggested/reminded/nudged, last 24 h), the
    newest unresolved `recent_outbound` row, and `active_task` — one entry per page, newest
@@ -140,7 +144,11 @@ from three sources in priority order:
    then the scored shortlist. Non-offerable asks stay open and store no options, so a page the
    user never saw cannot become the referent of a positional answer. Either way the second ask
    is worded differently from the first; past `_MAX_CLARIFICATION_ATTEMPTS` the node stops
-   asking and clears the key.
+   asking and clears the key. While a clarification is live and inside its TTL,
+   `classify_intent` intercepts whole-message positional phrases (ordinal forms such as `the
+   first one`, `second`) and bare affirmative/negative words (`yes`, `no`, `neither`) via a
+   regex gate before the LLM classifier, routing them directly to `complete_node` without a
+   model call and without clearing the clarification key.
 
    `complete_node` also reads the stored options back. They are re-read from the current open
    list (dropping any that closed in the meantime), placed at the head of the candidate list

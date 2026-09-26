@@ -26,7 +26,7 @@ when there is one, and records the question in `pending_clarification`.
 An empty open list is no exception: with at least two task-naming words
 left after the completion words, the node still asks the model (with no
 candidates) whether the message names a concrete finished task, so the report
-gets "Want me to add it?" rather than the generic "which task?" question.
+gets the unlisted-task acknowledgment rather than the generic "which task?" question.
 
 A null match over the widened list without the flag still lets context
 resolve, so "done :) feeling good" keeps completing the active task

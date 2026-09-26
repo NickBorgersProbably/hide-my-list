@@ -1,6 +1,6 @@
 """ADD_TASK node: task intake with label inference, sub-task generation, reminder detection.
 
-Ports docs/ai-prompts/intake.md (464 lines) behavior:
+Ports docs/ai-prompts/intake.md behavior:
 - Aggressive label inference (urgency, work_type, time_estimate)
 - Sub-task generation for every task
 - Reminder detection (wall-clock time → outbox row)
