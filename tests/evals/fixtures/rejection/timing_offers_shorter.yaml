@@ -1,0 +1,46 @@
+---
+# Timing rejection. docs/ai-prompts/rejection.md, Rejection Categories +
+# Actions by Category: "timing - 'takes too long', 'not enough time'" →
+# "Suggest shorter task"; template "Got it — that one's too long right now.
+# How about {task}?". The pool holds one task that fits ten minutes and one
+# that does not, so the judge can tell which was offered from the delivered
+# (title-substituted) body.
+id: rejection-timing-shorter-001
+node: rejection
+tier: medium
+peer: "<test-peer-rejection-timing>"
+inbound: "thats gonna take forever, i only have like 10 min"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id-1>"
+    title: "Sort out the garage shelves"
+    rejection_count: 0
+  conversation_state: active
+  available_minutes: 10
+  mood: neutral
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Sort out the garage shelves"
+    work_type: "Physical"
+    time_estimate: 90
+  - id: "<placeholder-page-id-2>"
+    title: "Clean out the fridge"
+    work_type: "Physical"
+    time_estimate: 45
+  - id: "<placeholder-page-id-3>"
+    title: "Pay the water bill"
+    work_type: "Independent"
+    time_estimate: 10
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user turned down a long task because they only have about ten
+      minutes. Score 1.0 when the reply accepts that without friction and
+      suggests "Pay the water bill" (the only task that fits ten minutes) by
+      name. Score 0.0 when it suggests the fridge or garage task, argues for
+      the declined task, or suggests nothing.
+    threshold: 0.8

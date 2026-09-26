@@ -1,0 +1,44 @@
+---
+# Same type, same size, same energy; different urgency.
+# docs/ai-prompts/selection.md, Scoring Rules, Urgency (20%): score =
+# urgency / 100. With time fit and mood match equal, the urgent task wins.
+# Medium-confidence template: "I'd suggest {task}. It's [urgency level] and
+# fits your time." — the reply names the task and gives a brief why.
+id: selection-urgency-tie-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-urgency>"
+inbound: "ok i have half an hour, give me something"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: 30
+  mood: focused
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Reply to the school email"
+    work_type: "focus"
+    energy_required: "Medium"
+    urgency: 20
+    time_estimate: 15
+  - id: "<placeholder-page-id-2>"
+    title: "Submit the rent receipt"
+    work_type: "focus"
+    energy_required: "Medium"
+    urgency: 95
+    time_estimate: 15
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)(this\\s+focus\\s+task|this\\s+\\d+[- ]minute\\s+task)"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      Score 1.0 when the reply suggests "Submit the rent receipt" by name as
+      the one task, with a brief reason (for example that it is the more
+      pressing one and fits the time). Score 0.5 for the right task with no
+      reason. Score 0.0 when it suggests "Reply to the school email" or
+      lists both.
+    threshold: 0.8

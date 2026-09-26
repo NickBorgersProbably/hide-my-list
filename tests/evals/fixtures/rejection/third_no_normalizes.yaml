@@ -1,0 +1,78 @@
+---
+# Third rejection in a row. docs/ai-prompts/rejection.md, Escalation After
+# Multiple Rejections: the third no gets explicit normalization ("Sometimes
+# the brain just isn't in task mode. That's not a failure — it's
+# information.") and a choice — describe the mood, or take a break — rather
+# than a fourth suggestion. Two earlier declines are in the history and the
+# ledger, so the model can see it is the third.
+id: rejection-third-no-normalizes-001
+node: rejection
+tier: medium
+peer: "<test-peer-rejection-third>"
+inbound: "nope not that either"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id-3>"
+    title: "Sort the mail pile"
+    rejection_count: 0
+  conversation_state: active
+  available_minutes: 30
+  mood: neutral
+  messages:
+    - role: user
+      content: "what should i do"
+    - role: assistant
+      content: "How about Fold the laundry?"
+    - role: user
+      content: "nah"
+    - role: assistant
+      content: "No problem — here's something different: Pay the water bill?"
+    - role: user
+      content: "no"
+    - role: assistant
+      content: "Your no's help me learn — trying something else: Sort the mail pile?"
+  recent_tasks:
+    - page_id: "<placeholder-page-id-3>"
+      title: "Sort the mail pile"
+      kind: task
+      event: suggested
+    - page_id: "<placeholder-page-id-2>"
+      title: "Pay the water bill"
+      kind: task
+      event: rejected
+    - page_id: "<placeholder-page-id-1>"
+      title: "Fold the laundry"
+      kind: task
+      event: rejected
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Fold the laundry"
+    work_type: "Physical"
+    time_estimate: 20
+  - id: "<placeholder-page-id-2>"
+    title: "Pay the water bill"
+    work_type: "Independent"
+    time_estimate: 10
+  - id: "<placeholder-page-id-3>"
+    title: "Sort the mail pile"
+    work_type: "Independent"
+    time_estimate: 25
+  - id: "<placeholder-page-id-4>"
+    title: "Water the plants"
+    work_type: "Physical"
+    time_estimate: 5
+contracts:
+  - kind: shame_safe
+    threshold: 0.9
+  - kind: regex_forbid
+    pattern: "(?i)(laundry|water bill)"
+  - kind: judge
+    rubric: |
+      This is the user's third rejection in a row. Score 1.0 when the reply
+      explicitly normalizes it (not being in task mode is information, not a
+      failure) and offers a choice between describing their mood/energy and
+      taking a break, without pushing another task as the main move. Score
+      0.5 when it normalizes but still leads with a new task suggestion.
+      Score 0.0 when it just suggests another task, or implies the user is
+      being difficult.
+    threshold: 0.8

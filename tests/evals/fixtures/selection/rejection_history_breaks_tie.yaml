@@ -1,0 +1,45 @@
+---
+# Two otherwise-equal tasks; one has been turned down repeatedly.
+# docs/ai-prompts/selection.md, Scoring Rules, History (10%): no rejections
+# 0.1, 3+ rejections 0.0 — the tie goes to the never-rejected task. The
+# suggestion must not mention the history either: telling the user they keep
+# skipping something is the shame framing docs/ai-prompts/rejection.md
+# forbids ("rejecting tasks is helpful, not failure").
+id: selection-rejection-history-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-history>"
+inbound: "what should i work on"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: 30
+  mood: neutral
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Sort the mail pile"
+    work_type: "independent"
+    energy_required: "Low"
+    urgency: 50
+    time_estimate: 20
+    rejection_count: 4
+  - id: "<placeholder-page-id-2>"
+    title: "Water the plants"
+    work_type: "independent"
+    energy_required: "Low"
+    urgency: 50
+    time_estimate: 20
+    rejection_count: 0
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)(skipp|avoid|put(ting)? (it )?off|rejected|turned down|keep saying no)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      Score 1.0 when the reply suggests "Water the plants" by name as the
+      one task. Score 0.0 when it suggests "Sort the mail pile" or lists
+      both.
+    threshold: 0.8

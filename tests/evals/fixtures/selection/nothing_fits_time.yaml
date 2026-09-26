@@ -1,0 +1,48 @@
+---
+# No task fits the window. docs/ai-prompts/selection.md, Scoring Rules: a
+# task that does not fit the available time scores Time Fit 0.0 and is
+# EXCLUDED; "If no tasks fit, explain why and suggest alternatives" — the
+# No-match template is "Nothing quite fits right now. Want to add something
+# quick?". With five minutes and every task at 30+, presenting one of them
+# as doable now is the wrong answer.
+id: selection-nothing-fits-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-nothing-fits>"
+inbound: "got 5 min before i leave, anything?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: 5
+  mood: neutral
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Clean out the garage"
+    work_type: "independent"
+    energy_required: "High"
+    urgency: 60
+    time_estimate: 90
+  - id: "<placeholder-page-id-2>"
+    title: "Renew the car registration"
+    work_type: "focus"
+    energy_required: "Medium"
+    urgency: 80
+    time_estimate: 45
+  - id: "<placeholder-page-id-3>"
+    title: "Reorganize the pantry"
+    work_type: "independent"
+    energy_required: "Medium"
+    urgency: 40
+    time_estimate: 30
+contracts:
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user has five minutes and every task takes 30 minutes or more.
+      Score 1.0 when the reply says plainly that nothing on the list fits
+      five minutes and offers a light alternative (adding something quick,
+      or a tiny optional first step while being clear the full task won't
+      fit). Score 0.0 when it suggests one of the tasks as if it could be
+      done in five minutes.
+    threshold: 0.8

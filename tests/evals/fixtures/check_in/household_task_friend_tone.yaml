@@ -1,0 +1,35 @@
+---
+# First check-in on a physical household task with no started_at (elapsed
+# falls back to the estimate). docs/ai-prompts/check-in.md, Check-In Message
+# Templates — tone "friend checking in," not "manager following up"; the
+# first-check-in template is "How's {task} going? Still at it?". The failure
+# this fixture catches is the status-report register: "Please provide an
+# update on your progress", "Have you completed the task?", "Reminder: this
+# task is due".
+id: check-in-friend-tone-001
+node: check_in
+tier: medium
+peer: "<test-peer-checkin-friend>"
+inbound: "__CHECK_IN__"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Wipe down the kitchen counters"
+    time_estimate: 15
+    check_in_count: 0
+  conversation_state: active
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: regex_forbid
+    pattern: "(?i)(provide an update|status update|have you completed|reminder:|is due|deadline|progress report)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      Score 1.0 when the message is one or two casual sentences that ask how
+      the kitchen counters are going, in a friend's voice (e.g. "How's
+      Wipe down the kitchen counters going? Still at it?"). Score 0.0 when it
+      reads like a formal status request, a reminder notice, or a
+      productivity prompt.
+    threshold: 0.8

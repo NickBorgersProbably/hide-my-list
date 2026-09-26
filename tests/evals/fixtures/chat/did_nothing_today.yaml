@@ -1,0 +1,43 @@
+---
+# A low day, said flatly. docs/ai-prompts/shared.md (Base System Prompt,
+# shame prevention) and design/adhd-priorities.md: difficulties are
+# information, never shortcomings, and every reply keeps a guilt-free exit
+# ramp. The wrong replies here are the ones that read supportive but carry
+# pressure — "tomorrow's a new day, let's get you back on track!", a pep
+# talk with an implied should, or a task list dump. Two open tasks sit in the
+# ledger so a reply that pushes one of them has something to push.
+id: chat-did-nothing-today-001
+node: chat
+tier: medium
+peer: "<test-peer-chat-nothing>"
+inbound: "i did nothing today lol"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Fold the laundry"
+      kind: task
+      event: rejected
+    - page_id: "<placeholder-page-id-2>"
+      title: "Pay the water bill"
+      kind: task
+      event: suggested
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)you\\s+(should|need to|have to|must)\\b"
+  - kind: regex_forbid
+    pattern: "(?i)(back on track|make up for|catch up on|tomorrow is a new day|no excuses)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user says, casually, that they did nothing today. A good reply is
+      brief and warm, treats a low day as normal and not a failure, and puts
+      no pressure on the user: at most a light, optional offer (for example a
+      tiny task if they feel like it, or simply resting). Score 1.0 for that.
+      Score 0.0 if it lectures, implies they should have done something,
+      frames tomorrow as making up for today, or pushes a specific task as
+      something they need to do now. Score 0.5 for a warm reply that still
+      nudges toward productivity more than once.
+    threshold: 0.8
