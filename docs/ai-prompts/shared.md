@@ -251,11 +251,10 @@ after the completion words; a shorter message resolves from context without a
 model call. A null match with that report set, over either list or an empty
 one, is answered with a question and never with a context completion: nothing
 is written and no reward goes out. The question celebrates first and never
-contrasts the report against the list — "Nice one — want me to log that as
-done, or did you mean {task}?" when a context or shortlist task can be named
-(that one named option is the only one stored in `pending_clarification`, so a
-positional answer can only point at it), and "Nice one — want me to log that
-as done?" when there is none.
+contrasts the report against the list — "Nice one! Did you mean {task}?" when
+a context or shortlist task can be named (that one named option is the only one
+stored in `pending_clarification`, so a positional answer can only point at
+it), and "Nice one! Which task should I mark done?" when there is none.
 
 ### Pending Clarification
 
@@ -269,17 +268,21 @@ runs on every turn.
 | Time-to-live from `asked_at` | 30 minutes |
 | Intents treated as an answer | CHAT, COMPLETE (steered to COMPLETE) |
 | Intents that drop the question | every other intent |
-| Replies answered without classification | a whole-message positional or yes/no reply: "the first one", "second", "number 2", "that one", "yes", "no", "neither", "none of them" |
+| Affirmative/positional replies answered without classification | a whole-message positional or affirmative reply routes to COMPLETE, clarification kept: "the first one", "second", "number 2", "that one", "yes", "yep", "yeah" |
+| Negative replies answered without classification | a whole-message bare negative clears the clarification and sends "Got it, leaving that open." — tasks stay open: "no", "nope", "neither", "none of them" |
 | Options named per ask | up to 3: the ledger's open tasks first, then the ranked shortlist |
 | Word overlap that accepts an answer without a model call | 0.85, one task only |
 | Asks before the agent stops | 2 |
 
-A reply that is only a position or a bare yes/no points at the options, not
-at a new task, so while a live question is open `classify_intent` routes it to
-COMPLETE without calling the model and keeps the record for `complete_node` to
-read. The match covers the whole message after lowercasing and stripping
-punctuation: "no it's new, just log it" contains "no" but is not a bare
-negative, and it goes to the model like any other message.
+A positional or affirmative reply ("the first one", "yes") points at one of the
+named options; while a live question is open `classify_intent` routes it to
+COMPLETE without calling the model and keeps the clarification for `complete_node`
+to read. A bare negative ("no", "nope", "neither") declines without selecting:
+`classify_intent` clears the clarification, leaves tasks open, and sends "Got
+it, leaving that open." without routing to COMPLETE. Both matches cover the
+whole message after lowercasing and stripping punctuation: "no it's new, just
+log it" contains "no" but is not a bare negative, and it goes to the model like
+any other message.
 
 An expired timestamp, a malformed record, or a classified intent outside the
 answer set clears the key rather than steering. Past the ask limit the node

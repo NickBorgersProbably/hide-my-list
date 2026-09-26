@@ -14,11 +14,12 @@ without the named options, and the agent asked the same question again.
 ## Fix
 
 Two layers. `classify_intent` checks a live clarification before calling the
-model: a whole-message positional or yes/no reply ("the first one", "number
-2", "that one", "yes", "neither") resolves to COMPLETE with the clarification
-kept, and logs `classify_intent.clarification_option_reference`. The match is
-against the whole normalized message, so "no it's new, just log it" still goes
-to the model. The classifier prompt rule is tightened: ADD_TASK during a
+model: a whole-message positional or affirmative reply ("the first one", "number
+2", "that one", "yes") resolves to COMPLETE with the clarification kept, and
+logs `classify_intent.clarification_option_reference`; a bare negative ("no",
+"nope", "neither") clears the clarification and sends "Got it, leaving that
+open." The match is against the whole normalized message, so "no it's new, just
+log it" still goes to the model. The classifier prompt rule is tightened: ADD_TASK during a
 clarification needs both "it's new" and "log/add/track it", and a reply that
 picks an option is COMPLETE, with "the first one" / "the second one" examples.
 

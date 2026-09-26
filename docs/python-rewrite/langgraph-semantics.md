@@ -146,9 +146,11 @@ from three sources in priority order:
    is worded differently from the first; past `_MAX_CLARIFICATION_ATTEMPTS` the node stops
    asking and clears the key. While a clarification is live and inside its TTL,
    `classify_intent` intercepts whole-message positional phrases (ordinal forms such as `the
-   first one`, `second`) and bare affirmative/negative words (`yes`, `no`, `neither`) via a
-   regex gate before the LLM classifier, routing them directly to `complete_node` without a
-   model call and without clearing the clarification key.
+   first one`, `second`) and bare affirmative words (`yes`, `yep`) via a regex gate before the
+   LLM classifier, routing them directly to `complete_node` without a model call and without
+   clearing the clarification key. Bare negative words (`no`, `nope`, `neither`, `none of them`)
+   are intercepted by a separate gate that clears the clarification, leaves tasks open, and sends
+   "Got it, leaving that open." — they never route to `complete_node`.
 
    `complete_node` also reads the stored options back. They are re-read from the current open
    list (dropping any that closed in the meantime), placed at the head of the candidate list
