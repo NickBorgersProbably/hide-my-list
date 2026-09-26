@@ -155,7 +155,7 @@ def test_llm_constructs_chatopenai_with_expected_kwargs() -> None:
             call_kwargs = mock_cls.call_args.kwargs
             assert call_kwargs["model"] == expected_model
             assert call_kwargs["temperature"] == 0.0
-            # medium is a reasoning tier: it must NOT carry an output-token cap.
+            # medium is an uncapped tier: it must NOT carry an output-token cap.
             # A cap (formerly hardcoded 1024) truncates intake's think+JSON and
             # the truncated output silently falls back to a non-reminder task.
             assert "max_tokens" not in call_kwargs

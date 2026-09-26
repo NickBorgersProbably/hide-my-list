@@ -30,8 +30,8 @@ dropped. Only the label-only cheap tier carries an output cap (see
 _TIER_MAX_TOKENS).
 
 All tiers point at the same model alias because the LLM host can only
-hold one Gemma model in RAM at a time. Differentiation lives entirely
-in the think flag for now.
+hold one Gemma model in RAM at a time. Tiers differ only in the output cap
+today; reasoning is decided per caller, not per tier.
 
 Model IDs are sent as OpenAI-format chat-completion requests to the
 LiteLLM proxy at LLM_PROXY_BASE_URL. Adding a new provider family is

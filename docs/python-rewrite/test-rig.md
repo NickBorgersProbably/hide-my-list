@@ -391,7 +391,7 @@ regression trips as soon as any scenario walks past it:
 | I4 | A COMPLETE turn resolves every reminder that was awaiting a reply; other intents do not clear context they did not answer | An unresolved reminder that the next "done" completes a second time |
 | I5 | `(recipient, idempotency_key)` unique across the conversation | The duplicate celebration; checked conversation-wide because the second send may be several turns later |
 | I6 | No banned shame phrase in delivered text | Regression in shame-safety at the delivery surface, post-substitution |
-| I7 | Each LLM caller used its documented tier | A node downgraded to `cheap` gets `think=False` and `max_tokens=1024`, truncating structured JSON mid-object |
+| I7 | Each LLM caller used its documented tier | A node downgraded to `cheap` gets `max_tokens=1024`, truncating structured JSON mid-object (`think` is decided per caller, not per tier) |
 
 ---
 

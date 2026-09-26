@@ -40,6 +40,10 @@ USER CONTEXT:
 - Time of day: {time_of_day}
 - User's message: <user_message>{user_message}</user_message>
 
+The same text also arrives as the human turn, inside the same `<user_message>`
+delimiters and followed by the fixed request "Select the best task for me
+right now." — so the model reads it, and it stays data under the rule above.
+
 When time or mood says "not stated", read it from the user's message ("I've
 got 2 hours", "I'm wiped"). No duration there either: score Time Fit by
 time_estimate — 15 min or less: 1.0; 30 or less: 0.75; 60 or less: 0.5; over
@@ -168,7 +172,10 @@ user actually has, and the short-task bias favours an easy start at the
 initiation moment without offering a long task to someone who has only a few
 minutes. Conversation history stays out of this prompt: an earlier turn's "2
 hours" or "feeling sharp" may no longer be true, and every extra line
-lengthens a reasoning-tier deliberation, so the prompt wording stays short.
+lengthens the call, so the prompt wording stays short. Selection runs with
+model reasoning off: the rules above are direct enough to apply without a
+hidden chain of thought, and a reasoning turn on the single-slot model host
+runs into the proxy's per-request timeout.
 
 ### Unknown Selection Guard
 

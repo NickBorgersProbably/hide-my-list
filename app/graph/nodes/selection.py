@@ -131,13 +131,15 @@ async def selection_node(state: State) -> dict[str, Any]:
         prompt_text = render_with_defaults("selection.md.j2", prompt_context)
 
         model = llm("expensive", caller="selection")
-        # The human turn is the user's own message, so the model reads the
-        # time and mood it states there; the system prompt carries the same
-        # text inside <user_message> for the untrusted-data rule. A blank
-        # message (a scheduled GET_TASK) falls back to a fixed request.
+        # The human turn carries the user's own message, so the model reads
+        # the time and mood it states there — but inside the same
+        # <user_message> delimiters the system prompt uses, followed by the
+        # fixed request, so the text stays data under the untrusted-data rule
+        # rather than becoming the instruction. A blank message (a scheduled
+        # GET_TASK) sends the fixed request alone.
         messages = [
             SystemMessage(content=prompt_text),
-            HumanMessage(content=incoming.strip() or "Select the best task for me right now."),
+            HumanMessage(content=_human_turn(incoming)),
         ]
 
         response = await model.ainvoke(messages)
@@ -283,6 +285,17 @@ def _extract_number(props: dict[str, Any], key: str, default: int = 0) -> int:
     if num is None:
         return default
     return int(num)
+
+
+_SELECTION_REQUEST = "Select the best task for me right now."
+
+
+def _human_turn(incoming: str) -> str:
+    """The human turn: the user's message as delimited data, then the request."""
+    text = incoming.strip()
+    if not text:
+        return _SELECTION_REQUEST
+    return f"<user_message>{text}</user_message>\n\n{_SELECTION_REQUEST}"
 
 
 def _parse_selection_response(response_text: str, peer: str) -> tuple[str, str | None]:

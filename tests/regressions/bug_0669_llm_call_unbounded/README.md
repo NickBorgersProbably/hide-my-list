@@ -18,9 +18,9 @@ its retries, and the third was not even read off the WebSocket until the second 
 spent 30 minutes failing `classify` and another 30 failing the `chat` fallback it routes to on
 classification error. The app never crashed; it went deaf.
 
-The fix passes an explicit `timeout` (default 120s) and `max_retries` (default 1) on every
+The fix passes an explicit `timeout` (default 120s) and `max_retries` (default 2) on every
 `ChatOpenAI` instance, overridable via `LLM_REQUEST_TIMEOUT_SECONDS` and `LLM_MAX_RETRIES`. The
-worst case drops from 1800s to 240s per call, and lands under the gateway's 600s so the app fails
+worst case drops from 1800s to 360s per call, and lands under the gateway's 600s so the app fails
 on its own clock and can classify its own error rather than reading an opaque 504.
 
 Successful calls observed on this backend run 0.6s to 8.2s, so the 120s default leaves room for a
