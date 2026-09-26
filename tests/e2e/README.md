@@ -81,6 +81,12 @@ Two rules that are easy to get wrong:
   turns. It keeps the assertion pointed at the seam and cuts the LLM calls a
   scenario costs. `outbox_state(page_id)` reads a page's `reminder_outbox`
   states when a scenario needs to prove a reminder will or will not fire.
+- **Simulate elapsed days with `advance_days(n)`**, not by aging one source.
+  It backdates the ledger, the checkpoint's `active_task` (`selected_at` and
+  `started_at`) and `pending_clarification`, and the peer's `recent_outbound` rows together;
+  aging only the ledger leaves a delivery that `hydrate_context` re-stamps as
+  fresh on the next turn. `reminder_outbox` and any other persisted timestamp
+  are not moved — a scenario that needs a stale outbox row ages it directly.
 
 The invariants in `tests/support/invariants.py` run after every turn
 automatically. A scenario only needs to state what is specific to itself.
@@ -111,3 +117,25 @@ which sends each message through the same `SignalListener` entry path as
 `say()`, waits for exactly one turn to complete, and asserts the graph's call
 count grew by exactly 1 rather than by the number of messages sent. See
 `tests/e2e/scenarios/test_loop_stacked_messages.py`.
+
+### Full loops
+
+Three scenarios walk a realistic multi-day stretch in one checkpoint, texted
+the way an ADHD user texts a task bot (short, lowercase, past tense, "done!",
+"what's left?"), so the seams have to hold together rather than one at a time:
+
+- `test_loop_week_in_the_life.py` — five days: three adds (a deadline task, an
+  open-ended task, a reminder); the reminder fires and "done!" resolves it;
+  "whats left?" names the open tasks; a deadline nudge meets a cannot-finish
+  that writes nothing; a title match a day later; a suggestion, then "done".
+- `test_loop_reminder_lifecycle.py` — a reminder added, fired, ignored for
+  an unrelated message, answered "done", recalled by "what was that?", and a
+  stray "done" a day later that completes nothing; plus "actually make it
+  6pm", which leaves a pending reminder at the new time.
+- `test_loop_bad_days.py` — three declines in a row with no declined task
+  offered again, "i did nothing today", a clarification declined with
+  "nope" (no model call), and an unlisted win logged Completed after "yes".
+
+Each stays under twelve live turns and asserts Notion status per page, the
+awaiting-reply count, checkpoint fields, and the deterministic routing events
+where one exists.

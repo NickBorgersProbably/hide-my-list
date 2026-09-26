@@ -1,0 +1,42 @@
+---
+# A repeat help request after a first step was already given.
+# docs/ai-prompts/breakdown.md: repeated help requests signal Very Stuck,
+# answered at MICRO_ACTION / HAND_HOLDING ("I hear you. Let's go even
+# smaller."), and "use [PRIOR CONVERSATION] to see what the user already
+# tried; do not repeat a step already given." The prior step is in the
+# history; repeating it verbatim is the failure the regex_forbid catches.
+id: need-help-very-stuck-smaller-001
+node: need_help
+tier: medium
+peer: "<test-peer-need-help-stuck>"
+inbound: "i still cant get going"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Call the insurance company about the claim"
+    time_estimate: 30
+  conversation_state: active
+  messages:
+    - role: user
+      content: "how do i even start this"
+    - role: assistant
+      content: "Totally fine. Right now, just find the claim number in your email. That's it for now."
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)find the claim number in your email"
+  - kind: regex_forbid
+    pattern: "(?i)(you should have|already told you|as i said)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user already got "find the claim number in your email" and is
+      still stuck. Score 1.0 when the reply acknowledges that without blame
+      and offers an even smaller, physical first action — one action, not a
+      plan. A smaller piece of the earlier step counts as smaller, not as a
+      repeat: "just open your email app, don't search yet" is smaller than
+      "find the claim number in your email", as are "pick up your phone" or
+      "put the insurer's number on screen". Score 0.0 when it restates the
+      same step at the same size, gives a multi-step plan, or implies the
+      user should be able to do it by now.
+    threshold: 0.8

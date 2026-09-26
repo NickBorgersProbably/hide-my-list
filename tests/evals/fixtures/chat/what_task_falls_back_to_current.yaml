@@ -1,0 +1,37 @@
+---
+# "Which task?" when every ledger entry was declined. The chat prompt's
+# "Which task?" rules (app/prompts/chat.md.j2, grounded in the Recent Task
+# Ledger section of docs/ai-prompts/shared.md): skip `rejected` entries; if
+# every entry is rejected, name the Current task word for word. The rejected
+# titles are the wrong answer — naming one hands the user back the thing they
+# just turned down — and "which task do you mean?" is the other wrong answer,
+# because the current task is known.
+id: chat-what-task-current-fallback-001
+node: chat
+tier: medium
+peer: "<test-peer-chat-current>"
+inbound: "wait which one am i on?"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id-3>"
+    title: "Sort the mail pile"
+    status: "In Progress"
+  conversation_state: active
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Fold the laundry"
+      kind: task
+      event: rejected
+    - page_id: "<placeholder-page-id-2>"
+      title: "Pay the water bill"
+      kind: task
+      event: rejected
+contracts:
+  - kind: regex_require
+    pattern: "(?i)mail"
+  - kind: regex_forbid
+    pattern: "(?i)(laundry|water bill)"
+  - kind: regex_forbid
+    pattern: "(?i)(which|what) (task|one) (do|did) you mean"
+  - kind: shame_safe
+    threshold: 0.8

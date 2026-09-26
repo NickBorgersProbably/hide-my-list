@@ -250,6 +250,65 @@ class Conversation:
             entry["at"] = (at - timedelta(hours=hours)).isoformat()
         await self._write_state({"recent_tasks": ledger})
 
+    async def advance_days(self, days: float) -> None:
+        """Backdate the peer's context timestamps by `days`.
+
+        Moves: `recent_tasks[].at`, `active_task.selected_at`,
+        `active_task.started_at`, `pending_clarification.asked_at`, and
+        the peer's `recent_outbound` rows (`sent_at`, `expires_at`).
+        `reminder_outbox` and all other persisted timestamps are not moved —
+        a scenario that needs a stale outbox row must age it directly.
+
+        Aging only some context timestamps invents a state no deployment
+        reaches — a delivery that is a day old in the ledger but a minute
+        old in Postgres, which `hydrate_context` would re-stamp as fresh on
+        the next turn. The clock itself is never touched.
+        """
+        delta = timedelta(days=days)
+        current = await self.state()
+        updates: dict[str, Any] = {}
+
+        ledger = [dict(entry) for entry in current.get("recent_tasks") or []]
+        if ledger:
+            for entry in ledger:
+                at = datetime.fromisoformat(str(entry["at"]))
+                entry["at"] = (at - delta).isoformat()
+            updates["recent_tasks"] = ledger
+
+        active_task = current.get("active_task")
+        if isinstance(active_task, dict):
+            aged = dict(active_task)
+            changed = False
+            for field in ("selected_at", "started_at"):
+                if aged.get(field):
+                    aged[field] = (
+                        datetime.fromisoformat(str(aged[field])) - delta
+                    ).isoformat()
+                    changed = True
+            if changed:
+                updates["active_task"] = aged
+
+        pending = current.get("pending_clarification")
+        if isinstance(pending, dict) and pending.get("asked_at"):
+            aged_pending = dict(pending)
+            aged_pending["asked_at"] = (
+                datetime.fromisoformat(str(aged_pending["asked_at"])) - delta
+            ).isoformat()
+            updates["pending_clarification"] = aged_pending
+
+        if updates:
+            await self._write_state(updates)
+
+        async with self.db() as conn:
+            await conn.execute(
+                """
+                UPDATE recent_outbound
+                   SET sent_at = sent_at - %s, expires_at = expires_at - %s
+                 WHERE peer = %s
+                """,
+                (delta, delta, self.peer),
+            )
+
     async def _write_state(self, values: dict[str, Any]) -> None:
         """Write checkpoint values as if the graph had just finished a turn.
 

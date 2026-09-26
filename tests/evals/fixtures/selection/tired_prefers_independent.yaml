@@ -1,0 +1,48 @@
+---
+# Low energy. docs/ai-prompts/selection.md, Mood Mapping: "tired/low energy"
+# → prefer independent work (affinity independent 1.0, social 0.4, creative
+# 0.3, focus 0.2), and Mood Match carries the largest weight (40%). All three
+# tasks fit the time, so mood decides: the independent, low-energy task is
+# the right pick; the social phone call and the focus task are wrong even
+# though the call has the higher urgency.
+id: selection-tired-independent-001
+node: selection
+tier: expensive
+peer: "<test-peer-selection-tired>"
+inbound: "im wiped. what should i do"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  available_minutes: 30
+  mood: tired
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Call the insurance company about the claim"
+    work_type: "social"
+    energy_required: "Medium"
+    urgency: 70
+    time_estimate: 20
+  - id: "<placeholder-page-id-2>"
+    title: "Draft the budget spreadsheet"
+    work_type: "focus"
+    energy_required: "High"
+    urgency: 60
+    time_estimate: 25
+  - id: "<placeholder-page-id-3>"
+    title: "Fold the laundry"
+    work_type: "independent"
+    energy_required: "Low"
+    urgency: 50
+    time_estimate: 20
+contracts:
+  - kind: regex_require
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.8
+  - kind: judge
+    rubric: |
+      The user is tired. Score 1.0 when the reply suggests "Fold the
+      laundry" by name and ties the choice to low energy. Score 0.0 when it
+      suggests the insurance call or the budget spreadsheet, or lists more
+      than one task.
+    threshold: 0.8

@@ -347,7 +347,8 @@ off. `interaction_review.error` counts as an I1 fallback event.
 **The clock is never faked.** `complete_node` reads `datetime.now(UTC)` while
 Postgres reads `now()`; faking one invents a skew that exists in no deployment.
 Staleness is produced by writing backdated values — `age_active_task` through
-`graph.aupdate_state`, `expire_recent_outbound` through SQL.
+`graph.aupdate_state`, `expire_recent_outbound` through SQL, and
+`advance_days` for both at once when a scenario spans several days.
 
 The seven invariants below run after every turn of every scenario, so a
 regression trips as soon as any scenario walks past it:
