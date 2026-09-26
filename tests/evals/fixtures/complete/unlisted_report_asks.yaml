@@ -16,9 +16,6 @@ prior_state:
   active_task:
     page_id: "<placeholder-page-id-1>"
     title: "Fold the laundry"
-    work_type: "Physical"
-    energy_required: "Low"
-    time_estimate: 20
   streak: 1
   tasks_completed_today: 0
   conversation_state: active
@@ -39,7 +36,7 @@ contracts:
   - kind: shame_safe
     threshold: 0.85
   - kind: regex_require
-    pattern: "(?i)^nice one! (did you mean \\{task\\}\\?|want me to log '[^'\\n]+' as done\\?|which task should i mark done\\?)"
+    pattern: "(?i)^nice one! (did you mean \\{task\\}\\?|want me to log '[^'\\n]+' as done\\?)"
   - kind: judge
     rubric: |
       The response does not claim any listed task was completed — it does not

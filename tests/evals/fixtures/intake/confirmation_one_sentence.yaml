@@ -13,6 +13,7 @@ prior_state:
   messages: []
   user_prefs:
     timezone: America/Chicago
+notion_tasks: []
 contracts:
   - kind: regex_forbid
     pattern: "\\d\\)\\s"

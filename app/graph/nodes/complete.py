@@ -1138,7 +1138,7 @@ _UNLISTED_REPORT_WITH_OPTION = (
     f"Nice one! Did you mean {TASK_TOKEN}?"
 )
 _UNLISTED_REPORT_OFFER_TO_LOG = "Nice one! Want me to log '{title}' as done?"
-_UNLISTED_REPORT_NO_OPTION = "Nice one! Which task should I mark done?"
+_UNLISTED_REPORT_NO_OPTION = "Nice one! I couldn't match that to a task, so I left your list unchanged."
 
 
 def _ask_about_unlisted_report(
@@ -1147,7 +1147,7 @@ def _ask_about_unlisted_report(
     options: Sequence[DedupCandidate],
     title: str = "",
 ) -> dict[str, Any]:
-    """Answer a report of something that is on none of the candidates with a question.
+    """Answer a report of something that is on none of the candidates.
 
     The message names a finished task the list does not hold, so completing the
     active or most recent task on its behalf would reward the wrong thing. The
@@ -1160,9 +1160,10 @@ def _ask_about_unlisted_report(
       along so a "no" can still offer to log it;
     - with no task to offer, a grounded proposed title is offered for logging
       as done — rendered directly, since it is not a stored Notion title;
-    - with neither, the question stays open.
+    - with neither, acknowledge the accomplishment and leave the list unchanged.
 
-    The record is an `unlisted_report` clarification on its first attempt.
+    When an option or title is available the record is an `unlisted_report`
+    clarification on its first attempt. With neither, no clarification is stored.
     """
     named = [option for option in options if option.title][:1]
     stored: list[ClarificationCandidate] = [
@@ -1181,13 +1182,6 @@ def _ask_about_unlisted_report(
     }
     if named:
         draft["notion_page_title"] = named[0].title
-    clarification: PendingClarification = {
-        "kind": "unlisted_report",
-        "asked_at": datetime.now(UTC).isoformat(),
-        "attempts": 1,
-        "candidates": stored,
-        "title": title,
-    }
     # Counts and booleans only — the report and the titles are the user's words.
     log.info(
         "complete_node.unlisted_report",
@@ -1197,10 +1191,24 @@ def _ask_about_unlisted_report(
         has_title=bool(title),
         attempts=1,
     )
+    if not named and not title:
+        # No safe choice to offer: acknowledge and leave the list unchanged.
+        # Setting a clarification here would require free recall to answer it.
+        return {
+            "pending_outbound": [draft],
+            "conversation_state": "idle",
+            "pending_clarification": None,
+        }
+    clarification: PendingClarification = {
+        "kind": "unlisted_report",
+        "asked_at": datetime.now(UTC).isoformat(),
+        "attempts": 1,
+        "candidates": stored,
+        "title": title,
+    }
     return {
         "pending_outbound": [draft],
         "conversation_state": "idle",
-        "active_task": None,
         "pending_clarification": clarification,
     }
 

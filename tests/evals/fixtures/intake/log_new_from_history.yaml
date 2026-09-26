@@ -19,6 +19,7 @@ prior_state:
       content: "I also paid the gas bill!"
     - role: assistant
       content: "Nice! Which one was that — Book the dentist, or Email the landlord about the lease?"
+notion_tasks: []
 contracts:
   - kind: regex_require
     pattern: "\\{task\\}"

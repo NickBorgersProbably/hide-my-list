@@ -129,6 +129,7 @@ async def test_create_task_request(notion_server: HTTPServer, fake_db_id: str) -
     assert props["Steps Completed"]["number"] == 0
     assert props["Resume Count"]["number"] == 0
     assert props["Inline Steps"]["rich_text"][0]["text"]["content"] == "Step 1\nStep 2"
+    assert "Completed At" not in props
 
 
 @pytest.mark.asyncio
@@ -193,6 +194,32 @@ async def test_create_task_with_parent(
     assert props["Parent Task"]["relation"][0]["id"] == fake_page_id
     assert props["Sequence"]["number"] == 2
 
+
+
+
+@pytest.mark.asyncio
+async def test_create_task_completed_sets_completed_at(
+    notion_server: HTTPServer, fake_db_id: str
+) -> None:
+    """create_task with status=Completed includes a valid Completed At timestamp."""
+    notion_server.expect_request("/pages", method="POST").respond_with_json(
+        {"object": "page", "id": "fake-page-id"}
+    )
+
+    await notion_module.create_task(
+        title="Test completed task",
+        work_type="Independent",
+        status="Completed",
+    )
+
+    req = notion_server.log[0][0]
+    body = _captured_body(req.data)
+    props = body["properties"]
+    assert props["Status"]["select"]["name"] == "Completed"
+    assert "Completed At" in props
+    from datetime import datetime
+    ts = datetime.fromisoformat(props["Completed At"]["date"]["start"])
+    assert ts.tzinfo is not None
 
 # ---------------------------------------------------------------------------
 # Verb 2 — create_reminder
