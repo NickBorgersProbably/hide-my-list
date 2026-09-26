@@ -323,13 +323,9 @@ sequenceDiagram
         AI->>AI: Resolve from recent tasks, reminder context, or active task
     end
 
-    alt Delivered reminder
-        Note over AI: Notion write skipped — reminder page already completed at delivery
-    else Any other target
-        AI->>N: Update task status → completed
-        AI->>N: Set completedAt timestamp
-        N-->>AI: Success
-    end
+    AI->>N: Update task status → completed (idempotent repair for delivered reminders)
+    AI->>N: Set completedAt timestamp
+    N-->>AI: Success
 
     AI->>R: Trigger reward evaluation
     R->>R: Calculate intensity score

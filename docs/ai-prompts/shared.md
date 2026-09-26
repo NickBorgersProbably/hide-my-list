@@ -187,12 +187,13 @@ target in this order:
    naming both. A ledger entry with no `at` (a static eval fixture; the
    checkpoint writers always stamp one) reads as happening now.
 
-Only a delivered reminder page skips the Notion status write, because the
-delivery worker completes a reminder page when it sends it. Every other
-target is written `Completed`: a task from any source, a reminder the user
-finishes before it fires, and the task behind a deadline nudge
+Every resolved completion writes Status to `Completed`. For a delivered
+reminder page this is an idempotent repair: the delivery worker writes
+`Completed` when it sends the reminder, but that write can fail, so the
+user's completion repairs it. Tasks from any other source — a reminder the
+user finishes before it fires, and the task behind a deadline nudge
 (`recent_outbound.reminder_type = 'deadline'`), which delivery never
-completes. Completing a reminder page also cancels its pending outbox rows,
+completes — are written `Completed` as the primary write. Completing a reminder page also cancels its pending outbox rows,
 so a reminder already done does not fire. A cancellation that fails twice
 leaves the completion standing and raises an ops alert; the delivery worker
 skips any reminder whose page is already `Completed`, so the surviving row
@@ -594,11 +595,12 @@ characters, so one entry is always exactly one rendered line. Page ids never
 reach a prompt.
 
 Chat reads the ledger to answer **"what task?"**: when the user asks which
-task was just discussed, chat names the title of the newest ledger entry word
-for word. A reminder that just went out is that newest entry. When the newest
-entry is untitled, chat says it is not sure which task the user means and asks
-them to name it rather than naming an older entry. When the ledger is empty,
-chat names the current task, or asks when there is none.
+task was just discussed, chat finds the newest ledger entry that is not
+`rejected` (a rejected entry was declined by the user) and names its title
+word for word. When that entry is untitled, chat says it is not sure which
+task the user means and asks them to name it. When every entry is `rejected`,
+or the ledger is empty, chat names the current task, or asks when there is
+none.
 
 ---
 

@@ -26,8 +26,9 @@ treating the nudge like a reminder page that delivery had already completed.
   without a model call. Standalone messages still need the model.
 - The celebration body is `{task} — done. <reward text>` and the draft carries
   `notion_page_title`, so `send_node` names the task.
-- Only a delivered reminder (a `recent_outbound` row whose `reminder_type` is
-  not `deadline`) skips the Notion write. Deadline nudges name their task.
+- Every resolved completion writes Completed. For a delivered reminder page
+  this is an idempotent repair; for a deadline nudge or any other target it
+  is the primary write. Deadline nudges name their task.
 - Rejection records the declined page as `rejected` and the offered
   alternative as `suggested`, so a bare "done" after a rejection anchors to the
   alternative.

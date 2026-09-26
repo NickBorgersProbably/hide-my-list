@@ -206,7 +206,7 @@ def test_no_title_match_leaves_existing_precedence_untouched() -> None:
         # A reminder finished before it fired is still Pending in Notion.
         ("title_match", "reminder", None, None, True),
         ("recent_tasks", "reminder", "added", None, True),
-        # Only a delivered reminder is exempt: delivery completed its page.
+        # A delivered reminder write is an idempotent repair if delivery's write failed.
         ("recent_outbound", None, "reminded", "reminder", True),
         ("recent_outbound", None, None, None, True),
         ("recent_tasks", "reminder", "reminded", None, True),
