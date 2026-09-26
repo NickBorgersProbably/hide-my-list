@@ -175,3 +175,61 @@ async def test_a_confident_match_ignores_a_contradictory_flag() -> None:
     update_status.assert_awaited_once()
     assert update_status.await_args.kwargs["page_id"] == "<page_B>"
     assert result["pending_clarification"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_unlisted_report_with_an_empty_list_asks_to_add_it() -> None:
+    """No open tasks: the model is still asked, and a concrete report gets the add question."""
+    model = _model(_UNLISTED)
+    update_status = AsyncMock()
+    reward_mock = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", AsyncMock(return_value={"results": []})),
+        patch("app.tools.rewards.maybe_reward", reward_mock),
+        patch.object(
+            complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
+        ),
+        patch("app.models.llm", return_value=model),
+    ):
+        result = await complete_module.complete_node(_state("I also paid the gas bill!"))
+
+    model.ainvoke.assert_awaited_once()
+    prompt = model.ainvoke.await_args.args[0][0].content
+    assert "names_unlisted_task" in prompt
+    assert "Candidates: []" in prompt
+    update_status.assert_not_awaited()
+    reward_mock.assert_not_awaited()
+    assert result["pending_outbound"][0]["body"] == _NO_OPTION
+    assert result["pending_clarification"]["candidates"] == []
+
+
+@pytest.mark.asyncio
+async def test_an_empty_list_without_the_flag_keeps_the_generic_question() -> None:
+    result, update_status, _ = await _run(
+        "I also paid the gas bill!",
+        pages=[],
+        verdict={"matched_page_id": None, "confidence": 0.0, "names_unlisted_task": False},
+    )
+
+    update_status.assert_not_awaited()
+    assert result["pending_outbound"][0]["body"] != _NO_OPTION
+    assert result["pending_clarification"] is not None
+
+
+@pytest.mark.asyncio
+async def test_an_empty_list_with_a_one_word_residue_skips_the_model() -> None:
+    model = _model(_UNLISTED)
+    with (
+        patch("app.tools.notion.update_status", AsyncMock()),
+        patch("app.tools.notion.query_all", AsyncMock(return_value={"results": []})),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(
+            complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
+        ),
+        patch("app.models.llm", return_value=model),
+    ):
+        result = await complete_module.complete_node(_state("finished laundry"))
+
+    model.ainvoke.assert_not_awaited()
+    assert result["pending_outbound"][0]["body"] != _NO_OPTION

@@ -102,6 +102,13 @@ _TITLE_MATCH_MIN_SCORE = 0.30
 # this, and complete_node.candidate_set_truncated says when it did.
 _FALLBACK_CANDIDATE_LIMIT = 40
 
+# With no open task to compare against, a standalone report still goes to the
+# model to ask whether it names a concrete finished task (names_unlisted_task),
+# but only when it carries at least an action and its object. One word left
+# after the completion words ("done", "finally") names nothing and resolves
+# from context without a model call.
+_UNLISTED_MIN_RESIDUE_TOKENS = 2
+
 # Re-asks before the agent stops asking. The first question is open ("which
 # task did you mean?"); the second names concrete options, per
 # design/adhd-priorities.md — "if you must ask one question, offer 2-3
@@ -679,7 +686,32 @@ async def _resolve_title_match(
             ]
 
         if not candidates:
-            return _TitleMatch(target=None, candidate_count=0, confidence=None)
+            # An empty list cannot hold the task, so a concrete report is
+            # necessarily unlisted — but only the model can tell a concrete
+            # report from chatter. Ask it with no candidates rather than
+            # falling through to the generic "which task?" question.
+            if answering_clarification or len(residue) < _UNLISTED_MIN_RESIDUE_TOKENS:
+                return _TitleMatch(target=None, candidate_count=0, confidence=None)
+            empty_model = llm("cheap", caller="complete_title_match")
+            empty_response = await empty_model.ainvoke([
+                SystemMessage(content=_build_completion_match_prompt(
+                    incoming, [], answering_clarification=False, offered=(),
+                )),
+                HumanMessage(content="Return only the JSON object."),
+            ])
+            empty_unlisted = _parse_names_unlisted(str(empty_response.content))
+            # Counts and booleans only — the report is the user's own words.
+            log.info(
+                "complete_node.empty_list_unlisted_check",
+                residue_token_count=len(residue),
+                names_unlisted=empty_unlisted,
+            )
+            return _TitleMatch(
+                target=None,
+                candidate_count=0,
+                confidence=None,
+                names_unlisted=empty_unlisted,
+            )
 
         names_unlisted = False
 

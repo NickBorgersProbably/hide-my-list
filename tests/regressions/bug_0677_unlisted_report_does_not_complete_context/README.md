@@ -23,13 +23,19 @@ never contrasts the report against the list, offering the context task by name
 when there is one, and records the question in `pending_clarification`.
 `complete_node.unlisted_report` logs booleans and counts only.
 
+An empty open list is no exception: with at least two task-naming words
+left after the completion words, the node still asks the model (with no
+candidates) whether the message names a concrete finished task, so the report
+gets "Want me to add it?" rather than the generic "which task?" question.
+
 A null match over the widened list without the flag still lets context
 resolve, so "done :) feeling good" keeps completing the active task
 (`bug_0664_complete_clarification_loop`).
 
 ## Regression Tests
 
-- `test_unlisted_report.py` pins the node behavior with a stubbed model.
+- `test_unlisted_report.py` pins the node behavior with a stubbed model,
+  including the empty-list case.
 - The model-behavior test is `tests/evals/fixtures/complete/unlisted_report_asks.yaml`.
 - The intake `already_done` handoff, which delegates to `complete_node`, is
   covered in `tests/integration/test_intake.py`.

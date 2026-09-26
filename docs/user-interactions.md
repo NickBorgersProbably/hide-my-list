@@ -246,7 +246,9 @@ flowchart LR
    report against the list — "Nice one — I don't have that on your list. Want
    me to add it as done, or did you mean {task}?", naming the conversation's
    current task when there is one, or "Nice one — I don't have that on your
-   list. Want me to add it?" when there is none. A bare "done" or a feeling
+   list. Want me to add it?" when there is none. The model is asked even when
+   the list holds no open tasks, so a report with nothing on the list still
+   gets the add question. A bare "done" or a feeling
    ("done :) feeling good") names no task and still resolves from context.
 2. **The most recent context** — whichever is newest among the tasks this
    conversation just touched (the recent-task ledger: tasks added, suggested,

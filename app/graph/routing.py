@@ -16,6 +16,7 @@ has gained a reader, not a permission.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Hashable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -46,6 +47,32 @@ _LLM_UNAVAILABLE_FALLBACK = "Having trouble thinking right now — try again?"
 # than overriding what they actually asked for.
 _CLARIFICATION_ANSWER_INTENTS: frozenset[Intent] = frozenset({"CHAT", "COMPLETE"})
 
+# Replies that point at one of the offered options rather than naming a task.
+# While a completion clarification is open these are answers to it, whatever
+# the classifier makes of them: a cheap model can read "the first one" as a new
+# task and drop the clarification, and the next turn then asks the same
+# question again. The match is against the whole normalized message, so "no"
+# inside "no it's new, just log it" never matches — only a bare "no" does.
+# Positional forms only; a reply that names a task goes through the model.
+_OPTION_REFERENCE_RE = re.compile(
+    r"(?:the )?(?:first|second|third|1st|2nd|3rd|last|former|latter)(?: one)?"
+    r"|(?:number )?[123]"
+    r"|that one|this one"
+    r"|yes|yep|yeah|no|nope|neither"
+    r"|none(?: of (?:them|those))?"
+)
+
+
+def _normalize_reply(text: str) -> str:
+    """Lowercase, strip punctuation, and collapse whitespace."""
+    stripped = re.sub(r"[^\w\s]", " ", text.lower())
+    return " ".join(stripped.split())
+
+
+def _is_option_reference(text: str) -> bool:
+    return _OPTION_REFERENCE_RE.fullmatch(_normalize_reply(text)) is not None
+
+
 _INTENT_SYSTEM_PROMPT = """\
 You are an intent classifier for a task management assistant called hide-my-list.
 
@@ -73,8 +100,10 @@ Rules:
 - A question about which task was meant ("what task?") is CHAT.
 - Accepting a suggestion ("sure", "ok let's do it") is CHAT, not GET_TASK or
   ADD_TASK: the suggested task is already theirs.
-- When awaiting clarification is yes and the user says the thing is new and
-  asks to log, add, or track it, that is ADD_TASK.
+- When awaiting clarification is yes, ADD_TASK needs both: the user says the
+  thing is new or not on the list, AND asks to log, add, or track it. A reply
+  that picks one of the offered options ("the first one", "the second one",
+  "that one", "yes") is COMPLETE.
 - Respond with ONLY the intent label, nothing else
 
 Examples:
@@ -91,6 +120,8 @@ Examples:
 "What task?" → CHAT
 "sure" (right after the assistant suggested a task) → CHAT
 "ok let's do it" (right after the assistant suggested a task) → CHAT
+"the first one" (awaiting clarification: yes) → COMPLETE
+"the second one" (awaiting clarification: yes) → COMPLETE
 "no it's new, just log it" (awaiting clarification: yes) → ADD_TASK
 """
 
@@ -215,6 +246,17 @@ async def classify_intent(state: State) -> dict[str, Any]:
     incoming = state.get("incoming", "").strip()
     if not incoming:
         return _resolve_with_clarification(state, "CHAT")
+
+    # A positional reply to an open clarification ("the first one", "yes") is
+    # its answer. Resolve it here, before a model label can drop the
+    # clarification complete_node needs to read the option it points at.
+    if _live_clarification(state) is not None and _is_option_reference(incoming):
+        log.info(
+            "classify_intent.clarification_option_reference",
+            has_peer=bool(state.get("peer")),
+            model_skipped=True,
+        )
+        return _resolve_with_clarification(state, "COMPLETE")
 
     try:
         from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage

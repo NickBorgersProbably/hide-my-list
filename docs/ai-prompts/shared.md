@@ -155,8 +155,10 @@ Rules:
 - A question about which task was meant ("what task?") is CHAT.
 - Accepting a suggestion ("sure", "ok let's do it") is CHAT, not GET_TASK or
   ADD_TASK: the suggested task is already theirs.
-- When awaiting clarification is yes and the user says the thing is new and
-  asks to log, add, or track it, that is ADD_TASK.
+- When awaiting clarification is yes, ADD_TASK needs both: the user says the
+  thing is new or not on the list, AND asks to log, add, or track it. A reply
+  that picks one of the offered options ("the first one", "the second one",
+  "that one", "yes") is COMPLETE.
 
 Message: "{user_message}"
 
@@ -243,14 +245,18 @@ For a standalone completion the model also reports `names_unlisted_task`:
 whether the message clearly reports finishing a specific, concrete task — an
 action and its object — that is none of the candidates. A bare "done", chatter
 or feelings ("done :) feeling good"), and any message that could be about a
-candidate report false. A null match with that report set, over either list, is
-answered with a question and never with a context completion: nothing is
-written and no reward goes out. The question opens positively and does not
+candidate report false. When the open list is empty the model is still asked,
+with no candidates, for any message with at least two task-naming words left
+after the completion words; a shorter message resolves from context without a
+model call. A null match with that report set, over either list or an empty
+one, is answered with a question and never with a context completion: nothing
+is written and no reward goes out. The question opens positively and does not
 contrast the report against the list — "Nice one — I don't have that on your
 list. Want me to add it as done, or did you mean {task}?" when a context or
-shortlist task can be named (up to 3 options are stored in
-`pending_clarification`), and "Nice one — I don't have that on your list. Want
-me to add it?" when there is none.
+shortlist task can be named (that one named option is the only one stored in
+`pending_clarification`, so a positional answer can only point at it), and
+"Nice one — I don't have that on your list. Want me to add it?" when there is
+none.
 
 ### Pending Clarification
 
@@ -264,9 +270,17 @@ runs on every turn.
 | Time-to-live from `asked_at` | 30 minutes |
 | Intents treated as an answer | CHAT, COMPLETE (steered to COMPLETE) |
 | Intents that drop the question | every other intent |
+| Replies answered without classification | a whole-message positional or yes/no reply: "the first one", "second", "number 2", "that one", "yes", "no", "neither", "none of them" |
 | Options named per ask | up to 3: the ledger's open tasks first, then the ranked shortlist |
 | Word overlap that accepts an answer without a model call | 0.85, one task only |
 | Asks before the agent stops | 2 |
+
+A reply that is only a position or a bare yes/no points at the options, not
+at a new task, so while a live question is open `classify_intent` routes it to
+COMPLETE without calling the model and keeps the record for `complete_node` to
+read. The match covers the whole message after lowercasing and stripping
+punctuation: "no it's new, just log it" contains "no" but is not a bare
+negative, and it goes to the model like any other message.
 
 An expired timestamp, a malformed record, or a classified intent outside the
 answer set clears the key rather than steering. Past the ask limit the node
@@ -346,6 +360,7 @@ Other shorthand follow-up paths thread matched context as follows:
 | "Sure" / "Ok let's do it" right after a suggestion | CHAT |
 | "I did it" after a just-sent reminder | COMPLETE |
 | "Tomorrow at 9am" after a just-sent reminder | ADD_TASK |
+| "The first one" / "the second one" while a completion clarification is open | COMPLETE |
 | "No it's new, just log it" while a completion clarification is open | ADD_TASK |
 
 

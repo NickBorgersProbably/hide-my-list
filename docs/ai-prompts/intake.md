@@ -317,7 +317,7 @@ If task is too vague and clarification_count < 3:
 }
 
 CONFIRMATION MESSAGE FORMAT:
-The confirmation is at most two short sentences:
+`confirmation_message` is at most two short sentences:
 1. One sentence naming {task} plus the deadline or reminder time the user
    stated, if any: "Got it — {task}, due Friday by 10pm." or "Got it — {task}."
    For a reminder: "Got it — I'll remind you Wednesday evening to {task}."
@@ -336,8 +336,11 @@ When due_at is set, the first sentence names the deadline, preserving the
 user's phrasing and any clock time, marked with the word "due" ("due Friday",
 "due Friday by 10pm", "due next week") so it reads as a deadline. Never omit a
 deadline the user stated.
-When a deadline series is scheduled, the runtime appends one sentence naming
-the earliest nudge ("First nudge Wed 5pm."); the model never lists nudge times.
+When a deadline series is scheduled, the runtime appends at most one short
+sentence after `confirmation_message`, naming the earliest nudge ("First nudge
+Wed 5pm."). The two-sentence cap applies to `confirmation_message`; the reply
+the user sees is at most three short sentences. The model never lists nudge
+times.
 
 The module writes the literal token `{task}` where the confirmation names the
 task being saved; the application substitutes the exact title it stored in

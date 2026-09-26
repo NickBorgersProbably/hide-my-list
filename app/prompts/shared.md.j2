@@ -93,8 +93,10 @@ Rules:
 - A question about which task was meant ("what task?") is CHAT.
 - Accepting a suggestion ("sure", "ok let's do it") is CHAT, not GET_TASK or
   ADD_TASK: the suggested task is already theirs.
-- When awaiting clarification is yes and the user says the thing is new and
-  asks to log, add, or track it, that is ADD_TASK.
+- When awaiting clarification is yes, ADD_TASK needs both: the user says the
+  thing is new or not on the list, AND asks to log, add, or track it. A reply
+  that picks one of the offered options ("the first one", "the second one",
+  "that one", "yes") is COMPLETE.
 
 Examples:
 "I need to renew the car registration this week" → ADD_TASK
@@ -103,6 +105,8 @@ Examples:
 "What task?" → CHAT
 "sure" (right after the assistant suggested a task) → CHAT
 "ok let's do it" (right after the assistant suggested a task) → CHAT
+"the first one" (awaiting clarification: yes) → COMPLETE
+"the second one" (awaiting clarification: yes) → COMPLETE
 "no it's new, just log it" (awaiting clarification: yes) → ADD_TASK
 
 Message: "{{ user_message | default('') }}"

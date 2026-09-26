@@ -1067,8 +1067,11 @@ async def test_already_done_for_an_unlisted_task_completes_nothing() -> None:
 async def test_deadline_confirmation_names_only_the_first_nudge() -> None:
     """Three scheduled slots add one sentence naming the earliest, nothing more.
 
-    The body is the model's one-sentence confirmation plus "First nudge <time>."
-    — never a list of every slot, a time estimate, or a numbered plan.
+    The two-sentence cap applies to `confirmation_message`; the runtime appends
+    at most one short "First nudge <time>." sentence after it, so the reply the
+    user sees is at most three short sentences — never a list of every slot, a
+    time estimate, or a numbered plan. The confirmation here uses both of its
+    sentences, so the body is exactly that plus the nudge.
     """
     page_id = str(uuid.uuid4())
     confirmation = "Got it — {task}, due Saturday. First step: open the form."
@@ -1117,6 +1120,8 @@ async def test_deadline_confirmation_names_only_the_first_nudge() -> None:
     draft = result["pending_outbound"][0]
     # 2026-06-03 17:00 UTC is Wed noon in America/Chicago.
     assert draft["body"] == f"{confirmation} First nudge Wed noon."
+    # Two model sentences plus the one appended nudge sentence.
+    assert draft["body"].count(". ") + 1 == 3
     assert draft["notion_page_title"] == "Placeholder deadline task"
 
 

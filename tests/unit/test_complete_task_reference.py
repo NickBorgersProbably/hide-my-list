@@ -607,9 +607,9 @@ def test_an_unlisted_report_offers_the_context_task_by_token() -> None:
     clarification = result["pending_clarification"]
     assert clarification["kind"] == "complete_target"
     assert clarification["attempts"] == 1
-    assert [c["page_id"] for c in clarification["candidates"]] == [
-        "<page_A>", "<page_B>", "<page_D>",
-    ]
+    # Only the option the question names is stored: a positional answer can
+    # point only at what the user was shown.
+    assert [c["page_id"] for c in clarification["candidates"]] == ["<page_A>"]
 
 
 def test_an_unlisted_report_with_nothing_to_name_asks_to_add_it() -> None:
