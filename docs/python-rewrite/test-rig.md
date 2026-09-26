@@ -485,7 +485,7 @@ These are the eleven contract clauses the test reviewer enforces (see
      through `docker/compose.yaml`. They are documented in
      `docs/python-rewrite/llm-observability.md` and do not require
      `test_compose_round_trip.py` coverage.
-   - **Exception — test-harness-only env vars**: a variable read only by `tests/support/` or `tests/e2e/` (never by `app/`) is exempt from both requirements above, because it never reaches the deployed stack. Document it where the harness reads it and in `tests/e2e/README.md` instead.
+   - **Exception — test-harness-only env vars**: a variable consumed only by `tests/support/` or `tests/e2e/` (never by `app/`; workflows and launcher scripts may set or forward it) is exempt from both requirements above, because it never reaches the deployed stack. Document it where the harness reads it and in `tests/e2e/README.md` instead.
 
 5. **PR fixing a production bug** must add:
    - `tests/regressions/bug_<NNNN>_<slug>/` directory with README citing issue/PR.

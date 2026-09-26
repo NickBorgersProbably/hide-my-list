@@ -34,7 +34,7 @@ Lens — twelve contract clauses:
 4. **New env var or compose service** MUST have:
    - A corresponding assertion in `tests/smoke/test_compose_round_trip.py` that the env var is threaded through or the service boots. (Catches deployment-gap bugs, bug class 5.)
    - Documentation in `docker/compose.yaml` comments.
-   - **Exception — test-harness-only env vars**: a variable read only by `tests/support/` or `tests/e2e/` (never by `app/`) is exempt from both requirements above, because it never reaches the deployed stack. Document it where the harness reads it and in `tests/e2e/README.md` instead.
+   - **Exception — test-harness-only env vars**: a variable consumed only by `tests/support/` or `tests/e2e/` (never by `app/`; workflows and launcher scripts may set or forward it) is exempt from both requirements above, because it never reaches the deployed stack. Document it where the harness reads it and in `tests/e2e/README.md` instead.
 
 5. **PR fixing a production bug** MUST add:
    - A permanent regression directory at `tests/regressions/bug_<NNNN>_<slug>/` with a `README.md` referencing the canonical issue/PR number (`#NNNN`).
