@@ -311,8 +311,12 @@ flowchart LR
    message only says which task it was about. So the match is made on which
    task the answer identifies, not on whether it repeats the claim. An answer
    that types a task's title back nearly word for word resolves to that task
-   without a model call. A standalone completion still goes to the model; its
-   framing requires asserting a task is finished, not just identifying one.
+   without a model call. That deterministic shortcut is available only to
+   clarification answers; when a standalone completion names a task and title
+   matching is invoked, the model makes the match — its framing requires
+   asserting a task is finished, not just identifying one. A bare completion
+   or one that names no particular task resolves from context sources without
+   a model call.
 
    Holding the question steers which handler reads the next message and how
    that message is read; it grants that handler nothing on the message side.

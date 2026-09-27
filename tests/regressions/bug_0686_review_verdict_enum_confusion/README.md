@@ -16,10 +16,10 @@ e2e loop scenario for the review failed on roughly one CI run in several.
 ## Fix
 
 - `parse_verdict` normalizes one mix-up: a `verdict` that is itself an action
-  name, when it equals `action` (or `action` is `none`), reads as `correct`
-  (`ok` for `none`), logged as `interaction_review.verdict_normalized` with
-  enums only. Two different action names, an invalid action, and every page
-  rule stay rejected.
+  name and equals `action` exactly — `none`/`none` maps to `ok`,
+  `complete_task`/`complete_task` and `send_only`/`send_only` map to `correct`
+  — logged as `interaction_review.verdict_normalized` with enums only. Two
+  different action names, an invalid action, and every page rule stay rejected.
 - The prompt (`app/prompts/interaction_review.md.j2`) and its spec
   (`docs/ai-prompts/interaction-review.md`) name each enum's exact values,
   say what each field means, and show one example of each verdict.
