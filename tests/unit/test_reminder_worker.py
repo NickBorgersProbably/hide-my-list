@@ -427,3 +427,89 @@ async def test_a_failed_presend_read_defers_a_deadline_nudge(
     assert deferred[0][1][-1] == str(row["id"])
     assert not any("state = 'dead'" in q for q, _ in conn.executed)
     assert not any("INSERT INTO recent_outbound" in q for q, _ in conn.executed)
+
+
+@pytest.mark.asyncio
+async def test_sibling_cancel_call_kwargs_match_signature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """cancel_pending_nudges_for_page is called with exactly the kwargs its
+    signature declares (conn, notion_page_id=, peer=). Clause 10: side-effecting
+    dependency call inside an exception-swallowing handler must bind the call
+    against the real function's signature."""
+    import inspect
+
+    from app.scheduler import reminder_worker
+    from app.tools import notion, reminders
+    from app.tools.reminders import cancel_pending_nudges_for_page as _real_fn
+
+    row = _reminder_row("deadline")
+
+    async def fake_claim(conn: Any, worker_id: str) -> list[dict[str, Any]]:
+        return [row]
+
+    monkeypatch.setattr(reminder_worker, "_claim_due_reminders", fake_claim)
+    monkeypatch.setattr(notion, "get_page", AsyncMock(return_value=_page("Completed")))
+    monkeypatch.setattr(notion, "complete_reminder", AsyncMock(return_value={}))
+
+    sibling_cancel = AsyncMock(return_value=0)
+    # Patching the module attribute intercepts the worker's local
+    # 'from app.tools.reminders import cancel_pending_nudges_for_page'.
+    monkeypatch.setattr(reminders, "cancel_pending_nudges_for_page", sibling_cancel)
+
+    conn = FakeConnection()
+    await reminder_worker.dispatch_due_reminders(
+        conn, signal_send_fn=AsyncMock(return_value={"timestamp": 12345})
+    )
+
+    sibling_cancel.assert_awaited_once()
+    call = sibling_cancel.await_args
+    assert call is not None
+    # Only keyword args expected (conn is positional, the rest are keyword-only).
+    assert call.kwargs.get("notion_page_id") == "<page-id>"
+    assert call.kwargs.get("peer") == "<peer>"
+    # Bind against the real signature — if the worker passes an unknown kwarg
+    # or omits a required one, this raises TypeError and the test fails.
+    real_sig = inspect.signature(inspect.unwrap(_real_fn))
+    real_sig.bind(conn, **call.kwargs)
+
+
+@pytest.mark.asyncio
+async def test_sibling_cancel_failure_logs_and_still_kills_claimed_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When cancel_pending_nudges_for_page raises, the worker logs
+    reminder_worker.sibling_cancel_failed, does not send the nudge, and still
+    marks the claimed row dead (the swallowed exception must not skip the UPDATE)."""
+    from structlog.testing import capture_logs
+
+    from app.scheduler import reminder_worker
+    from app.tools import notion, reminders
+
+    row = _reminder_row("deadline")
+
+    async def fake_claim(conn: Any, worker_id: str) -> list[dict[str, Any]]:
+        return [row]
+
+    monkeypatch.setattr(reminder_worker, "_claim_due_reminders", fake_claim)
+    monkeypatch.setattr(notion, "get_page", AsyncMock(return_value=_page("Completed")))
+    monkeypatch.setattr(notion, "complete_reminder", AsyncMock(return_value={}))
+
+    sibling_cancel = AsyncMock(side_effect=RuntimeError("db gone"))
+    monkeypatch.setattr(reminders, "cancel_pending_nudges_for_page", sibling_cancel)
+
+    signal_send = AsyncMock(return_value={"timestamp": 12345})
+    conn = FakeConnection()
+
+    with capture_logs() as logs:
+        await reminder_worker.dispatch_due_reminders(conn, signal_send_fn=signal_send)
+
+    signal_send.assert_not_awaited()
+    failed = [e for e in logs if e["event"] == "reminder_worker.sibling_cancel_failed"]
+    assert len(failed) == 1
+    assert failed[0]["error_type"] == "RuntimeError"
+    assert failed[0]["reminder_id"] == str(row["id"])
+    # The claimed row must still be marked dead.
+    dead = [(q, p) for q, p in conn.executed if "state = 'dead'" in q]
+    own = [d for d in dead if "last_error = 'page already completed'" in d[0]]
+    assert len(own) == 1 and own[0][1] == (str(row["id"]),)

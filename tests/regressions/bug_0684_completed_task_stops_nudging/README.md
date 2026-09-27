@@ -21,8 +21,8 @@ was Completed, asking the user for a next step on work already done.
   semantics.
 - The worker's pre-send check reads the page for both kinds: a deadline row
   whose page is already Completed is marked `dead`
-  (`last_error='page already completed'`) and not sent. A failed read sends
-  (fail-open).
+  (`last_error='page already completed'`) and not sent. A failed read defers
+  the deadline row to `scheduled` (fail-closed); reminder rows still fail open.
 
 ## Regression Tests
 

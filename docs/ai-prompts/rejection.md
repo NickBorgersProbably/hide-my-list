@@ -74,9 +74,10 @@ A `{task}` token is only ever filled from a listed, titled alternative. When
 `alternative_task_id` is null, names no listed task, or names one with no
 title, the application drops every sentence carrying the token; if nothing is
 left, it sends "No problem — that helps me learn what works for you. Want me to
-find something different?" and offers no alternative. `send_node` replaces
-any `{task}` still left in an untitled draft with "that one", so a literal
-token never reaches the user.
+find something different?" and offers no alternative. `send_node` also drops
+every sentence still carrying a `{task}` token with no title behind it; if
+nothing remains, it uses "No problem — I've left your list as it is." A
+literal token never reaches the user.
 
 ### Nothing on the Hook
 

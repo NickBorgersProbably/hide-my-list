@@ -63,6 +63,20 @@ def test_template_carries_self_blame_step_away_anchor() -> None:
     assert "reframe without judgment and offer" in rendered
 
 
+def test_template_carries_nothing_on_the_hook_section() -> None:
+    """The 'Nothing on the Hook' section anchor is present in the template."""
+    rendered = _rendered_rejection_template()
+    assert "Nothing on the Hook" in rendered
+
+
+def test_template_carries_no_orphan_task_token_rule() -> None:
+    """The MUST NOT rule banning orphan {task} tokens is present in the template."""
+    rendered = _rendered_rejection_template()
+    assert "MUST NOT" in rendered
+    assert "{task}" in rendered
+    assert "drops every sentence" in rendered
+
+
 def _fresh_iso() -> str:
     from datetime import UTC, datetime, timedelta
 

@@ -23,7 +23,7 @@ substitute. `send_node` only enforced naming for drafts carrying
   out. The draft carries no alternative page id.
 - `send_node` enforces the inverse invariant for every draft: a `{task}`
   token with no title behind it is logged `send_node.orphan_task_token` and
-  replaced by "that one" before sending.
+  its sentence is dropped; if nothing remains, the neutral fallback goes out.
 
 ## Regression Tests
 
