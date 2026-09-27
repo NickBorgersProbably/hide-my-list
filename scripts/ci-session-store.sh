@@ -3,10 +3,12 @@
 # ci-session-store.sh — manage agent author-session storage so the v2
 # review pipeline's fixer can resume the original resolve-issue author.
 #
-# Background: the fixer resumes the author (Codex or Claude Code) so it
-# can revisit structural decisions in light of reviewer feedback. Resume
-# requires the agent's session state (`~/.codex` or `~/.claude` on the
-# author run) to reach the fixer's container.
+# Background: the fixer resumes the author (Codex) so it can revisit
+# structural decisions in light of reviewer feedback. Resume requires
+# the agent's session state (`~/.codex` on the author run) to reach the
+# fixer's container. `codex` is the only supported agent — every CI
+# issue-authoring and fixer role runs on Codex; see
+# docs/agentic-pipeline-learnings.md §2.12.
 #
 # Transit model: GitHub Actions artifact. The author run packs its
 # session dir with `pack`, uploads it as
@@ -27,12 +29,10 @@
 #   home-path <agent>                       — print container path to
 #                                              mount onto (codex:
 #                                              /home/ci/.codex/sessions,
-#                                              claude: /home/ci/.claude).
-#                                              Codex is scoped to the
-#                                              sessions subdir to avoid
-#                                              shadowing the standalone
-#                                              install at
-#                                              /home/ci/.codex/packages/.
+#                                              scoped to the sessions
+#                                              subdir to avoid shadowing
+#                                              the standalone install at
+#                                              /home/ci/.codex/packages/).
 #   host-dir <agent> <issue> <run-id>       — print job-local path
 #                                              under CI_SESSION_ROOT
 #   prepare <agent> <issue> <run-id>        — mkdir + chmod 0777
@@ -73,13 +73,8 @@ ci_session_container_home_path() {
     # subdir — that's the only thing that needs to persist between the
     # author and fixer runs.
     codex) printf '%s\n' "/home/ci/.codex/sessions" ;;
-    # Claude Code installs the binary at $HOME/.local/bin/claude, so
-    # mounting $HOME/.claude does not shadow the runtime. Sessions live
-    # under $HOME/.claude/projects, but other state (settings.json,
-    # plugins/, tmp/) is recreated on demand by the CLI.
-    claude) printf '%s\n' "/home/ci/.claude" ;;
     *)
-      printf 'ci-session-store: unknown agent %q (expected codex|claude)\n' "$agent" >&2
+      printf 'ci-session-store: unknown agent %q (expected codex)\n' "$agent" >&2
       return 64
       ;;
   esac
@@ -87,8 +82,8 @@ ci_session_container_home_path() {
 
 _ci_session_validate_args() {
   local agent="$1" issue="$2" run_id="$3"
-  case "$agent" in codex|claude) ;; *)
-    printf 'ci-session-store: unknown agent %q\n' "$agent" >&2; return 64 ;;
+  case "$agent" in codex) ;; *)
+    printf 'ci-session-store: unknown agent %q (expected codex)\n' "$agent" >&2; return 64 ;;
   esac
   case "$issue" in '' | *[!0-9]*)
     printf 'ci-session-store: issue must be numeric, got %q\n' "$issue" >&2; return 64 ;;
@@ -159,7 +154,7 @@ ci_session_unpack() {
   # Tar preserves the original file permissions (typically 0644 owned by
   # container UID 1000 from the author run). After extraction on a different
   # ephemeral runner, the files are owned by the host runner user — but the
-  # resume container runs as UID 1000 and needs write access so codex/claude
+  # resume container runs as UID 1000 and needs write access so codex
   # can append new turns to the resumed session. Grant read+write to all,
   # plus execute on directories only (capital X).
   chmod -R a+rwX "$dir"
@@ -168,8 +163,8 @@ ci_session_unpack() {
 
 ci_session_format_trailer() {
   local agent="$1" run_id="$2"
-  case "$agent" in codex|claude) ;; *)
-    printf 'ci-session-store: unknown agent %q\n' "$agent" >&2; return 64 ;;
+  case "$agent" in codex) ;; *)
+    printf 'ci-session-store: unknown agent %q (expected codex)\n' "$agent" >&2; return 64 ;;
   esac
   case "$run_id" in '' | *[!0-9]*)
     printf 'ci-session-store: run-id must be numeric, got %q\n' "$run_id" >&2; return 64 ;;
@@ -180,11 +175,11 @@ ci_session_format_trailer() {
 ci_session_parse_trailer() {
   local body="$1" line
   line="$(printf '%s\n' "$body" \
-    | grep -Eim1 '^Author-Session:[[:space:]]+(codex|claude)/[0-9]+[[:space:]]*$' \
+    | grep -Eim1 '^Author-Session:[[:space:]]+codex/[0-9]+[[:space:]]*$' \
     || true)"
   [ -n "$line" ] || return 0
   printf '%s\n' "$line" \
-    | sed -E 's#^Author-Session:[[:space:]]+(codex|claude)/([0-9]+)[[:space:]]*$#\1\t\2#i' \
+    | sed -E 's#^Author-Session:[[:space:]]+(codex)/([0-9]+)[[:space:]]*$#\1\t\2#i' \
     | tr -d '\r' \
     | awk -F'\t' '{ printf "%s\t%s\n", tolower($1), $2 }'
 }

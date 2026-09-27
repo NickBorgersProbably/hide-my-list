@@ -166,11 +166,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Parse Author-Session trailer
-        # Three-way fixer dispatch: if the PR body carries an
+        # Two-way fixer dispatch: if the PR body carries an
         # `Author-Session: <agent>/<run-id>` trailer (written by
         # resolve-issue) AND the matching artifact still exists on the
-        # original run, resume the original author. Otherwise the fixer
-        # is a fresh Claude session, same as before this redesign.
+        # original run, resume the original Codex author session.
+        # Otherwise the fixer is a fresh Codex session.
         id: parse-trailer
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
@@ -238,14 +238,14 @@ jobs:
               if ./scripts/ci-session-store.sh validate "$AGENT" "$ISSUE_NUM" "$RUN_ID" 2>/dev/null; then
                 MODE="${AGENT}-resume"
               else
-                echo "::warning::Author session artifact downloaded (${AGENT}/${RUN_ID} for #${ISSUE_NUM}) but contents failed validation; falling back to fresh Claude"
+                echo "::warning::Author session artifact downloaded (${AGENT}/${RUN_ID} for #${ISSUE_NUM}) but contents failed validation; falling back to fresh Codex"
                 SESSION_HOST_DIR=""
               fi
             else
-              echo "::warning::Author session download succeeded but tar not found at ${TAR}; falling back to fresh Claude"
+              echo "::warning::Author session download succeeded but tar not found at ${TAR}; falling back to fresh Codex"
             fi
           elif [ -n "$AGENT" ] && [ -n "$RUN_ID" ]; then
-            echo "::warning::Author-Session trailer present (${AGENT}/${RUN_ID}) but artifact download outcome=${DOWNLOAD_OUTCOME}; falling back to fresh Claude"
+            echo "::warning::Author-Session trailer present (${AGENT}/${RUN_ID}) but artifact download outcome=${DOWNLOAD_OUTCOME}; falling back to fresh Codex"
           fi
 
           {
@@ -257,6 +257,19 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           echo "fixer dispatch: mode=${MODE} agent=${AGENT:-none} run_id=${RUN_ID:-none} issue=${ISSUE_NUM:-none}"
+
+      # The fixer is judgment-heavy (it revisits reviewer-flagged design
+      # decisions), so both dispatch paths below use the frontier tier.
+      # See .github/ci/agent-models.env and docs/agentic-pipeline-learnings.md
+      # §2.12.
+      - name: Select Codex model tier for fixer
+        id: model-tier
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source .github/ci/agent-models.env
+          echo "model=$CODEX_MODEL_FRONTIER" >> "$GITHUB_OUTPUT"
+          echo "reasoning_effort=$CODEX_REASONING_FRONTIER" >> "$GITHUB_OUTPUT"
 
       - name: Run Codex fixer (resumed author)
         if: steps.detect-session.outputs.mode == 'codex-resume'
@@ -276,29 +289,12 @@ jobs:
             REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
             MERGE_STATE=${{ steps.sync-main.outputs.merge_state }}
             MERGE_CONFLICT_FILES=${{ steps.sync-main.outputs.conflict_files }}
+            CODEX_MODEL=${{ steps.model-tier.outputs.model }}
+            CODEX_MODEL_REASONING_EFFORT=${{ steps.model-tier.outputs.reasoning_effort }}
 
-      - name: Run Claude fixer (resumed author)
-        if: steps.detect-session.outputs.mode == 'claude-resume'
-        uses: ./.github/actions/review-claude-resume
-        with:
-          agent: claude
-          session_host_dir: ${{ steps.detect-session.outputs.session_host_dir }}
-          role: fixer
-          prompt_path: .github/scripts/review/prompts/fixer-resume.md
-          image: ${{ inputs.devcontainer_image }}
-          workspace_folder: ${{ env.PR_WORKSPACE_PATH }}
-          pr_number: ${{ inputs.pr_number }}
-          reviewed_sha: ${{ inputs.reviewed_sha }}
-          cycle: ${{ inputs.cycle }}
-          workflow_pat: ${{ secrets.WORKFLOW_PAT }}
-          extra_env: |
-            REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
-            MERGE_STATE=${{ steps.sync-main.outputs.merge_state }}
-            MERGE_CONFLICT_FILES=${{ steps.sync-main.outputs.conflict_files }}
-
-      - name: Run Claude fixer (fresh fallback)
+      - name: Run Codex fixer (fresh fallback)
         if: steps.detect-session.outputs.mode == 'fallback'
-        uses: ./.github/actions/review-claude-run
+        uses: ./.github/actions/review-codex-run
         with:
           role: fixer
           prompt_path: .github/scripts/review/prompts/fixer.md
@@ -313,9 +309,11 @@ jobs:
             REVIEWER_ARTIFACTS_DIR=.review-output/reviewer-artifacts
             MERGE_STATE=${{ steps.sync-main.outputs.merge_state }}
             MERGE_CONFLICT_FILES=${{ steps.sync-main.outputs.conflict_files }}
+            CODEX_MODEL=${{ steps.model-tier.outputs.model }}
+            CODEX_MODEL_REASONING_EFFORT=${{ steps.model-tier.outputs.reasoning_effort }}
 
       - name: Resolve fixer artifact path
-        # All three fixer paths above write to the same workspace
+        # Both fixer paths above write to the same workspace
         # location. Pin the absolute host path here so downstream
         # validate / commit / push / upload steps don't have to
         # branch on which fixer ran.

@@ -48,19 +48,20 @@ assert_exit() {
 
 # --- home-path ---
 assert_eq "home-path codex"   "/home/ci/.codex/sessions" "$("$HELPER" home-path codex)"
-assert_eq "home-path claude"  "/home/ci/.claude"         "$("$HELPER" home-path claude)"
 assert_exit "home-path bogus rejected" 64 "$HELPER" home-path bogus
+# codex is the only supported agent — every CI issue-authoring and
+# fixer role runs on Codex now, so "claude" is rejected the same as
+# any other unknown agent name (no special-casing left in the helper).
+assert_exit "home-path claude rejected" 64 "$HELPER" home-path claude
 
 # --- host-dir ---
 assert_eq "host-dir codex/123/45" \
   "${TEST_ROOT}/codex/123/45" \
   "$("$HELPER" host-dir codex 123 45)"
-assert_eq "host-dir claude/9/8" \
-  "${TEST_ROOT}/claude/9/8" \
-  "$("$HELPER" host-dir claude 9 8)"
 assert_exit "host-dir non-numeric issue rejected" 64 "$HELPER" host-dir codex abc 1
 assert_exit "host-dir non-numeric run-id rejected" 64 "$HELPER" host-dir codex 1 abc
 assert_exit "host-dir bogus agent rejected" 64 "$HELPER" host-dir bogus 1 1
+assert_exit "host-dir claude rejected" 64 "$HELPER" host-dir claude 9 8
 
 # --- prepare ---
 DIR="$("$HELPER" prepare codex 100 200)"
@@ -86,12 +87,14 @@ assert_exit "validate empty dir fails" 1 "$HELPER" validate codex 100 200
 echo "session-data" > "$DIR/2026-01-01.jsonl"
 assert_exit "validate codex populated dir succeeds" 0 "$HELPER" validate codex 100 200
 
-# Claude validate has the same any-non-empty rule.
-CLAUDE_DIR="$("$HELPER" prepare claude 100 200)"
-echo "anything" > "$CLAUDE_DIR/projects.placeholder"
-assert_exit "validate claude populated dir succeeds" 0 "$HELPER" validate claude 100 200
-
 assert_exit "validate missing dir fails" 1 "$HELPER" validate codex 999 999
+# ci_session_validate builds its path via `dir="$(ci_session_host_dir ...)"`;
+# `set -e` does not propagate into a command substitution without
+# `inherit_errexit`, so an unrecognized agent's 64 from
+# _ci_session_validate_args is swallowed and validate instead reports
+# "missing <dir>" (exit 1) — pre-existing behavior, not special-cased
+# for "claude".
+assert_exit "validate claude rejected" 1 "$HELPER" validate claude 100 200
 
 # --- pack / unpack round-trip ---
 # Mirror the artifact transit path used by codex.yml + review-fixer.yml:
@@ -130,7 +133,7 @@ assert_exit "unpack-extracted dir validates" 0 \
   bash -c "CI_SESSION_ROOT='$UNPACK_ROOT' '$HELPER' validate codex 300 400"
 
 # Container UID 1000 must be able to write to extracted session files
-# (codex/claude resume appends new turns). Verify a+w bits on file + dir.
+# (codex resume appends new turns). Verify a+w bits on file + dir.
 PERM_FILE="$(stat -c '%a' "$UNPACK_ROOT/codex/300/400/2026-01-01.jsonl")"
 case "$PERM_FILE" in *6|*7) passes=$((passes+1)); printf 'ok    unpack chmod grants world-write to file (%s)\n' "$PERM_FILE" ;;
   *) failures=$((failures+1)); printf 'FAIL  unpack file perms not world-writable: %s\n' "$PERM_FILE" >&2 ;;
@@ -147,18 +150,19 @@ assert_exit "unpack requires tar-path arg" 64 "$HELPER" unpack codex 1 1
 assert_eq "format-trailer codex" \
   "Author-Session: codex/12345" \
   "$("$HELPER" format-trailer codex 12345)"
-assert_eq "format-trailer claude" \
-  "Author-Session: claude/99" \
-  "$("$HELPER" format-trailer claude 99)"
 assert_exit "format-trailer bogus agent rejected" 64 "$HELPER" format-trailer bogus 1
 assert_exit "format-trailer non-numeric run-id rejected" 64 "$HELPER" format-trailer codex abc
+assert_exit "format-trailer claude rejected" 64 "$HELPER" format-trailer claude 99
 
 # --- parse-trailer ---
 body=$'feature\n\nFixes #42\n\nAuthor-Session: codex/12345\n'
 assert_eq "parse-trailer codex" $'codex\t12345' "$("$HELPER" parse-trailer "$body")"
 
+# A "claude" trailer (e.g. from a PR opened before the Codex-only move)
+# is treated as an unrecognized agent, same as any other bogus value —
+# empty output, not an error, so the fixer's fallback path picks it up.
 body=$'Author-Session: claude/99\nbody continues'
-assert_eq "parse-trailer claude" $'claude\t99' "$("$HELPER" parse-trailer "$body")"
+assert_eq "parse-trailer claude → empty" "" "$("$HELPER" parse-trailer "$body")"
 
 body="Author-Session: CODEX/777"
 assert_eq "parse-trailer uppercase normalized" $'codex\t777' "$("$HELPER" parse-trailer "$body")"
