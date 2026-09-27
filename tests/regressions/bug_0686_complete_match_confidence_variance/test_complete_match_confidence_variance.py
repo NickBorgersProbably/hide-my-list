@@ -63,9 +63,26 @@ def _model(verdict: dict[str, Any]) -> AsyncMock:
     return model
 
 
-def _alias_model(alias: str) -> MagicMock:
-    """A model that returns the given alias at confidence 1.0."""
-    return MagicMock(return_value=_model({"matched_page_id": alias, "confidence": 1.0}))
+def _alias_model_for_title(title: str) -> MagicMock:
+    """A model that answers with whichever alias the prompt gave `title`.
+
+    Aliases number the shortlist the node actually offers (`t1`, `t2`, …),
+    not the caller's page list: a task the shortlist drops gets no alias, so
+    the mock reads the alias off the rendered `Candidates:` JSON like the
+    real model would.
+    """
+    response = MagicMock()
+    model = AsyncMock()
+
+    async def ainvoke(messages: list[Any]) -> MagicMock:
+        prompt = str(messages[0].content)
+        line = prompt.split("Candidates: ", 1)[1].split("\n", 1)[0]
+        alias = next(c["id"] for c in json.loads(line) if c["title"] == title)
+        response.content = json.dumps({"matched_page_id": alias, "confidence": 1.0})
+        return response
+
+    model.ainvoke = AsyncMock(side_effect=ainvoke)
+    return MagicMock(return_value=model)
 
 
 def _refused_model() -> MagicMock:
@@ -91,13 +108,13 @@ async def test_a_named_report_completes_via_alias_match(
 
     Candidates are shown as `t1`, `t2`, … — not as page ids — so the model
     cannot produce a truncated UUID. `_parse_aliased_match` maps the alias back.
-    The target alias is `t{target + 1}` (1-indexed).
+    The alias numbers the shortlist the node offers, so the mock reads the
+    target's alias off the prompt rather than assuming the caller's order.
     """
     pages = [_page(f"<page_{index}>", title) for index, title in enumerate(titles)]
     target_id = f"<page_{target}>"
-    target_alias = f"t{target + 1}"
     update_status = AsyncMock()
-    llm_factory = _alias_model(target_alias)
+    llm_factory = _alias_model_for_title(titles[target])
 
     with (
         patch("app.tools.notion.update_status", update_status),
