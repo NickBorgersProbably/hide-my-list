@@ -533,6 +533,79 @@ def test_every_ask_family_words_its_two_attempts_differently() -> None:
     assert len(bodies) == 6
 
 
+@pytest.mark.parametrize(
+    ("attempts", "expected"),
+    [
+        (0, "Nice — was it Schedule the deep clean?"),
+        (1, "Just checking — was it Schedule the deep clean?"),
+    ],
+)
+def test_one_context_option_is_a_confirmation_not_a_choice(
+    attempts: int, expected: str
+) -> None:
+    """"Which task was it: X?" offers a choice between one thing; ask "was it X?"."""
+    options = (DedupCandidate("<page_A>", "Schedule the deep clean", 1.0),)
+    body = _clarification_body(attempts, options, offerable=True, from_context=True)
+    assert body == expected
+    assert "which" not in body.lower()
+
+
+@pytest.mark.parametrize(
+    ("attempts", "expected"),
+    [
+        (0, "Nice — which task was it: Schedule the deep clean or Water the garden?"),
+        (1, "Just checking which one — Schedule the deep clean or Water the garden?"),
+    ],
+)
+def test_two_context_options_keep_the_choice_wording(attempts: int, expected: str) -> None:
+    options = (
+        DedupCandidate("<page_A>", "Schedule the deep clean", 1.0),
+        DedupCandidate("<page_B>", "Water the garden", 0.5),
+    )
+    assert _clarification_body(attempts, options, offerable=True, from_context=True) == expected
+
+
+@pytest.mark.parametrize(
+    ("attempts", "expected"),
+    [
+        (0, "I can mark that done — was it Schedule the deep clean?"),
+        (1, "Still not sure which one — was it Schedule the deep clean?"),
+    ],
+)
+def test_one_shortlist_option_keeps_the_shortlist_wording(
+    attempts: int, expected: str
+) -> None:
+    options = (DedupCandidate("<page_A>", "Schedule the deep clean", 1.0),)
+    assert _clarification_body(attempts, options, offerable=True, from_context=False) == expected
+
+
+def test_prompt_reads_a_state_report_as_a_completion() -> None:
+    """"X is scheduled" reports the finished state of "Schedule X".
+
+    Without the rule, the cheap tier read the passive state as a future one and
+    matched nothing. The guard against questions about the state stays in the
+    same instruction, beside the existing "about to start" guard.
+    """
+    prompt = _build_completion_match_prompt(
+        "Deep clean is scheduled!",
+        [DedupCandidate(page_id="<page_A>", title="Schedule the deep clean", score=0.6)],
+    )
+    assert "report of the resulting state" in prompt
+    assert '"X is scheduled"' in prompt
+    assert "is not a match" in prompt
+    assert "is about to start is NOT a match" in prompt
+
+
+def test_answer_framing_carries_no_state_report_rule() -> None:
+    """An answer to "which one?" only identifies a task; the rule is standalone-only."""
+    prompt = _build_completion_match_prompt(
+        "the deep clean",
+        [DedupCandidate(page_id="<page_A>", title="Schedule the deep clean", score=0.6)],
+        answering_clarification=True,
+    )
+    assert "report of the resulting state" not in prompt
+
+
 # ---------------------------------------------------------------------------
 # Celebration body
 # ---------------------------------------------------------------------------

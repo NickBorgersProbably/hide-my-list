@@ -1,0 +1,40 @@
+---
+# Complete scenario: the user reports the resulting state instead of the
+# action. "Deep clean is scheduled!" is the finished form of "Schedule a deep
+# clean for the trip" — the task's action is scheduling, and the message says
+# it is scheduled. Read as a future state, it matched nothing and the node
+# asked a question the user had already answered. The match prompt's
+# state-report rule (docs/ai-prompts/shared.md, Cross-Session Reply
+# Resolution) says a passive state report asserts completion of the candidate
+# whose action produces that state.
+id: complete-state-report-001
+node: complete
+tier: cheap
+peer: "<test-peer-state-report>"
+inbound: "Deep clean is scheduled!"
+prior_state:
+  streak: 1
+  tasks_completed_today: 0
+  conversation_state: idle
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Schedule a deep clean for the trip"
+    status: "Pending"
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 15
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  # The pre-fix behavior: no match, so the node asked which task it was.
+  - kind: regex_forbid
+    pattern: "(?i)which\\s+task|was it\\b"
+  - kind: judge
+    rubric: |
+      The user reported that the deep clean is scheduled, and the only open
+      task is to schedule it. The response acknowledges the task as done and
+      celebrates it. It does NOT ask the user which task they meant or whether
+      it was that task. Score 1.0 when it reads as a completion
+      acknowledgment, 0.0 when it asks the user to identify or confirm the
+      task.
+    threshold: 0.7

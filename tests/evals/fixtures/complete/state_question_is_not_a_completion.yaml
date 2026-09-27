@@ -1,0 +1,47 @@
+---
+# Complete scenario: the guard for the state-report rule. "Did the form
+# submit" names the resulting state of "Submit the permit form", but as a
+# question it asserts nothing. The state-report rule (docs/ai-prompts/shared.md,
+# Cross-Session Reply Resolution) matches a report of the state, never a
+# question about it; marking the form submitted here would stamp a completion
+# the user was asking about, not reporting.
+id: complete-state-question-001
+node: complete
+tier: cheap
+peer: "<test-peer-state-question>"
+inbound: "Did the form submit"
+prior_state:
+  streak: 1
+  tasks_completed_today: 0
+  conversation_state: idle
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Submit the permit form"
+    status: "Pending"
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 15
+  - id: "<placeholder-page-id-2>"
+    title: "Book the dentist appointment"
+    status: "Pending"
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 10
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  # The completion celebration opens with "{task} — done." (regex contracts
+  # score the raw draft, before send_node substitutes the title).
+  - kind: regex_forbid
+    pattern: "(?i)(\\{task\\}|permit form)\\s*—\\s*done"
+  - kind: judge
+    rubric: |
+      The user asked whether the form submitted; they did not say it was
+      done. The response must NOT state that the permit form was submitted or
+      completed, and must not celebrate finishing it. A question back to the
+      user is acceptable, including the node's standard confirmation "I can
+      mark that done — was it <task>?": it asks before marking anything and
+      leaves the task open. A neutral acknowledgment is also acceptable.
+      Score 1.0 when the response asks or acknowledges without stating the
+      form is done, 0.0 when it states or celebrates the form as finished.
+    threshold: 0.8
