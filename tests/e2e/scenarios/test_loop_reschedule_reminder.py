@@ -17,6 +17,7 @@ Step 2 needs the ledger entry intake wrote in step 1; step 4 needs the
 `nudged` entry `hydrate_context` merges from the delivery. Both anchors cross
 a turn boundary, which is what this layer exists to observe.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -28,7 +29,9 @@ from tests.support.harness import Conversation, Expect
 pytestmark = pytest.mark.asyncio
 
 
-async def _outbox_rows(conversation: Conversation, page_id: str) -> list[tuple[str, str | None, datetime]]:
+async def _outbox_rows(
+    conversation: Conversation, page_id: str
+) -> list[tuple[str, str | None, datetime]]:
     async with conversation.db() as conn:
         cursor = await conn.execute(
             """

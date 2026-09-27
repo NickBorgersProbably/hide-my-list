@@ -24,6 +24,7 @@ candidate, and with no candidate intake creates a reminder as usual.
 Privacy: titles are the user's words. They go into the prompt only, never
 into logs.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -132,9 +133,7 @@ def _date_start(props: Mapping[str, Any], key: str) -> str:
 async def _load_one(page_id: str) -> Mapping[str, Any]:
     from app.tools import notion
 
-    page = await asyncio.wait_for(
-        notion.get_page(page_id), CANDIDATE_LOOKUP_TIMEOUT_SECONDS
-    )
+    page = await asyncio.wait_for(notion.get_page(page_id), CANDIDATE_LOOKUP_TIMEOUT_SECONDS)
     props = page.get("properties") if isinstance(page, dict) else None
     return props if isinstance(props, Mapping) else {}
 

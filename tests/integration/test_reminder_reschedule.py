@@ -13,8 +13,10 @@ The LLM is mocked with exact JSON; Notion is the in-memory `FakeNotion`.
 Tests that write the outbox need Postgres (DATABASE_URL) and skip without
 it. Placeholder data only.
 """
+
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import uuid
@@ -72,25 +74,28 @@ def _ledger(page_id: str, title: str, *, kind: str, event: str, minutes_ago: flo
     }
 
 
-def _intake_json(*, remind_at: str | None, reschedule_of: str | None,
-                 title: str = "Call the pharmacy") -> str:
-    return json.dumps({
-        "action": "save",
-        "title": title,
-        "work_type": "independent",
-        "urgency": 90,
-        "time_estimate_minutes": 5,
-        "energy_required": "Low",
-        "is_reminder": True,
-        "remind_at": remind_at,
-        "due_at": None,
-        "reschedule_of": reschedule_of,
-        "use_hidden_subtasks": False,
-        "sub_tasks": [],
-        "inline_steps": "",
-        "confirmation_message": "Got it — I'll remind you at 6pm to {task}.",
-        "already_finished": False,
-    })
+def _intake_json(
+    *, remind_at: str | None, reschedule_of: str | None, title: str = "Call the pharmacy"
+) -> str:
+    return json.dumps(
+        {
+            "action": "save",
+            "title": title,
+            "work_type": "independent",
+            "urgency": 90,
+            "time_estimate_minutes": 5,
+            "energy_required": "Low",
+            "is_reminder": True,
+            "remind_at": remind_at,
+            "due_at": None,
+            "reschedule_of": reschedule_of,
+            "use_hidden_subtasks": False,
+            "sub_tasks": [],
+            "inline_steps": "",
+            "confirmation_message": "Got it — I'll remind you at 6pm to {task}.",
+            "already_finished": False,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -138,16 +143,29 @@ async def test_reschedule_for_page_swaps_only_the_waiting_reminder_row(db_conn: 
     five = datetime.now(UTC) + timedelta(hours=2)
     six = five + timedelta(hours=1)
     await reminders.enqueue(
-        db_conn, notion_page_id=page, peer=PEER, body="Test message",
-        due_at=five, idempotency_key=f"intake-{page}",
+        db_conn,
+        notion_page_id=page,
+        peer=PEER,
+        body="Test message",
+        due_at=five,
+        idempotency_key=f"intake-{page}",
     )
     await reminders.enqueue(
-        db_conn, notion_page_id=page, peer=PEER, body="Test message",
-        due_at=five, idempotency_key=f"deadline-{page}", kind="deadline",
+        db_conn,
+        notion_page_id=page,
+        peer=PEER,
+        body="Test message",
+        due_at=five,
+        idempotency_key=f"deadline-{page}",
+        kind="deadline",
     )
     await reminders.enqueue(
-        db_conn, notion_page_id=page, peer="<other-peer>", body="Test message",
-        due_at=five, idempotency_key=f"other-{page}",
+        db_conn,
+        notion_page_id=page,
+        peer="<other-peer>",
+        body="Test message",
+        due_at=five,
+        idempotency_key=f"other-{page}",
     )
     await db_conn.commit()
 
@@ -172,7 +190,8 @@ async def test_reschedule_for_page_swaps_only_the_waiting_reminder_row(db_conn: 
     assert cancelled_again == 1
     assert second_id != new_id
     waiting = [
-        due for peer, state, _, kind, due in await _rows(db_conn, page)
+        due
+        for peer, state, _, kind, due in await _rows(db_conn, page)
         if peer == PEER and kind == "reminder" and state == "pending"
     ]
     assert waiting == [five]
@@ -186,7 +205,7 @@ async def test_reschedule_for_page_swaps_only_the_waiting_reminder_row(db_conn: 
 @_needs_db
 @pytest.mark.asyncio
 async def test_intake_moves_the_ledger_reminder_instead_of_creating_one(db_conn: Any) -> None:
-    """"actually make it 6pm" updates the page, swaps the outbox row, creates nothing.
+    """ "actually make it 6pm" updates the page, swaps the outbox row, creates nothing.
 
     The page was delivered (the worker marks it Completed), so the move also
     reopens it: a Completed page's row would be skipped at delivery.
@@ -196,13 +215,20 @@ async def test_intake_moves_the_ledger_reminder_instead_of_creating_one(db_conn:
 
     fake = FakeNotion()
     page = fake.seed_task(
-        title="Call the pharmacy", is_reminder=True, status="Completed",
-        reminder_status="sent", remind_at="2026-10-01T17:00:00-05:00",
+        title="Call the pharmacy",
+        is_reminder=True,
+        status="Completed",
+        reminder_status="sent",
+        remind_at="2026-10-01T17:00:00-05:00",
     )
     five = datetime(2026, 10, 1, 22, 0, tzinfo=UTC)
     await reminders.enqueue(
-        db_conn, notion_page_id=page, peer=PEER, body="Test message",
-        due_at=five, idempotency_key=f"intake-{page}",
+        db_conn,
+        notion_page_id=page,
+        peer=PEER,
+        body="Test message",
+        due_at=five,
+        idempotency_key=f"intake-{page}",
     )
     await db_conn.commit()
 
@@ -210,10 +236,14 @@ async def test_intake_moves_the_ledger_reminder_instead_of_creating_one(db_conn:
     undo = fake.install()
     try:
         with patch("app.models.llm", return_value=model), capture_logs() as logs:
-            result = await intake_node(_state(
-                incoming="actually make it 6pm",
-                recent_tasks=[_ledger(page, "Call the pharmacy", kind="reminder", event="reminded")],
-            ))
+            result = await intake_node(
+                _state(
+                    incoming="actually make it 6pm",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="reminded")
+                    ],
+                )
+            )
     finally:
         undo()
 
@@ -256,11 +286,17 @@ async def test_intake_without_reschedule_of_creates_a_new_reminder() -> None:
 
     fake = FakeNotion()
     old = fake.seed_task(
-        title="Call the pharmacy", is_reminder=True, remind_at="2026-10-01T17:00:00-05:00",
+        title="Call the pharmacy",
+        is_reminder=True,
+        remind_at="2026-10-01T17:00:00-05:00",
     )
-    model = _model(_intake_json(
-        remind_at="2026-10-01T20:00:00-05:00", reschedule_of=None, title="Take the bins out",
-    ))
+    model = _model(
+        _intake_json(
+            remind_at="2026-10-01T20:00:00-05:00",
+            reschedule_of=None,
+            title="Take the bins out",
+        )
+    )
     conn_ctx = AsyncMock()
     conn_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
     conn_ctx.__aexit__ = AsyncMock(return_value=None)
@@ -272,10 +308,14 @@ async def test_intake_without_reschedule_of_creates_a_new_reminder() -> None:
             patch("app.tools.reminders.enqueue", AsyncMock(return_value=uuid.uuid4())),
             patch("app.tools.reminders.reschedule_for_page", AsyncMock()) as moved,
         ):
-            result = await intake_node(_state(
-                incoming="also remind me at 8 to take the bins out",
-                recent_tasks=[_ledger(old, "Call the pharmacy", kind="reminder", event="added")],
-            ))
+            result = await intake_node(
+                _state(
+                    incoming="also remind me at 8 to take the bins out",
+                    recent_tasks=[
+                        _ledger(old, "Call the pharmacy", kind="reminder", event="added")
+                    ],
+                )
+            )
     finally:
         undo()
 
@@ -292,7 +332,9 @@ async def test_intake_ignores_a_reschedule_label_it_never_showed() -> None:
 
     fake = FakeNotion()
     old = fake.seed_task(
-        title="Call the pharmacy", is_reminder=True, remind_at="2026-10-01T17:00:00-05:00",
+        title="Call the pharmacy",
+        is_reminder=True,
+        remind_at="2026-10-01T17:00:00-05:00",
     )
     conn_ctx = AsyncMock()
     conn_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
@@ -307,10 +349,14 @@ async def test_intake_ignores_a_reschedule_label_it_never_showed() -> None:
                 patch("app.tools.db.get_db_conn", return_value=conn_ctx),
                 patch("app.tools.reminders.enqueue", AsyncMock(return_value=uuid.uuid4())),
             ):
-                await intake_node(_state(
-                    incoming="actually make it 6pm",
-                    recent_tasks=[_ledger(old, "Call the pharmacy", kind="reminder", event="added")],
-                ))
+                await intake_node(
+                    _state(
+                        incoming="actually make it 6pm",
+                        recent_tasks=[
+                            _ledger(old, "Call the pharmacy", kind="reminder", event="added")
+                        ],
+                    )
+                )
         finally:
             undo()
         assert [w.op for w in fake.writes] == ["create_reminder"], label
@@ -322,7 +368,9 @@ async def test_intake_move_without_a_time_asks_and_writes_nothing() -> None:
 
     fake = FakeNotion()
     page = fake.seed_task(
-        title="Call the pharmacy", is_reminder=True, remind_at="2026-10-01T17:00:00-05:00",
+        title="Call the pharmacy",
+        is_reminder=True,
+        remind_at="2026-10-01T17:00:00-05:00",
     )
     model = _model(_intake_json(remind_at=None, reschedule_of="R1"))
     undo = fake.install()
@@ -331,10 +379,14 @@ async def test_intake_move_without_a_time_asks_and_writes_nothing() -> None:
             patch("app.models.llm", return_value=model),
             patch("app.tools.reminders.reschedule_for_page", AsyncMock()) as moved,
         ):
-            result = await intake_node(_state(
-                incoming="actually move it",
-                recent_tasks=[_ledger(page, "Call the pharmacy", kind="reminder", event="added")],
-            ))
+            result = await intake_node(
+                _state(
+                    incoming="actually move it",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="added")
+                    ],
+                )
+            )
     finally:
         undo()
 
@@ -373,31 +425,44 @@ async def test_cannot_finish_after_a_nudge_names_the_task_and_writes_sub_tasks()
 
     fake = FakeNotion()
     page = fake.seed_task(
-        title="Renew the car registration", time_estimate=45,
-        work_type="Independent", energy_required="Low",
+        title="Renew the car registration",
+        time_estimate=45,
+        work_type="Independent",
+        energy_required="Low",
     )
     other = fake.seed_task(title="Water the plants")
-    model = _model(json.dumps({
-        "phase": "analyze_remaining",
-        "completed_portion": "printed the form",
-        "remaining_sub_tasks": [
-            {"title": "Fill in the form", "time_estimate_minutes": 20, "sequence": 1},
-            {"title": "Mail the form", "time_estimate_minutes": 15, "sequence": 2},
-        ],
-        "next_sub_task_message": "Printing it was a real start. Filling in {task} can wait.",
-    }))
+    model = _model(
+        json.dumps(
+            {
+                "phase": "analyze_remaining",
+                "completed_portion": "printed the form",
+                "remaining_sub_tasks": [
+                    {"title": "Fill in the form", "time_estimate_minutes": 20, "sequence": 1},
+                    {"title": "Mail the form", "time_estimate_minutes": 15, "sequence": 2},
+                ],
+                "next_sub_task_message": "Printing it was a real start. Filling in {task} can wait.",
+            }
+        )
+    )
     undo = fake.install()
     try:
         with patch("app.models.llm", return_value=model), capture_logs() as logs:
-            result = await cannot_finish_node(_state(
-                incoming="I can't finish that today, I only printed the form",
-                intent="CANNOT_FINISH",
-                recent_tasks=[
-                    _ledger(page, "Renew the car registration", kind="task", event="nudged"),
-                    _ledger(other, "Water the plants", kind="task", event="suggested",
-                            minutes_ago=30),
-                ],
-            ))
+            result = await cannot_finish_node(
+                _state(
+                    incoming="I can't finish that today, I only printed the form",
+                    intent="CANNOT_FINISH",
+                    recent_tasks=[
+                        _ledger(page, "Renew the car registration", kind="task", event="nudged"),
+                        _ledger(
+                            other,
+                            "Water the plants",
+                            kind="task",
+                            event="suggested",
+                            minutes_ago=30,
+                        ),
+                    ],
+                )
+            )
     finally:
         undo()
 
@@ -431,18 +496,25 @@ async def test_cannot_finish_asking_progress_writes_nothing() -> None:
 
     fake = FakeNotion()
     page = fake.seed_task(title="Renew the car registration")
-    model = _model(json.dumps({
-        "phase": "ask_progress",
-        "progress_question": "No worries — what did you get into on it?",
-    }))
+    model = _model(
+        json.dumps(
+            {
+                "phase": "ask_progress",
+                "progress_question": "No worries — what did you get into on it?",
+            }
+        )
+    )
     undo = fake.install()
     try:
         with patch("app.models.llm", return_value=model):
-            result = await cannot_finish_node(_state(
-                incoming="I can't finish that today",
-                recent_tasks=[_ledger(page, "Renew the car registration", kind="task",
-                                      event="nudged")],
-            ))
+            result = await cannot_finish_node(
+                _state(
+                    incoming="I can't finish that today",
+                    recent_tasks=[
+                        _ledger(page, "Renew the car registration", kind="task", event="nudged")
+                    ],
+                )
+            )
     finally:
         undo()
 
@@ -460,21 +532,34 @@ async def test_cannot_finish_active_task_outranks_the_ledger() -> None:
     fake = FakeNotion()
     nudged = fake.seed_task(title="Renew the car registration")
     active = fake.seed_task(title="Sort the mail")
-    model = _model(json.dumps({
-        "phase": "analyze_remaining",
-        "remaining_sub_tasks": [{"title": "Open the envelopes", "time_estimate_minutes": 15}],
-        "next_sub_task_message": "Nice start. Next: open the envelopes.",
-    }))
+    model = _model(
+        json.dumps(
+            {
+                "phase": "analyze_remaining",
+                "remaining_sub_tasks": [
+                    {"title": "Open the envelopes", "time_estimate_minutes": 15}
+                ],
+                "next_sub_task_message": "Nice start. Next: open the envelopes.",
+            }
+        )
+    )
     undo = fake.install()
     try:
         with patch("app.models.llm", return_value=model):
-            result = await cannot_finish_node(_state(
-                incoming="can't do the rest",
-                active_task={"page_id": active, "title": "Sort the mail", "time_estimate": 30,
-                             "selected_at": datetime.now(UTC).isoformat()},
-                recent_tasks=[_ledger(nudged, "Renew the car registration", kind="task",
-                                      event="nudged")],
-            ))
+            result = await cannot_finish_node(
+                _state(
+                    incoming="can't do the rest",
+                    active_task={
+                        "page_id": active,
+                        "title": "Sort the mail",
+                        "time_estimate": 30,
+                        "selected_at": datetime.now(UTC).isoformat(),
+                    },
+                    recent_tasks=[
+                        _ledger(nudged, "Renew the car registration", kind="task", event="nudged")
+                    ],
+                )
+            )
     finally:
         undo()
 
@@ -490,19 +575,32 @@ async def test_cannot_finish_with_no_task_writes_nothing_even_with_sub_tasks() -
 
     fake = FakeNotion()
     stale = fake.seed_task(title="Renew the car registration")
-    model = _model(json.dumps({
-        "phase": "analyze_remaining",
-        "remaining_sub_tasks": [{"title": "Do the next bit", "time_estimate_minutes": 15}],
-        "next_sub_task_message": "Nice start.",
-    }))
+    model = _model(
+        json.dumps(
+            {
+                "phase": "analyze_remaining",
+                "remaining_sub_tasks": [{"title": "Do the next bit", "time_estimate_minutes": 15}],
+                "next_sub_task_message": "Nice start.",
+            }
+        )
+    )
     undo = fake.install()
     try:
         with patch("app.models.llm", return_value=model):
-            result = await cannot_finish_node(_state(
-                incoming="I can't finish that",
-                recent_tasks=[_ledger(stale, "Renew the car registration", kind="task",
-                                      event="nudged", minutes_ago=25 * 60)],
-            ))
+            result = await cannot_finish_node(
+                _state(
+                    incoming="I can't finish that",
+                    recent_tasks=[
+                        _ledger(
+                            stale,
+                            "Renew the car registration",
+                            kind="task",
+                            event="nudged",
+                            minutes_ago=25 * 60,
+                        )
+                    ],
+                )
+            )
     finally:
         undo()
 
@@ -512,3 +610,274 @@ async def test_cannot_finish_with_no_task_writes_nothing_even_with_sub_tasks() -
     draft = result["pending_outbound"][0]
     assert draft["notion_page_id"] is None
     assert "notion_page_title" not in draft
+
+
+# ---------------------------------------------------------------------------
+# Call shapes bound against the real signatures (clause 10)
+# ---------------------------------------------------------------------------
+
+
+def _mock_conn_ctx() -> Any:
+    conn = AsyncMock()
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=conn)
+    ctx.__aexit__ = AsyncMock(return_value=None)
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_intake_move_calls_reschedule_for_page_with_its_real_signature() -> None:
+    """A renamed parameter of `reschedule_for_page` must fail here, not in the except."""
+    from app.graph.nodes.intake import intake_node
+    from app.tools import reminders
+
+    real = reminders.reschedule_for_page
+    fake = FakeNotion()
+    page = fake.seed_task(
+        title="Call the pharmacy",
+        is_reminder=True,
+        remind_at="2026-10-01T17:00:00-05:00",
+    )
+    moved = AsyncMock(return_value=(1, uuid.uuid4()))
+    model = _model(_intake_json(remind_at="2026-10-01T18:00:00-05:00", reschedule_of="R1"))
+    undo = fake.install()
+    try:
+        with (
+            patch("app.models.llm", return_value=model),
+            patch("app.tools.db.get_db_conn", return_value=_mock_conn_ctx()),
+            patch("app.tools.reminders.reschedule_for_page", moved),
+        ):
+            result = await intake_node(
+                _state(
+                    incoming="actually make it 6pm",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="added")
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    moved.assert_awaited_once()
+    call = moved.await_args
+    assert call is not None
+    bound = inspect.signature(inspect.unwrap(real)).bind(*call.args, **call.kwargs)
+    assert bound.arguments["notion_page_id"] == page
+    assert bound.arguments["peer"] == PEER
+    assert bound.arguments["body"] == "Hey — Call the pharmacy"
+    assert bound.arguments["due_at"] == datetime(2026, 10, 1, 23, 0, tzinfo=UTC)
+    assert result["pending_outbound"][0]["body"] == "Got it — I'll remind you at 6pm to {task}."
+
+
+@pytest.mark.asyncio
+async def test_cannot_finish_calls_create_task_with_its_real_signature() -> None:
+    """A renamed `create_task` parameter must fail here, not vanish in the per-sub-task except."""
+    from app.graph.nodes.cannot_finish import cannot_finish_node
+    from app.tools import notion
+
+    real = notion.create_task
+    create_task = AsyncMock(return_value={"id": "<page_child>"})
+    page_id = "<page_parent>"
+    model = _model(
+        json.dumps(
+            {
+                "phase": "analyze_remaining",
+                "remaining_sub_tasks": [
+                    {"title": "Fill in the form", "time_estimate_minutes": 20, "sequence": 1},
+                ],
+                "next_sub_task_message": "Nice start. Next: fill in the form.",
+            }
+        )
+    )
+    with (
+        patch("app.models.llm", return_value=model),
+        patch("app.tools.notion.create_task", create_task),
+        patch("app.tools.notion.get_page", AsyncMock(return_value={"properties": {}})),
+        capture_logs() as logs,
+    ):
+        result = await cannot_finish_node(
+            _state(
+                incoming="can't do the rest",
+                recent_tasks=[
+                    _ledger(page_id, "Renew the car registration", kind="task", event="nudged")
+                ],
+            )
+        )
+
+    assert "cannot_finish_node.subtask_create_failed" not in [e["event"] for e in logs]
+    create_task.assert_awaited_once()
+    call = create_task.await_args
+    assert call is not None
+    bound = inspect.signature(inspect.unwrap(real)).bind(*call.args, **call.kwargs)
+    assert bound.arguments["title"] == "Fill in the form"
+    assert bound.arguments["parent_id"] == page_id
+    assert bound.arguments["sequence"] == 1
+    assert bound.arguments["time_estimate"] == 20
+    assert result["turn_actions"] == [
+        {"action": "notion.create_task", "page_id": "<page_child>", "status": ""}
+    ]
+
+
+# ---------------------------------------------------------------------------
+# intake_node — a move whose outbox swap fails
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_intake_move_outbox_failure_restores_the_page_and_replies_tentatively() -> None:
+    """The swap fails: the page goes back to its old time and status, and the
+    reply is the tentative one, never "I'll remind you at 6pm"."""
+    from app.graph.nodes.intake import RESCHEDULE_FAILED_REPLY, intake_node
+
+    fake = FakeNotion()
+    page = fake.seed_task(
+        title="Call the pharmacy",
+        is_reminder=True,
+        status="Completed",
+        reminder_status="sent",
+        remind_at="2026-10-01T17:00:00-05:00",
+    )
+    alerts = AsyncMock()
+    model = _model(_intake_json(remind_at="2026-10-01T18:00:00-05:00", reschedule_of="R1"))
+    undo = fake.install()
+    try:
+        with (
+            patch("app.models.llm", return_value=model),
+            patch("app.tools.db.get_db_conn", return_value=_mock_conn_ctx()),
+            patch(
+                "app.tools.reminders.reschedule_for_page",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("app.tools.ops_alerts.enqueue", alerts),
+            capture_logs() as logs,
+        ):
+            result = await intake_node(
+                _state(
+                    incoming="actually make it 6pm",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="reminded")
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    # Moved, then put back: the page again says what the outbox still holds.
+    assert [w.op for w in fake.writes] == ["update_property", "update_property"]
+    assert fake.pages[page]["remind_at"] == "2026-10-01T22:00:00+00:00"
+    assert fake.status_of(page) == "Completed"
+    assert fake.pages[page]["reminder_status"] == "sent"
+
+    draft = result["pending_outbound"][0]
+    assert draft["body"] == RESCHEDULE_FAILED_REPLY
+    assert "I'll remind you at" not in draft["body"]
+    assert draft["notion_page_title"] == "Call the pharmacy"
+    alerts.assert_awaited_once()
+    assert alerts.await_args.kwargs["kind"] == "reminder_enqueue_failed"
+    events = [e["event"] for e in logs]
+    assert "intake_node.reschedule_enqueue_failed" in events
+    assert "intake_node.reschedule_restored" in events
+    assert "intake_node.rescheduled" not in events
+    assert "intake_node.error" not in events
+
+
+@pytest.mark.asyncio
+async def test_intake_move_outbox_failure_still_replies_tentatively_when_restore_fails() -> None:
+    from app.graph.nodes.intake import RESCHEDULE_FAILED_REPLY, intake_node
+
+    fake = FakeNotion()
+    page = fake.seed_task(
+        title="Call the pharmacy",
+        is_reminder=True,
+        remind_at="2026-10-01T17:00:00-05:00",
+    )
+    real_update = fake.update_property
+    calls = {"n": 0}
+
+    async def _update_then_fail(page_id: str, prop_json: dict[str, Any]) -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise RuntimeError("notion down")
+        return await real_update(page_id, prop_json)
+
+    model = _model(_intake_json(remind_at="2026-10-01T18:00:00-05:00", reschedule_of="R1"))
+    undo = fake.install()
+    try:
+        with (
+            patch("app.models.llm", return_value=model),
+            patch("app.tools.notion.update_property", _update_then_fail),
+            patch("app.tools.db.get_db_conn", return_value=_mock_conn_ctx()),
+            patch(
+                "app.tools.reminders.reschedule_for_page",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("app.tools.ops_alerts.enqueue", AsyncMock()),
+            capture_logs() as logs,
+        ):
+            result = await intake_node(
+                _state(
+                    incoming="actually make it 6pm",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="added")
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    assert calls["n"] == 2
+    assert result["pending_outbound"][0]["body"] == RESCHEDULE_FAILED_REPLY
+    events = [e["event"] for e in logs]
+    assert "intake_node.reschedule_restore_failed" in events
+    assert "intake_node.error" not in events
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_a_failed_outbox_swap_rolls_back_and_keeps_the_old_row(db_conn: Any) -> None:
+    """With real Postgres: the dead-marking UPDATE rolls back with the failed enqueue."""
+    from app.graph.nodes.intake import RESCHEDULE_FAILED_REPLY, intake_node
+    from app.tools import reminders
+
+    fake = FakeNotion()
+    page = fake.seed_task(
+        title="Call the pharmacy",
+        is_reminder=True,
+        remind_at="2026-10-01T17:00:00-05:00",
+    )
+    five = datetime(2026, 10, 1, 22, 0, tzinfo=UTC)
+    await reminders.enqueue(
+        db_conn,
+        notion_page_id=page,
+        peer=PEER,
+        body="Test message",
+        due_at=five,
+        idempotency_key=f"intake-{page}",
+    )
+    await db_conn.commit()
+
+    model = _model(_intake_json(remind_at="2026-10-01T18:00:00-05:00", reschedule_of="R1"))
+    undo = fake.install()
+    try:
+        with (
+            patch("app.models.llm", return_value=model),
+            patch("app.tools.reminders.enqueue", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch("app.tools.ops_alerts.enqueue", AsyncMock()),
+        ):
+            result = await intake_node(
+                _state(
+                    incoming="actually make it 6pm",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="added")
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    await db_conn.rollback()
+    assert [(state, due) for _, state, _, _, due in await _rows(db_conn, page)] == [
+        ("pending", five)
+    ]
+    assert fake.pages[page]["remind_at"] == "2026-10-01T22:00:00+00:00"
+    assert result["pending_outbound"][0]["body"] == RESCHEDULE_FAILED_REPLY

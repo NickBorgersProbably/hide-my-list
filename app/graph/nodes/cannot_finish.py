@@ -41,6 +41,11 @@ _LEDGER_ANCHOR_FRESHNESS = timedelta(hours=24)
 _MAX_SUB_TASKS = 6
 _SUB_TASK_TITLE_CHARS = 200
 _DEFAULT_SUB_TASK_MINUTES = 30
+# docs/ai-prompts/cannot-finish.md asks for 15-90 minute chunks. An estimate
+# outside that range is clamped into it rather than dropped: the step is
+# still real work the user has left, only its size is off.
+_MIN_SUB_TASK_MINUTES = 15
+_MAX_SUB_TASK_MINUTES = 90
 
 
 def ledger_anchor(
@@ -86,8 +91,9 @@ def remaining_sub_tasks(parsed: Mapping[str, Any] | None) -> list[dict[str, Any]
     """Return the sub-tasks to create from a parsed model response.
 
     Only `phase: analyze_remaining` yields sub-tasks. Each needs a non-empty
-    title (cut to `_SUB_TASK_TITLE_CHARS`); a missing or out-of-range estimate
-    becomes `_DEFAULT_SUB_TASK_MINUTES`, a missing sequence its list position.
+    title (cut to `_SUB_TASK_TITLE_CHARS`). A missing or non-integer estimate
+    becomes `_DEFAULT_SUB_TASK_MINUTES`; an integer estimate is clamped into
+    15-90 minutes. A missing sequence becomes its list position.
     At most `_MAX_SUB_TASKS` are returned, in the model's order.
     """
     if not isinstance(parsed, Mapping) or parsed.get("phase") != "analyze_remaining":
@@ -105,8 +111,9 @@ def remaining_sub_tasks(parsed: Mapping[str, Any] | None) -> list[dict[str, Any]
         if not isinstance(title, str) or not title.strip():
             continue
         minutes = raw.get("time_estimate_minutes")
-        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 1 <= minutes <= 480:
+        if isinstance(minutes, bool) or not isinstance(minutes, int):
             minutes = _DEFAULT_SUB_TASK_MINUTES
+        minutes = min(max(minutes, _MIN_SUB_TASK_MINUTES), _MAX_SUB_TASK_MINUTES)
         sequence = raw.get("sequence")
         if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
             sequence = len(cleaned) + 1

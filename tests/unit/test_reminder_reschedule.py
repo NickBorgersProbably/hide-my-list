@@ -4,6 +4,7 @@
 time-only follow-up ("make it 6pm") may move and validates the label the
 intake model returns. No LLM, no database; Notion is the in-memory fake.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,8 +25,14 @@ from tests.support.notion_fake import FakeNotion
 NOW = datetime(2026, 9, 27, 15, 0, tzinfo=UTC)
 
 
-def _entry(page_id: str, title: str, *, kind: str = "reminder", event: str = "added",
-           minutes_ago: float | None = 1) -> dict[str, object]:
+def _entry(
+    page_id: str,
+    title: str,
+    *,
+    kind: str = "reminder",
+    event: str = "added",
+    minutes_ago: float | None = 1,
+) -> dict[str, object]:
     entry: dict[str, object] = {"page_id": page_id, "title": title, "kind": kind, "event": event}
     if minutes_ago is not None:
         entry["at"] = (NOW - timedelta(minutes=minutes_ago)).isoformat()
@@ -77,8 +84,11 @@ def test_resolve_reschedule_target_accepts_only_shown_labels() -> None:
 def test_render_reschedule_candidates_shows_label_title_and_local_time_never_ids() -> None:
     candidates = [
         RescheduleCandidate(
-            "R1", "<page_a>", "Call\nthe pharmacy",
-            datetime(2026, 10, 1, 22, 0, tzinfo=UTC), "Pending",
+            "R1",
+            "<page_a>",
+            "Call\nthe pharmacy",
+            datetime(2026, 10, 1, 22, 0, tzinfo=UTC),
+            "Pending",
         ),
         RescheduleCandidate("R2", "<page_b>", "Water the plants", None, "Pending"),
     ]
@@ -95,8 +105,11 @@ def test_render_reschedule_candidates_shows_label_title_and_local_time_never_ids
 def test_render_reschedule_candidates_survives_an_unknown_timezone() -> None:
     candidates = [
         RescheduleCandidate(
-            "R1", "<page_a>", "Call the pharmacy",
-            datetime(2026, 10, 1, 22, 0, tzinfo=UTC), "Pending",
+            "R1",
+            "<page_a>",
+            "Call the pharmacy",
+            datetime(2026, 10, 1, 22, 0, tzinfo=UTC),
+            "Pending",
         )
     ]
     rendered = render_reschedule_candidates(candidates, user_timezone="Not/AZone")
@@ -107,8 +120,10 @@ def test_render_reschedule_candidates_survives_an_unknown_timezone() -> None:
 async def test_load_reschedule_candidates_confirms_reminder_pages_in_notion() -> None:
     fake = FakeNotion()
     reminder = fake.seed_task(
-        title="Call the pharmacy", is_reminder=True,
-        remind_at="2026-10-01T17:00:00-05:00", status="Completed",
+        title="Call the pharmacy",
+        is_reminder=True,
+        remind_at="2026-10-01T17:00:00-05:00",
+        status="Completed",
     )
     plain = fake.seed_task(title="Water the plants", is_reminder=False)
     undo = fake.install()
@@ -127,8 +142,11 @@ async def test_load_reschedule_candidates_confirms_reminder_pages_in_notion() ->
     # survivor is labelled R1.
     assert candidates == [
         RescheduleCandidate(
-            "R1", reminder, "Call the pharmacy",
-            datetime(2026, 10, 1, 22, 0, tzinfo=UTC), "Completed",
+            "R1",
+            reminder,
+            "Call the pharmacy",
+            datetime(2026, 10, 1, 22, 0, tzinfo=UTC),
+            "Completed",
         )
     ]
 
@@ -138,9 +156,12 @@ async def test_load_reschedule_candidates_makes_no_notion_call_without_a_ledger_
     get_page = AsyncMock()
     with patch("app.tools.notion.get_page", get_page):
         assert await load_reschedule_candidates([], now=NOW) == []
-        assert await load_reschedule_candidates(
-            [_entry("<page_task>", "Sort the mail", kind="task")], now=NOW
-        ) == []
+        assert (
+            await load_reschedule_candidates(
+                [_entry("<page_task>", "Sort the mail", kind="task")], now=NOW
+            )
+            == []
+        )
     get_page.assert_not_awaited()
 
 
@@ -154,6 +175,7 @@ async def test_load_reschedule_candidates_drops_a_timed_out_lookup(monkeypatch) 
 
     monkeypatch.setattr(mod, "CANDIDATE_LOOKUP_TIMEOUT_SECONDS", 0.01)
     with patch("app.tools.notion.get_page", _slow):
-        assert await load_reschedule_candidates(
-            [_entry("<page_a>", "Call the pharmacy")], now=NOW
-        ) == []
+        assert (
+            await load_reschedule_candidates([_entry("<page_a>", "Call the pharmacy")], now=NOW)
+            == []
+        )

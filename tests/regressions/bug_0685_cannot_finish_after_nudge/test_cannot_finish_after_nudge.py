@@ -3,6 +3,7 @@
 See README.md. No active task; the only anchor is the `nudged` ledger entry
 `hydrate_context` merges from the delivery.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,13 +38,15 @@ def _state(page_id: str, incoming: str) -> Any:
         "available_minutes": None,
         "conversation_state": "idle",
         "pending_outbound": [],
-        "recent_tasks": [{
-            "page_id": page_id,
-            "title": "Renew the car registration",
-            "kind": "task",
-            "event": "nudged",
-            "at": datetime.now(UTC).isoformat(),
-        }],
+        "recent_tasks": [
+            {
+                "page_id": page_id,
+                "title": "Renew the car registration",
+                "kind": "task",
+                "event": "nudged",
+                "at": datetime.now(UTC).isoformat(),
+            }
+        ],
     }
 
 
@@ -53,7 +56,9 @@ async def test_cannot_finish_after_a_nudge_names_the_nudged_task() -> None:
 
     fake = FakeNotion()
     page = fake.seed_task(title="Renew the car registration", time_estimate=45)
-    model = _model({"phase": "ask_progress", "progress_question": "No worries — where'd you get to?"})
+    model = _model(
+        {"phase": "ask_progress", "progress_question": "No worries — where'd you get to?"}
+    )
     undo = fake.install()
     try:
         with patch("app.models.llm", return_value=model):
@@ -74,15 +79,17 @@ async def test_cannot_finish_after_a_nudge_writes_sub_tasks_under_the_nudged_pag
 
     fake = FakeNotion()
     page = fake.seed_task(title="Renew the car registration")
-    model = _model({
-        "phase": "analyze_remaining",
-        "completed_portion": "found the renewal form",
-        "remaining_sub_tasks": [
-            {"title": "Fill in the renewal form", "time_estimate_minutes": 20, "sequence": 1},
-            {"title": "Pay the renewal fee online", "time_estimate_minutes": 15, "sequence": 2},
-        ],
-        "next_sub_task_message": "Finding the form counts. Next: fill it in, ~20 min, whenever.",
-    })
+    model = _model(
+        {
+            "phase": "analyze_remaining",
+            "completed_portion": "found the renewal form",
+            "remaining_sub_tasks": [
+                {"title": "Fill in the renewal form", "time_estimate_minutes": 20, "sequence": 1},
+                {"title": "Pay the renewal fee online", "time_estimate_minutes": 15, "sequence": 2},
+            ],
+            "next_sub_task_message": "Finding the form counts. Next: fill it in, ~20 min, whenever.",
+        }
+    )
     undo = fake.install()
     try:
         with patch("app.models.llm", return_value=model):
@@ -92,9 +99,7 @@ async def test_cannot_finish_after_a_nudge_writes_sub_tasks_under_the_nudged_pag
     finally:
         undo()
 
-    children = [
-        fake.pages[w.page_id] for w in fake.writes if w.op == "create_task"
-    ]
+    children = [fake.pages[w.page_id] for w in fake.writes if w.op == "create_task"]
     assert [(c["title"], c["parent_id"]) for c in children] == [
         ("Fill in the renewal form", page),
         ("Pay the renewal fee online", page),

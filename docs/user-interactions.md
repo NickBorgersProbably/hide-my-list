@@ -983,19 +983,19 @@ AI detects reminder-style language and sets:
 - relative date phrases (`today`, `tomorrow`, `tonight`, day-of-week names) resolved from the user's configured timezone (`USER_TZ` env var, default `America/Chicago`), not the UTC message timestamp
 
 **Confirmation message style:**
-> "Got it — I'll remind you around 6pm PT to email Melanie."
+> "Got it — I'll remind you at 6pm to call the pharmacy."
 
-"Around" is intentional. The reminder_dispatcher polls every 30 seconds; delivery is at-least-once. "Around 6pm" avoids overpromising exact wall-clock delivery.
+For a reminder, the confirmation says the time the way the user said it: "in 10 minutes" stays "in 10 minutes", "at 8pm" stays "at 8pm". It never converts a relative time into a clock time (the rule in `docs/ai-prompts/intake.md`, CONFIRMATION MESSAGE FORMAT). The user's own phrasing is the time they asked for and will recognize; the reminder_dispatcher polls every 30 seconds, so delivery lands within about half a minute of it. Tentative wording ("I'll try to remind you around…") is reserved for a reminder whose outbox write failed.
 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
-The same rule applies when a message moves an existing reminder to a new time ("actually make it 6pm", "push that to 8"): intake moves the reminder it just set or just delivered rather than adding a second one, and replies with one short confirmation sentence, no narration of internal cleanup or replacement steps.
+The same rule applies when a message moves an existing reminder to a new time ("actually make it 6pm", "push that to 8"): intake moves the reminder it just set or just delivered rather than adding a second one, and replies with one short confirmation sentence that states the new time the way the user said it, no narration of internal cleanup or replacement steps.
 
 User timezone is read from the `USER_TZ` environment variable (default `America/Chicago`). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. Use `scripts/user-time-context.sh` when a UTC timestamp needs conversion to the user-local calendar before deciding what "tomorrow" or "tonight" means.
 
 ### Reminder vs. Deadline
 
 Different concepts:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification fired by the APScheduler `reminder_dispatcher` at `remind_at`; at-least-once delivery via the Postgres outbox, which is why intake confirmations say "around 6pm"
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification fired by the APScheduler `reminder_dispatcher` at `remind_at`; at-least-once delivery via the Postgres outbox
 - **Deadline**: "Review proposal by Friday" → urgency-scored task; not a user-requested wall-clock notification, but deadline-bearing tasks receive scheduled milestone nudges (see above)
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.

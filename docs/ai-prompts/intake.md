@@ -199,6 +199,16 @@ created. When enqueue fails, the AI node must not confirm exact delivery — use
 tentative wording ("I'll try to remind you around…") rather than certain wording
 ("I'll remind you at…").
 
+**Moved reminder outbox failure:** Moving a reminder writes the new time to
+Notion, then swaps the outbox rows in one transaction. When that swap fails,
+the transaction rolls back, so the old row still waits at the old time. The
+runtime restores the page's previous `Remind At` and status (best effort,
+logged), emits a `reminder_enqueue_failed` ops alert, and replaces the model's
+confirmation with a fixed tentative reply: "I tried to move {task}, but the new
+time didn't save on my end, so it may still go off at the old time. Mind
+sending the new time again?" It never sends the certain confirmation for a move
+that did not land.
+
 Examples:
   "Remind me at 6pm PT to email Melanie" →
     is_reminder: true, remind_at: "2025-01-04T18:00:00-08:00", title: "Email Melanie availability"

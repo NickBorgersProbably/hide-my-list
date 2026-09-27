@@ -94,8 +94,11 @@ title, so `send_node` names the task. When the model returns
 `phase: analyze_remaining`, each entry in `remaining_sub_tasks` (at most
 six, each with a non-empty title) is created in Notion as a hidden sub-task
 of that page (`Parent Task` = the page, `Sequence` from the model, work type
-and energy from the task). A `phase: ask_progress` reply writes nothing. A
-failed sub-task write is logged and skipped; the reply still goes out.
+and energy from the task). Each sub-task's time estimate is clamped into the
+15-90 minute chunk range (a missing estimate becomes 30 minutes); an
+out-of-range estimate never drops the sub-task. A `phase: ask_progress` reply
+writes nothing. A failed sub-task write is logged and skipped; the reply still
+goes out.
 
 ### Progress Question Templates (Shame-Safe)
 

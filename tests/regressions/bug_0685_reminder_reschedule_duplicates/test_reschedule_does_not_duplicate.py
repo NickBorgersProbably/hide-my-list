@@ -4,6 +4,7 @@ See README.md. Two intake turns with a mocked model: turn 1 sets a 5pm
 reminder, turn 2 moves it. Turn 2 receives turn 1's recent-task ledger, as
 the checkpoint delivers it in production.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,9 +17,7 @@ import pytest
 
 from tests.support.notion_fake import FakeNotion
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set"
-)
+pytestmark = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set")
 
 PEER = "<test-bug-0685-peer>"
 
@@ -90,15 +89,25 @@ async def test_time_change_moves_the_reminder_instead_of_duplicating_it() -> Non
     fake = FakeNotion()
     undo = fake.install()
     try:
-        with patch("app.models.llm", return_value=_model(_save(
-            "2026-10-01T17:00:00-05:00", None, "Got it — I'll remind you at 5pm to {task}."
-        ))):
+        with patch(
+            "app.models.llm",
+            return_value=_model(
+                _save(
+                    "2026-10-01T17:00:00-05:00", None, "Got it — I'll remind you at 5pm to {task}."
+                )
+            ),
+        ):
             first = await intake_node(_state("remind me to call the pharmacy at 5pm", []))
         (page,) = fake.written_pages("create_reminder")
 
-        with patch("app.models.llm", return_value=_model(_save(
-            "2026-10-01T18:00:00-05:00", "R1", "Got it — I'll remind you at 6pm to {task}."
-        ))):
+        with patch(
+            "app.models.llm",
+            return_value=_model(
+                _save(
+                    "2026-10-01T18:00:00-05:00", "R1", "Got it — I'll remind you at 6pm to {task}."
+                )
+            ),
+        ):
             second = await intake_node(_state("actually make it 6pm", first["recent_tasks"]))
     finally:
         undo()

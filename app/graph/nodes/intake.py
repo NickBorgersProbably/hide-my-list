@@ -60,6 +60,15 @@ log = structlog.get_logger(__name__)
 _DEDUP_CONFIDENCE_THRESHOLD = 0.85
 
 
+# Reply when a move's outbox write fails. The reminder still fires at its old
+# time (the page is restored to it), so the reply is tentative and names that,
+# rather than confirming a time nothing will deliver at.
+RESCHEDULE_FAILED_REPLY = (
+    "I tried to move {task}, but the new time didn't save on my end, so it may "
+    "still go off at the old time. Mind sending the new time again?"
+)
+
+
 @dataclass(frozen=True)
 class DedupMatch:
     """Confirmed existing task match."""
@@ -442,8 +451,11 @@ async def _reschedule_reminder(
 
     With no usable new time the node asks for one and writes nothing. A
     Notion failure raises to the caller's error path, which tells the user
-    nothing was saved. An outbox failure after the Notion write is logged and
-    alerted like a failed enqueue on a new reminder.
+    nothing was saved. An outbox failure after the Notion write rolls back the
+    swap (the old row keeps its old time), restores the page's previous time
+    and status (best effort), raises a `reminder_enqueue_failed` ops alert, and
+    replies with the tentative `RESCHEDULE_FAILED_REPLY` — never the
+    confirmation.
     """
     from app.tools import notion
     from app.tools.db import get_db_conn
@@ -477,6 +489,7 @@ async def _reschedule_reminder(
         properties["Completed At"] = {"date": None}
     await notion.update_property(page_id=target.page_id, prop_json={"properties": properties})
 
+    moved = True
     try:
         async with get_db_conn() as conn:
             cancelled, _ = await reschedule_for_page(
@@ -494,25 +507,38 @@ async def _reschedule_reminder(
             was_completed=target.status == "Completed",
         )
     except Exception:
+        # The transaction rolled back: the old row still waits at the old
+        # time and no row waits at the new one. Put the page back so Notion
+        # and the outbox agree, and never confirm a move that did not land.
+        moved = False
         log.exception("intake_node.reschedule_enqueue_failed", page_id=target.page_id)
+        restored = await _restore_reminder_page(target)
         try:
             from app.tools import ops_alerts
             await ops_alerts.enqueue(
                 kind="reminder_enqueue_failed",
                 body=(
                     f"Reminder reschedule outbox write failed for page {target.page_id!r}. "
-                    "Notion holds the new time; the outbox still holds the old one."
+                    "The outbox still holds the old time; "
+                    + (
+                        "the page was restored to it."
+                        if restored
+                        else "restoring the page failed, so Notion shows the new time."
+                    )
                 ),
                 severity="warning",
             )
         except Exception:
             log.exception("intake_node.ops_alert_failed", page_id=target.page_id)
 
-    body = (
-        confirmation.strip()
-        if isinstance(confirmation, str) and confirmation.strip()
-        else "Got it — I'll remind you then to {task}."
-    )
+    if moved:
+        body = (
+            confirmation.strip()
+            if isinstance(confirmation, str) and confirmation.strip()
+            else "Got it — I'll remind you then to {task}."
+        )
+    else:
+        body = RESCHEDULE_FAILED_REPLY
     draft: OutboundDraft = {
         "recipient": peer,
         "body": body,
@@ -536,6 +562,32 @@ async def _reschedule_reminder(
         "recent_tasks": recent_tasks,
         "turn_actions": turn_actions,
     }
+
+
+async def _restore_reminder_page(target: RescheduleCandidate) -> bool:
+    """Put a reminder page back to the time and state it had before a failed move.
+
+    Best effort: returns whether the write succeeded and logs a failure. With
+    no known previous time there is nothing to restore to.
+    """
+    from app.tools import notion
+
+    if target.remind_at is None:
+        log.warning("intake_node.reschedule_restore_skipped", page_id=target.page_id)
+        return False
+    was_completed = target.status == "Completed"
+    properties: dict[str, Any] = {
+        "Remind At": {"date": {"start": target.remind_at.isoformat()}},
+        "Status": {"select": {"name": target.status or "Pending"}},
+        "Reminder Status": {"select": {"name": "sent" if was_completed else "pending"}},
+    }
+    try:
+        await notion.update_property(page_id=target.page_id, prop_json={"properties": properties})
+    except Exception:
+        log.exception("intake_node.reschedule_restore_failed", page_id=target.page_id)
+        return False
+    log.info("intake_node.reschedule_restored", page_id=target.page_id)
+    return True
 
 
 async def _find_existing_task_match(proposed_title: str) -> DedupMatch | None:
