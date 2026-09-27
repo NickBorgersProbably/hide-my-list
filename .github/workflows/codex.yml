@@ -483,7 +483,7 @@ jobs:
             echo "Author session persisted at $(./scripts/ci-session-store.sh host-dir "${AGENT}" "${ISSUE_NUMBER}" "${RUN_ID}")"
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Author session not persisted; review-pipeline fixer will fall back to fresh Claude."
+            echo "::warning::Author session not persisted; review-pipeline fixer will fall back to fresh Codex."
             echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
 

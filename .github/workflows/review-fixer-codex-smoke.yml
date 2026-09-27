@@ -91,8 +91,47 @@ jobs:
           # .github/ci/agent-models.env; scripts/test-agent-model-tier.sh
           # fails the build if they drift.
           if [ -f .github/ci/agent-models.env ]; then
-            # shellcheck disable=SC1091
-            source .github/ci/agent-models.env
+            seen_keys=""
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in
+                ''|'#'*) continue ;;
+              esac
+              case "$line" in
+                *=*) key="${line%%=*}"; value="${line#*=}" ;;
+                *) echo "Invalid agent-models.env line: $line" >&2; exit 1 ;;
+              esac
+              case " $seen_keys " in
+                *" $key "*) echo "Duplicate agent-models.env key: $key" >&2; exit 1 ;;
+              esac
+              case "$key" in
+                CODEX_MODEL_FRONTIER|CODEX_MODEL_LUNA)
+                  [[ "$value" =~ ^gpt-[A-Za-z0-9._-]+$ ]] || {
+                    echo "Invalid model id for $key" >&2
+                    exit 1
+                  }
+                  ;;
+                CODEX_REASONING_FRONTIER|CODEX_REASONING_LUNA)
+                  [[ "$value" =~ ^(minimal|low|medium|high)$ ]] || {
+                    echo "Invalid reasoning effort for $key" >&2
+                    exit 1
+                  }
+                  ;;
+                *) echo "Unexpected agent-models.env key: $key" >&2; exit 1 ;;
+              esac
+              case "$key" in
+                CODEX_MODEL_FRONTIER) CODEX_MODEL_FRONTIER="$value" ;;
+                CODEX_REASONING_FRONTIER) CODEX_REASONING_FRONTIER="$value" ;;
+                CODEX_MODEL_LUNA) CODEX_MODEL_LUNA="$value" ;;
+                CODEX_REASONING_LUNA) CODEX_REASONING_LUNA="$value" ;;
+              esac
+              seen_keys="$seen_keys $key"
+            done < .github/ci/agent-models.env
+            for key in CODEX_MODEL_FRONTIER CODEX_REASONING_FRONTIER CODEX_MODEL_LUNA CODEX_REASONING_LUNA; do
+              case " $seen_keys " in
+                *" $key "*) ;;
+                *) echo "Missing agent-models.env key: $key" >&2; exit 1 ;;
+              esac
+            done
           else
             echo "::notice::agent-models.env missing on this checkout; using built-in defaults"
             CODEX_MODEL_FRONTIER=gpt-5.6-sol
