@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import UTC, datetime
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import structlog
@@ -29,6 +30,7 @@ log = structlog.get_logger(__name__)
 async def rejection_node(state: State) -> dict[str, Any]:
     """REJECT handler: classify rejection and suggest alternative."""
     peer = state.get("peer", "")
+    incoming = state.get("incoming", "")
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -36,15 +38,28 @@ async def rejection_node(state: State) -> dict[str, Any]:
         from app.models import llm
         from app.prompts.loader import render_with_defaults
         from app.tools import notion
-
-        incoming = state.get("incoming", "")
         active_task = state.get("active_task")
         available_minutes = state.get("available_minutes") or 30
         mood = state.get("mood") or "neutral"
 
         stored_title = (active_task.get("title") or "").strip() if active_task else ""
-        task_title = stored_title or "the suggested task"
         rejected_page_id = active_task.get("page_id", "") if active_task else ""
+        rejection_count_known: int | None = (
+            int(active_task.get("rejection_count", 0) or 0) if active_task else None
+        )
+        if not rejected_page_id:
+            # A "no" with nothing active declines the alternative offered last
+            # turn: an offer is only `suggested` in the ledger, never active, so
+            # without this the second and every later "no" in a run would leave
+            # no `rejected` trace and the streak could never reach three.
+            declined = _declined_suggestion(state.get("recent_tasks"), now=datetime.now(UTC))
+            if declined is not None:
+                rejected_page_id, stored_title = declined
+        task_title = stored_title or "the suggested task"
+        rejection_streak = (
+            _consecutive_rejection_count(state.get("recent_tasks"), now=datetime.now(UTC))
+            + 1
+        )
 
         # Fetch remaining tasks for alternative suggestion
         tasks_raw = await notion.query_pending()
@@ -73,6 +88,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 "recent_tasks": render_recent_tasks(
                     state.get("recent_tasks"), now=datetime.now(UTC)
                 ),
+                "rejection_streak": rejection_streak,
             },
             defaults={
                 "task_title": "the suggested task",
@@ -82,6 +98,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 "mood": "neutral",
                 "conversation_history": "No prior context.",
                 "recent_tasks": "None yet.",
+                "rejection_streak": 1,
             },
         )
 
@@ -94,7 +111,9 @@ async def rejection_node(state: State) -> dict[str, Any]:
         response = await model.ainvoke(messages)
         response_text = str(response.content).strip()
 
-        user_message, alternative_id = _parse_rejection_response(response_text)
+        user_message, alternative_id = _parse_rejection_response(
+            response_text, incoming, rejection_streak
+        )
         alternative_title = _alternative_task_title(alternative_id, remaining)
         user_message = render_task_token(user_message, title=alternative_title)
 
@@ -102,15 +121,18 @@ async def rejection_node(state: State) -> dict[str, Any]:
         turn_actions = list(state.get("turn_actions") or [])
         if rejected_page_id:
             try:
+                if rejection_count_known is None:
+                    # Declined from the ledger: read the stored count so the
+                    # bump never overwrites a higher value.
+                    page = await notion.get_page(page_id=rejected_page_id)
+                    rejection_count_known = _extract_number(
+                        page.get("properties", {}), "Rejection Count", 0
+                    )
                 await notion.update_property(
-                    rejected_page_id,
-                    {
+                    page_id=rejected_page_id,
+                    prop_json={
                         "properties": {
-                            "Rejection Count": {
-                                "number": active_task.get("rejection_count", 0) + 1
-                                if active_task
-                                else 1
-                            }
+                            "Rejection Count": {"number": rejection_count_known + 1}
                         }
                     },
                 )
@@ -174,16 +196,122 @@ async def rejection_node(state: State) -> dict[str, Any]:
 
     except Exception:
         log.exception("rejection_node.error", peer=peer)
+        body = (
+            "Nothing's wrong with you. Want to step away for a bit?"
+            if _is_distress(incoming)
+            else "No problem. I'm here whenever you're ready."
+        )
         fallback: OutboundDraft = {
             "recipient": peer,
-            "body": "No problem — that helps me learn. Want me to find something different?",
+            "body": body,
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
 
 
-def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
-    """Parse LLM JSON response. Returns (user_message, alternative_task_id)."""
+_REJECTION_STREAK_FRESHNESS = timedelta(hours=24)
+
+_DISTRESS_PATTERN = re.compile(
+    r"\b(useless|wrong with me|hate myself|i'?m? ?(a )?failure|can'?t do anything)\b",
+    re.IGNORECASE,
+)
+
+
+_DECLINED_SUGGESTION_FRESHNESS = timedelta(hours=24)
+
+
+def _declined_suggestion(
+    recent_tasks: Iterable[object] | None,
+    *,
+    now: datetime,
+) -> tuple[str, str] | None:
+    """The newest titled `suggested` ledger entry from the last 24 h, as (page_id, title).
+
+    With nothing active, a rejection declines the alternative offered last
+    turn. An older suggestion belongs to a different sitting and is skipped.
+    """
+    for raw in recent_tasks or []:
+        if not isinstance(raw, dict) or raw.get("event") != "suggested":
+            continue
+        page_id = raw.get("page_id")
+        title = raw.get("title")
+        if not isinstance(page_id, str) or not page_id:
+            continue
+        if not isinstance(title, str) or not title.strip():
+            continue
+        at = _parse_entry_at(raw.get("at"))
+        if at is not None and now - at > _DECLINED_SUGGESTION_FRESHNESS:
+            return None
+        return page_id, title.strip()
+    return None
+
+
+def _consecutive_rejection_count(
+    recent_tasks: Iterable[object] | None,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Count consecutive `rejected` ledger events before this turn's rejection.
+
+    State has no dedicated counter for "rejections in a row this session", so
+    the escalation rule in docs/ai-prompts/rejection.md (Escalation After
+    Multiple Rejections) derives it from the recent-task ledger: walk the
+    ledger in its stored (newest-first) order, skip the pending `suggested`
+    entry (the alternative offered last turn, not itself a rejection), and
+    count `rejected` entries until a `completed`, `added`, `reminded`, or
+    `nudged` event breaks the streak. A `rejected` entry older than
+    `_REJECTION_STREAK_FRESHNESS` also breaks it: a "no" from days ago is a
+    different sitting, not part of this run. The caller adds 1 for the
+    rejection this turn is currently handling.
+    """
+    reference = now or datetime.now(UTC)
+    count = 0
+    for raw in recent_tasks or []:
+        if not isinstance(raw, dict):
+            continue
+        event = raw.get("event")
+        if event == "suggested":
+            continue
+        if event == "rejected":
+            at = _parse_entry_at(raw.get("at"))
+            if at is not None and reference - at > _REJECTION_STREAK_FRESHNESS:
+                break
+            count += 1
+            continue
+        break
+    return count
+
+
+def _parse_entry_at(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _is_distress(text: str) -> bool:
+    """True when the message contains self-blame or distress signals."""
+    return bool(_DISTRESS_PATTERN.search(text))
+
+
+def _parse_rejection_response(
+    response_text: str,
+    incoming: str = "",
+    rejection_streak: int = 1,
+) -> tuple[str, str | None]:
+    """Parse LLM JSON response. Returns (user_message, alternative_task_id).
+
+    Distress and streak >= 3 are hard exits that take priority over model
+    output: distress is checked before JSON parsing so valid model JSON cannot
+    bypass the shame-safe exit ramp.
+    """
+    if _is_distress(incoming):
+        return "Nothing's wrong with you. Want to step away for a bit?", None
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
         try:
@@ -193,13 +321,16 @@ def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
             data = cast(dict[str, Any], loaded)
             user_message = data.get("user_message", response_text[:300])
             alternative_id = data.get("alternative_task_id")
-            return (
-                user_message if isinstance(user_message, str) else response_text[:300],
-                alternative_id if isinstance(alternative_id, str) else None,
-            )
+            user_message_str = user_message if isinstance(user_message, str) else response_text[:300]
+            alternative_id_str = alternative_id if isinstance(alternative_id, str) else None
+            # At streak >= 3 the spec requires no alternative task regardless of
+            # what the model returned.
+            if rejection_streak >= 3:
+                alternative_id_str = None
+            return user_message_str, alternative_id_str
         except json.JSONDecodeError:
             pass
-    return response_text[:300] if response_text else "No problem. Want something different?", None
+    return response_text[:300] if response_text else "No problem. I'm here whenever you're ready.", None
 
 
 def _alternative_task_title(
