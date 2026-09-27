@@ -66,6 +66,7 @@ class RescheduleCandidate:
     title: str
     remind_at: datetime | None
     status: str
+    completed_at: datetime | None = None
 
 
 def _parse_at(value: object) -> datetime | None:
@@ -172,6 +173,7 @@ async def load_reschedule_candidates(
                 title=title,
                 remind_at=_parse_at(_date_start(props, "Remind At")),
                 status=extract_select(props, "Status"),
+                completed_at=_parse_at(_date_start(props, "Completed At")),
             )
         )
     if failed:

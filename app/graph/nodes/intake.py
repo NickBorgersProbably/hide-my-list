@@ -565,22 +565,28 @@ async def _reschedule_reminder(
 
 
 async def _restore_reminder_page(target: RescheduleCandidate) -> bool:
-    """Put a reminder page back to the time and state it had before a failed move.
+    """Put a reminder page back to the exact state it had before a failed move.
 
-    Best effort: returns whether the write succeeded and logs a failure. With
-    no known previous time there is nothing to restore to.
+    Best effort: returns whether the write succeeded and logs a failure.
+    Restores Status, Reminder Status, Remind At (or clears it when the prior
+    value was null), and Completed At when the page was previously Completed.
     """
     from app.tools import notion
 
-    if target.remind_at is None:
-        log.warning("intake_node.reschedule_restore_skipped", page_id=target.page_id)
-        return False
     was_completed = target.status == "Completed"
     properties: dict[str, Any] = {
-        "Remind At": {"date": {"start": target.remind_at.isoformat()}},
         "Status": {"select": {"name": target.status or "Pending"}},
         "Reminder Status": {"select": {"name": "sent" if was_completed else "pending"}},
     }
+    if target.remind_at is not None:
+        properties["Remind At"] = {"date": {"start": target.remind_at.isoformat()}}
+    else:
+        properties["Remind At"] = {"date": None}
+    if was_completed:
+        if target.completed_at is not None:
+            properties["Completed At"] = {"date": {"start": target.completed_at.isoformat()}}
+        else:
+            properties["Completed At"] = {"date": None}
     try:
         await notion.update_property(page_id=target.page_id, prop_json={"properties": properties})
     except Exception:

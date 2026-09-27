@@ -48,6 +48,36 @@ _MIN_SUB_TASK_MINUTES = 15
 _MAX_SUB_TASK_MINUTES = 90
 
 
+def _anchor_is_newer(
+    active_task: Mapping[str, Any],
+    anchor_page_id: str,
+    entries: Iterable[object] | None,
+) -> bool:
+    """True when the fresh ledger anchor's event is more recent than the active task's selection.
+
+    Both timestamps must be present and parseable; any missing or bad timestamp
+    falls back to False so `active_task` retains its default priority.
+    """
+    active_at_str = str(active_task.get("selected_at") or "")
+    if not active_at_str:
+        return False
+    for raw in entries or []:
+        if not isinstance(raw, Mapping) or raw.get("page_id") != anchor_page_id:
+            continue
+        raw_at = raw.get("at")
+        if not isinstance(raw_at, str) or not raw_at:
+            return False
+        try:
+            anchor_at = datetime.fromisoformat(raw_at.replace("Z", "+00:00"))
+            anchor_at = anchor_at.replace(tzinfo=UTC) if anchor_at.tzinfo is None else anchor_at.astimezone(UTC)
+            active_at = datetime.fromisoformat(active_at_str.replace("Z", "+00:00"))
+            active_at = active_at.replace(tzinfo=UTC) if active_at.tzinfo is None else active_at.astimezone(UTC)
+            return anchor_at > active_at
+        except ValueError:
+            return False
+    return False
+
+
 def ledger_anchor(
     entries: Iterable[object] | None, *, now: datetime
 ) -> tuple[str, str] | None:
@@ -157,6 +187,8 @@ async def _ledger_task_details(page_id: str) -> dict[str, Any]:
             details["work_type"] = work_type
         if energy := _select(props, "Energy Required"):
             details["energy_required"] = energy
+        if status := _select(props, "Status"):
+            details["status"] = status
         return details
     except Exception as exc:
         log.info(
@@ -180,18 +212,40 @@ async def cannot_finish_node(state: State) -> dict[str, Any]:
         active_task = state.get("active_task")
         now = datetime.now(UTC)
 
+        turn_actions = list(state.get("turn_actions") or [])
+
+        anchor = ledger_anchor(state.get("recent_tasks"), now=now)
+
         task: dict[str, Any] = {}
         source = "none"
-        if active_task:
+        use_anchor = anchor is not None and (
+            not active_task
+            or _anchor_is_newer(active_task, anchor[0], state.get("recent_tasks"))
+        )
+        if use_anchor and anchor is not None:
+            page_id, title = anchor
+            task = {"page_id": page_id, "title": title}
+            task.update(await _ledger_task_details(page_id))
+            source = "ledger"
+            # Reminder delivery marks the page Completed; reopen it so sub-tasks
+            # are children of an active (non-terminal) page.
+            if task.get("status") == "Completed":
+                try:
+                    from app.tools import notion
+
+                    await notion.update_property(
+                        page_id=page_id,
+                        prop_json={"properties": {"Status": {"select": {"name": "Pending"}}}},
+                    )
+                    turn_actions = record_turn_action(
+                        turn_actions, action="notion.update_status", page_id=page_id
+                    )
+                    log.info("cannot_finish_node.reopened", page_id=page_id)
+                except Exception:
+                    log.exception("cannot_finish_node.reopen_failed", page_id=page_id)
+        elif active_task:
             task = dict(active_task)
             source = "active_task"
-        else:
-            anchor = ledger_anchor(state.get("recent_tasks"), now=now)
-            if anchor is not None:
-                page_id, title = anchor
-                task = {"page_id": page_id, "title": title}
-                task.update(await _ledger_task_details(page_id))
-                source = "ledger"
 
         real_title = str(task.get("title") or "").strip()
         task_title = real_title or "your task"
@@ -228,7 +282,6 @@ async def cannot_finish_node(state: State) -> dict[str, Any]:
         parsed = _parse_json(response_text)
         user_message = _parse_cannot_finish_response(response_text)
 
-        turn_actions = list(state.get("turn_actions") or [])
         sub_tasks = remaining_sub_tasks(parsed) if page_id else []
         created = 0
         if sub_tasks:

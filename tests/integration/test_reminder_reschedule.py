@@ -881,3 +881,319 @@ async def test_a_failed_outbox_swap_rolls_back_and_keeps_the_old_row(db_conn: An
     ]
     assert fake.pages[page]["remind_at"] == "2026-10-01T22:00:00+00:00"
     assert result["pending_outbound"][0]["body"] == RESCHEDULE_FAILED_REPLY
+
+
+# ---------------------------------------------------------------------------
+# intake_node failure path — full kwargs bound against real signatures (clause 10)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_intake_move_failure_path_kwargs_match_real_signatures() -> None:
+    """update_property (forward write + restore) and ops_alerts.enqueue use correct kwargs.
+
+    A renamed parameter in any of these dependencies must cause a loud bind error
+    here instead of a silent test pass (mocks swallow all args regardless of names).
+    """
+    from app.graph.nodes.intake import intake_node
+    from app.tools import notion as notion_mod
+    from app.tools import ops_alerts as ops_mod
+
+    real_update = notion_mod.update_property
+    real_enqueue = ops_mod.enqueue
+
+    update_calls: list[dict] = []
+
+    async def _tracking_update(page_id: str, prop_json: dict) -> dict:
+        update_calls.append({"page_id": page_id, "prop_json": prop_json})
+        return {}
+
+    alert_mock = AsyncMock(return_value=uuid.uuid4())
+
+    fake = FakeNotion()
+    page = fake.seed_task(
+        title="Call the pharmacy",
+        is_reminder=True,
+        status="Completed",
+        reminder_status="sent",
+        remind_at="2026-10-01T17:00:00-05:00",
+    )
+    model = _model(_intake_json(remind_at="2026-10-01T18:00:00-05:00", reschedule_of="R1"))
+    undo = fake.install()
+    try:
+        with (
+            patch("app.models.llm", return_value=model),
+            patch("app.tools.notion.update_property", _tracking_update),
+            patch("app.tools.db.get_db_conn", return_value=_mock_conn_ctx()),
+            patch(
+                "app.tools.reminders.reschedule_for_page",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("app.tools.ops_alerts.enqueue", alert_mock),
+        ):
+            await intake_node(
+                _state(
+                    incoming="actually make it 6pm",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="reminded")
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    update_sig = inspect.signature(inspect.unwrap(real_update))
+
+    # Call 1: forward move — sets new time, reopens page, clears Completed At
+    assert len(update_calls) >= 1, "Expected at least 1 update_property call (forward)"
+    fwd = update_calls[0]
+    fwd_bound = update_sig.bind(page_id=fwd["page_id"], prop_json=fwd["prop_json"])
+    assert fwd_bound.arguments["page_id"] == page
+    fwd_props = fwd_bound.arguments["prop_json"]["properties"]
+    assert "Remind At" in fwd_props
+    assert fwd_props.get("Completed At") == {"date": None}
+
+    # Call 2: restore — puts page back, including Status
+    assert len(update_calls) == 2, f"Expected 2 update_property calls, got {len(update_calls)}"
+    rst = update_calls[1]
+    rst_bound = update_sig.bind(page_id=rst["page_id"], prop_json=rst["prop_json"])
+    assert rst_bound.arguments["page_id"] == page
+    rst_props = rst_bound.arguments["prop_json"]["properties"]
+    assert "Status" in rst_props
+    assert "Remind At" in rst_props
+
+    # Ops alert — full kwargs bound against real signature
+    alert_mock.assert_awaited_once()
+    alert_sig = inspect.signature(inspect.unwrap(real_enqueue))
+    alert_bound = alert_sig.bind(**alert_mock.await_args.kwargs)
+    assert alert_bound.arguments["kind"] == "reminder_enqueue_failed"
+    assert isinstance(alert_bound.arguments["body"], str) and len(alert_bound.arguments["body"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# design/d-001: restore includes Completed At; null remind_at no longer skips
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_intake_move_failure_restore_includes_completed_at() -> None:
+    """When the moved page was Completed, the restore write includes Completed At."""
+    from app.graph.nodes.intake import intake_node
+
+    restore_calls: list[dict] = []
+
+    fake = FakeNotion()
+    page = fake.seed_task(
+        title="Call the pharmacy",
+        is_reminder=True,
+        status="Completed",
+        reminder_status="sent",
+        remind_at="2026-10-01T17:00:00-05:00",
+    )
+
+    call_n = {"n": 0}
+
+    async def _update(page_id: str, prop_json: dict) -> dict:
+        call_n["n"] += 1
+        if call_n["n"] > 1:
+            restore_calls.append({"page_id": page_id, "prop_json": prop_json})
+        return {}
+
+    model = _model(_intake_json(remind_at="2026-10-01T18:00:00-05:00", reschedule_of="R1"))
+    undo = fake.install()
+    try:
+        with (
+            patch("app.models.llm", return_value=model),
+            patch("app.tools.notion.update_property", _update),
+            patch("app.tools.db.get_db_conn", return_value=_mock_conn_ctx()),
+            patch(
+                "app.tools.reminders.reschedule_for_page",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("app.tools.ops_alerts.enqueue", AsyncMock()),
+        ):
+            await intake_node(
+                _state(
+                    incoming="actually make it 6pm",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="reminded")
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    assert len(restore_calls) == 1, "Expected exactly one restore call"
+    rst_props = restore_calls[0]["prop_json"]["properties"]
+    assert "Completed At" in rst_props, "Restore must include Completed At for a previously-Completed page"
+
+
+@pytest.mark.asyncio
+async def test_intake_move_failure_restores_even_with_null_remind_at() -> None:
+    """A page whose prior Remind At was null does not skip the restore."""
+    from app.graph.nodes.intake import RESCHEDULE_FAILED_REPLY, intake_node
+
+    restore_calls: list[dict] = []
+    call_n = {"n": 0}
+
+    # Seed without remind_at so the candidate has remind_at=None
+    fake = FakeNotion()
+    page = fake.add_task(title="Call the pharmacy", status="Pending", is_reminder=True)
+
+    async def _update(page_id: str, prop_json: dict) -> dict:
+        call_n["n"] += 1
+        if call_n["n"] > 1:
+            restore_calls.append({"page_id": page_id, "prop_json": prop_json})
+        return {}
+
+    model = _model(_intake_json(remind_at="2026-10-01T18:00:00-05:00", reschedule_of="R1"))
+    undo = fake.install()
+    try:
+        with (
+            patch("app.models.llm", return_value=model),
+            patch("app.tools.notion.update_property", _update),
+            patch("app.tools.db.get_db_conn", return_value=_mock_conn_ctx()),
+            patch(
+                "app.tools.reminders.reschedule_for_page",
+                AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("app.tools.ops_alerts.enqueue", AsyncMock()),
+        ):
+            result = await intake_node(
+                _state(
+                    incoming="actually make it 6pm",
+                    recent_tasks=[
+                        _ledger(page, "Call the pharmacy", kind="reminder", event="added")
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    # Even with no original Remind At, the restore still fires (clears it back to null)
+    assert len(restore_calls) == 1, "Restore must occur even when prior Remind At was null"
+    rst_props = restore_calls[0]["prop_json"]["properties"]
+    assert rst_props.get("Remind At") == {"date": None}
+    assert result["pending_outbound"][0]["body"] == RESCHEDULE_FAILED_REPLY
+
+
+# ---------------------------------------------------------------------------
+# psych/psy-001: newer ledger anchor beats older active_task
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cannot_finish_newer_nudge_beats_older_active_task() -> None:
+    """A nudge that arrived after the active task was selected wins the anchor race."""
+    from app.graph.nodes.cannot_finish import cannot_finish_node
+
+    fake = FakeNotion()
+    nudged = fake.seed_task(title="Renew the car registration", time_estimate=45)
+    active = fake.seed_task(title="Sort the mail")
+    model = _model(
+        json.dumps(
+            {
+                "phase": "ask_progress",
+                "progress_question": "No worries — what did you get into on it?",
+            }
+        )
+    )
+    undo = fake.install()
+    # active_task was selected 10 minutes ago; nudge arrived 1 minute ago
+    selected_at = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+    try:
+        with patch("app.models.llm", return_value=model):
+            result = await cannot_finish_node(
+                _state(
+                    incoming="I can't finish that today",
+                    active_task={
+                        "page_id": active,
+                        "title": "Sort the mail",
+                        "time_estimate": 30,
+                        "selected_at": selected_at,
+                    },
+                    recent_tasks=[
+                        _ledger(
+                            nudged,
+                            "Renew the car registration",
+                            kind="task",
+                            event="nudged",
+                            minutes_ago=1,
+                        )
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    # The nudge arrived more recently, so "that" means the nudged task
+    assert result["pending_outbound"][0]["notion_page_id"] == nudged
+    assert result["pending_outbound"][0].get("notion_page_title") == "Renew the car registration"
+
+
+# ---------------------------------------------------------------------------
+# psych/psy-002: reminded page is reopened before sub-tasks are added
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cannot_finish_reopens_completed_reminder_page_before_subtasks() -> None:
+    """A delivered reminder marks its page Completed; cannot_finish reopens it."""
+    from app.graph.nodes.cannot_finish import cannot_finish_node
+
+    fake = FakeNotion()
+    page = fake.seed_task(
+        title="Send the invoice",
+        status="Completed",  # reminder delivery marked it Completed
+        time_estimate=30,
+        work_type="Independent",
+        energy_required="Low",
+    )
+    model = _model(
+        json.dumps(
+            {
+                "phase": "analyze_remaining",
+                "completed_portion": "drafted it",
+                "remaining_sub_tasks": [
+                    {"title": "Attach PDF", "time_estimate_minutes": 15, "sequence": 1},
+                ],
+                "next_sub_task_message": "Good start. Next: attach the PDF to {task}.",
+            }
+        )
+    )
+    undo = fake.install()
+    try:
+        with patch("app.models.llm", return_value=model), capture_logs() as logs:
+            result = await cannot_finish_node(
+                _state(
+                    incoming="I can't finish that today, I only drafted it",
+                    recent_tasks=[
+                        _ledger(page, "Send the invoice", kind="reminder", event="reminded")
+                    ],
+                )
+            )
+    finally:
+        undo()
+
+    # Page must be reopened (Pending) before sub-tasks are added under it
+    assert fake.status_of(page) == "Pending", "Completed reminder page must be reopened"
+    writes = [w for w in fake.writes if w.page_id == page]
+    assert writes[0].op == "update_property", "First write must be the reopen"
+    assert (
+        writes[0].payload["properties"]["Status"]["select"]["name"] == "Pending"
+    ), "Reopen must set Status to Pending"
+
+    # Sub-tasks are still created under the page
+    children = [w for w in fake.writes if w.op == "create_task"]
+    assert len(children) == 1
+    assert fake.pages[children[0].page_id]["parent_id"] == page
+
+    # The reply names the task
+    draft = result["pending_outbound"][0]
+    assert draft["notion_page_id"] == page
+    assert draft.get("notion_page_title") == "Send the invoice"
+
+    reopen_log = next(
+        (e for e in logs if e["event"] == "cannot_finish_node.reopened"), None
+    )
+    assert reopen_log is not None, "Reopen must be logged"

@@ -936,7 +936,7 @@ If the next graph turn starts and the user replies to the reminder in shorthand,
 Example:
 - Agent sends: "Hey, time to clean up boxes before noon."
 - User opens a new session and says: "I did it"
-- Agent interprets that as completion of "clean up boxes before noon", delivers a completion acknowledgment that names the task, with its reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears every live `recent_outbound` row for that peer and `notion_page_id` (`signal_timestamp` is the fallback when no page id is available)
+- Agent interprets that as completion of "clean up boxes before noon", delivers a completion acknowledgment that names the task, with its reward (COMPLETE writes the page Completed again as an idempotent repair — delivery already wrote it but may have failed — then resolves every live `recent_outbound` row for that peer and `notion_page_id` (`signal_timestamp` is the fallback when no page id is available))
 
 A deadline nudge is different: it names the task ("Deadline nudge: <task>. Want one tiny next step?", or "Deadline nudge for this task. Want one tiny next step?" when no stored title is available) and points at a task page that delivery leaves open. The worker records the delivery with `reminder_type = 'deadline'`, so a "done" in reply writes the task Completed rather than assuming delivery already did.
 
@@ -950,21 +950,13 @@ named in the message resolves on its own, and a message naming nothing asks
 which task was meant.
 
 Reschedule replay:
-- Seeded `recent_outbound` context:
-  ```json
-  [
-    {
-      "type": "reminder",
-      "title": "Set up your video call software for therapy",
-      "status": "missed",
-      "awaiting_reply": true
-    }
-  ]
+- Reminder Candidates block in the intake prompt (labeled from the recent-task ledger):
   ```
-- Last visible agent message: "This was due a bit ago — set up your video call software for therapy. Want to handle it now or reschedule?"
-- User opens a new session and says: "remind me in an hour"
-- Visible reply must be one short sentence: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
-- Visible reply must not mention `recent_outbound`, Notion, cron jobs, reminder replacement, or cleanup steps.
+  - R1: "<task>" — set for <day> <date> <time> (<ISO offset>)
+  ```
+- User says: "actually make it 6pm"
+- Intake selects the candidate label the prompt showed (`reschedule_of: "R1"`), moves that page to 6pm, and replies with one short sentence: "Got it — I'll remind you at 6pm to <task>."
+- On success the reply echoes the user's time wording exactly ("at 6pm", not "around 6pm"). It must not mention Notion, prior reminder time, old row cleanup, infrastructure replacement, or any narration of steps.
 
 ### Reminder Delivery Messages
 
