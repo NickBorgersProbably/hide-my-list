@@ -86,3 +86,38 @@ def test_rendered_text_contains_passed_in_values() -> None:
     )
     assert '"Water the plants" [reminder] — reminded just now' in rendered
     assert "Book the eye appointment" in rendered
+
+
+def test_no_record_section_forbids_denying_unseen_history() -> None:
+    """An empty Recent Tasks is a 7-day window's silence, not proof of absence.
+
+    Without this section the model read "None yet." as "never happened" and
+    told the user it had not nudged them about any deadline, which was false.
+    """
+    rendered = _render_chat_prompt()
+    assert "### No record is not never" in rendered
+    section = rendered.split("### No record is not never", 1)[1].split("\n### ", 1)[0]
+    assert "no record of a recent one" in section
+    assert "Never say it did not happen" in section
+    assert "forward step" in section
+
+
+def test_whats_left_names_no_tasks() -> None:
+    """ "whats left?" is CHAT; Recent Tasks is not the list and is never enumerated."""
+    rendered = _render_chat_prompt()
+    assert "### What's on my list?" in rendered
+    section = " ".join(
+        rendered.split("### What's on my list?", 1)[1].split("\n### ", 1)[0].split()
+    )
+    assert "do not name, list, or count the tasks" in section
+    assert "do not say the list is empty" in section
+    assert "Recent Tasks is not the list" in section
+
+
+def test_guidelines_never_offer_the_task_list() -> None:
+    """No module can honor "want to see your other tasks?"; the step is one suggestion."""
+    rendered = _render_chat_prompt()
+    guidelines = rendered.split("### Response Guidelines", 1)[1].split("\n### ", 1)[0]
+    assert "Never offer to show, list, or enumerate the user's tasks" in guidelines
+    assert "want a suggestion?" in guidelines
+    assert "adding something new" in guidelines

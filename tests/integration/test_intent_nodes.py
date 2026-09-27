@@ -730,6 +730,88 @@ async def test_complete_node_logs_a_rejected_match_confidence_as_a_number() -> N
     }
 
 
+def _suggested_entry(page_id: str, title: str, *, minutes_ago: int = 2) -> dict[str, Any]:
+    return {
+        "page_id": page_id,
+        "title": title,
+        "kind": "task",
+        "event": "suggested",
+        "at": (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat(),
+    }
+
+
+@pytest.mark.asyncio
+async def test_complete_node_confirms_a_single_context_option_with_was_it() -> None:
+    """One option from context is a yes/no confirmation, not "which task was it: X?".
+
+    The shortlist match is rejected, the ledger's one open task leads the
+    options, and the ask names it as a question the user can answer "yes" to.
+    Nothing is completed on a rejected match.
+    """
+    from app.graph.nodes import complete as complete_module
+
+    update_status = AsyncMock()
+    query_all = AsyncMock(return_value={"results": [
+        _notion_task_page("<page_A>", "Schedule the deep clean"),
+    ]})
+    model = _mock_llm_response(json.dumps({"matched_page_id": None, "confidence": 0.0}))
+    llm_factory = MagicMock(return_value=model)
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", llm_factory),
+    ):
+        result = await complete_module.complete_node(
+            _complete_state(
+                incoming="Deep clean is scheduled!",
+                recent_tasks=[_suggested_entry("<page_A>", "Schedule the deep clean")],
+            )
+        )
+
+    assert llm_factory.call_args.kwargs.get("caller") == "complete_title_match"
+    update_status.assert_not_awaited()
+    body = result["pending_outbound"][0]["body"]
+    assert body == "Nice — was it Schedule the deep clean?"
+    clarification = result["pending_clarification"]
+    assert clarification["kind"] == "complete_target"
+    assert [c["page_id"] for c in clarification["candidates"]] == ["<page_A>"]
+
+
+@pytest.mark.asyncio
+async def test_complete_node_keeps_the_choice_wording_for_two_context_options() -> None:
+    """Two options from context keep "which task was it: A or B?"."""
+    from app.graph.nodes import complete as complete_module
+
+    query_all = AsyncMock(return_value={"results": [
+        _notion_task_page("<page_A>", "Schedule the deep clean"),
+        _notion_task_page("<page_B>", "Water the garden"),
+    ]})
+    model = _mock_llm_response(json.dumps({"matched_page_id": None, "confidence": 0.0}))
+
+    with (
+        patch("app.tools.notion.update_status", AsyncMock()),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", MagicMock(return_value=model)),
+    ):
+        result = await complete_module.complete_node(
+            _complete_state(
+                incoming="Deep clean is scheduled!",
+                recent_tasks=[
+                    _suggested_entry("<page_A>", "Schedule the deep clean", minutes_ago=2),
+                    _suggested_entry("<page_B>", "Water the garden", minutes_ago=5),
+                ],
+            )
+        )
+
+    body = result["pending_outbound"][0]["body"]
+    assert body == "Nice — which task was it: Schedule the deep clean or Water the garden?"
+
+
 @pytest.mark.asyncio
 async def test_complete_node_survives_a_notion_failure_during_matching() -> None:
     """The lookup is additive: when it fails, context-based resolution still runs."""

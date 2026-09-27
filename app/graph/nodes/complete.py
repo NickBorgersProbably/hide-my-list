@@ -546,6 +546,13 @@ def _build_completion_match_prompt(
             "message that mentions a task the user still intends to do, is "
             "asking about, or is about to start is NOT a match — return no "
             "match for those even when the wording overlaps a candidate title. "
+            "A report of the resulting state counts as asserting it is done: "
+            "\"X is scheduled\", \"the form is submitted\", \"the "
+            "appointment is booked\", or \"tickets are bought\" means the "
+            "candidate whose action is scheduling, submitting, booking, or "
+            "buying X is finished — match it. A question about that state "
+            "(\"is it scheduled yet?\", \"did the booking go through?\") asserts "
+            "nothing and is not a match. "
             "The cost of a false match is high: it marks a task the user has "
             "not finished as completed. If uncertain, return no match.\n\n"
             "Also report names_unlisted_task. Set it to true only when the "
@@ -1057,7 +1064,9 @@ def _clarification_body(
     When there are candidates worth naming the ask names them — recognition
     rather than recall. Options drawn from what the conversation just touched
     get their own wording, since the user named nothing and the question is
-    only which of those it was. Otherwise it stays open, and the second ask
+    only which of those it was. A single option from context is a yes/no
+    confirmation ("was it X?"), because "which task was it: X?" offers a
+    choice between one thing. Otherwise it stays open, and the second ask
     rephrases rather than repeating, because a message repeated verbatim is the
     failure this whole path exists to prevent.
     """
@@ -1065,6 +1074,10 @@ def _clarification_body(
         titles = [candidate.title for candidate in candidates[:_CLARIFICATION_OPTION_LIMIT]]
         options = _format_options(titles)
         if from_context:
+            if len(titles) == 1:
+                if attempts == 0:
+                    return f"Nice — was it {options}?"
+                return f"Just checking — was it {options}?"
             if attempts == 0:
                 return f"Nice — which task was it: {options}?"
             return f"Just checking which one — {options}?"

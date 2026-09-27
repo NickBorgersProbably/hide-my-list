@@ -442,13 +442,11 @@ flowchart TD
 
 ### Intensity Scoring
 
-| Factor | Weight | Examples |
-|--------|--------|----------|
-| Task difficulty | 30% | Time estimate, energy required |
-| Current streak | 25% | 3+ tasks = bonus |
-| Task type | 20% | Parent complete = major bonus |
-| Time of day | 15% | End of day = bonus |
-| Recent history | 10% | Diminishing returns if many recent rewards |
+| Factor | Effect | Details |
+|--------|--------|---------|
+| Task difficulty | Base score | Time estimate (min / 15 × 10) + energy level (Low = 10, Medium = 20, High = 30) |
+| Current streak | Streak bonus | streak_count × 5, added to base score |
+| Recent reward frequency | Diminishing returns | −10 per reward over 2 in the last hour |
 
 ### Completion Feedback Loop
 
@@ -1031,7 +1029,7 @@ flowchart TD
 flowchart TD
     Ask(["User: #quot;What's in my list?#quot;"]) --> Philosophy[Explain philosophy]
 
-    Philosophy --> Response["I keep track so you don't have to!<br/>You've got 8 tasks waiting.<br/>Ready to knock one out?"]
+    Philosophy --> Response["I keep track so you don't have to!<br/>Want me to pick one for you?"]
 
     Response --> Follow{User follows up?}
     Follow -->|Insists| Gentle["The point is not having to look.<br/>Trust me - I'll surface the right one."]
