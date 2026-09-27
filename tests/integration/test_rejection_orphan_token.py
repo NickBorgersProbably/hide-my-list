@@ -194,12 +194,12 @@ async def test_active_task_without_valid_alternative_drops_the_token(
     update_property.assert_awaited_once()
     call = update_property.await_args
     assert call is not None
-    assert call.args == (
-        "<page_A>",
-        {"properties": {"Rejection Count": {"number": 3}}},
+    # Bound against the real verb's signature so positional and keyword
+    # call shapes both count, and a renamed parameter fails here.
+    bound = inspect.signature(inspect.unwrap(notion.update_property)).bind(
+        *call.args, **call.kwargs
     )
-    assert call.kwargs == {}
-    params = list(inspect.signature(inspect.unwrap(notion.update_property)).parameters)
-    assert len(call.args) <= len(params)
+    assert bound.arguments["page_id"] == "<page_A>"
+    assert bound.arguments["prop_json"] == {"properties": {"Rejection Count": {"number": 3}}}
     # No alternative was offered, so none is recorded.
     assert [e["event"] for e in result["recent_tasks"]] == ["rejected"]
