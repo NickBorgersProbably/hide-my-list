@@ -213,7 +213,7 @@ _EMOJI_TEMPLATES: dict[str, list[str]] = {
         "MAJOR WIN! 🏆👑🎉✨🔥",
         "HUGE! 🏆👑✨🎉🔥💪🚀",
         "LEGENDARY DAY! 👑⭐🏆🎊",
-        "THAT WAS A BIG ONE! 🚀⭐💪🎊",
+        "WHAT A WIN! 🚀⭐💪🎊",
     ],
 }
 

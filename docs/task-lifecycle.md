@@ -907,8 +907,7 @@ flowchart TD
 | Quick task (< 15 min) | Low | 1-2 emoji + single `MEDIA:` image attachment (gentle theme) |
 | Standard task | Medium | 2-4 emoji + single `MEDIA:` image attachment (enthusiastic theme) |
 | Focus/difficult task | High | 4-6 emoji + single `MEDIA:` image attachment (majestic theme) + Music + Text SO |
-| Parent task complete | Epic | 6+ emoji + single `MEDIA:` image attachment (cosmic theme) + Music + Text SO + Outing |
-| All tasks cleared | Epic | Maximum celebration + single `MEDIA:` image attachment + Music + Text SO + Outing |
+| Long, high-energy task on a streak | Epic | 6+ emoji + single `MEDIA:` image attachment (cosmic theme, high quality) + Music + Text SO + Outing |
 
 ## Phase 7: Scheduled Reminder Delivery
 

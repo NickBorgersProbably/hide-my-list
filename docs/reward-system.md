@@ -197,7 +197,7 @@ intensity's set.
 | Low | 11-25 | A short, low-energy task with no streak | "Nice work! ✨", "Done! 💫", "Got it! ✅", "Speed demon! ⚡" |
 | Medium | 26-50 | A longer or higher-energy task, or a short task on a streak | "Deep work done! 🧠✨", "Hat trick! 🎩✨🎉", "Crushing it! 🎉✨💪", "Three down! 🔥💪" |
 | High | 51-75 | A long or high-energy task, or a medium task on a longer streak | "UNSTOPPABLE! 🔥🎉✨💪🚀", "On fire! 🔥🔥🔥✨💪", "Beast mode! 💪🔥🎉", "Conquered! ⚔️✨🏆" |
-| Epic | 76-100 | A long, high-energy task on a streak | "LEGENDARY! 🏆👑🔥🎉✨💪🚀⭐", "MAJOR WIN! 🏆👑🎉✨🔥", "HUGE! 🏆👑✨🎉🔥💪🚀", "LEGENDARY DAY! 👑⭐🏆🎊", "THAT WAS A BIG ONE! 🚀⭐💪🎊" |
+| Epic | 76-100 | A long, high-energy task on a streak | "LEGENDARY! 🏆👑🔥🎉✨💪🚀⭐", "MAJOR WIN! 🏆👑🎉✨🔥", "HUGE! 🏆👑✨🎉🔥💪🚀", "LEGENDARY DAY! 👑⭐🏆🎊", "WHAT A WIN! 🚀⭐💪🎊" |
 
 A task marked sensitive gets the muted "Done. That mattered." at every
 intensity.
@@ -899,7 +899,7 @@ flowchart TD
 
 | Level | Score Range | Emoji Count | AI Image | Music | Text SO | Outing | Used For |
 |-------|-------------|-------------|----------|-------|---------|--------|----------|
-| Lightest | 0-10 | 0 | No | No | No | No | Initiation only |
+| Lightest | 0-10 | 0 | No | No | No | No | Initiation + Completion |
 | Low | 11-25 | 1-2 | Gentle theme | No | No | No | Initiation + Completion |
 | Medium | 26-50 | 2-4 | Enthusiastic theme | Maybe | Maybe | No | Initiation (max) + Completion |
 | High | 51-75 | 4-6 | Majestic theme | Yes | Yes | Maybe | Completion only |
@@ -915,6 +915,8 @@ base_score = (time_estimate / 15) * 10 + (energy_level * 10)
 streak_bonus = streak_count * 5
 
 raw_score = base_score + streak_bonus
+# is_parent_complete and is_all_cleared are accepted by the implementation
+# but no caller passes them; milestone_bonus is always 0.
 diminishing = max(0, (rewards_in_last_hour - 2) * 10)
 
 # --- Completion rewards ---

@@ -18,7 +18,7 @@ high-energy task on a streak — never by a cleared list.
 ## Fix
 
 - `app/tools/rewards.py`: "INBOX ZERO!" became "HUGE! 🏆👑✨🎉🔥💪🚀" and
-  "PROJECT COMPLETE!" became "THAT WAS A BIG ONE! 🚀⭐💪🎊". Emoji and the number
+  "PROJECT COMPLETE!" became "WHAT A WIN! 🚀⭐💪🎊". Emoji and the number
   of templates per intensity are unchanged.
 - `docs/reward-system.md`: the completion template table is indexed by
   intensity and describes what actually reaches each one; the state rule says
