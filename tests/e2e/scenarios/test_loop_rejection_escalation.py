@@ -101,14 +101,21 @@ async def test_three_consecutive_rejections_escalate_to_normalization(
     assert ledger_2.get(second_offered) == "rejected", (
         "second rejected page should appear as 'rejected' in the ledger after turn 3"
     )
+    second_drafts = second_reject.state.get("pending_outbound") or []
+    third_offered = second_drafts[0].get("notion_page_id") if second_drafts else None
+    assert third_offered in all_tasks - {first_offered, second_offered}, (
+        f"second rejection offered {third_offered!r}, expected the last seeded task"
+    )
 
-    # Turn 4 — third rejection. Streak == 3: no task suggested, no seeded task named,
-    # normalization + mood-or-break wording in the reply.
+    # Turn 4 — third rejection. The "no" declines the alternative offered in
+    # turn 3 (its rejection count is bumped; the other pages are untouched).
+    # Streak == 3: no task suggested, no seeded task named, normalization +
+    # mood-or-break wording in the reply.
     third_reject = await conversation.say(
         "nope, nothing is working for me right now",
         expect=Expect(
             intent="REJECT",
-            notion_untouched=list(all_tasks),
+            notion_untouched=list(all_tasks - {third_offered}),
             sent_count=1,
             regex_require=[
                 r"(?i)(brain|task mode|not a failure|information|not failing)",
@@ -135,6 +142,6 @@ async def test_three_consecutive_rejections_escalate_to_normalization(
         for entry in (third_reject.state.get("recent_tasks") or [])
         if entry.get("event") == "rejected"
     }
-    assert len(ledger_3) >= 2, (
-        f"expected at least 2 rejected ledger entries after three REJECT turns; got {ledger_3}"
+    assert set(ledger_3) == all_tasks, (
+        f"expected all three seeded pages recorded as rejected after three REJECT turns; got {ledger_3}"
     )

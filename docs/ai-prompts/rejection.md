@@ -94,6 +94,12 @@ newest-first, skipping the pending `suggested` alternative, and counting
 event breaks the streak. A `rejected` entry older than 24 hours also breaks
 it: a "no" from a different day is a different sitting.
 
+The declined task is the active task, or — with nothing active — the newest
+titled `suggested` ledger entry from the last 24 hours, the alternative offered
+last turn. An offer is `suggested` in the ledger, never active, so this is what
+lets the second and every later "no" in a run leave a `rejected` entry and count
+toward the streak. Its stored rejection count is read before the bump.
+
 At the 3rd rejection and every one after, the response does not suggest
 another task at all — it normalizes explicitly first, then offers the
 constrained choice below.

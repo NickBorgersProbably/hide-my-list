@@ -337,3 +337,101 @@ async def test_rejection_node_exception_fallback_self_blame_gives_reframe(
     assert "nothing" in body.lower(), "self-blame must receive nonjudgmental reframe"
     assert "find something" not in body.lower()
     assert "something different" not in body.lower()
+
+
+@pytest.mark.asyncio
+async def test_no_active_task_declines_the_last_suggestion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With nothing active, "no" declines the alternative offered last turn:
+    its stored rejection count is read and bumped, and the ledger records it
+    as `rejected` so the streak keeps counting."""
+    from app import models as models_module
+    from app.graph.nodes.rejection import rejection_node
+    from app.tools import notion
+
+    writes: list[tuple[str, int]] = []
+
+    async def fake_query_pending() -> dict[str, Any]:
+        return {"results": []}
+
+    async def fake_get_page(page_id: str) -> dict[str, Any]:
+        assert page_id == "<page-id-002>"
+        return {"id": page_id, "properties": {"Rejection Count": {"number": 3}}}
+
+    async def fake_update_property(page_id: str, prop_json: dict[str, Any]) -> dict[str, Any]:
+        writes.append((page_id, prop_json["properties"]["Rejection Count"]["number"]))
+        return {"id": page_id}
+
+    model = _CapturingModel(
+        '{"user_message": "Your no\'s help me learn — trying something else.", '
+        '"alternative_task_id": null}'
+    )
+    monkeypatch.setattr(notion, "query_pending", fake_query_pending)
+    monkeypatch.setattr(notion, "get_page", fake_get_page)
+    monkeypatch.setattr(notion, "update_property", fake_update_property)
+    monkeypatch.setattr(models_module, "llm", lambda tier, **kwargs: model)
+
+    result = await rejection_node(
+        {
+            "peer": "<recipient>",
+            "incoming": "nah not that one",
+            "intent": "REJECT",
+            "messages": [],
+            "active_task": None,
+            "recent_tasks": [
+                {
+                    "page_id": "<page-id-002>",
+                    "title": "Placeholder second task",
+                    "kind": "task",
+                    "event": "suggested",
+                    "at": _recent_at,
+                },
+                {
+                    "page_id": "<page-id-001>",
+                    "title": "Placeholder first task",
+                    "kind": "task",
+                    "event": "rejected",
+                    "at": _recent_at,
+                },
+            ],
+            "streak": 0,
+            "tasks_completed_today": 0,
+            "user_prefs": {},
+            "mood": None,
+            "available_minutes": 30,
+            "conversation_state": "active",
+            "pending_outbound": [],
+        }
+    )
+
+    assert writes == [("<page-id-002>", 4)]
+    assert model.last_system_prompt is not None
+    assert "REJECTED TASK: Placeholder second task" in model.last_system_prompt
+    assert "REJECTION STREAK: 2" in model.last_system_prompt
+    ledger = {e["page_id"]: e["event"] for e in result["recent_tasks"]}
+    assert ledger["<page-id-002>"] == "rejected"
+
+
+def test_declined_suggestion_skips_untitled_and_stale_entries() -> None:
+    from datetime import UTC, datetime
+
+    from app.graph.nodes.rejection import _declined_suggestion
+
+    now = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
+    assert _declined_suggestion(None, now=now) is None
+    assert _declined_suggestion(
+        [{"page_id": "p", "title": "", "event": "suggested", "at": "2026-01-02T11:00:00+00:00"}],
+        now=now,
+    ) is None
+    assert _declined_suggestion(
+        [{"page_id": "p", "title": "T", "event": "suggested", "at": "2025-12-30T00:00:00+00:00"}],
+        now=now,
+    ) is None
+    assert _declined_suggestion(
+        [
+            {"page_id": "done", "title": "D", "event": "completed", "at": "2026-01-02T11:30:00+00:00"},
+            {"page_id": "p", "title": "T", "event": "suggested", "at": "2026-01-02T11:00:00+00:00"},
+        ],
+        now=now,
+    ) == ("p", "T")

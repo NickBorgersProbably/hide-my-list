@@ -43,8 +43,19 @@ async def rejection_node(state: State) -> dict[str, Any]:
         mood = state.get("mood") or "neutral"
 
         stored_title = (active_task.get("title") or "").strip() if active_task else ""
-        task_title = stored_title or "the suggested task"
         rejected_page_id = active_task.get("page_id", "") if active_task else ""
+        rejection_count_known: int | None = (
+            int(active_task.get("rejection_count", 0) or 0) if active_task else None
+        )
+        if not rejected_page_id:
+            # A "no" with nothing active declines the alternative offered last
+            # turn: an offer is only `suggested` in the ledger, never active, so
+            # without this the second and every later "no" in a run would leave
+            # no `rejected` trace and the streak could never reach three.
+            declined = _declined_suggestion(state.get("recent_tasks"), now=datetime.now(UTC))
+            if declined is not None:
+                rejected_page_id, stored_title = declined
+        task_title = stored_title or "the suggested task"
         rejection_streak = (
             _consecutive_rejection_count(state.get("recent_tasks"), now=datetime.now(UTC))
             + 1
@@ -108,15 +119,18 @@ async def rejection_node(state: State) -> dict[str, Any]:
         turn_actions = list(state.get("turn_actions") or [])
         if rejected_page_id:
             try:
+                if rejection_count_known is None:
+                    # Declined from the ledger: read the stored count so the
+                    # bump never overwrites a higher value.
+                    page = await notion.get_page(rejected_page_id)
+                    rejection_count_known = _extract_number(
+                        page.get("properties", {}), "Rejection Count", 0
+                    )
                 await notion.update_property(
                     rejected_page_id,
                     {
                         "properties": {
-                            "Rejection Count": {
-                                "number": active_task.get("rejection_count", 0) + 1
-                                if active_task
-                                else 1
-                            }
+                            "Rejection Count": {"number": rejection_count_known + 1}
                         }
                     },
                 )
@@ -199,6 +213,35 @@ _DISTRESS_PATTERN = re.compile(
     r"\b(useless|wrong with me|hate myself|i'?m? ?(a )?failure|can'?t do anything)\b",
     re.IGNORECASE,
 )
+
+
+_DECLINED_SUGGESTION_FRESHNESS = timedelta(hours=24)
+
+
+def _declined_suggestion(
+    recent_tasks: Iterable[object] | None,
+    *,
+    now: datetime,
+) -> tuple[str, str] | None:
+    """The newest titled `suggested` ledger entry from the last 24 h, as (page_id, title).
+
+    With nothing active, a rejection declines the alternative offered last
+    turn. An older suggestion belongs to a different sitting and is skipped.
+    """
+    for raw in recent_tasks or []:
+        if not isinstance(raw, dict) or raw.get("event") != "suggested":
+            continue
+        page_id = raw.get("page_id")
+        title = raw.get("title")
+        if not isinstance(page_id, str) or not page_id:
+            continue
+        if not isinstance(title, str) or not title.strip():
+            continue
+        at = _parse_entry_at(raw.get("at"))
+        if at is not None and now - at > _DECLINED_SUGGESTION_FRESHNESS:
+            return None
+        return page_id, title.strip()
+    return None
 
 
 def _consecutive_rejection_count(
