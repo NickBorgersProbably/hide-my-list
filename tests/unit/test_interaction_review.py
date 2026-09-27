@@ -362,6 +362,7 @@ async def _run(
             "send_message": signal_client.send_message,
             "maybe_reward": rewards_module.maybe_reward,
             "cancel": reminders.cancel_pending_reminders,
+            "nudges": reminders.cancel_pending_nudges,
             "resolve": reminders.resolve_recent_outbound,
             "enqueue": ops_alerts.enqueue,
         },
@@ -384,6 +385,7 @@ async def _run(
         "maybe_reward": recorded("maybe_reward", AsyncMock(
             return_value={"text": "🎉", "attachment_path": None})),
         "cancel": AsyncMock(return_value=1),
+        "nudges": AsyncMock(return_value=0),
         "resolve": AsyncMock(return_value=0),
         "enqueue": AsyncMock(),
         "graph": _Graph(),
@@ -404,6 +406,7 @@ async def _run(
         patch("app.tools.signal_client.send_message", mocks["send_message"]),
         patch("app.tools.rewards.maybe_reward", mocks["maybe_reward"]),
         patch("app.tools.reminders.cancel_pending_reminders", mocks["cancel"]),
+        patch("app.tools.reminders.cancel_pending_nudges", mocks["nudges"]),
         patch("app.tools.reminders.resolve_recent_outbound", mocks["resolve"]),
         patch("app.tools.ops_alerts.enqueue", mocks["enqueue"]),
         patch.object(review, "judge_turn", AsyncMock(return_value=verdict_json)),
@@ -448,6 +451,9 @@ async def test_complete_task_call_shapes_match_real_signatures() -> None:
         "review_id": _REVIEW_ID,
     }
     assert _bind(real["cancel"], mocks["cancel"].await_args) == {
+        "peer": "<recipient>", "notion_page_id": "<page_open>",
+    }
+    assert _bind(real["nudges"], mocks["nudges"].await_args) == {
         "peer": "<recipient>", "notion_page_id": "<page_open>",
     }
     assert _bind(real["resolve"], mocks["resolve"].await_args) == {
@@ -665,6 +671,7 @@ def _lifecycle_patches(
         ("app.tools.signal_client.send_message", AsyncMock(return_value={"timestamp": 1})),
         ("app.tools.rewards.maybe_reward", maybe_reward),
         ("app.tools.reminders.cancel_pending_reminders", AsyncMock(return_value=0)),
+        ("app.tools.reminders.cancel_pending_nudges", AsyncMock(return_value=0)),
         ("app.tools.reminders.resolve_recent_outbound", AsyncMock(return_value=0)),
         ("app.tools.ops_alerts.enqueue", AsyncMock()),
     ):

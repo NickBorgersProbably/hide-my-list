@@ -168,3 +168,58 @@ async def test_send_message_kwargs_match_signature(monkeypatch: pytest.MonkeyPat
     assert "message" in called_kwargs
     assert "idempotency_key" in called_kwargs
     assert "attachment_paths" not in called_kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("title", [None, ""])
+async def test_orphan_task_token_never_reaches_the_user(
+    signal: _CapturingSignalClient, title: str | None
+) -> None:
+    """The inverse invariant: a `{task}` with no title behind it has its sentence dropped.
+
+    A literal token is a template placeholder, never a message. The sentence
+    carrying it is removed; surviving sentences are joined and sent.
+    """
+    from structlog.testing import capture_logs
+
+    from app.graph.nodes.send import send_node
+
+    draft: dict[str, Any] = {
+        "recipient": "<recipient>",
+        "body": "No problem. How about {task}?",
+        "notion_page_id": None,
+    }
+    if title is not None:
+        draft["notion_page_title"] = title
+
+    with capture_logs() as logs:
+        await send_node(_state(draft))
+
+    assert len(signal.sent) == 1
+    sent = signal.sent[0]
+    assert sent["message"] == "No problem."
+    expected = hashlib.sha256(f"<recipient>:{sent['message']}".encode()).hexdigest()[:32]
+    assert sent["idempotency_key"] == expected
+    orphan = [e for e in logs if e["event"] == "send_node.orphan_task_token"]
+    assert len(orphan) == 1
+    assert orphan[0]["has_title"] is False
+    assert "body" not in orphan[0]
+
+
+@pytest.mark.asyncio
+async def test_orphan_task_token_all_sentences_dropped_uses_fallback(
+    signal: _CapturingSignalClient,
+) -> None:
+    """When every sentence carries the orphan token, the fallback body is sent."""
+    from app.graph.nodes.send import send_node
+
+    draft: dict[str, Any] = {
+        "recipient": "<recipient>",
+        "body": "How about {task}?",
+        "notion_page_id": None,
+    }
+
+    await send_node(_state(draft))
+
+    assert len(signal.sent) == 1
+    assert signal.sent[0]["message"] == "No problem — I've left your list as it is."

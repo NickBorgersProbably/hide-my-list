@@ -550,6 +550,15 @@ flowchart TD
     R4 -->|No| Continue[Continue suggesting]
 ```
 
+### Nothing to Reject
+
+A REJECT-shaped message when nothing is on the hook — no active task and no
+fresh titled suggestion in the recent-task ledger, as in "never mind, I'll check
+later" before anything was suggested — gets one fixed reply that names
+nothing: "No problem — nothing's on the hook right now. Want a suggestion when
+you're ready?" Nothing is written to Notion. See
+[rejection.md](ai-prompts/rejection.md#nothing-on-the-hook).
+
 ## Flow 5: Cannot Finish (Task Breakdown)
 
 User says cannot finish → task too large, needs sub-tasks. **AI must first acknowledge progress, then ask what they accomplished** to understand what remains.
@@ -933,6 +942,8 @@ A deadline nudge is different: it names the task ("Deadline nudge: <task>. Want 
 
 A reminder can also be finished before it fires. "Done!" right after "remind me to…" resolves to the new reminder through the recent-task ledger, writes its page Completed, and cancels its pending outbox row, so the reminder never goes out.
 
+Every completion — a "done" through COMPLETE, a finished-item report that completes an open task, and the interaction review's `complete_task` correction — cancels the page's undelivered deadline nudges (`last_error='task completed'`) and retires the series in the scheduling ledger. Before sending any outbox row the worker reads the Notion page: if the page is Completed the row is marked `dead` and not sent. On a Notion read failure the policy differs by kind: a `reminder` row is sent anyway (a missed reminder costs more than a duplicate); a `deadline` row is released back to the queue for a later retry.
+
 `recent_outbound` rows expire. Once one has, a shorthand reply carries nothing
 to match and the agent falls back to the resolution order in Flow 3: a task
 named in the message resolves on its own, and a message naming nothing asks
@@ -985,7 +996,7 @@ User timezone is read from the `USER_TZ` environment variable (default `America/
 
 Different concepts:
 - **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification fired by the APScheduler `reminder_dispatcher` at `remind_at`; at-least-once delivery via the Postgres outbox, which is why intake confirmations say "around 6pm"
-- **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
+- **Deadline**: "Review proposal by Friday" → urgency-scored task; not a user-requested wall-clock notification, but deadline-bearing tasks receive scheduled milestone nudges (see above)
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.
 

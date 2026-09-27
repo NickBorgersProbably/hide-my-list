@@ -63,6 +63,20 @@ def test_template_carries_self_blame_step_away_anchor() -> None:
     assert "reframe without judgment and offer" in rendered
 
 
+def test_template_carries_nothing_on_the_hook_section() -> None:
+    """The 'Nothing on the Hook' section anchor is present in the template."""
+    rendered = _rendered_rejection_template()
+    assert "Nothing on the Hook" in rendered
+
+
+def test_template_carries_no_orphan_task_token_rule() -> None:
+    """The MUST NOT rule banning orphan {task} tokens is present in the template."""
+    rendered = _rendered_rejection_template()
+    assert "MUST NOT" in rendered
+    assert "{task}" in rendered
+    assert "drops every sentence" in rendered
+
+
 def _fresh_iso() -> str:
     from datetime import UTC, datetime, timedelta
 
@@ -535,3 +549,17 @@ def test_declined_suggestion_skips_untitled_and_stale_entries() -> None:
         ],
         now=now,
     ) == ("p", "T")
+    # Missing or unparseable `at` is treated as expired — unknown freshness
+    # must not let an entry slip through the 24-hour guard.
+    assert _declined_suggestion(
+        [{"page_id": "p", "title": "T", "event": "suggested"}],
+        now=now,
+    ) is None
+    assert _declined_suggestion(
+        [{"page_id": "p", "title": "T", "event": "suggested", "at": None}],
+        now=now,
+    ) is None
+    assert _declined_suggestion(
+        [{"page_id": "p", "title": "T", "event": "suggested", "at": "not-a-date"}],
+        now=now,
+    ) is None

@@ -58,6 +58,16 @@ When alternative_task_id is non-null, write the literal token {task} wherever
 user_message refers to the alternative task. Do not write the task title
 yourself; the application substitutes the exact selected title.
 
+MUST NOT: when `alternative_task_id` is null, unlisted, or has no title behind it,
+`user_message` MUST NOT contain `{task}`. The application drops every sentence
+carrying an unfillable token; a literal token that reaches the user is a bug.
+
+### Nothing on the Hook
+
+This prompt is never invoked when there is no active task and no titled suggestion
+in the recent-task ledger from the last 24 hours. That path is handled before
+prompt invocation and replies with a fixed message. Do not model that case here.
+
 ### Escalation After Multiple Rejections (Shame-Aware)
 
 Multiple rejections = highest-risk shame moment. User may feel "broken."

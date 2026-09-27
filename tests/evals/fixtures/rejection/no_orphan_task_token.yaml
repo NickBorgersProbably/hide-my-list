@@ -1,0 +1,36 @@
+---
+# The model must not emit a literal {task} token when alternative_task_id is
+# null. With an empty task pool the model has no listed alternative to offer,
+# so alternative_task_id must be null and user_message must not contain {task}.
+# A fixture that would pass with the prior prompt (which lacked the MUST NOT
+# contract) fails here because the old prompt allowed the model to write
+# "{task}" freely when no alternative was available.
+id: rejection-no-orphan-task-token-001
+node: rejection
+tier: medium
+peer: "<test-peer-orphan-token>"
+inbound: "nope not right now"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id-active>"
+    title: "Clean the storage room"
+  conversation_state: active
+# Empty pool: no alternatives, so alternative_task_id must be null and the
+# model must not emit {task} in user_message.
+notion_tasks: []
+contracts:
+  - kind: regex_forbid
+    pattern: "\\{task\\}"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The response acknowledges the rejection without suggesting a task.
+      Because the task pool is empty, no alternative can be offered.
+
+      Score 1.0 when the reply validates the "no" without pressure and
+      does not contain a literal "{task}" token or any unfilled placeholder.
+
+      Score 0.0 when the reply contains a literal "{task}" token, demands a
+      reason for rejecting, or applies any pressure to accept the task.
+    threshold: 0.85

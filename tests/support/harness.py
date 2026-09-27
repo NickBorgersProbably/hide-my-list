@@ -553,18 +553,44 @@ class Conversation:
         from app.tools import reminders
 
         before = self.signal.mark()
+        effective_due = due_at or (datetime.now(UTC) - timedelta(minutes=1))
         async with await psycopg.AsyncConnection.connect(
             self._database_url, autocommit=False
         ) as conn:
-            reminder_id = await reminders.enqueue(
-                conn,
-                notion_page_id=page_id,
-                peer=self.peer,
-                body=body,
-                due_at=due_at or (datetime.now(UTC) - timedelta(minutes=1)),
-                idempotency_key=f"e2e-{uuid.uuid4()}",
-                kind=kind,
+            # Intake already queued this page's row when the reminder was
+            # added in-conversation. Deliver that row — made due now, carrying
+            # the requested body — instead of queueing a second one: two due
+            # rows for one page would deliver intake's first, complete the
+            # page, and have the pre-send check retire the second, and which
+            # of the two came first depended on the clock (a "6pm" reminder is
+            # already due when the suite runs after 6pm local time).
+            cursor = await conn.execute(
+                """
+                SELECT id FROM reminder_outbox
+                 WHERE peer = %s AND notion_page_id = %s AND kind = %s
+                   AND state IN ('pending', 'scheduled')
+                 ORDER BY due_at
+                 LIMIT 1
+                """,
+                (self.peer, page_id, kind),
             )
+            existing = await cursor.fetchone()
+            if existing is not None:
+                reminder_id = existing[0]
+                await conn.execute(
+                    "UPDATE reminder_outbox SET due_at = %s, body = %s WHERE id = %s",
+                    (effective_due, body, reminder_id),
+                )
+            else:
+                reminder_id = await reminders.enqueue(
+                    conn,
+                    notion_page_id=page_id,
+                    peer=self.peer,
+                    body=body,
+                    due_at=effective_due,
+                    idempotency_key=f"e2e-{uuid.uuid4()}",
+                    kind=kind,
+                )
             await conn.commit()
             await dispatch_due_reminders(conn, signal_send_fn=self.signal.send_message)
 
@@ -622,6 +648,64 @@ class Conversation:
             signal_timestamp=delivered[0].timestamp,
             body=body,
         )
+
+    async def schedule_deadline_series(
+        self, *, page_id: str, deadline_at: datetime, title: str = "", urgency: int = 80
+    ) -> list[uuid.UUID]:
+        """Queue a deadline nudge series for `page_id` the way intake does.
+
+        Runs the production scheduler helper (`schedule_for_task`), so the
+        outbox rows and their ledger rows have the shape a completion has to
+        cancel. Returns the outbox row ids; none is due yet.
+        """
+        import psycopg
+
+        from app.scheduler.reminder_scheduling import schedule_for_task
+
+        async with await psycopg.AsyncConnection.connect(
+            self._database_url, autocommit=False
+        ) as conn:
+            scheduled, failures = await schedule_for_task(
+                conn,
+                notion_page_id=page_id,
+                peer=self.peer,
+                deadline_at=deadline_at,
+                urgency=urgency,
+                now=datetime.now(UTC),
+                user_tz="UTC",
+                title=title,
+            )
+        if failures or not scheduled:
+            raise AssertionError(f"deadline series did not schedule: {failures!r}")
+        return [item.outbox_id for item in scheduled]
+
+    async def run_reminder_worker(self, *, make_due: str | None = None) -> list[SentMessage]:
+        """Run one real worker cycle and return what it sent.
+
+        `make_due` moves every undelivered outbox row for that page to one
+        minute ago first, so rows scheduled for later are claimed now — a dead
+        row stays dead and is never claimed.
+        """
+        import psycopg
+
+        from app.scheduler.reminder_worker import dispatch_due_reminders
+
+        if make_due:
+            async with self.db() as conn:
+                await conn.execute(
+                    """
+                    UPDATE reminder_outbox SET due_at = now() - interval '1 minute'
+                     WHERE peer = %s AND notion_page_id = %s
+                       AND state IN ('pending', 'scheduled')
+                    """,
+                    (self.peer, make_due),
+                )
+        before = self.signal.mark()
+        async with await psycopg.AsyncConnection.connect(
+            self._database_url, autocommit=False
+        ) as conn:
+            await dispatch_due_reminders(conn, signal_send_fn=self.signal.send_message)
+        return self.signal.since(before)
 
     # -- turns -------------------------------------------------------------
 

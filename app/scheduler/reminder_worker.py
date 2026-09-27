@@ -89,14 +89,12 @@ async def _throttled_ops_alert(
     await ops_alerts.enqueue(kind=alert_kind, body=message, severity="critical")
 
 
-async def _page_already_completed(notion_page_id: str, reminder_id: uuid.UUID) -> bool:
-    """Whether a reminder's Notion page is already Completed.
+async def _page_already_completed(notion_page_id: str, reminder_id: uuid.UUID) -> bool | None:
+    """Whether an outbox row's Notion page is already Completed.
 
-    A user can finish a reminder before it fires, and COMPLETE cancels its
-    outbox rows. When that cancellation failed, this check is what keeps the
-    reminder from going out anyway. Fail-open: a Notion read failure returns
-    False and the reminder is sent, because a missed reminder costs the user
-    more than a redundant one.
+    Returns True when the page is Completed, False when it is open, and None
+    when the Notion read fails. Caller decides the fail policy per kind:
+    reminder rows fail open (send anyway), deadline rows fail closed (defer).
     """
     try:
         from app.tools import notion
@@ -108,7 +106,7 @@ async def _page_already_completed(notion_page_id: str, reminder_id: uuid.UUID) -
             reminder_id=str(reminder_id),
             error_type=type(exc).__name__,
         )
-        return False
+        return None
     props = page.get("properties") if isinstance(page, dict) else None
     status = props.get("Status") if isinstance(props, dict) else None
     select = status.get("select") if isinstance(status, dict) else None
@@ -178,9 +176,74 @@ async def dispatch_due_reminders(
         attempt = row["attempt"] + 1
         kind = row.get("kind") or "reminder"
 
-        if kind == "reminder" and await _page_already_completed(notion_page_id, rid):
-            # The user finished it before it fired. Sending now would remind
-            # them of something done — and the dead row is never claimed again.
+        completed = await _page_already_completed(notion_page_id, rid)
+
+        if completed is None and kind == "deadline":
+            # Status unknown for a deadline nudge: fail closed.
+            if attempt >= _MAX_ATTEMPTS:
+                await conn.execute(
+                    """
+                    UPDATE reminder_outbox
+                       SET state = 'dead',
+                           last_error = 'presend_check_failed: exhausted',
+                           locked_until = NULL,
+                           worker_id = NULL,
+                           attempt = %s
+                     WHERE id = %s
+                    """,
+                    (attempt, str(rid)),
+                )
+                await conn.commit()
+                await _throttled_ops_alert(
+                    conn,
+                    "reminder_dead",
+                    f"Reminder {rid} exhausted {_MAX_ATTEMPTS} attempts (presend check failed)",
+                )
+                await conn.commit()
+                log.info(
+                    "reminder_worker.deadline_dead_on_check_failure",
+                    reminder_id=str(rid),
+                )
+            else:
+                next_due = _next_due_at(attempt)
+                await conn.execute(
+                    """
+                    UPDATE reminder_outbox
+                       SET state = 'scheduled',
+                           last_error = 'presend_check_failed: deferred',
+                           due_at = %s,
+                           attempt = %s,
+                           locked_until = NULL,
+                           worker_id = NULL
+                     WHERE id = %s
+                    """,
+                    (next_due, attempt, str(rid)),
+                )
+                await conn.commit()
+                log.info(
+                    "reminder_worker.deadline_deferred_on_check_failure",
+                    reminder_id=str(rid),
+                )
+            continue
+
+        if completed:
+            # The user finished it before it fired. For a deadline series, also
+            # kill sibling undelivered rows and supersede ledger entries so
+            # load-balancing slots are released.
+            if kind == "deadline":
+                try:
+                    from app.tools.reminders import cancel_pending_nudges_for_page
+
+                    await cancel_pending_nudges_for_page(
+                        conn, notion_page_id=notion_page_id, peer=peer
+                    )
+                except Exception as exc:
+                    await conn.rollback()
+                    log.warning(
+                        "reminder_worker.sibling_cancel_failed",
+                        reminder_id=str(rid),
+                        error_type=type(exc).__name__,
+                    )
             await conn.execute(
                 """
                 UPDATE reminder_outbox
@@ -193,7 +256,9 @@ async def dispatch_due_reminders(
                 (str(rid),),
             )
             await conn.commit()
-            log.info("reminder_worker.skipped_completed_page", reminder_id=str(rid))
+            log.info(
+                "reminder_worker.skipped_completed_page", reminder_id=str(rid), kind=kind
+            )
             continue
 
         log.info(
