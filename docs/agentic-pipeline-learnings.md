@@ -238,7 +238,7 @@ Removing Claude from the fixer and issue author meant the `codex-resume` / `clau
 `/autoresolve claude` and the `agent:claude` issue label are kept rather than removed (the "less surprising" option): a comment or label a user already typed continues to dispatch an agent, just always Codex now, with a one-time explanatory issue comment so the redirect isn't silent. Removing the tokens outright would have turned a working dispatch into a silent no-op or a confusing "unknown agent" failure for anyone who had the old habit or an old bookmarked comment.
 
 Two smoke tests exist deliberately, not because the LLM behind them differs, but because they exercise different container topology: `review-fixer-codex-smoke.yml` (renamed from the Claude version) proves `review-codex-run` can run with `read_only=false` and write to the bind-mounted workspace — the read-only reviewer path is already exercised on every PR, but read_only=false only fires on the less-common fresh-fallback fixer path. `review-fixer-resume-smoke.yml` is unaffected (dispatch-logic + `ci-session-store.sh` unit tests, no live LLM call either way).
-**Evidence:** this PR
+**Evidence:** #688
 
 ---
 
