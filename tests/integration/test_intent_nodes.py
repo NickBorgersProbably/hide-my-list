@@ -619,6 +619,126 @@ async def test_complete_node_ignores_a_task_the_user_still_has_to_do() -> None:
 
 
 @pytest.mark.asyncio
+async def test_complete_node_resolves_a_title_plus_filler_report_without_the_model() -> None:
+    """"finished washing the dishes" names one task outright: no model call.
+
+    The cheap-tier confirmation of an unambiguous report came back under 0.90
+    on some runs and the node asked "which task?" about a task the user had
+    just named. A report that is one title plus report filler resolves on its
+    own; the model is never consulted, so its variance cannot reach it.
+    """
+    from app.graph.nodes import complete as complete_module
+
+    update_status = AsyncMock()
+    reward_mock = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
+    query_all = AsyncMock(return_value={"results": [
+        _notion_task_page("<page_A>", "Wash the dishes"),
+        _notion_task_page("<page_B>", "Book the dentist"),
+    ]})
+    llm_factory = MagicMock()
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.rewards.maybe_reward", reward_mock),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", llm_factory),
+        capture_logs() as logs,
+    ):
+        result = await complete_module.complete_node(
+            _complete_state(incoming="finished washing the dishes")
+        )
+
+    llm_factory.assert_not_called()
+    update_status.assert_awaited_once_with(page_id="<page_A>", new_status="Completed")
+    assert reward_mock.await_args.kwargs["task_title"] == "Wash the dishes"
+    assert result["pending_outbound"][0]["notion_page_id"] == "<page_A>"
+    report = [e for e in logs if e["event"] == "complete_node.deterministic_report"]
+    assert [(e["page_id"], e["open_task_count"]) for e in report] == [("<page_A>", 2)]
+    resolved = [e for e in logs if e["event"] == "complete_node.resolved_target"]
+    assert resolved and resolved[0]["deterministic_answer"] is True
+    assert resolved[0]["match_confidence"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_complete_node_still_asks_the_model_when_the_report_names_a_next_task() -> None:
+    """"done, now I need to call mom" carries words past the filler allowlist.
+
+    Its task words are exactly "Call mom", so only reading the rest of the
+    message keeps it off the shortcut. The model is asked, and its null match
+    leaves the task open.
+    """
+    from app.graph.nodes import complete as complete_module
+
+    update_status = AsyncMock()
+    query_all = AsyncMock(return_value={"results": [
+        _notion_task_page("<page_A>", "Call mom"),
+    ]})
+    model = _mock_llm_response(json.dumps({"matched_page_id": None, "confidence": 0.0}))
+    llm_factory = MagicMock(return_value=model)
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", llm_factory),
+        capture_logs() as logs,
+    ):
+        await complete_module.complete_node(
+            _complete_state(incoming="done, now I need to call mom")
+        )
+
+    model.ainvoke.assert_awaited_once()
+    assert llm_factory.call_args.kwargs.get("caller") == "complete_title_match"
+    update_status.assert_not_awaited()
+    assert not [e for e in logs if e["event"] == "complete_node.deterministic_report"]
+
+
+@pytest.mark.asyncio
+async def test_complete_node_logs_a_rejected_match_confidence_as_a_number() -> None:
+    """A sub-threshold match logs its score, so a CI dump shows a near miss.
+
+    The shortlisted candidate is rejected at 0.85 and the node asks; the score
+    is a number the model returned, not user text, and is logged as one.
+    """
+    from app.graph.nodes import complete as complete_module
+
+    query_all = AsyncMock(return_value={"results": [
+        _notion_task_page("<page_B>", "Wash the dishes"),
+    ]})
+
+    with (
+        patch("app.tools.notion.update_status", AsyncMock()),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch(
+            "app.models.llm",
+            return_value=_mock_llm_response(
+                json.dumps({"matched_page_id": "<page_B>", "confidence": 0.85})
+            ),
+        ),
+        capture_logs() as logs,
+    ):
+        await complete_module.complete_node(
+            _complete_state(
+                incoming="done with the dishes",
+                active_task=_active_task("Fold the laundry", page_id="<page_A>"),
+            )
+        )
+
+    rejected = [e for e in logs if e["event"] == "complete_node.title_match_rejected"]
+    assert len(rejected) == 1
+    assert rejected[0]["match_confidence"] == 0.85
+    assert isinstance(rejected[0]["match_confidence"], float)
+    assert set(rejected[0]) == {
+        "event", "log_level", "candidate_count", "match_confidence",
+        "residue_token_count", "answering_clarification",
+    }
+
+
+@pytest.mark.asyncio
 async def test_complete_node_survives_a_notion_failure_during_matching() -> None:
     """The lookup is additive: when it fails, context-based resolution still runs."""
     from app.graph.nodes import complete as complete_module

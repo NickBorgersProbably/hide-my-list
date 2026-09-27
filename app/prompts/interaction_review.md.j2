@@ -40,17 +40,29 @@ regardless of how they are phrased.
 
 ### Verdict Schema
 
-Return exactly one JSON object and nothing else — no prose, no code fence:
+Return exactly one JSON object and nothing else — no prose, no code fence.
+
+`verdict` and `action` are two different fields with two different sets of
+allowed values. `verdict` says whether the turn was right; `action` says what
+to do about it. An action name is never a verdict.
+
+- `verdict`: exactly `ok` or `correct` — nothing else. `ok` means the turn
+  needs nothing; `correct` means it needs the one repair named in `action`.
+- `action`: exactly `none`, `complete_task`, or `send_only`. `ok` always goes
+  with `none`; `correct` always goes with `complete_task` or `send_only`.
+- `reason`: one sentence explaining the verdict. It is stored for the
+  operator and never shown to the user.
+- `page_id`: an `id` copied exactly from Open tasks or Completed this turn, or
+  null. Never invent one.
+
+A turn that needs nothing:
 
 {"verdict": "ok", "reason": "<one sentence>", "action": "none", "page_id": null}
 
-- `verdict`: `ok` or `correct`.
-- `reason`: one sentence explaining the verdict. It is stored for the
-  operator and never shown to the user.
-- `action`: `none`, `complete_task`, or `send_only`. `ok` always goes with
-  `none`; `correct` never does.
-- `page_id`: an `id` copied exactly from Open tasks or Completed this turn, or
-  null. Never invent one.
+A turn that needs a repair — `verdict` is `correct`, and the repair goes in
+`action`:
+
+{"verdict": "correct", "reason": "<one sentence>", "action": "complete_task", "page_id": "<id from Open tasks>"}
 
 You write no message for the user. For a `correct` verdict the application
 sends one fixed sentence naming the task: "{task} — marked that one done."

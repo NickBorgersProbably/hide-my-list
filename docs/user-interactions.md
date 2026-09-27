@@ -311,7 +311,11 @@ flowchart LR
    message only says which task it was about. So the match is made on which
    task the answer identifies, not on whether it repeats the claim. An answer
    that types a task's title back nearly word for word resolves to that task
-   without a model call; only an answer can take that shortcut.
+   without a model call. A standalone report takes a stricter version of
+   that shortcut: it resolves without a model call only when the whole
+   message is one task's title plus completion filler ("finished washing the
+   dishes") and it asserts the completion; any other word — "now I need to",
+   "still", a second task — sends it to the model.
 
    Holding the question steers which handler reads the next message and how
    that message is read; it grants that handler nothing on the message side.

@@ -1,0 +1,43 @@
+---
+# Interaction review: the verdict enum and the action enum are two fields. The
+# production shape: a reminder was added, the user said "Done!" a minute
+# later, the turn could not place it and asked which task. Exactly one open
+# reminder matches, so the review corrects. The model has answered this shape
+# with the action name in `verdict` ({"verdict": "complete_task", ...});
+# production normalizes that, but the eval runner scores the prompt and fails
+# a verdict that needed normalizing. `verdict` must be exactly "correct".
+id: interaction-review-verdict-enum-001
+node: interaction_review
+tier: medium
+peer: "<test-peer-36>"
+inbound: "Done!"
+prior_state:
+  intent: COMPLETE
+  messages:
+    - role: user
+      content: "remind me to pick up the dry cleaning tomorrow at 9am"
+    - role: assistant
+      content: "Got it — I'll remind you tomorrow at 9:00 AM: Pick up the dry cleaning."
+    - role: user
+      content: "Done!"
+    - role: assistant
+      content: "I can mark that done. Which task did you mean?"
+  recent_tasks: []
+  turn_actions:
+    - action: clarify
+      page_id: ""
+      status: ""
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Pick up the dry cleaning"
+    status: "Pending"
+    is_reminder: true
+contracts:
+  - kind: json_schema
+    schema_ref: interaction_review_verdict
+  - kind: regex_require
+    pattern: "\"verdict\":\\s*\"correct\""
+  - kind: regex_require
+    pattern: "\"action\":\\s*\"complete_task\""
+  - kind: regex_require
+    pattern: "\"page_id\":\\s*\"<placeholder-page-id-1>\""

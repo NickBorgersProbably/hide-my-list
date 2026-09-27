@@ -83,6 +83,91 @@ def test_send_only_naming_a_listed_page_is_accepted() -> None:
 
 
 # ---------------------------------------------------------------------------
+# parse_verdict — an action name in `verdict` is normalized
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        # The observed shape: the action copied into `verdict`.
+        (
+            {"verdict": "complete_task", "action": "complete_task"},
+            ("correct", "complete_task", "<page_open>"),
+        ),
+        (
+            {"verdict": "send_only", "action": "send_only", "page_id": "<page_done>"},
+            ("correct", "send_only", "<page_done>"),
+        ),
+        ({"verdict": "none", "action": "none", "page_id": None}, ("ok", "none", None)),
+        # `none` can only ever read as `ok`: nothing is acted on.
+        (
+            {"verdict": "complete_task", "action": "none", "page_id": None},
+            ("ok", "none", None),
+        ),
+    ],
+)
+def test_an_action_name_in_verdict_is_normalized(
+    fields: dict[str, Any], expected: tuple[str, str, str | None]
+) -> None:
+    with capture_logs() as logs:
+        verdict = _parse(_json(**fields))
+    assert verdict is not None
+    assert (verdict.verdict, verdict.action, verdict.page_id) == expected
+    normalized = [e for e in logs if e["event"] == "interaction_review.verdict_normalized"]
+    assert len(normalized) == 1
+    # Enums only: never the reason, a title, or a page id.
+    assert set(normalized[0]) == {"event", "action", "normalized_verdict", "log_level"}
+    assert normalized[0]["normalized_verdict"] == expected[0]
+    assert not [e for e in logs if e["event"] == "interaction_review.verdict_rejected"]
+
+
+@pytest.mark.parametrize(
+    ("text", "code"),
+    [
+        # Two different action names contradict each other: not a typo.
+        (_json(verdict="send_only", action="complete_task"), "unknown_verdict"),
+        (_json(verdict="none", action="complete_task"), "unknown_verdict"),
+        (_json(verdict="complete_task", action="send_only"), "unknown_verdict"),
+        # An action name in `verdict` with an invalid action is still rejected.
+        (_json(verdict="complete_task", action="delete_task"), "unknown_verdict"),
+        (_json(verdict="complete_task", action=None), "unknown_verdict"),
+        # Normalizing does not relax the page rules that follow.
+        (_json(verdict="complete_task", page_id="<page_invented>"), "page_not_open"),
+        (_json(verdict="complete_task", page_id=None), "page_not_open"),
+        (
+            _json(verdict="send_only", action="send_only", page_id="<page_invented>"),
+            "page_not_listed",
+        ),
+        (_json(verdict="none", action="none", page_id="<page_open>"), "ok_with_action"),
+        # Case and whitespace variants are not an exact action name.
+        (_json(verdict="Complete_Task"), "unknown_verdict"),
+        (_json(verdict="complete_task "), "unknown_verdict"),
+    ],
+)
+def test_other_verdict_enum_mixups_stay_rejected(text: str, code: str) -> None:
+    with capture_logs() as logs:
+        assert _parse(text) is None
+    rejected = [e for e in logs if e["event"] == "interaction_review.verdict_rejected"]
+    assert [e["rejection"] for e in rejected] == [code]
+
+
+def test_prompt_separates_the_verdict_enum_from_the_action_enum() -> None:
+    """The prompt names each enum's exact values and shows one example of each."""
+    inputs = review.inputs_from_state(
+        {"incoming": "Done!", "intent": "COMPLETE", "messages": []},
+        [],
+        now=datetime.now(UTC),
+    )
+    rendered = review._render_prompt(inputs)
+    assert "`verdict`: exactly `ok` or `correct`" in rendered
+    assert "`action`: exactly `none`, `complete_task`, or `send_only`" in rendered
+    assert "An action name is never a verdict." in rendered
+    assert '{"verdict": "ok", "reason": "<one sentence>", "action": "none"' in rendered
+    assert '{"verdict": "correct", "reason": "<one sentence>", "action": "complete_task"' in rendered
+
+
+# ---------------------------------------------------------------------------
 # parse_verdict — rejected
 # ---------------------------------------------------------------------------
 

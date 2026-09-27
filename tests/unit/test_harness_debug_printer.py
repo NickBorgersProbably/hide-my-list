@@ -81,6 +81,19 @@ def test_drops_short_token_strings_under_unknown_keys(value: str) -> None:
     assert _safe_event_fields(entry) == {"has_peer": True}
 
 
+def test_keeps_a_model_score_only_under_its_named_key() -> None:
+    """`match_confidence` prints as a number; a float under any other key does not."""
+    entry = {
+        "event": "complete_node.title_match_rejected",
+        "match_confidence": 0.85,
+        "latitude": 12.5,
+        "candidate_count": 2,
+    }
+    assert _safe_event_fields(entry) == {"match_confidence": 0.85, "candidate_count": 2}
+    assert _safe_event_fields({"event": "x", "match_confidence": float("nan")}) == {}
+    assert _safe_event_fields({"event": "x", "match_confidence": None}) == {}
+
+
 def test_drops_event_and_timestamp_keys() -> None:
     """`event` and structlog's `timestamp` are handled separately by the caller."""
     entry = {"event": "signal_listener.message_received", "timestamp": "2026-09-26T00:00:00Z"}

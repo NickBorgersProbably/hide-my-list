@@ -39,6 +39,8 @@ from app.graph.nodes.complete import (
     _ledger_targets,
     _parse_names_unlisted,
     _parse_unlisted_title,
+    _standalone_report_names,
+    _stem,
     _target_from_ledger,
     _task_reference_tokens,
     _TitleMatch,
@@ -121,21 +123,97 @@ def test_filler_only_message_shortlists_nothing_downstream() -> None:
 
 
 # ---------------------------------------------------------------------------
-# No lexical shortcut past the model
+# The standalone-report shortcut: the whole message, not its task words
 # ---------------------------------------------------------------------------
+
+def _open(*titles: str) -> list[dict[str, str]]:
+    return [
+        {"id": f"<page_{index}>", "title": title, "kind": "task"}
+        for index, title in enumerate(titles)
+    ]
+
 
 def test_quoting_a_whole_title_is_not_by_itself_a_completion() -> None:
     """Containing a title's every word does not mean the message says it is done.
 
     "done, now I need to call mom" contains all of "Call mom" while asserting
-    the opposite. The shortlist surfaces the candidate either way; only the
-    model reading the whole sentence can tell the two apart, so the matcher
-    keeps no exact-title fast path around it.
+    the opposite. Its task words match the title exactly, so any shortcut keyed
+    on task words alone would complete it; the standalone shortcut reads every
+    word of the message, and "now" and "need" send it to the model.
     """
     residue = _task_reference_tokens("done, now I need to call mom")
     title_tokens = _task_reference_tokens("Call mom")
     assert title_tokens <= residue
     assert dice_coefficient(residue, title_tokens) >= 0.30
+    assert _standalone_report_names(
+        "done, now I need to call mom", _open("Call mom", "Book the dentist appointment")
+    ) is None
+
+
+@pytest.mark.parametrize(
+    ("message", "titles", "expected"),
+    [
+        # The e2e shapes whose model confirmation varied run to run.
+        ("finished washing the dishes", ("Wash the dishes", "Book the dentist"), "<page_0>"),
+        ("ok, cleaned out the garage", ("Clean out the garage", "Reply to the school email"), "<page_0>"),
+        ("ok, replied to the school email", ("Clean out the garage", "Reply to the school email"), "<page_1>"),
+        ("just watered the garden", ("Vacuum the stairs", "Water the garden"), "<page_1>"),
+        ("finally washed the dishes", ("Wash the dishes", "Email the landlord"), "<page_0>"),
+        ("called the dentist", ("Call the dentist",), "<page_0>"),
+        ("did the laundry", ("Laundry",), "<page_0>"),
+        ("mopped the floor ✅", ("Mop the floor",), "<page_0>"),
+        # The longer title is the only one whose words cover the message.
+        ("called mom back", ("Call mom", "Call mom back"), "<page_1>"),
+        ("done: wash the dishes", ("Wash the dishes", "Wash the dishes again"), "<page_0>"),
+    ],
+)
+def test_a_report_that_is_one_title_plus_filler_resolves(
+    message: str, titles: tuple[str, ...], expected: str
+) -> None:
+    match = _standalone_report_names(message, _open(*titles))
+    assert match is not None and match["id"] == expected
+
+
+@pytest.mark.parametrize(
+    ("message", "titles"),
+    [
+        # Deferral, obligation, negation.
+        ("done, now I need to call mom", ("Call mom",)),
+        ("still need to wash the dishes", ("Wash the dishes",)),
+        ("didn't wash the dishes", ("Wash the dishes",)),
+        ("haven't finished the dishes", ("Wash the dishes",)),
+        ("not done with the dishes", ("Wash the dishes",)),
+        ("will call mom later", ("Call mom",)),
+        # Questions, with or without the mark.
+        ("did I call mom?", ("Call mom",)),
+        ("did I call mom", ("Call mom",)),
+        # No claim: an in-progress form or a bare title.
+        ("washing the dishes", ("Wash the dishes",)),
+        ("call mom", ("Call mom",)),
+        # A second task named in the same message.
+        ("called mom and the dentist", ("Call mom",)),
+        ("done calling mom, still need to call the dentist", ("Call mom", "Call the dentist")),
+        # Paraphrase and irregular verbs are the model's to read.
+        ("got rid of that old fridge finally", ("Deal with the spare refrigerator",)),
+        ("took out the trash", ("Take out the trash",)),
+        # Part of the title is missing.
+        ("done with the laundry", ("Fold the laundry",)),
+        # Two titles fully covered: an ambiguity, not a coin toss.
+        ("finished the dishes", ("Dishes", "The dishes")),
+        ("", ("Call mom",)),
+    ],
+)
+def test_anything_else_goes_to_the_model(message: str, titles: tuple[str, ...]) -> None:
+    assert _standalone_report_names(message, _open(*titles)) is None
+
+
+def test_stem_maps_report_forms_onto_title_forms() -> None:
+    for report, title in (
+        ("washed", "wash"), ("washing", "wash"), ("replied", "reply"),
+        ("dishes", "dish"), ("watered", "water"), ("mopped", "mop"),
+        ("called", "call"), ("baked", "bake"),
+    ):
+        assert _stem(report) == _stem(title), (report, title)
 
 
 # ---------------------------------------------------------------------------
