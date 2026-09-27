@@ -936,7 +936,7 @@ If the next graph turn starts and the user replies to the reminder in shorthand,
 Example:
 - Agent sends: "Hey, time to clean up boxes before noon."
 - User opens a new session and says: "I did it"
-- Agent interprets that as completion of "clean up boxes before noon", delivers a completion acknowledgment that names the task, with its reward (the reminder Notion page is already Completed at delivery time — no second Notion update), and clears every live `recent_outbound` row for that peer and `notion_page_id` (`signal_timestamp` is the fallback when no page id is available)
+- Agent interprets that as completion of "clean up boxes before noon", delivers a completion acknowledgment that names the task, with its reward (COMPLETE writes the page Completed again as an idempotent repair — delivery already wrote it but may have failed — then resolves every live `recent_outbound` row for that peer and `notion_page_id` (`signal_timestamp` is the fallback when no page id is available))
 
 A deadline nudge is different: it names the task ("Deadline nudge: <task>. Want one tiny next step?", or "Deadline nudge for this task. Want one tiny next step?" when no stored title is available) and points at a task page that delivery leaves open. The worker records the delivery with `reminder_type = 'deadline'`, so a "done" in reply writes the task Completed rather than assuming delivery already did.
 
@@ -950,21 +950,13 @@ named in the message resolves on its own, and a message naming nothing asks
 which task was meant.
 
 Reschedule replay:
-- Seeded `recent_outbound` context:
-  ```json
-  [
-    {
-      "type": "reminder",
-      "title": "Set up your video call software for therapy",
-      "status": "missed",
-      "awaiting_reply": true
-    }
-  ]
+- Reminder Candidates block in the intake prompt (labeled from the recent-task ledger):
   ```
-- Last visible agent message: "This was due a bit ago — set up your video call software for therapy. Want to handle it now or reschedule?"
-- User opens a new session and says: "remind me in an hour"
-- Visible reply must be one short sentence: "Got it — I'll remind you in about an hour to set up your video call software for therapy."
-- Visible reply must not mention `recent_outbound`, Notion, cron jobs, reminder replacement, or cleanup steps.
+  - R1: "<task>" — set for <day> <date> <time> (<ISO offset>)
+  ```
+- User says: "actually make it 6pm"
+- Intake selects the candidate label the prompt showed (`reschedule_of: "R1"`), moves that page to 6pm, and replies with one short sentence: "Got it — I'll remind you at 6pm to <task>."
+- On success the reply echoes the user's time wording exactly ("at 6pm", not "around 6pm"). It must not mention Notion, prior reminder time, old row cleanup, infrastructure replacement, or any narration of steps.
 
 ### Reminder Delivery Messages
 
@@ -983,19 +975,19 @@ AI detects reminder-style language and sets:
 - relative date phrases (`today`, `tomorrow`, `tonight`, day-of-week names) resolved from the user's configured timezone (`USER_TZ` env var, default `America/Chicago`), not the UTC message timestamp
 
 **Confirmation message style:**
-> "Got it — I'll remind you around 6pm PT to email Melanie."
+> "Got it — I'll remind you at 6pm to call the pharmacy."
 
-"Around" is intentional. The reminder_dispatcher polls every 30 seconds; delivery is at-least-once. "Around 6pm" avoids overpromising exact wall-clock delivery.
+For a reminder, the confirmation says the time the way the user said it: "in 10 minutes" stays "in 10 minutes", "at 8pm" stays "at 8pm". It never converts a relative time into a clock time (the rule in `docs/ai-prompts/intake.md`, CONFIRMATION MESSAGE FORMAT). The user's own phrasing is the time they asked for and will recognize; the reminder_dispatcher polls every 30 seconds, so delivery lands within about half a minute of it. Tentative wording ("I'll try to remind you around…") is reserved for a reminder whose outbox write failed.
 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
-The same rule applies when a reminder is rescheduled from a prior reminder reply: one short confirmation sentence, no narration of internal cleanup or replacement steps.
+The same rule applies when a message moves an existing reminder to a new time ("actually make it 6pm", "push that to 8"): intake moves the reminder it just set or just delivered rather than adding a second one, and replies with one short confirmation sentence that states the new time the way the user said it, no narration of internal cleanup or replacement steps.
 
 User timezone is read from the `USER_TZ` environment variable (default `America/Chicago`). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. Use `scripts/user-time-context.sh` when a UTC timestamp needs conversion to the user-local calendar before deciding what "tomorrow" or "tonight" means.
 
 ### Reminder vs. Deadline
 
 Different concepts:
-- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification fired by the APScheduler `reminder_dispatcher` at `remind_at`; at-least-once delivery via the Postgres outbox, which is why intake confirmations say "around 6pm"
+- **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification fired by the APScheduler `reminder_dispatcher` at `remind_at`; at-least-once delivery via the Postgres outbox
 - **Deadline**: "Review proposal by Friday" → urgency-scored task; not a user-requested wall-clock notification, but deadline-bearing tasks receive scheduled milestone nudges (see above)
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.

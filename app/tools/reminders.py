@@ -398,3 +398,59 @@ async def cancel_pending_nudges(peer: str, notion_page_id: str) -> int:
         )
         await conn.commit()
     return cancelled
+
+
+async def reschedule_for_page(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    notion_page_id: str,
+    peer: str,
+    body: str,
+    due_at: datetime,
+) -> tuple[int, uuid.UUID]:
+    """Move a reminder to a new time: kill its waiting rows, enqueue one new row.
+
+    The user changed the time of a reminder they already set ("make it
+    6pm"). The page keeps its id; only the outbox changes. Every
+    `kind='reminder'` row for the page still waiting to go out (`pending` or
+    `scheduled`) is marked `dead` with `last_error='rescheduled by user'`,
+    then one new `pending` row is enqueued for `due_at`. A `delivering` row is
+    already in the worker's hands, delivered rows are history, and
+    `kind='deadline'` rows belong to the deadline series, so none of those
+    are touched. Scoped to `peer`. Both writes run on `conn` and the caller
+    commits, so the old row never dies without its replacement.
+
+    Returns `(cancelled_count, new_reminder_id)`.
+    """
+    cursor = await conn.execute(
+        """
+        UPDATE reminder_outbox
+           SET state = 'dead',
+               last_error = 'rescheduled by user',
+               locked_until = NULL,
+               worker_id = NULL
+         WHERE notion_page_id = %s
+           AND peer = %s
+           AND kind = 'reminder'
+           AND state IN ('pending', 'scheduled')
+        """,
+        (notion_page_id, peer),
+    )
+    cancelled = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+    # A reminder can be moved more than once, and back to a time it held
+    # before, so the key carries a fresh suffix rather than the due time.
+    new_id = await enqueue(
+        conn,
+        notion_page_id=notion_page_id,
+        peer=peer,
+        body=body,
+        due_at=due_at,
+        idempotency_key=f"intake-{notion_page_id}-reschedule-{uuid.uuid4().hex}",
+    )
+    log.info(
+        "reminders.rescheduled_for_page",
+        notion_page_id=notion_page_id,
+        cancelled_count=cancelled,
+        reminder_id=str(new_id),
+    )
+    return cancelled, new_id

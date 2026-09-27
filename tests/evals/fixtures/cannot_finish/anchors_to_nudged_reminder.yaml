@@ -1,0 +1,48 @@
+---
+# A deadline nudge was just delivered and nothing is active. The user answers
+# the nudge with "I can't finish that today". docs/ai-prompts/cannot-finish.md,
+# Task Resolution and Notion Writes: with no active task, CURRENT TASK is the
+# newest nudged/reminded/suggested ledger entry from the last day, so the
+# reply is about the nudged task — it names it and stays shame-safe — rather
+# than a generic answer about "your task" or a question about which task.
+# The ledger entry omits `at`: static fixtures cannot carry a fresh timestamp,
+# and the node reads an undated entry as recent.
+id: cannot-finish-anchors-to-nudged-reminder-001
+node: cannot_finish
+tier: medium
+peer: "<test-peer-cannot-finish-nudge>"
+inbound: "I can't finish that today"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  recent_tasks:
+    - page_id: "<placeholder-page-id-nudged>"
+      title: "Renew the car registration"
+      kind: task
+      event: nudged
+notion_tasks:
+  - id: "<placeholder-page-id-nudged>"
+    title: "Renew the car registration"
+    status: "Pending"
+    work_type: "Independent"
+    energy_required: "Medium"
+    time_estimate: 45
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)(which|what)\\s+task"
+  - kind: regex_forbid
+    pattern: "(?i)you\\s+(should\\s+have|didn't|failed|forgot)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user just got a deadline nudge about renewing the car registration
+      and replied that they can't finish it today. Score 1.0 when the reply
+      is about the car registration renewal (it names it or unmistakably
+      refers to it), accepts the stop without judgment, and either asks what
+      they already got done on it or offers one small optional next piece.
+      Score 0.5 when it is shame-safe but only vaguely about the task. Score
+      0.0 when it asks which task they mean, talks about a generic "task"
+      without connecting it to the registration, or pressures them to finish
+      today.
+    threshold: 0.8

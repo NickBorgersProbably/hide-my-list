@@ -297,6 +297,7 @@ Contract kinds:
 - `json_schema` — pydantic validation of structured outputs (intake node)
 - `judge` — qualitative rubric scored by a stronger judge LLM (defaults to `claude-sonnet-5`; override via `EVAL_JUDGE_MODEL`)
 - `shame_safe` — judge with fixed ADHD-safety rubric from `design/adhd-priorities.md`
+- `turn_action` — deterministic; scores what the node did rather than what it said. Matches the node update's `turn_actions` list on `action` and, when given, `page_id`; `present: false` forbids the match. Use it when the behavior under test is a write (moving an existing reminder instead of creating one) that the reply text cannot show — writes are discarded in evals, but the node still records the action it took
 
 Scoring surfaces: nodes write the literal `{task}` token in draft bodies and
 `send_node` substitutes the exact stored title before delivery. The runner
@@ -510,6 +511,7 @@ These are the thirteen contract clauses the test reviewer enforces (see
    - The fixture runner serves task pools from a stubbed Notion client (`_install_notion_stub`). Any PR that changes the `_as_notion_page` translator or the Notion stub must update `tests/unit/test_eval_rig.py` to assert the new translation round-trips through the real node-side extractors.
    - New eval-covered graph nodes must emit a terminal `<node>_node.error` event on exception. A node that swallows exceptions and returns a hand-written fallback will score that fallback as model output.
    - `regex_*` and `json_schema` contracts score the RAW draft body; `judge` and `shame_safe` contracts score the DELIVERED body (token substituted from `notion_page_title`). Write rubrics against the delivered text; assert token invariants as `regex_require: "\\{task\\}"`.
+   - `turn_action` contracts are deterministic and score what the node did rather than what it said. They match the node update's `turn_actions` list on `action` and, when given, `page_id`; `present: false` forbids the match. Use one when the behavior under test is a write (moving an existing reminder instead of creating one) that the reply text cannot show — writes are discarded in evals, but the node still records the action it took.
    - `prior_state.active_task` must use the runtime `ActiveTask` shape (`page_id`, `title`). Omit `selected_at` to let the runner inject a fresh timestamp; set it explicitly only to test the stale-task path.
 
 10. **Side-effecting calls wrapped in intentional exception-swallowing handlers** must have:

@@ -3,7 +3,7 @@
 Reads YAML behavior fixtures from `tests/evals/fixtures/<node>/*.yaml`,
 runs each fixture against every model in `EVAL_MODELS`, evaluates the
 declared contracts (regex_forbid, regex_require, json_schema, judge,
-shame_safe), and writes a per-run JSON + Markdown comparison report.
+shame_safe, turn_action), and writes a per-run JSON + Markdown comparison report.
 
 Design notes:
 - The model swap mechanism rewrites `setup/model-tiers.json` per session.
@@ -288,6 +288,43 @@ def _eval_shame_safe(spec: dict[str, Any], response: str) -> ContractResult:
     )
 
 
+def _eval_turn_action(spec: dict[str, Any], turn_actions: list[Any]) -> ContractResult:
+    """Score what the node DID this turn, not what it said.
+
+    `turn_actions` is the node update's `turn_actions` list (ids and enum
+    values only). The contract matches an entry with `action` equal to
+    `spec["action"]` and, when `spec["page_id"]` is set, that page id.
+    `present: true` (the default) requires a match; `present: false` forbids
+    one. Deterministic — no LLM.
+    """
+    wanted_action = spec["action"]
+    wanted_page = spec.get("page_id")
+    present = bool(spec.get("present", True))
+    matched = any(
+        isinstance(entry, dict)
+        and entry.get("action") == wanted_action
+        and (wanted_page is None or entry.get("page_id") == wanted_page)
+        for entry in turn_actions
+    )
+    target = f"{wanted_action!r}" + (f" on {wanted_page!r}" if wanted_page else "")
+    seen = [
+        f"{entry.get('action')}:{entry.get('page_id')}"
+        for entry in turn_actions
+        if isinstance(entry, dict)
+    ]
+    if matched == present:
+        return ContractResult(
+            kind="turn_action",
+            passed=True,
+            detail=f"{'found' if present else 'absent'} {target}",
+        )
+    return ContractResult(
+        kind="turn_action",
+        passed=False,
+        detail=f"expected {target} {'present' if present else 'absent'}; turn_actions={seen}",
+    )
+
+
 _CONTRACT_EVALUATORS = {
     "regex_forbid": _eval_regex_forbid,
     "regex_require": _eval_regex_require,
@@ -306,10 +343,24 @@ def evaluate_contracts(
     contracts: list[Contract],
     response: str,
     delivered_response: str | None = None,
+    turn_actions: list[Any] | None = None,
 ) -> list[ContractResult]:
     delivered = delivered_response if delivered_response is not None else response
     results: list[ContractResult] = []
     for c in contracts:
+        if c.kind == "turn_action":
+            # Scored against the node's recorded actions, not a text surface.
+            try:
+                results.append(_eval_turn_action(c.spec, list(turn_actions or [])))
+            except Exception as exc:  # noqa: BLE001
+                results.append(
+                    ContractResult(
+                        kind=c.kind,
+                        passed=False,
+                        detail=f"evaluator raised {type(exc).__name__}: {exc}",
+                    )
+                )
+            continue
         surface = delivered if c.kind in _DELIVERED_SURFACE_KINDS else response
         evaluator = _CONTRACT_EVALUATORS.get(c.kind)
         if evaluator is None:
@@ -364,12 +415,16 @@ def _install_notion_stub(fixture: Fixture) -> Callable[[], None]:
     return fake.install()
 
 
-def _invoke_node(node: str, fixture: Fixture) -> tuple[str, str | None]:
+def _invoke_node(
+    node: str, fixture: Fixture, update_sink: dict[str, Any] | None = None
+) -> tuple[str, str | None]:
     """Run the named graph node against the fixture.
 
     Returns `(body, notion_page_title)` from the first `pending_outbound`
     draft the node populates — the raw draft body plus the title `send_node`
-    would substitute for the `{task}` token at delivery time.
+    would substitute for the `{task}` token at delivery time. When
+    `update_sink` is given, a graph node's whole state update is copied into
+    it, so `turn_action` contracts can score what the node did.
 
     Each node has its own signature in `app/graph/nodes/<node>.py`. We
     import lazily and call the canonical `<node>_node(state)` function.
@@ -520,6 +575,8 @@ def _invoke_node(node: str, fixture: Fixture) -> tuple[str, str | None]:
 
     if not isinstance(update, dict):
         raise RuntimeError(f"{fn_name} returned non-dict: {type(update).__name__}")
+    if update_sink is not None:
+        update_sink.update(update)
     pending = update.get("pending_outbound") or []
     if not pending:
         return "", None
@@ -595,11 +652,17 @@ def _run_one(fixture: Fixture, model: str) -> FixtureRunResult:
 
     start = time.monotonic()
     try:
+        update: dict[str, Any] = {}
         with ModelSwap(tier=fixture.tier, model=model):
-            response, page_title = _invoke_node(fixture.node, fixture)
+            response, page_title = _invoke_node(fixture.node, fixture, update)
         # What send_node would deliver: judge/shame_safe score this surface.
         delivered = render_task_token(response, title=page_title)
-        contracts = evaluate_contracts(fixture.contracts, response, delivered)
+        contracts = evaluate_contracts(
+            fixture.contracts,
+            response,
+            delivered,
+            turn_actions=list(update.get("turn_actions") or []),
+        )
         duration = time.monotonic() - start
         input_tokens = _rough_tokens(fixture.inbound + json.dumps(fixture.prior_state))
         output_tokens = _rough_tokens(response)

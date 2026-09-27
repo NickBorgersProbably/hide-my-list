@@ -25,7 +25,7 @@ Lens — thirteen contract clauses:
 
 2. **New or modified prompt template in `app/prompts/`** MUST have:
    - Updated structural test in `tests/unit/test_*.py` if it adds a new section anchor or removes a required phrase.
-   - A new fixture in `tests/evals/fixtures/<node>/` if it changes a behavior contract (new capability statement, new banned phrasing, or new structural requirement). The fixture must include at least one `regex_forbid` or `judge` contract that would fail against the prior prompt version.
+   - A new fixture in `tests/evals/fixtures/<node>/` if it changes a behavior contract (new capability statement, new banned phrasing, or new structural requirement). The fixture must include at least one `regex_forbid`, `judge`, or `turn_action` contract that would fail against the prior prompt version.
 
 3. **New migration in `migrations/`** MUST:
    - Use the next monotonic integer prefix. The structural lint `tests/unit/test_migration_filenames.py` enforces uniqueness and monotonicity — a failing lint is a blocker.
@@ -57,6 +57,7 @@ Lens — thirteen contract clauses:
    - The fixture runner serves task pools from a stubbed Notion client (`_install_notion_stub`). Any PR that changes the `_as_notion_page` translator or the Notion stub must update `tests/unit/test_eval_rig.py` to assert the new translation round-trips through the real node-side extractors.
    - New eval-covered graph nodes MUST emit a terminal `<node>_node.error` event on exception (matching the naming convention the runner's fallback guard checks). A node that swallows exceptions and returns a hand-written fallback will score that fallback as model output; the guard prevents this. Flag any new node added to `app/graph/nodes/` that lacks this event when an eval fixture is present.
    - `regex_*` and `json_schema` contracts score the RAW draft body; `judge` and `shame_safe` contracts score the DELIVERED body (token substituted from `notion_page_title`). Write rubrics against the delivered text; assert token invariants as `regex_require: "\\{task\\}"`.
+   - `turn_action` contracts are deterministic and score what the node did rather than what it said. They match the node update's `turn_actions` list on `action` and, when given, `page_id`; `present: false` forbids the match. Use one when the behavior under test is a write (moving an existing reminder instead of creating one) that the reply text cannot show — writes are discarded in evals, but the node still records the action it took.
    - `prior_state.active_task` MUST use the runtime `ActiveTask` shape (`page_id`, `title`). Omit `selected_at` to let the runner inject a fresh timestamp; set it explicitly only to test the stale-task path.
 10. **Side-effecting calls wrapped in intentional exception-swallowing handlers** MUST have:
    - A test that asserts the outbound call's kwargs shape directly — not just the fallback return value, which looks identical whether the call was valid or not.

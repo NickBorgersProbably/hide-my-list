@@ -2,8 +2,10 @@
 
 Lifecycle (one checkpoint):
 
-1. "remind me to call the pharmacy at 6pm" creates a reminder page and a
-   pending outbox row.
+1. "remind me to call the pharmacy tomorrow at 6pm" creates a reminder page
+   and a pending outbox row. "Tomorrow" keeps that row in the future at any
+   hour the suite runs; a past-due intake row would fire in step 2's worker
+   cycle first, complete the page, and kill the delivery under test.
 2. The reminder fires through the real worker.
 3. An unrelated message ("lol my cat...") is not an answer: the delivery
    stays awaiting a reply.
@@ -14,13 +16,11 @@ Lifecycle (one checkpoint):
    the finished reminder is never celebrated twice.
 
 Time change (its own checkpoint): "actually make it 6pm" after a 5pm
-reminder. Intake has no reschedule path — reminders skip duplicate
-detection — so the follow-up creates a second reminder page rather than
-moving the first. The test asserts only what is safe either way: a pending
-reminder sits one hour after the first, and the first was neither completed
-nor lost. It does not pin the page count, so a reschedule path passes it
-unchanged. The duplicate is kept out of the lifecycle above: two pages with
-one title, touched minutes apart, make the "done" in step 4 ambiguous.
+reminder. The test asserts the user-visible outcome: a pending reminder sits
+one hour after the first, and the first was neither completed nor lost.
+`test_loop_reschedule_reminder.py` pins how: intake moves the same page and
+swaps its outbox row rather than creating a second reminder. The time change
+is kept out of the lifecycle above so the "done" in step 4 has one anchor.
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ async def test_reminder_fired_ignored_done_recalled_and_not_recelebrated(
 ) -> None:
     cursor = conversation.notion.mark()
     await conversation.say(
-        "remind me to call the pharmacy at 6pm",
+        "remind me to call the pharmacy tomorrow at 6pm",
         expect=Expect(intent="ADD_TASK", sent_count=1, regex_require=[r"(?i)pharmacy"]),
     )
     created = conversation.notion.written_pages("create_reminder", since=cursor)
@@ -121,7 +121,7 @@ async def test_a_time_change_keeps_a_reminder_at_the_new_time(
         and fields.get("remind_at")
         and datetime.fromisoformat(str(fields["remind_at"])) - first_at == timedelta(hours=1)
     ]
-    # A reschedule path would move `first` itself; today a second page holds 6pm.
+    # Intake moves `first` itself; test_loop_reschedule_reminder.py pins that.
     assert len(at_six) == 1, "the follow-up time was not honored: no pending reminder at 6pm"
     assert "pending" in await conversation.outbox_state(at_six[0])
     assert "pharmacy" in conversation.notion.title_of(at_six[0]).lower()

@@ -1,0 +1,53 @@
+---
+# A reminder was set a moment ago; the follow-up changes only its time.
+# docs/ai-prompts/intake.md, MOVING AN EXISTING REMINDER: a message that names
+# a new time and nothing new to do moves the listed reminder. The model sets
+# "reschedule_of" to the candidate's label, and intake updates that page
+# (`notion.update_property` on it) instead of creating a second reminder page.
+# The turn_action contracts score what the node did, which is the observable
+# the old prompt cannot produce: without the candidates block and the
+# "reschedule_of" field, intake creates a new reminder and never touches the
+# existing page.
+# The ledger entry omits `at`: static fixtures cannot carry a fresh timestamp,
+# and intake reads an undated entry as recent.
+id: intake-reschedule-existing-reminder-001
+node: intake
+tier: medium
+peer: "<test-peer-intake-reschedule>"
+inbound: "actually make it 6pm"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  user_prefs:
+    timezone: America/Chicago
+  messages:
+    - role: user
+      content: "remind me to call the pharmacy at 5pm"
+    - role: assistant
+      content: "Got it — I'll remind you at 5pm to Call the pharmacy."
+  recent_tasks:
+    - page_id: "<placeholder-page-id-reminder>"
+      title: "Call the pharmacy"
+      kind: reminder
+      event: added
+notion_tasks:
+  - id: "<placeholder-page-id-reminder>"
+    title: "Call the pharmacy"
+    status: "Pending"
+    is_reminder: true
+    reminder_status: "pending"
+    remind_at: "2026-10-01T17:00:00-05:00"
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 5
+contracts:
+  - kind: turn_action
+    action: notion.update_property
+    page_id: "<placeholder-page-id-reminder>"
+  - kind: turn_action
+    action: notion.create_reminder
+    present: false
+  - kind: regex_require
+    pattern: "(?i)6\\s*(pm|p\\.m\\.|:00)"
+  - kind: regex_forbid
+    pattern: "(?i)(5\\s*pm|replac)"
