@@ -99,8 +99,23 @@ jobs:
               exit 1
               ;;
           esac
-          # shellcheck disable=SC1091
-          source .github/ci/agent-models.env
+          # This step runs against the `main` checkout at the workspace
+          # root (script trust — the PR under review is checked out
+          # separately, at pr-head), so a PR that introduces or edits
+          # agent-models.env can't see its own copy here until it merges.
+          # Fall back to built-in defaults that must exactly match
+          # .github/ci/agent-models.env; scripts/test-agent-model-tier.sh
+          # fails the build if they drift.
+          if [ -f .github/ci/agent-models.env ]; then
+            # shellcheck disable=SC1091
+            source .github/ci/agent-models.env
+          else
+            echo "::notice::agent-models.env missing on this checkout (pre-merge bootstrap); using built-in defaults"
+            CODEX_MODEL_FRONTIER=gpt-5.6-sol
+            CODEX_REASONING_FRONTIER=high
+            CODEX_MODEL_LUNA=gpt-5.6-luna
+            CODEX_REASONING_LUNA=low
+          fi
           case "$TIER" in
             frontier) MODEL="$CODEX_MODEL_FRONTIER"; EFFORT="$CODEX_REASONING_FRONTIER" ;;
             luna) MODEL="$CODEX_MODEL_LUNA"; EFFORT="$CODEX_REASONING_LUNA" ;;

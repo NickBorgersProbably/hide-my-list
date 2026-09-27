@@ -139,6 +139,7 @@ run_shell_unit_tests() {
   require_command jq
   echo "=== Running shell unit tests ==="
   "$REPO_ROOT/scripts/test-issue-pr-claims.sh"
+  "$REPO_ROOT/scripts/test-agent-model-tier.sh"
 }
 
 run_doc_link_check() {

@@ -79,8 +79,22 @@ jobs:
         id: model-tier
         run: |
           set -euo pipefail
-          # shellcheck disable=SC1091
-          source .github/ci/agent-models.env
+          # Defensive fallback in case this checkout predates
+          # .github/ci/agent-models.env (e.g. it was deleted, or this
+          # step is copy-pasted into a workflow whose checkout doesn't
+          # guarantee the file). Values below must exactly match
+          # .github/ci/agent-models.env; scripts/test-agent-model-tier.sh
+          # fails the build if they drift.
+          if [ -f .github/ci/agent-models.env ]; then
+            # shellcheck disable=SC1091
+            source .github/ci/agent-models.env
+          else
+            echo "::notice::agent-models.env missing on this checkout; using built-in defaults"
+            CODEX_MODEL_FRONTIER=gpt-5.6-sol
+            CODEX_REASONING_FRONTIER=high
+            CODEX_MODEL_LUNA=gpt-5.6-luna
+            CODEX_REASONING_LUNA=low
+          fi
           echo "model=$CODEX_MODEL_FRONTIER" >> "$GITHUB_OUTPUT"
           echo "reasoning_effort=$CODEX_REASONING_FRONTIER" >> "$GITHUB_OUTPUT"
 
