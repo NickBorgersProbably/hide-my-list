@@ -209,7 +209,15 @@ target in this order:
    dropped, and a mangled id is no match.
    When nothing clears the ranking threshold, the whole open list goes to the
    model instead (capped at 40, ranked), so a message that paraphrases a task
-   rather than quoting its title still reaches the model. A match at or above
+   rather than quoting its title still reaches the model. The model matches
+   only a task the message asserts is already finished; a task the user still
+   intends to do, is asking about, or is about to start is no match. A report
+   of the resulting state is an assertion of completion: "the deep clean is
+   scheduled", "the form is submitted", "the appointment is booked", and
+   "tickets are bought" match the candidate whose action produces that state.
+   A question about the state ("did the form submit") and a completion word
+   followed by a new plan ("done, now I need to call mom" against "Call mom")
+   are no match. A match at or above
    0.90 confidence outranks every context source below, including an active
    task pointing at a different page.
 2. **The newest context.** Three sources, pooled one entry per page:
@@ -368,7 +376,9 @@ Each ask is worded differently from the one before it, because a question
 repeated verbatim is the failure this path exists to prevent. There are three
 wordings, each with a first and a second ask: options drawn from the ledger
 ("Nice — which task was it: A or B?"), options from the shortlist ("I can
-mark that done — was it A or B?"), and an open question.
+mark that done — was it A or B?"), and an open question. A single option
+drawn from the ledger is a confirmation rather than a choice: "Nice — was it
+A?" on the first ask and "Just checking — was it A?" on the second.
 
 `complete_node` reads the same record for two things. The options it named lead
 the candidate list on the answering turn, in the order they were named, so a
@@ -724,6 +734,19 @@ word for word. When that entry is untitled, chat says it is not sure which
 task the user means and asks them to name it. When every entry is `rejected`,
 or the ledger is empty, chat names the current task, or asks when there is
 none.
+
+The ledger is a 7-day, 8-entry window, so its silence is not evidence that
+something never happened. When the user refers to a reminder, nudge, or task
+the ledger does not show ("what deadline were you nudging me about?"), chat
+says it has no record of a recent one and offers one forward step — help
+finding it once the user says what it was about, or adding it as a task. Chat
+never denies that the reminder or nudge happened.
+
+Chat never offers to show, list, or enumerate the user's tasks ("want to see
+your other tasks?"): the assistant keeps the list so the user does not have
+to look at it, and no module can honor that offer. When a forward step fits,
+it is one task suggestion or adding something new; a user who is resting or
+just chatting gets none.
 
 With no active task, breakdown help (NEED_HELP) is about the newest titled
 entry whose event is `added` or `suggested`.
