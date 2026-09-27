@@ -8,7 +8,8 @@ the checkpoint, and `recent_outbound` together; the clock is never faked.
 
 Day 1  three adds: a task with a deadline, an open-ended task, a reminder.
 Day 2  the reminder fires; "done!" resolves it and names it; "whats left?"
-       names the two open tasks from the ledger.
+       gets no list: chat keeps the list, denies nothing, and offers a
+       suggestion or adding something instead.
 Day 3  the deadline nudge fires; "ugh, that got complicated" is a
        cannot-finish about the nudged task. It may add hidden sub-tasks under
        it, never changes the task itself, and leaves the nudge answerable.
@@ -110,7 +111,14 @@ async def test_a_week_of_adds_reminders_nudges_and_completions(
             intent="CHAT",
             notion_untouched=[car, fridge, recycling],
             sent_count=1,
-            regex_require=[r"(?i)fridge", r"(?i)(car|registration)"],
+            # The user never sees the full list (shared.md CONSTRAINTS), so
+            # chat neither enumerates the open tasks nor claims there are none;
+            # it offers one forward step.
+            regex_forbid=[
+                r"(?i)nothing left|all done|list is empty|no tasks|you're done",
+                r"(?is)fridge.*(car|registration)|(car|registration).*fridge",
+            ],
+            regex_require=[r"(?i)suggest|pick|next|want one|add"],
         ),
     )
     assert left.notion_writes_since == conversation.notion.mark(), "CHAT wrote to Notion"

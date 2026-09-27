@@ -102,6 +102,18 @@ def test_no_record_section_forbids_denying_unseen_history() -> None:
     assert "forward step" in section
 
 
+def test_whats_left_names_no_tasks() -> None:
+    """ "whats left?" is CHAT; Recent Tasks is not the list and is never enumerated."""
+    rendered = _render_chat_prompt()
+    assert "### What's on my list?" in rendered
+    section = " ".join(
+        rendered.split("### What's on my list?", 1)[1].split("\n### ", 1)[0].split()
+    )
+    assert "do not name, list, or count the tasks" in section
+    assert "do not say the list is empty" in section
+    assert "Recent Tasks is not the list" in section
+
+
 def test_guidelines_never_offer_the_task_list() -> None:
     """No module can honor "want to see your other tasks?"; the step is one suggestion."""
     rendered = _render_chat_prompt()

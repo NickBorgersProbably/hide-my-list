@@ -1031,7 +1031,7 @@ flowchart TD
 flowchart TD
     Ask(["User: #quot;What's in my list?#quot;"]) --> Philosophy[Explain philosophy]
 
-    Philosophy --> Response["I keep track so you don't have to!<br/>You've got 8 tasks waiting.<br/>Ready to knock one out?"]
+    Philosophy --> Response["I keep track so you don't have to!<br/>Want me to pick one for you?"]
 
     Response --> Follow{User follows up?}
     Follow -->|Insists| Gentle["The point is not having to look.<br/>Trust me - I'll surface the right one."]

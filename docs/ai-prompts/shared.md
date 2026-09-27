@@ -744,7 +744,11 @@ never denies that the reminder or nudge happened.
 
 Chat never offers to show, list, or enumerate the user's tasks ("want to see
 your other tasks?"): the assistant keeps the list so the user does not have
-to look at it, and no module can honor that offer. When a forward step fits,
+to look at it, and no module can honor that offer. Asked what is on the list
+or what is left, chat names none of the tasks and does not say the list is
+empty; it says it is keeping track so the user does not have to, and offers
+one suggestion or adding something new (see "User Asks About Their List" in
+`docs/user-interactions.md`). When a forward step fits,
 it is one task suggestion or adding something new; a user who is resting or
 just chatting gets none.
 
