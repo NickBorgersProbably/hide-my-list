@@ -1,0 +1,40 @@
+---
+# The user reports progress and stopping in one message. docs/ai-prompts/
+# cannot-finish.md: STEP 1 asks what was accomplished *only* when progress is
+# unknown; once progress is described, analyze what remains and offer the
+# first remaining sub-task (`next_sub_task_message`) in a 15-90 minute chunk.
+# Progress Question Templates: "lead with progress acknowledgment, never with
+# what's left undone." Asking "what did you get through?" here ignores what
+# the user just said — the regex_forbid catches that — and opening with the
+# remaining pile is the shame-risk ordering the judge scores down.
+id: cannot-finish-progress-same-message-001
+node: cannot_finish
+tier: medium
+peer: "<test-peer-cannot-finish-same-msg>"
+inbound: "ok i emptied the whole pantry and tossed the expired stuff but im fried, cant do the rest"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Reorganize the pantry"
+    time_estimate: 60
+  conversation_state: active
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)what (did you|have you) (get|got|gotten|manage|accomplish|do|finish)"
+  - kind: regex_forbid
+    pattern: "(?i)you\\s+(should\\s+have|didn't|failed|forgot)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user emptied the pantry and threw out expired items, then stopped
+      because they are worn out. Score 1.0 when the reply first acknowledges
+      that progress (emptying the pantry / tossing expired food), then offers
+      ONE small, concrete next piece of what remains as optional — later is
+      fine. Any single concrete action counts (wiping the empty shelves,
+      putting one shelf's items back, grouping cans together); do not
+      require a particular one. Score 0.5 when it
+      acknowledges progress but offers a vague or large next step. Score 0.0
+      when it asks what they accomplished, leads with how much is left, or
+      pressures them to finish now.
+    threshold: 0.8

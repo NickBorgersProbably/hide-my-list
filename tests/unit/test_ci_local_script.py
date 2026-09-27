@@ -354,7 +354,7 @@ def test_e2e_forwards_files_and_exports_ci_env(fake_env: dict[str, str]) -> None
         assert scrubbed not in recorded, f"{scrubbed} leaked into the e2e environment"
     assert recorded["ENABLE_E2E_CONVERSATIONS"] == "true"
     assert recorded["E2E_DEBUG_TURNS"] == "true"
-    assert recorded["E2E_MAX_LLM_CALLS"] == "120"
+    assert recorded["E2E_MAX_LLM_CALLS"] == "200"
     assert recorded["LANG"] == "C.UTF-8"
     assert recorded["PATH"] == env["PATH"]
 

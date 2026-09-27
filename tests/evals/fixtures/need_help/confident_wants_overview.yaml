@@ -1,0 +1,32 @@
+---
+# A confident user asks for the whole plan. docs/ai-prompts/breakdown.md,
+# Response Levels + User Signal Detection: "What are the steps?" / "Walk me
+# through it" is the Confident signal, answered at the OVERVIEW level — all
+# steps, each with a time estimate, ending on a start question ("Here's the
+# plan: 1) X (5 min), 2) Y (10 min)... Ready to start with X?"). A single
+# micro-action is the wrong level for this user.
+id: need-help-confident-overview-001
+node: need_help
+tier: medium
+peer: "<test-peer-need-help-overview>"
+inbound: "walk me through the steps for this one"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Renew the car registration"
+    time_estimate: 45
+  conversation_state: active
+contracts:
+  - kind: regex_require
+    pattern: "(?i)\\d+\\s*(min|minutes?)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user asked for the full set of steps. Score 1.0 when the reply
+      lists roughly 3 to 6 concrete steps for renewing a car registration,
+      each with a short time estimate, and ends by inviting the user to start
+      with the first one. Score 0.5 when steps are given without estimates or
+      without the start invitation. Score 0.0 when it gives only one tiny
+      action, stays vague ("gather what you need"), or lectures.
+    threshold: 0.8

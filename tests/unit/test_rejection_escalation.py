@@ -247,6 +247,19 @@ def test_parse_rejection_response_valid_json_streak3_forces_null_alternative() -
     assert "task mode" in msg.lower()
 
 
+def test_parse_rejection_response_streak3_suppresses_task_token() -> None:
+    """At streak >= 3, a model response with {task} in user_message never reaches the caller."""
+    from app.graph.nodes.rejection import _parse_rejection_response
+
+    valid_json = (
+        '{"user_message": "Here\'s another one: {task}", '
+        '"alternative_task_id": "<page-id>"}'
+    )
+    msg, alt_id = _parse_rejection_response(valid_json, incoming="nope", rejection_streak=3)
+    assert "{task}" not in msg
+    assert alt_id is None
+
+
 @pytest.mark.asyncio
 async def test_notion_call_contract_keyword_args(
     monkeypatch: pytest.MonkeyPatch,

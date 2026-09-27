@@ -1,0 +1,30 @@
+---
+# Hedged acceptance. docs/ai-prompts/breakdown.md, User Signal Detection:
+# "I guess", hesitation, qualified acceptance = Uncertain, answered at the
+# CURRENT_STEP level — "Right now, focus on just this: [specific action].
+# That's it for now." A numbered plan is the wrong level for a hesitant user
+# ("vague goals feel infinite"; so does a long list).
+id: need-help-uncertain-current-step-001
+node: need_help
+tier: medium
+peer: "<test-peer-need-help-uncertain>"
+inbound: "i guess i'll try the taxes thing... idk"
+prior_state:
+  active_task:
+    page_id: "<placeholder-page-id>"
+    title: "Gather documents for the tax return"
+    time_estimate: 40
+  conversation_state: active
+contracts:
+  - kind: regex_forbid
+    pattern: "(?m)(^|\\s)(2[.)]|step 2\\b|second,)"
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: judge
+    rubric: |
+      The user is hesitant. Score 1.0 when the reply gives exactly one
+      concrete, small next action for gathering tax documents (for example
+      "grab last year's return and put it on the table") and explicitly
+      lets that be enough for now. Score 0.5 for one action that is vague.
+      Score 0.0 for a multi-step plan or a list of options.
+    threshold: 0.8

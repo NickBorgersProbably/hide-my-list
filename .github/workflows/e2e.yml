@@ -34,7 +34,7 @@ on:
       max_calls:
         description: 'Hard cap on live LLM calls'
         required: false
-        default: '120'
+        default: '200'
         type: string
 
 # Shared with nightly-evals and model-swap: app/models.py records that the LLM
@@ -145,7 +145,7 @@ jobs:
       - name: Run conversation scenarios
         env:
           ENABLE_E2E_CONVERSATIONS: 'true'
-          E2E_MAX_LLM_CALLS: ${{ inputs.max_calls || '120' }}
+          E2E_MAX_LLM_CALLS: ${{ inputs.max_calls || '200' }}
           # Prints a failing turn's captured structlog events (event name +
           # booleans, counts, and allowlisted enum/id fields only — never
           # message text, titles, or peers)

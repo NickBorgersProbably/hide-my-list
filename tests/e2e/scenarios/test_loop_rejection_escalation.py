@@ -54,7 +54,13 @@ async def test_three_consecutive_rejections_escalate_to_normalization(
     # Turn 1 — selection offers one task and marks it In Progress.
     offer = await conversation.say(
         "I have about 30 minutes — what should I work on?",
-        expect=Expect(intent="GET_TASK", sent_count=1),
+        expect=Expect(
+            intent="GET_TASK",
+            sent_count=1,
+            # A null or unknown selection fails here, inside the turn check, so
+            # the debug dump shows which path selection took.
+            regex_forbid=[r"(?i)nothing quite fits", r"(?i)couldn't land on one"],
+        ),
     )
     first_offered = (offer.state.get("active_task") or {}).get("page_id")
     assert first_offered in all_tasks, f"selection offered no seeded task: {first_offered!r}"

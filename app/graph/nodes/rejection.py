@@ -312,6 +312,13 @@ def _parse_rejection_response(
     """
     if _is_distress(incoming):
         return "Nothing's wrong with you. Want to step away for a bit?", None
+    if rejection_streak >= 3:
+        return (
+            "Sometimes the brain just isn't in task mode. "
+            "That's not a failure — it's information. "
+            "Want to describe how you're feeling, or would a break help? "
+            "No pressure — I'll be here when you're ready."
+        ), None
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
         try:

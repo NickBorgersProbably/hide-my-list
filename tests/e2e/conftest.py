@@ -25,7 +25,7 @@ from tests.support.notion_fake import FakeNotion
 from tests.support.signal_sink import SignalSink
 
 _ENABLE_KEY = "ENABLE_E2E_CONVERSATIONS"
-_DEFAULT_MAX_CALLS = 120
+_DEFAULT_MAX_CALLS = 200
 
 
 def _enabled() -> bool:
