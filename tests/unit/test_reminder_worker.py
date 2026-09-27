@@ -387,19 +387,24 @@ async def test_a_deadline_nudge_whose_task_is_completed_is_dead_not_sent(
     signal_send.assert_not_awaited()
     complete_reminder.assert_not_awaited()
     dead = [(q, p) for q, p in conn.executed if "state = 'dead'" in q]
-    assert len(dead) == 1
-    assert "last_error = 'page already completed'" in dead[0][0]
-    assert dead[0][1] == (str(row["id"]),)
+    # The row itself, plus the series' other undelivered nudges (the worker
+    # retires the whole series once it sees the task is Completed).
+    own = [d for d in dead if "last_error = 'page already completed'" in d[0]]
+    siblings = [d for d in dead if "last_error = 'task completed'" in d[0]]
+    assert len(own) == 1 and own[0][1] == (str(row["id"]),)
+    assert len(siblings) == 1
     assert not any("INSERT INTO recent_outbound" in q for q, _ in conn.executed)
     skipped = [e for e in logs if e["event"] == "reminder_worker.skipped_completed_page"]
     assert [e["kind"] for e in skipped] == ["deadline"]
 
 
 @pytest.mark.asyncio
-async def test_a_failed_presend_read_sends_a_deadline_nudge_anyway(
+async def test_a_failed_presend_read_defers_a_deadline_nudge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Fail-open for deadline nudges too: a Notion outage never swallows one."""
+    """Deadline nudges fail closed: an unverifiable page status defers the row
+    (`scheduled`, retried later) instead of sending a nudge for a task that may
+    already be done. Reminder rows keep failing open (see the reminder test)."""
     from app.scheduler import reminder_worker
     from app.tools import notion
 
@@ -415,7 +420,10 @@ async def test_a_failed_presend_read_sends_a_deadline_nudge_anyway(
 
     await reminder_worker.dispatch_due_reminders(conn, signal_send_fn=signal_send)
 
-    signal_send.assert_awaited_once_with(
-        recipient="<peer>", message="Test reminder", idempotency_key=row["idempotency_key"]
-    )
+    signal_send.assert_not_awaited()
+    deferred = [(q, p) for q, p in conn.executed if "state = 'scheduled'" in q]
+    assert len(deferred) == 1
+    assert "presend_check_failed: deferred" in deferred[0][0]
+    assert deferred[0][1][-1] == str(row["id"])
     assert not any("state = 'dead'" in q for q, _ in conn.executed)
+    assert not any("INSERT INTO recent_outbound" in q for q, _ in conn.executed)

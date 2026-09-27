@@ -177,9 +177,12 @@ The app container runs four concurrent async tasks:
    a failure there is logged and the completion stands. The worker's pre-send
    check covers any surviving row of either kind: before sending a row it
    reads the page, and when the page is already `Completed` it marks the row
-   `dead` with `last_error='page already completed'` and sends nothing. A
-   failed page read sends anyway — a missed reminder costs the user more than
-   a redundant one.
+   `dead` with `last_error='page already completed'` and sends nothing; for a
+   `kind='deadline'` row it also retires the series' other undelivered nudges.
+   A failed page read is handled per kind: a reminder row sends anyway — a
+   missed reminder costs the user more than a redundant one — while a
+   deadline row is deferred (`scheduled`, retried later) rather than nudging
+   toward a deadline the task may already have met.
 
 ## Reminder Delivery
 

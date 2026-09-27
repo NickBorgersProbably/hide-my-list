@@ -458,6 +458,13 @@ async def test_worker_records_the_outbox_kind_as_reminder_type(
     from app.tools import notion, reminders
 
     monkeypatch.setattr(notion, "complete_reminder", AsyncMock(return_value={}))
+    # Both pages read as open: a reminder row fails open on a read error, but
+    # a deadline row fails closed (deferred), so the pre-send read must work.
+    monkeypatch.setattr(
+        notion,
+        "get_page",
+        AsyncMock(return_value={"properties": {"Status": {"select": {"name": "Pending"}}}}),
+    )
 
     reminder_page = str(uuid.uuid4())
     deadline_page = str(uuid.uuid4())
