@@ -62,6 +62,7 @@ async def test_three_consecutive_rejections_escalate_to_normalization(
 
     # Turn 2 — first rejection. The rejected page gets a rejection-count bump;
     # the suggested alternative is not written to.
+    notion_cursor_t2 = conversation.notion.mark()
     first_reject = await conversation.say(
         "nah, not feeling that one",
         expect=Expect(intent="REJECT", sent_count=1),
@@ -82,9 +83,18 @@ async def test_three_consecutive_rejections_escalate_to_normalization(
     assert ledger_1.get(second_offered) == "suggested", (
         "second offered page should appear as 'suggested' in the ledger after turn 2"
     )
+    t2_up_writes = [
+        w for w in conversation.notion.writes[notion_cursor_t2:] if w.op == "update_property"
+    ]
+    assert len(t2_up_writes) == 1, (
+        f"turn 2 (first reject) must write exactly one update_property; got {t2_up_writes}"
+    )
+    assert t2_up_writes[0].page_id == first_offered
+    assert t2_up_writes[0].payload["properties"]["Rejection Count"]["number"] == 1
 
     # Turn 3 — second rejection. Only the second offered page (now rejected) should
     # be written to Notion; whatever is offered next is untouched.
+    notion_cursor_t3 = conversation.notion.mark()
     second_reject = await conversation.say(
         "still not quite right",
         expect=Expect(
@@ -106,11 +116,20 @@ async def test_three_consecutive_rejections_escalate_to_normalization(
     assert third_offered in all_tasks - {first_offered, second_offered}, (
         f"second rejection offered {third_offered!r}, expected the last seeded task"
     )
+    t3_up_writes = [
+        w for w in conversation.notion.writes[notion_cursor_t3:] if w.op == "update_property"
+    ]
+    assert len(t3_up_writes) == 1, (
+        f"turn 3 (second reject) must write exactly one update_property; got {t3_up_writes}"
+    )
+    assert t3_up_writes[0].page_id == second_offered
+    assert t3_up_writes[0].payload["properties"]["Rejection Count"]["number"] == 1
 
     # Turn 4 — third rejection. The "no" declines the alternative offered in
     # turn 3 (its rejection count is bumped; the other pages are untouched).
     # Streak == 3: no task suggested, no seeded task named, normalization +
     # mood-or-break wording in the reply.
+    notion_cursor_t4 = conversation.notion.mark()
     third_reject = await conversation.say(
         "nope, nothing is working for me right now",
         expect=Expect(
@@ -145,3 +164,11 @@ async def test_three_consecutive_rejections_escalate_to_normalization(
     assert set(ledger_3) == all_tasks, (
         f"expected all three seeded pages recorded as rejected after three REJECT turns; got {ledger_3}"
     )
+    t4_up_writes = [
+        w for w in conversation.notion.writes[notion_cursor_t4:] if w.op == "update_property"
+    ]
+    assert len(t4_up_writes) == 1, (
+        f"turn 4 (third reject) must write exactly one update_property; got {t4_up_writes}"
+    )
+    assert t4_up_writes[0].page_id == third_offered
+    assert t4_up_writes[0].payload["properties"]["Rejection Count"]["number"] == 1

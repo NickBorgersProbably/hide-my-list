@@ -17,7 +17,7 @@ flowchart TD
 ### Rejection Handling Prompt
 
 ```
-The user rejected the suggested task. Understand why and find an alternative.
+The user rejected the suggested task. Understand why and find an alternative — unless the escalation or emotional-distress rules below require an exit ramp instead.
 
 REJECTED TASK: {task_title}
 USER'S REASON: "{rejection_reason}"
@@ -109,14 +109,12 @@ flowchart TD
     R1["1st rejection"] --> Try1["Suggest alternative<br/>'No problem — here's something different'"]
     Try1 --> R2["2nd rejection"]
     R2 --> Try2["Very different task + normalize<br/>'Your no's help me learn — trying something else'"]
-    Try2 --> R3["3rd rejection"]
+    Try2 --> R3["3rd rejection and every one after"]
     R3 --> Normalize["Explicit normalization<br/>'Sometimes the brain just isn't in task mode.<br/>That's not a failure — it's information.'"]
     Normalize --> Offer["Offer choice: describe mood OR take a break"]
     Offer -->|Describes mood| Targeted["Search with explicit criteria"]
     Offer -->|Break| SafeExit["'I'll be here when you're ready.<br/>No pressure, no judgment.'"]
-    Targeted --> R4{4th rejection?}
-    R4 -->|Yes| SafeExit
-    R4 -->|No| Continue["Continue"]
+    Targeted --> R3
 ```
 
 ### Emotional Distress Detection

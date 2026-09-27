@@ -224,6 +224,93 @@ def test_template_carries_streak_reset_rule() -> None:
     assert "24 hours" in rendered
 
 
+def test_parse_rejection_response_valid_json_distress_bypasses_alternative() -> None:
+    """Valid JSON with a non-null alternative_task_id is overridden when distress is detected."""
+    from app.graph.nodes.rejection import _parse_rejection_response
+
+    valid_json = '{"user_message": "Try this instead: {task}", "alternative_task_id": "<page-id>"}'
+    msg, alt_id = _parse_rejection_response(valid_json, incoming="I'm useless")
+    assert "nothing" in msg.lower()
+    assert alt_id is None
+
+
+def test_parse_rejection_response_valid_json_streak3_forces_null_alternative() -> None:
+    """At streak >= 3, valid JSON with a non-null alternative_task_id has it forced to null."""
+    from app.graph.nodes.rejection import _parse_rejection_response
+
+    valid_json = (
+        '{"user_message": "Sometimes the brain just isn\'t in task mode.", '
+        '"alternative_task_id": "<page-id>"}'
+    )
+    msg, alt_id = _parse_rejection_response(valid_json, incoming="nope", rejection_streak=3)
+    assert alt_id is None
+    assert "task mode" in msg.lower()
+
+
+@pytest.mark.asyncio
+async def test_notion_call_contract_keyword_args(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_page and update_property are called with keyword arguments; signature stays valid."""
+    import inspect
+    from unittest.mock import AsyncMock
+
+    from app import models as models_module
+    from app.graph.nodes.rejection import rejection_node
+    from app.tools import notion as real_notion
+
+    async def fake_query_pending() -> dict[str, Any]:
+        return {"results": []}
+
+    get_page_mock = AsyncMock(
+        return_value={"id": "<page-id>", "properties": {"Rejection Count": {"number": 2}}}
+    )
+    update_property_mock = AsyncMock(return_value={"id": "<page-id>"})
+
+    model = _CapturingModel('{"user_message": "No problem.", "alternative_task_id": null}')
+    monkeypatch.setattr(real_notion, "query_pending", fake_query_pending)
+    monkeypatch.setattr(real_notion, "get_page", get_page_mock)
+    monkeypatch.setattr(real_notion, "update_property", update_property_mock)
+    monkeypatch.setattr(models_module, "llm", lambda tier, **kwargs: model)
+
+    await rejection_node(
+        {
+            "peer": "<recipient>",
+            "incoming": "not feeling it",
+            "intent": "REJECT",
+            "messages": [],
+            "active_task": None,
+            "recent_tasks": [
+                {
+                    "page_id": "<page-id>",
+                    "title": "Placeholder task",
+                    "kind": "task",
+                    "event": "suggested",
+                    "at": _recent_at,
+                },
+            ],
+            "streak": 0,
+            "tasks_completed_today": 0,
+            "user_prefs": {},
+            "mood": None,
+            "available_minutes": 30,
+            "conversation_state": "active",
+            "pending_outbound": [],
+        }
+    )
+
+    get_page_mock.assert_awaited_once()
+    get_page_kwargs = get_page_mock.call_args.kwargs
+    assert get_page_kwargs == {"page_id": "<page-id>"}
+    inspect.signature(real_notion.get_page).bind(**get_page_kwargs)
+
+    update_property_mock.assert_awaited_once()
+    update_kwargs = update_property_mock.call_args.kwargs
+    assert update_kwargs["page_id"] == "<page-id>"
+    assert update_kwargs["prop_json"]["properties"]["Rejection Count"]["number"] == 3
+    inspect.signature(real_notion.update_property).bind(**update_kwargs)
+
+
 def test_parse_rejection_response_empty_is_shame_safe() -> None:
     """Parser empty-response fallback must not offer another task."""
     from app.graph.nodes.rejection import _parse_rejection_response

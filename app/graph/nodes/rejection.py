@@ -111,7 +111,9 @@ async def rejection_node(state: State) -> dict[str, Any]:
         response = await model.ainvoke(messages)
         response_text = str(response.content).strip()
 
-        user_message, alternative_id = _parse_rejection_response(response_text, incoming)
+        user_message, alternative_id = _parse_rejection_response(
+            response_text, incoming, rejection_streak
+        )
         alternative_title = _alternative_task_title(alternative_id, remaining)
         user_message = render_task_token(user_message, title=alternative_title)
 
@@ -122,13 +124,13 @@ async def rejection_node(state: State) -> dict[str, Any]:
                 if rejection_count_known is None:
                     # Declined from the ledger: read the stored count so the
                     # bump never overwrites a higher value.
-                    page = await notion.get_page(rejected_page_id)
+                    page = await notion.get_page(page_id=rejected_page_id)
                     rejection_count_known = _extract_number(
                         page.get("properties", {}), "Rejection Count", 0
                     )
                 await notion.update_property(
-                    rejected_page_id,
-                    {
+                    page_id=rejected_page_id,
+                    prop_json={
                         "properties": {
                             "Rejection Count": {"number": rejection_count_known + 1}
                         }
@@ -297,8 +299,19 @@ def _is_distress(text: str) -> bool:
     return bool(_DISTRESS_PATTERN.search(text))
 
 
-def _parse_rejection_response(response_text: str, incoming: str = "") -> tuple[str, str | None]:
-    """Parse LLM JSON response. Returns (user_message, alternative_task_id)."""
+def _parse_rejection_response(
+    response_text: str,
+    incoming: str = "",
+    rejection_streak: int = 1,
+) -> tuple[str, str | None]:
+    """Parse LLM JSON response. Returns (user_message, alternative_task_id).
+
+    Distress and streak >= 3 are hard exits that take priority over model
+    output: distress is checked before JSON parsing so valid model JSON cannot
+    bypass the shame-safe exit ramp.
+    """
+    if _is_distress(incoming):
+        return "Nothing's wrong with you. Want to step away for a bit?", None
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
         try:
@@ -308,14 +321,15 @@ def _parse_rejection_response(response_text: str, incoming: str = "") -> tuple[s
             data = cast(dict[str, Any], loaded)
             user_message = data.get("user_message", response_text[:300])
             alternative_id = data.get("alternative_task_id")
-            return (
-                user_message if isinstance(user_message, str) else response_text[:300],
-                alternative_id if isinstance(alternative_id, str) else None,
-            )
+            user_message_str = user_message if isinstance(user_message, str) else response_text[:300]
+            alternative_id_str = alternative_id if isinstance(alternative_id, str) else None
+            # At streak >= 3 the spec requires no alternative task regardless of
+            # what the model returned.
+            if rejection_streak >= 3:
+                alternative_id_str = None
+            return user_message_str, alternative_id_str
         except json.JSONDecodeError:
             pass
-    if _is_distress(incoming):
-        return "Nothing's wrong with you. Want to step away for a bit?", None
     return response_text[:300] if response_text else "No problem. I'm here whenever you're ready.", None
 
 
