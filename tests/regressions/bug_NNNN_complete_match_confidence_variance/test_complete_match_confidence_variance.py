@@ -1,12 +1,17 @@
-"""Regression: a named task asked "which task?" on a low model score (bug #NNNN).
+"""Regression: a named task asked "which task?" when the match call misfired (bug #NNNN).
 
 With reasoning off, the cheap-tier confirmation of an unambiguous standalone
-report ("finished washing the dishes" against "Wash the dishes") came back
-under the 0.90 threshold on some runs, and the node asked which task the user
-meant about the task they had just named. Each test pins the model to the
-sub-threshold answer it gave on those runs; the report must still complete
-the named task, because a report that is one title plus report filler no
-longer depends on the model at all.
+report sometimes came back unusable, and the node asked which task the user
+meant about the task they had just named. Measured: the model's confidence on
+these shapes is 1.0 on nearly every call; the misfire is copying the
+candidate's 36-character page id back with characters dropped, which matches
+no candidate and reads as a null match.
+
+Two fixes, both pinned here. A report that is one title plus report filler
+resolves without the model, so the three title-shaped reports complete even
+with the model pinned to an answer the node would refuse. And the model never
+sees a page id: candidates carry `t1`, `t2`, … and the answer maps back, so a
+paraphrase that does need the model cannot fail on a mistyped UUID.
 
 The guard the model path exists for is held here too: a report that also
 names what comes next still goes to the model and does not complete.
@@ -51,12 +56,19 @@ def _state(incoming: str) -> State:
     }
 
 
-def _sub_threshold_model(page_id: str) -> MagicMock:
+def _model(verdict: dict[str, Any]) -> AsyncMock:
     response = MagicMock()
-    response.content = json.dumps({"matched_page_id": page_id, "confidence": 0.85})
+    response.content = json.dumps(verdict)
     model = AsyncMock()
     model.ainvoke = AsyncMock(return_value=response)
-    return MagicMock(return_value=model)
+    return model
+
+
+def _refused_model() -> MagicMock:
+    """An answer the node refuses: the observed truncated page id."""
+    return MagicMock(return_value=_model(
+        {"matched_page_id": "9e8b0eaf-b35a-5d85-a9c1-013055c5", "confidence": 1.0}
+    ))
 
 
 @pytest.mark.asyncio
@@ -68,13 +80,13 @@ def _sub_threshold_model(page_id: str) -> MagicMock:
         ("ok, replied to the school email", ("Clean out the garage", "Reply to the school email"), 1),
     ],
 )
-async def test_a_named_report_completes_whatever_the_model_scores(
+async def test_a_named_report_completes_whatever_the_model_answers(
     message: str, titles: tuple[str, ...], target: int
 ) -> None:
     pages = [_page(f"<page_{index}>", title) for index, title in enumerate(titles)]
     target_id = f"<page_{target}>"
     update_status = AsyncMock()
-    llm_factory = _sub_threshold_model(target_id)
+    llm_factory = _refused_model()
 
     with (
         patch("app.tools.notion.update_status", update_status),
@@ -95,6 +107,59 @@ async def test_a_named_report_completes_whatever_the_model_scores(
     assert kwargs == {"page_id": target_id, "new_status": "Completed"}
     assert result["pending_outbound"][0]["notion_page_id"] == target_id
     assert result.get("pending_clarification") is None
+
+
+@pytest.mark.asyncio
+async def test_a_paraphrase_resolves_through_an_alias_the_model_cannot_mistype() -> None:
+    """The paraphrase still needs the model; the model never sees a page id."""
+    fridge = "9e8b0eaf-b35a-5d85-a9c1-013055c5c21f"
+    dentist = "0d4f5a1e-6c2b-4b8e-9a77-1f3c2e5d6b70"
+    pages = [_page(fridge, "Deal with the spare refrigerator"), _page(dentist, "Book the dentist")]
+    update_status = AsyncMock()
+    model = _model({"matched_page_id": "t1", "confidence": 1.0})
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", AsyncMock(return_value={"results": pages})),
+        patch(
+            "app.tools.rewards.maybe_reward",
+            AsyncMock(return_value={"text": "Nice work!", "attachment_path": None}),
+        ),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", MagicMock(return_value=model)),
+    ):
+        result = await complete_module.complete_node(
+            _state("got rid of that old fridge finally")
+        )
+
+    prompt = str(model.ainvoke.await_args.args[0][0].content)
+    assert fridge not in prompt and dentist not in prompt
+    assert update_status.await_args.kwargs == {"page_id": fridge, "new_status": "Completed"}
+    assert result["pending_outbound"][0]["notion_page_id"] == fridge
+
+
+@pytest.mark.asyncio
+async def test_a_mistyped_page_id_is_still_refused() -> None:
+    """The node never guesses from a partial id: the observed answer is no match."""
+    fridge = "9e8b0eaf-b35a-5d85-a9c1-013055c5c21f"
+    update_status = AsyncMock()
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch(
+            "app.tools.notion.query_all",
+            AsyncMock(return_value={"results": [_page(fridge, "Deal with the spare refrigerator")]}),
+        ),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", _refused_model()),
+    ):
+        result = await complete_module.complete_node(
+            _state("got rid of that old fridge finally")
+        )
+
+    update_status.assert_not_awaited()
+    assert result["pending_outbound"][0]["notion_page_id"] is None
 
 
 @pytest.mark.asyncio

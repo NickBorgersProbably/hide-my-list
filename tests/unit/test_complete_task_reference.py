@@ -37,6 +37,7 @@ from app.graph.nodes.complete import (
     _grounded_unlisted_title,
     _ledger_options,
     _ledger_targets,
+    _parse_aliased_match,
     _parse_names_unlisted,
     _parse_unlisted_title,
     _standalone_report_names,
@@ -338,8 +339,53 @@ def test_prompt_asks_whether_the_task_is_already_finished() -> None:
     )
     assert "ALREADY FINISHED" in prompt
     assert "still intends to do" in prompt
-    assert "<page_A>" in prompt
+    assert '"id": "t1"' in prompt
     assert '{"matched_page_id"' in prompt
+
+
+def test_the_prompt_carries_aliases_never_page_ids() -> None:
+    """The model copies back `t1`, not a 36-character UUID it can mistype."""
+    page_ids = ["9e8b0eaf-b35a-5d85-a9c1-013055c5c21f", "0d4f5a1e-6c2b-4b8e-9a77-1f3c2e5d6b70"]
+    prompt = _build_completion_match_prompt(
+        "got rid of that old fridge",
+        [
+            DedupCandidate(page_id=page_ids[0], title="Deal with the spare refrigerator", score=0.0),
+            DedupCandidate(page_id=page_ids[1], title="Book the dentist", score=0.0),
+        ],
+    )
+    for page_id in page_ids:
+        assert page_id not in prompt
+    assert '"id": "t1"' in prompt and '"id": "t2"' in prompt
+
+
+def test_an_alias_maps_back_to_its_candidate() -> None:
+    candidates = [
+        DedupCandidate(page_id="<page_A>", title="Deal with the spare refrigerator", score=0.0),
+        DedupCandidate(page_id="<page_B>", title="Book the dentist", score=0.0),
+    ]
+    parsed = _parse_aliased_match('{"matched_page_id": "t2", "confidence": 0.95}', candidates)
+    assert parsed is not None
+    assert (parsed[0].page_id, parsed[1]) == ("<page_B>", 0.95)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        # The observed failure: a truncated page id. Refused, not guessed.
+        '{"matched_page_id": "9e8b0eaf-b35a-5d85-a9c1-013055c5", "confidence": 1.0}',
+        # A real page id the prompt never showed is no alias either.
+        '{"matched_page_id": "<page_A>", "confidence": 1.0}',
+        '{"matched_page_id": "t3", "confidence": 1.0}',
+        '{"matched_page_id": null, "confidence": 0.0}',
+        "not json",
+    ],
+)
+def test_anything_but_a_listed_alias_is_no_match(response: str) -> None:
+    candidates = [
+        DedupCandidate(page_id="<page_A>", title="Deal with the spare refrigerator", score=0.0),
+        DedupCandidate(page_id="<page_B>", title="Book the dentist", score=0.0),
+    ]
+    assert _parse_aliased_match(response, candidates) is None
 
 
 def test_prompt_uses_no_bracketed_placeholder_slots() -> None:

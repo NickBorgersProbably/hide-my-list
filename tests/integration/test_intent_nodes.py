@@ -492,7 +492,7 @@ async def test_complete_node_resolves_task_named_in_the_message() -> None:
         patch(
             "app.models.llm",
             return_value=_mock_llm_response(
-                json.dumps({"matched_page_id": "<page_A>", "confidence": 0.95})
+                json.dumps({"matched_page_id": "t1", "confidence": 0.95})
             ),
         ),
     ):
@@ -526,7 +526,7 @@ async def test_complete_node_named_task_outranks_a_different_active_task() -> No
         patch(
             "app.models.llm",
             return_value=_mock_llm_response(
-                json.dumps({"matched_page_id": "<page_B>", "confidence": 0.95})
+                json.dumps({"matched_page_id": "t1", "confidence": 0.95})
             ),
         ),
     ):
@@ -566,7 +566,7 @@ async def test_complete_node_below_threshold_clarifies_rather_than_writing() -> 
         patch(
             "app.models.llm",
             return_value=_mock_llm_response(
-                json.dumps({"matched_page_id": "<page_B>", "confidence": 0.85})
+                json.dumps({"matched_page_id": "t1", "confidence": 0.85})
             ),
         ),
     ):
@@ -716,7 +716,7 @@ async def test_complete_node_logs_a_rejected_match_confidence_as_a_number() -> N
         patch(
             "app.models.llm",
             return_value=_mock_llm_response(
-                json.dumps({"matched_page_id": "<page_B>", "confidence": 0.85})
+                json.dumps({"matched_page_id": "t1", "confidence": 0.85})
             ),
         ),
         capture_logs() as logs,
@@ -817,7 +817,7 @@ async def test_complete_node_keeps_active_task_metadata_when_the_name_matches_it
         patch("app.tools.rewards.maybe_reward", reward_mock),
         patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
         patch("app.models.llm", return_value=_mock_llm_response(
-            json.dumps({"matched_page_id": "<page_A>", "confidence": 0.95})
+            json.dumps({"matched_page_id": "t1", "confidence": 0.95})
         )),
     ):
         await complete_module.complete_node(

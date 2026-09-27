@@ -477,6 +477,43 @@ def _task_reference_tokens(incoming: str) -> set[str]:
     return normalize_title_tokens(incoming) - _COMPLETION_WORDS
 
 
+def _candidate_alias(index: int) -> str:
+    """The id a candidate carries in the match prompt: `t1`, `t2`, … by position.
+
+    The model never sees a Notion page id. Copying a 36-character UUID back is
+    where the cheap tier fails with reasoning off: it drops or changes a few
+    characters now and then (measured at about one call in sixty), the id then
+    matches no candidate, and a report that named its task outright gets
+    "which task did you mean?". A two-character alias leaves nothing to
+    mistype, and `_parse_aliased_match` maps it back to the page.
+    """
+    return f"t{index}"
+
+
+def _parse_aliased_match(
+    response_text: str, candidates: Sequence[DedupCandidate]
+) -> tuple[DedupCandidate, float] | None:
+    """Read a match response written against `_candidate_alias` ids.
+
+    Returns the candidate the alias points at and the model's confidence, or
+    None for anything `parse_match_response` rejects — unparseable output, a
+    null match, or an alias that names no candidate.
+    """
+    by_alias = {
+        _candidate_alias(index): candidate
+        for index, candidate in enumerate(candidates, start=1)
+    }
+    aliased = [
+        DedupCandidate(page_id=alias, title=candidate.title, score=candidate.score)
+        for alias, candidate in by_alias.items()
+    ]
+    parsed = parse_match_response(response_text, aliased)
+    if parsed is None:
+        return None
+    alias, confidence = parsed
+    return by_alias[alias], confidence
+
+
 def _build_completion_match_prompt(
     incoming: str,
     candidates: list[DedupCandidate],
@@ -501,8 +538,8 @@ def _build_completion_match_prompt(
     an ordinal a referent.
     """
     candidate_payload = [
-        {"id": candidate.page_id, "title": candidate.title}
-        for candidate in candidates
+        {"id": _candidate_alias(index), "title": candidate.title}
+        for index, candidate in enumerate(candidates, start=1)
     ]
     if answering_clarification:
         instructions = (
@@ -950,7 +987,7 @@ async def _resolve_title_match(
             )),
             HumanMessage(content="Return only the JSON object."),
         ])
-        parsed = parse_match_response(str(response.content), candidates)
+        parsed = _parse_aliased_match(str(response.content), candidates)
         # Only the standalone framing asks for this field; an answer to a
         # clarification is never read as naming something new.
         names_unlisted = not answering_clarification and _parse_names_unlisted(
@@ -963,15 +1000,16 @@ async def _resolve_title_match(
         if parsed is None:
             return outcome(None, None)
 
-        page_id, confidence = parsed
+        matched, confidence = parsed
         if confidence < _TITLE_MATCH_CONFIDENCE_THRESHOLD:
             return outcome(None, confidence)
 
-        matches = [candidate for candidate in candidates if candidate.page_id == page_id]
-        if len(matches) != 1:
+        # The same page listed twice would make the alias ambiguous about
+        # which entry the model read; refuse rather than pick.
+        if sum(1 for candidate in candidates if candidate.page_id == matched.page_id) != 1:
             return outcome(None, confidence)
 
-        return outcome(target_for(matches[0].page_id, matches[0].title), confidence)
+        return outcome(target_for(matched.page_id, matched.title), confidence)
     except Exception:
         # Counts only — the message and titles are the user's private words.
         log.warning(
