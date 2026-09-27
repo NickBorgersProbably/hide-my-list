@@ -62,7 +62,6 @@ flowchart TB
         Resume[Resumed After Break]
         Complete[Task Completed]
         Streak[Streak Achieved]
-        Milestone[Milestone Reached]
     end
 
     subgraph Engine["Reward Engine"]
@@ -88,7 +87,6 @@ flowchart TB
     Resume --> Select
     Complete --> Select
     Streak --> Select
-    Milestone --> Select
 
     Select --> Scale
     Scale --> Deliver
@@ -116,10 +114,10 @@ Emoji-loaded congratulations messages scaling with achievement significance.
 ```mermaid
 flowchart LR
     subgraph Intensity["Celebration Intensity"]
-        Low["Single Task<br/>Completed"]
-        Medium["Difficult Task<br/>or 3-task Streak"]
-        High["Major Milestone<br/>or 5+ Streak"]
-        Epic["Parent Task Complete<br/>or Day Clear"]
+        Low["Short, Low-Energy<br/>Task"]
+        Medium["Longer Task<br/>or a Short Streak"]
+        High["Long or High-Energy Task<br/>or a Longer Streak"]
+        Epic["Long, High-Energy Task<br/>on a Streak"]
     end
 
     subgraph Output["Emoji Output"]
@@ -188,16 +186,21 @@ initiation-specific adjustments:
 
 #### Completion Celebration Message Templates
 
-| Trigger | Intensity | Example Messages |
-|---------|-----------|------------------|
-| Single task | Low | "Nice work! ✨", "Done! 💫", "Got it! ✅" |
-| Quick task (< 15 min) | Low | "Speed demon! ⚡", "Quick win! 🎯" |
-| Focus task complete | Medium | "Deep work done! 🧠✨", "Focus mode: crushed! 💪🎯" |
-| 3-task streak | Medium | "Hat trick! 🎩✨🎉", "Three down! 🔥💪" |
-| 5-task streak | High | "On fire! 🔥🔥🔥✨💪", "Unstoppable! 🚀🎉💪" |
-| Difficult task | High | "Beast mode! 💪🔥🎉", "Conquered! ⚔️✨🏆" |
-| Parent task (all subs done) | Epic | "MAJOR WIN! 🏆👑🎉✨🔥", "THAT WAS A BIG ONE! 🚀⭐💪🎊" |
-| All tasks cleared | Epic | "HUGE! 🏆👑✨🎉🔥💪🚀", "LEGENDARY DAY! 👑⭐🏆🎊" |
+The completion score (see [Score Calculation](#score-calculation)) picks the
+intensity from the task's time estimate and energy, the current streak, and
+recent reward frequency; the template is drawn at random from that
+intensity's set.
+
+| Intensity | Score | What typically reaches it | Templates |
+|-----------|-------|---------------------------|-----------|
+| Lightest | 0-10 | Diminishing returns after many rewards in the last hour | "Nice." |
+| Low | 11-25 | A short, low-energy task with no streak | "Nice work! ✨", "Done! 💫", "Got it! ✅", "Speed demon! ⚡" |
+| Medium | 26-50 | A longer or higher-energy task, or a short task on a streak | "Deep work done! 🧠✨", "Hat trick! 🎩✨🎉", "Crushing it! 🎉✨💪", "Three down! 🔥💪" |
+| High | 51-75 | A long or high-energy task, or a medium task on a longer streak | "UNSTOPPABLE! 🔥🎉✨💪🚀", "On fire! 🔥🔥🔥✨💪", "Beast mode! 💪🔥🎉", "Conquered! ⚔️✨🏆" |
+| Epic | 76-100 | A long, high-energy task on a streak | "LEGENDARY! 🏆👑🔥🎉✨💪🚀⭐", "MAJOR WIN! 🏆👑🎉✨🔥", "HUGE! 🏆👑✨🎉🔥💪🚀", "LEGENDARY DAY! 👑⭐🏆🎊", "THAT WAS A BIG ONE! 🚀⭐💪🎊" |
+
+A task marked sensitive gets the muted "Done. That mattered." at every
+intensity.
 
 **State rule.** Template text celebrates the effort and never asserts a fact
 about the list or a project — no "inbox zero", no "project complete". The
@@ -680,8 +683,7 @@ flowchart LR
 |-------------|-----------------|----------|
 | Quick task | Random from "Victory Jingles" | 15 seconds |
 | Focus task | Random from "Triumphant" | 30 seconds |
-| Major milestone | User's favorite song | Full song |
-| All tasks cleared | "We Are The Champions" | Full song |
+| Epic-intensity completion | User's favorite song | Full song |
 
 #### Home Automation Integration Points
 
@@ -707,7 +709,6 @@ flowchart TD
     subgraph Trigger["Completion Trigger"]
         Task["Task Completed"]
         Streak["Streak Achieved"]
-        Parent["Project Finished"]
     end
 
     subgraph Filter["Notification Filter"]
@@ -762,8 +763,6 @@ flowchart LR
 | Single task | "Hey! [Name] just finished '[task]' - maybe give them a high five later? 🙌" |
 | Streak (3+) | "[Name] is on a roll - [N] tasks done today! 🔥" |
 | Difficult task | "[Name] just conquered a big one: '[task]'. They might need a hug! 💪" |
-| Parent complete | "BIG NEWS: [Name] finished the entire '[project]'! Celebration dinner? 🎉" |
-| All cleared | "[Name] cleared their ENTIRE task list! This calls for ice cream 🍦" |
 
 #### Privacy & Consent
 
@@ -795,7 +794,6 @@ After completing tasks (especially difficult), suggest fun activities aligned wi
 flowchart TD
     subgraph Triggers["Suggestion Triggers"]
         MajorComplete["Major task completed"]
-        DayClear["Day's tasks cleared"]
         LongStreak["Long streak achieved"]
         FridayComplete["Friday completions"]
     end
@@ -851,7 +849,6 @@ flowchart LR
 | After focus work (tired) | "You've earned a break! How about grabbing a coffee from [favorite_cafe]? ☕" |
 | After physical task | "Nice work! Maybe reward yourself with [favorite_food] from [restaurant]? 🍕" |
 | Friday afternoon | "Weekend's calling! Movie night with [partner] at [theater]? 🎬" |
-| All tasks cleared | "EVERYTHING DONE! Time for an adventure - what about [saved_activity]? 🎉" |
 | Long streak | "5 tasks in a row! You deserve [favorite_treat] 🏆" |
 | Morning completion | "Great start! Save room for [lunch_spot] later? 🌮" |
 
@@ -916,10 +913,8 @@ Same formula for **both** initiation and completion rewards. Initiation triggers
 # --- Shared base calculation (initiation + completion) ---
 base_score = (time_estimate / 15) * 10 + (energy_level * 10)
 streak_bonus = streak_count * 5
-milestone_bonus = is_parent_complete ? 25 : 0
-milestone_bonus += is_all_cleared ? 50 : 0
 
-raw_score = base_score + streak_bonus + milestone_bonus
+raw_score = base_score + streak_bonus
 diminishing = max(0, (rewards_in_last_hour - 2) * 10)
 
 # --- Completion rewards ---
@@ -1017,7 +1012,7 @@ sequenceDiagram
 
     AI->>U: "Wash the dishes — done. CRUSHED IT! 🔥💪✨" + single MEDIA attachment
 
-    opt High intensity + cleared schedule
+    opt High intensity
         R->>AI: Outing suggestion
         AI->>U: "You've earned it - coffee at Luna Cafe? ☕"
     end
