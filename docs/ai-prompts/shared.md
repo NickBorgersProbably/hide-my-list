@@ -386,20 +386,6 @@ score of 0.85 or more, that task is the answer. This shortcut reads only the
 answer's task-naming words, because an answer carries no completion claim of
 its own.
 
-A standalone message has a stricter shortcut, because containing a title's
-words is not the same as saying it is finished — "done, now I need to call
-mom" contains every task word of "Call mom". It resolves without a model call
-only when the whole message is one open task's title plus report filler:
-every title word appears in the message (inflections such as "washed" and
-"washing" count as "wash"); every other word is on a short allowlist of
-completion and filler words ("done", "finished", "just", "ok", "the", …);
-the message asserts the completion, through a completion word or a past-tense
-form of a title word; it is not a question; and exactly one open task
-qualifies. Any word off the allowlist — "need", "now", "still", "not", a
-second task's name — sends the message to the model. The shortcut exists
-because the model's confidence on an unambiguous report varies run to run,
-and a report the user worded as the task's own title never needs judging.
-
 Steering an answer back to the node that asked relaxes the framing but not the
 threshold: when the answer names a task and the shortcut does not apply, the
 0.90 confidence threshold and the instruction to return no match when

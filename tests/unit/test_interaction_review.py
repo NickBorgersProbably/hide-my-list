@@ -100,11 +100,6 @@ def test_send_only_naming_a_listed_page_is_accepted() -> None:
             ("correct", "send_only", "<page_done>"),
         ),
         ({"verdict": "none", "action": "none", "page_id": None}, ("ok", "none", None)),
-        # `none` can only ever read as `ok`: nothing is acted on.
-        (
-            {"verdict": "complete_task", "action": "none", "page_id": None},
-            ("ok", "none", None),
-        ),
     ],
 )
 def test_an_action_name_in_verdict_is_normalized(
@@ -129,6 +124,8 @@ def test_an_action_name_in_verdict_is_normalized(
         (_json(verdict="send_only", action="complete_task"), "unknown_verdict"),
         (_json(verdict="none", action="complete_task"), "unknown_verdict"),
         (_json(verdict="complete_task", action="send_only"), "unknown_verdict"),
+        # An action name in verdict contradicts action: none — still rejected.
+        (_json(verdict="complete_task", action="none", page_id=None), "unknown_verdict"),
         # An action name in `verdict` with an invalid action is still rejected.
         (_json(verdict="complete_task", action="delete_task"), "unknown_verdict"),
         (_json(verdict="complete_task", action=None), "unknown_verdict"),

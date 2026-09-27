@@ -619,13 +619,11 @@ async def test_complete_node_ignores_a_task_the_user_still_has_to_do() -> None:
 
 
 @pytest.mark.asyncio
-async def test_complete_node_resolves_a_title_plus_filler_report_without_the_model() -> None:
-    """"finished washing the dishes" names one task outright: no model call.
+async def test_complete_node_resolves_a_title_plus_filler_report_via_alias() -> None:
+    """"finished washing the dishes" names one task via the alias-backed model path.
 
-    The cheap-tier confirmation of an unambiguous report came back under 0.90
-    on some runs and the node asked "which task?" about a task the user had
-    just named. A report that is one title plus report filler resolves on its
-    own; the model is never consulted, so its variance cannot reach it.
+    Title-shaped reports go to the model with candidates as short aliases
+    (`t1`, `t2`, …) instead of page ids, so the model cannot mistype a UUID.
     """
     from app.graph.nodes import complete as complete_module
 
@@ -635,7 +633,8 @@ async def test_complete_node_resolves_a_title_plus_filler_report_without_the_mod
         _notion_task_page("<page_A>", "Wash the dishes"),
         _notion_task_page("<page_B>", "Book the dentist"),
     ]})
-    llm_factory = MagicMock()
+    model = _mock_llm_response(json.dumps({"matched_page_id": "t1", "confidence": 1.0}))
+    llm_factory = MagicMock(return_value=model)
 
     with (
         patch("app.tools.notion.update_status", update_status),
@@ -643,30 +642,25 @@ async def test_complete_node_resolves_a_title_plus_filler_report_without_the_mod
         patch("app.tools.rewards.maybe_reward", reward_mock),
         patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
         patch("app.models.llm", llm_factory),
-        capture_logs() as logs,
     ):
         result = await complete_module.complete_node(
             _complete_state(incoming="finished washing the dishes")
         )
 
-    llm_factory.assert_not_called()
     update_status.assert_awaited_once_with(page_id="<page_A>", new_status="Completed")
     assert reward_mock.await_args.kwargs["task_title"] == "Wash the dishes"
     assert result["pending_outbound"][0]["notion_page_id"] == "<page_A>"
-    report = [e for e in logs if e["event"] == "complete_node.deterministic_report"]
-    assert [(e["page_id"], e["open_task_count"]) for e in report] == [("<page_A>", 2)]
-    resolved = [e for e in logs if e["event"] == "complete_node.resolved_target"]
-    assert resolved and resolved[0]["deterministic_answer"] is True
-    assert resolved[0]["match_confidence"] == 1.0
+    # Prompt must not contain any page id — aliases only.
+    prompt = str(model.ainvoke.await_args.args[0][0].content)
+    assert "<page_A>" not in prompt and "<page_B>" not in prompt
 
 
 @pytest.mark.asyncio
 async def test_complete_node_still_asks_the_model_when_the_report_names_a_next_task() -> None:
-    """"done, now I need to call mom" carries words past the filler allowlist.
+    """"done, now I need to call mom" names another task — model is asked, nothing completes.
 
-    Its task words are exactly "Call mom", so only reading the rest of the
-    message keeps it off the shortcut. The model is asked, and its null match
-    leaves the task open.
+    Its task words are exactly "Call mom", but the sentence says what comes next,
+    not what is done. The model reads the whole message and returns no match.
     """
     from app.graph.nodes import complete as complete_module
 
@@ -683,7 +677,6 @@ async def test_complete_node_still_asks_the_model_when_the_report_names_a_next_t
         patch("app.tools.rewards.maybe_reward", AsyncMock()),
         patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
         patch("app.models.llm", llm_factory),
-        capture_logs() as logs,
     ):
         await complete_module.complete_node(
             _complete_state(incoming="done, now I need to call mom")
@@ -692,7 +685,6 @@ async def test_complete_node_still_asks_the_model_when_the_report_names_a_next_t
     model.ainvoke.assert_awaited_once()
     assert llm_factory.call_args.kwargs.get("caller") == "complete_title_match"
     update_status.assert_not_awaited()
-    assert not [e for e in logs if e["event"] == "complete_node.deterministic_report"]
 
 
 @pytest.mark.asyncio

@@ -3,18 +3,17 @@
 With reasoning off, the cheap-tier confirmation of an unambiguous standalone
 report sometimes came back unusable, and the node asked which task the user
 meant about the task they had just named. Measured: the model's confidence on
-these shapes is 1.0 on nearly every call; the misfire is copying the
-candidate's 36-character page id back with characters dropped, which matches
-no candidate and reads as a null match.
+these shapes is 1.0 on nearly every call (364 of 366 matches at ≥0.90; 2 of
+182 paraphrase calls produced a truncated page id that matched no candidate).
 
-Two fixes, both pinned here. A report that is one title plus report filler
-resolves without the model, so the three title-shaped reports complete even
-with the model pinned to an answer the node would refuse. And the model never
-sees a page id: candidates carry `t1`, `t2`, … and the answer maps back, so a
-paraphrase that does need the model cannot fail on a mistyped UUID.
+The fix: candidates carry `t1`, `t2`, … aliases instead of page ids, so the
+model cannot mistype a UUID. `_parse_aliased_match` maps the alias back; a
+mangled or unknown alias is still no match.
 
 The guard the model path exists for is held here too: a report that also
-names what comes next still goes to the model and does not complete.
+names what comes next still goes to the model and does not complete. And a
+punctuationless question ("Did the form submit?") must not complete the task —
+it goes to the model, which reads the whole sentence.
 """
 from __future__ import annotations
 
@@ -64,6 +63,11 @@ def _model(verdict: dict[str, Any]) -> AsyncMock:
     return model
 
 
+def _alias_model(alias: str) -> MagicMock:
+    """A model that returns the given alias at confidence 1.0."""
+    return MagicMock(return_value=_model({"matched_page_id": alias, "confidence": 1.0}))
+
+
 def _refused_model() -> MagicMock:
     """An answer the node refuses: the observed truncated page id."""
     return MagicMock(return_value=_model(
@@ -80,13 +84,20 @@ def _refused_model() -> MagicMock:
         ("ok, replied to the school email", ("Clean out the garage", "Reply to the school email"), 1),
     ],
 )
-async def test_a_named_report_completes_whatever_the_model_answers(
+async def test_a_named_report_completes_via_alias_match(
     message: str, titles: tuple[str, ...], target: int
 ) -> None:
+    """Title-shaped reports resolve through the alias-backed model path.
+
+    Candidates are shown as `t1`, `t2`, … — not as page ids — so the model
+    cannot produce a truncated UUID. `_parse_aliased_match` maps the alias back.
+    The target alias is `t{target + 1}` (1-indexed).
+    """
     pages = [_page(f"<page_{index}>", title) for index, title in enumerate(titles)]
     target_id = f"<page_{target}>"
+    target_alias = f"t{target + 1}"
     update_status = AsyncMock()
-    llm_factory = _refused_model()
+    llm_factory = _alias_model(target_alias)
 
     with (
         patch("app.tools.notion.update_status", update_status),
@@ -100,13 +111,16 @@ async def test_a_named_report_completes_whatever_the_model_answers(
     ):
         result = await complete_module.complete_node(_state(message))
 
-    llm_factory.assert_not_called()
     update_status.assert_awaited_once()
     kwargs = update_status.await_args.kwargs
     assert set(kwargs) <= set(inspect.signature(notion.update_status).parameters)
     assert kwargs == {"page_id": target_id, "new_status": "Completed"}
     assert result["pending_outbound"][0]["notion_page_id"] == target_id
     assert result.get("pending_clarification") is None
+    # Prompt must carry aliases, never raw page ids.
+    model_instance = llm_factory.return_value
+    prompt = str(model_instance.ainvoke.await_args.args[0][0].content)
+    assert "<page_0>" not in prompt and "<page_1>" not in prompt
 
 
 @pytest.mark.asyncio
@@ -181,6 +195,38 @@ async def test_a_report_that_names_the_next_task_still_asks_the_model() -> None:
         patch("app.models.llm", MagicMock(return_value=model)),
     ):
         result = await complete_module.complete_node(_state("done, now I need to call mom"))
+
+    model.ainvoke.assert_awaited_once()
+    update_status.assert_not_awaited()
+    assert result["pending_outbound"][0]["notion_page_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_punctuationless_question_goes_to_the_model_without_a_write() -> None:
+    """A question without a question mark must not complete the task.
+
+    "Did the form submit" has the same task words as "Submit form" and no
+    punctuation to guard against. With the standalone shortcut removed, all
+    standalone reports go to the model, which reads the whole sentence and
+    must refuse a question shape.
+    """
+    update_status = AsyncMock()
+    response = MagicMock()
+    response.content = json.dumps({"matched_page_id": None, "confidence": 0.0})
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=response)
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch(
+            "app.tools.notion.query_all",
+            AsyncMock(return_value={"results": [_page("<page_0>", "Submit form")]}),
+        ),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", MagicMock(return_value=model)),
+    ):
+        result = await complete_module.complete_node(_state("Did the form submit"))
 
     model.ainvoke.assert_awaited_once()
     update_status.assert_not_awaited()

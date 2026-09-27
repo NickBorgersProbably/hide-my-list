@@ -156,8 +156,8 @@ code, stored with verdict `error`):
 - Only the four keys above; `verdict` and `action` from their enums. Any
   other action is rejected.
 - One mix-up of the two enums is normalized rather than rejected: a `verdict`
-  that is itself an action name, when it equals `action` or `action` is
-  `none`, reads as `correct` (or `ok` for `none`) and is logged as
+  that is itself an action name, when it equals `action`, reads as `correct`
+  (or `ok` when both are `none`) and is logged as
   `interaction_review.verdict_normalized` with the action and the normalized
   verdict. The two fields are redundant for every valid shape, so that mix-up
   has only one reading. A `verdict` naming a different action than `action`

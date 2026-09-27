@@ -350,16 +350,15 @@ def parse_verdict(
     # (`{"verdict": "complete_task", "action": "complete_task", ...}`). The
     # two fields are redundant for every valid shape — `ok` goes with `none`,
     # `correct` with anything else — so an action name in `verdict` that
-    # agrees with `action` has only one reading. Normalized only when the two
-    # agree, or when `action` is `none` (which can only ever read as `ok`, so
-    # nothing is acted on); two different action names are a contradiction,
-    # not a typo, and stay rejected. Every rule below still applies.
+    # equals `action` has only one reading. Normalized only when both fields
+    # agree; a contradictory pair (e.g. action-name verdict with `action: none`)
+    # stays rejected. Every rule below still applies.
     if (
         isinstance(verdict, str)
         and isinstance(action, str)
         and verdict in ACTIONS
         and action in ACTIONS
-        and (verdict == action or action == "none")
+        and verdict == action
     ):
         normalized = "ok" if action == "none" else "correct"
         log.info(

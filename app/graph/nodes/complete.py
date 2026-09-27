@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -82,38 +81,8 @@ _TITLE_MATCH_CONFIDENCE_THRESHOLD = 0.90
 # Word-overlap bar for accepting an answer to "which task did you mean?"
 # without a model call. Only ever applied to an answer: the completion claim
 # was made on the previous turn, so the answer only has to name one task, and
-# typing a title back nearly verbatim does exactly that. A standalone message
-# never takes this path — "done, now I need to call mom" overlaps "Call mom"
-# on every task word while saying it is not done. A standalone message has
-# its own, stricter shortcut (`_standalone_report_names`): the whole message,
-# not just its task words, has to be the title plus report filler.
+# typing a title back nearly verbatim does exactly that.
 _DETERMINISTIC_ANSWER_THRESHOLD = 0.85
-
-# Every word a standalone report may carry besides the task's own words for it
-# to resolve without a model call. An allowlist, not a blocklist: a word it
-# does not name — "need", "now", "still", "not", "later", "tomorrow", a second
-# task's name — sends the message to the model, which reads the whole
-# sentence. "done, now I need to call mom" contains every word of "Call mom";
-# "now" and "need" are what keep it off this path.
-_REPORT_FILLER: frozenset[str] = frozenset({
-    "done", "did", "finished", "completed", "finally", "just", "already",
-    "ok", "okay", "yep", "yeah", "yup", "yes", "so", "all", "yay", "phew",
-    "i", "ive", "ve", "the", "a", "an", "my", "our", "that", "this", "it",
-    "with", "out", "up", "off", "to", "of", "for", "on", "at", "in", "and", "by",
-})
-
-# Words that assert the report on their own. Without one of these, the claim
-# has to come from a past-tense form of a title word ("washed" against
-# "Wash the dishes") — "washing the dishes" reports nothing yet.
-_REPORT_CLAIM_WORDS: frozenset[str] = frozenset({"done", "did", "finished", "completed"})
-
-# An auxiliary followed by a pronoun opens a question ("did I call mom"),
-# with or without the question mark.
-_QUESTION_AUXILIARIES: frozenset[str] = frozenset({
-    "did", "do", "does", "have", "has", "had", "is", "was", "should", "can",
-    "could", "will", "would",
-})
-_QUESTION_PRONOUNS: frozenset[str] = frozenset({"i", "we", "you"})
 
 # Below the shortlist default (0.4) because a message names a task in fewer
 # words than the title carries: {laundry} against "Fold the laundry before bed"
@@ -482,7 +451,7 @@ def _candidate_alias(index: int) -> str:
 
     The model never sees a Notion page id. Copying a 36-character UUID back is
     where the cheap tier fails with reasoning off: it drops or changes a few
-    characters now and then (measured at about one call in sixty), the id then
+    characters rarely (observed: 2 of 182 paraphrase calls), the id then
     matches no candidate, and a report that named its task outright gets
     "which task did you mean?". A two-character alias leaves nothing to
     mistype, and `_parse_aliased_match` maps it back to the page.
@@ -706,97 +675,6 @@ def _deterministic_answer(
     return hits[0] if len(hits) == 1 else None
 
 
-def _report_tokens(text: str) -> list[str]:
-    """Casefolded words of `text`, punctuation split out, nothing dropped.
-
-    Unlike `normalize_title_tokens` this keeps stopwords and one-letter words:
-    the standalone-report check has to see "need" and the "t" of "didn't".
-    A token with no letter or digit in it (an emoji) carries no words and is
-    skipped.
-    """
-    normalized = "".join(
-        " " if unicodedata.category(char).startswith("P") else char.casefold()
-        for char in text
-    )
-    return [token for token in normalized.split() if any(c.isalnum() for c in token)]
-
-
-def _stem(token: str) -> str:
-    """Strip one inflectional suffix so "washed", "washing", and "wash" compare equal.
-
-    Deliberately crude and symmetric: both sides of every comparison go
-    through it, so two words it maps together only matter when they also
-    satisfy the rest of the standalone-report check.
-    """
-    for suffix, replacement in (
-        ("ies", "y"), ("ied", "y"), ("ing", ""), ("ed", ""), ("es", ""), ("s", ""),
-    ):
-        if token.endswith(suffix) and len(token) - len(suffix) >= 3:
-            base = token[: -len(suffix)] + replacement
-            if (
-                suffix in ("ing", "ed")
-                and len(base) >= 4
-                and base[-1] == base[-2]
-                and base[-1] not in "lsz"
-            ):
-                base = base[:-1]
-            token = base
-            break
-    if len(token) > 3 and token.endswith("e"):
-        token = token[:-1]
-    return token
-
-
-def _standalone_report_names(
-    incoming: str, open_list: list[Mapping[str, str]]
-) -> Mapping[str, str] | None:
-    """The one open task a standalone report names outright, or None.
-
-    A message resolves here, without a model call, only when all of these
-    hold for exactly one open task:
-
-    - every word of the title appears in the message (after `_stem`);
-    - every other word of the message is in `_REPORT_FILLER`;
-    - the message asserts the completion — a word in `_REPORT_CLAIM_WORDS`,
-      or a past-tense form of a title word the title itself does not use;
-    - the message is not a question.
-
-    Everything else goes to the model. Containing a title's words is not the
-    same as saying it is finished — "done, now I need to call mom" contains
-    all of "Call mom" — and the allowlist is what separates the two: any word
-    that could defer, negate, question, or name a second task is outside it.
-    """
-    if "?" in incoming:
-        return None
-    raw = _report_tokens(incoming)
-    if not raw:
-        return None
-    if (
-        len(raw) >= 2
-        and raw[0] in _QUESTION_AUXILIARIES
-        and raw[1] in _QUESTION_PRONOUNS
-    ):
-        return None
-    message_stems = {_stem(token) for token in raw}
-    hits: list[Mapping[str, str]] = []
-    for task in open_list:
-        title = task.get("title", "")
-        title_words = set(_report_tokens(title))
-        title_stems = {_stem(token) for token in normalize_title_tokens(title)}
-        if not title_stems or not title_stems <= message_stems:
-            continue
-        leftover = [token for token in raw if _stem(token) not in title_stems]
-        if any(token not in _REPORT_FILLER for token in leftover):
-            continue
-        claims = any(token in _REPORT_CLAIM_WORDS for token in leftover) or any(
-            token.endswith("ed") and token not in title_words and _stem(token) in title_stems
-            for token in raw
-        )
-        if claims:
-            hits.append(task)
-    return hits[0] if len(hits) == 1 else None
-
-
 async def _resolve_title_match(
     incoming: str,
     residue: set[str],
@@ -860,27 +738,6 @@ async def _resolve_title_match(
                     candidates=tuple(reoffered),
                     deterministic=True,
                 )
-        else:
-            # A standalone report that is nothing but one task's title plus
-            # report filler ("finished washing the dishes") has named it.
-            # Asking the model to confirm that is where its confidence varies
-            # run to run on an unambiguous message, so the node does not ask.
-            # Anything past the filler allowlist — "done, now I need to call
-            # mom" — still goes to the model below.
-            report = _standalone_report_names(incoming, open_list)
-            if report is not None:
-                log.info(
-                    "complete_node.deterministic_report",
-                    page_id=report["id"],
-                    open_task_count=len(open_list),
-                )
-                return _TitleMatch(
-                    target=target_for(report["id"], report["title"]),
-                    candidate_count=len(open_list),
-                    confidence=1.0,
-                    deterministic=True,
-                )
-
         # Every other message goes to the model, even one that quotes a title
         # verbatim. Containing a task's words is not the same as saying it is
         # finished: "done, now I need to call mom" contains all of "Call mom"
@@ -988,7 +845,7 @@ async def _resolve_title_match(
             HumanMessage(content="Return only the JSON object."),
         ])
         parsed = _parse_aliased_match(str(response.content), candidates)
-        # Only the standalone framing asks for this field; an answer to a
+        # Only a first-turn completion asks for this field; an answer to a
         # clarification is never read as naming something new.
         names_unlisted = not answering_clarification and _parse_names_unlisted(
             str(response.content)
