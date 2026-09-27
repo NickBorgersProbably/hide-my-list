@@ -196,8 +196,14 @@ initiation-specific adjustments:
 | 3-task streak | Medium | "Hat trick! 🎩✨🎉", "Three down! 🔥💪" |
 | 5-task streak | High | "On fire! 🔥🔥🔥✨💪", "Unstoppable! 🚀🎉💪" |
 | Difficult task | High | "Beast mode! 💪🔥🎉", "Conquered! ⚔️✨🏆" |
-| Parent task (all subs done) | Epic | "MAJOR WIN! 🏆👑🎉✨🔥", "PROJECT COMPLETE! 🚀⭐💪🎊" |
-| All tasks cleared | Epic | "INBOX ZERO! 🏆👑✨🎉🔥💪🚀", "LEGENDARY DAY! 👑⭐🏆🎊" |
+| Parent task (all subs done) | Epic | "MAJOR WIN! 🏆👑🎉✨🔥", "THAT WAS A BIG ONE! 🚀⭐💪🎊" |
+| All tasks cleared | Epic | "HUGE! 🏆👑✨🎉🔥💪🚀", "LEGENDARY DAY! 👑⭐🏆🎊" |
+
+**State rule.** Template text celebrates the effort and never asserts a fact
+about the list or a project — no "inbox zero", no "project complete". The
+reward layer scores the completion; it does not know whether the list is
+empty or a larger project is finished, and a celebration that claims a state
+the user can see is false costs more trust than it earns.
 
 **Naming rule.** A completion celebration names the task it celebrates when a title can be read.
 The reply body is `{task} — done. ` followed by the template text — "Take the
