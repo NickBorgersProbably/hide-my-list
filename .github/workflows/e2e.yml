@@ -34,7 +34,7 @@ on:
       max_calls:
         description: 'Hard cap on live LLM calls'
         required: false
-        default: '120'
+        default: '200'
         type: string
 
 # Shared with nightly-evals and model-swap: app/models.py records that the LLM

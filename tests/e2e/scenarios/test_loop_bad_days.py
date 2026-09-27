@@ -105,7 +105,8 @@ async def test_rejections_a_nothing_day_a_declined_question_and_an_unlisted_win(
             notion_untouched=sorted(seeded - {third}),
             sent_count=1,
             regex_require=[
-                r"(?i)(not a failure|task mode|break|rest|later|no pressure|here when|whenever)"
+                r"(?i)(not a failure|task mode)",
+                r"(?i)(feel\w*|mood|energy).{1,100}(break|rest|step away)|(break|rest|step away).{1,100}(feel\w*|mood|energy)",
             ],
         ),
     )
