@@ -128,9 +128,38 @@ jobs:
       - name: Ensure CI image
         run: scripts/ensure-ci-image.sh "${CI_IMAGE}"
 
+      # Mechanical classification (config-error vs test-failure vs infra
+      # flake from logs/YAML), so this uses the Luna tier. See
+      # .github/ci/agent-models.env and docs/agentic-pipeline-learnings.md
+      # §2.12.
+      - name: Select Codex model tier
+        id: model-tier
+        run: |
+          set -euo pipefail
+          # Defensive fallback in case this checkout predates
+          # .github/ci/agent-models.env (e.g. it was deleted, or this
+          # step is copy-pasted into a workflow whose checkout doesn't
+          # guarantee the file). Values below must exactly match
+          # .github/ci/agent-models.env; scripts/test-agent-model-tier.sh
+          # fails the build if they drift.
+          if [ -f .github/ci/agent-models.env ]; then
+            # shellcheck disable=SC1091
+            source .github/ci/agent-models.env
+          else
+            echo "::notice::agent-models.env missing on this checkout; using built-in defaults"
+            CODEX_MODEL_FRONTIER=gpt-5.6-sol
+            CODEX_REASONING_FRONTIER=high
+            CODEX_MODEL_LUNA=gpt-5.6-luna
+            CODEX_REASONING_LUNA=low
+          fi
+          echo "model=$CODEX_MODEL_LUNA" >> "$GITHUB_OUTPUT"
+          echo "reasoning_effort=$CODEX_REASONING_LUNA" >> "$GITHUB_OUTPUT"
+
       - name: Diagnose failure with Codex
         env:
           OPENAI_API_KEY: ${{ vars.AI_API_KEY }}
+          CODEX_MODEL: ${{ steps.model-tier.outputs.model }}
+          CODEX_MODEL_REASONING_EFFORT: ${{ steps.model-tier.outputs.reasoning_effort }}
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           WORKFLOW_NAME: ${{ needs.check-failure.outputs.workflow_name }}
           RUN_ID: ${{ needs.check-failure.outputs.run_id }}
@@ -152,6 +181,8 @@ jobs:
             -v "${{ github.workspace }}:/workspace" \
             -v "$OUTPUT_STAGING:/output" \
             -e OPENAI_API_KEY \
+            -e CODEX_MODEL \
+            -e CODEX_MODEL_REASONING_EFFORT \
             -e GH_TOKEN \
             -e WORKFLOW_NAME \
             -e RUN_ID \

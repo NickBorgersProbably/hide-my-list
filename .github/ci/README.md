@@ -2,9 +2,11 @@
 
 Dedicated CI-only container image used by every automated agent
 workflow in this repo (`codex`, `codex-diagnose-workflow-failure`,
-`review-coverage-evaluator`, `review-reviewer`, `review-fixer`). This
-image is distinct from `.devcontainer/Dockerfile`, which is for human
-IDE workflows.
+`review-coverage-evaluator`, `review-reviewer`, `review-fixer`). Every
+one of those runs on Codex, tiered by judgment weight — see
+`.github/ci/agent-models.env` and
+`docs/agentic-pipeline-learnings.md` §2.12. This image is distinct
+from `.devcontainer/Dockerfile`, which is for human IDE workflows.
 
 ## Why the split
 
@@ -20,9 +22,10 @@ through the shared socket" bugs.
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | Image recipe. `ubuntu:24.04` base, UID-1000 `ci` user, pinned Claude Code / Codex / actionlint / Node major. Installs shellcheck, yamllint, gh, Mermaid npm globals, envsubst. |
+| `Dockerfile` | Image recipe. `ubuntu:24.04` base, UID-1000 `ci` user, pinned Claude Code / Codex / actionlint / Node major. Installs shellcheck, yamllint, gh, Mermaid npm globals, envsubst. Claude Code stays baked in for local/manual debugging even though no CI workflow invokes it. |
 | `versions.env` | Single source of truth for CLI version pins. Consumed by `.github/workflows/ci-image.yml` as `--build-arg`s. |
-| `caveman-rules.md` | Canonical CI-only caveman prompt contract. `review-codex-run`, `review-claude-run`, `review-codex-resume`, and `review-claude-resume` prepend it to review prompts and validate its pinned source version against `CAVEMAN_VERSION`. |
+| `agent-models.env` | Single source of truth for the Codex model id + reasoning-effort behind the "frontier" and "luna" tiers. Every CI role that calls Codex sources this file; which tier a role uses is decided where that role is wired up (e.g. the role case statement in `review-reviewer.yml`), not here. |
+| `caveman-rules.md` | Canonical CI-only caveman prompt contract. `review-codex-run` and `review-codex-resume` prepend it to review prompts and validate its pinned source version against `CAVEMAN_VERSION`. |
 | `README.md` | This file. |
 
 ## Relationship to `.devcontainer/`
@@ -40,16 +43,14 @@ through the shared socket" bugs.
 
 ## How workflows consume the image
 
-Review pipeline v2 uses four direct-`docker run` composite actions
-against the CI image:
+Review pipeline v2 uses two direct-`docker run` composite actions
+against the CI image, both Codex:
 
-- `./.github/actions/review-codex-run` — read-only reviewers (Codex)
-- `./.github/actions/review-claude-run` — fresh-Claude fixer fallback (human PRs, missing-trailer cases)
+- `./.github/actions/review-codex-run` — read-only reviewers; also the fresh-Codex fixer fallback (human PRs, missing-trailer cases) with `read_only: false`
 - `./.github/actions/review-codex-resume` — resumed Codex author session as fixer (`codex exec resume --last`)
-- `./.github/actions/review-claude-resume` — resumed Claude Code author session as fixer (`claude --continue`)
 
 The other agent workflows (`codex`, `codex-diagnose-workflow-failure`,
-`review-coverage-evaluator`) invoke `docker run` inline.
+`review-coverage-evaluator`) invoke `docker run` inline, also Codex.
 
 All of them call `scripts/ensure-ci-image.sh` before launch. The helper
 tries `docker pull` first and, if the configured tag is missing in GHCR
@@ -75,10 +76,10 @@ home-automation refactor:
 - **Always `--network host`** so the nested container inherits the
   runner's Tailscale connection to LiteLLM at
   `https://llm.featherback-mermaid.ts.net/v1`.
-- **Claude-over-LiteLLM uses the Anthropic-compatible path**.
-  `review-claude-run` forwards `LLM_PROXY_BASE_URL=https://llm.featherback-mermaid.ts.net/anthropic/`
-  and `LLM_PROXY_API_KEY=fake-key`; reviewer jobs keep using the
-  OpenAI-compatible path via `.devcontainer/configure-codex.sh`.
+- **Every role goes through `.devcontainer/configure-codex.sh`**, which
+  writes `~/.codex/config.toml` from `CODEX_MODEL` /
+  `CODEX_MODEL_REASONING_EFFORT` (sourced from `.github/ci/agent-models.env`
+  by the calling workflow) against the OpenAI-compatible LiteLLM path.
 
 ## Issue Resolution Agent issue-resolution entry points
 
@@ -90,15 +91,19 @@ PRs for trusted issue-resolution requests. It has two entry points:
 - `/autoresolve [codex|claude]` issue comments on open non-PR issues
   from trusted original authors
 
-Both Codex and Claude Code are first-class authors. The agent is
-selected by:
-1. `/autoresolve codex` or `/autoresolve claude` comment command
-2. `agent:codex` or `agent:claude` issue label
-3. Repo default (currently Codex)
+Every run authors with Codex on the frontier model tier
+(`.github/ci/agent-models.env`). `/autoresolve claude` and the
+`agent:claude` label are still accepted (back-compat for old
+comments/labels) but always redirect to `codex` — the workflow posts a
+one-time explanatory comment on the issue when that happens. Agent
+resolution order:
+1. `/autoresolve codex` or `/autoresolve claude` comment command (`claude` redirects)
+2. `agent:codex` or `agent:claude` issue label (`claude` redirects)
+3. Repo default (Codex)
 
 The author's session is packed and uploaded as the
-`author-session-<agent>-<run-id>` workflow artifact, and an
-`Author-Session: <agent>/<run-id>` trailer is written into the PR body.
+`author-session-codex-<run-id>` workflow artifact, and an
+`Author-Session: codex/<run-id>` trailer is written into the PR body.
 The v2 fixer parses the trailer, downloads the artifact from the
 original `resolve-issue` run, and resumes the original author session
 for context-aware fixes rather than using a fresh model.

@@ -119,22 +119,21 @@ Support dev pipeline. Edit directly via PRs — any contributor or agent (Claude
 - **Merge gates on `main`** — the `All Required Checks` repository ruleset requires exactly four status contexts: `All Required Agent Reviews` (statuses-API write from `review-finalize.yml`), `Python Validation Required`, `All Required Tests`, and `E2E Conversations Required`. Each aggregator passes when its dependencies succeed *or skip*, so path-filtered PRs are not blocked by jobs that did not need to run. The ruleset lives in GitHub settings, not in this repo, so adding an aggregator job is only half of adding a gate; `tests/unit/test_required_checks_wired.py` fails when the two halves drift. See `docs/agentic-pipeline-learnings.md` §2.11.
 - `.github/actions/` — Composite actions used by workflows
 - `.github/pull_request_template.md` — Default PR body template, including the `/review` fallback hint for missing initial review checks
-- `.github/actions/review-claude-run/` — Direct-`docker run` composite invoking Claude Code against the LiteLLM Anthropic endpoint; v2 pipeline single-writer fixer (fresh-Claude fallback path for human-authored PRs)
+- `.github/ci/agent-models.env` — Single source of truth for the Codex model id + reasoning-effort behind the "frontier" and "luna" tiers; every CI role that calls Codex sources this file. Which tier a given role uses is decided where that role is wired up (e.g. the role case statement in `review-reviewer.yml`), not here. A step that checks out `main` at the workspace root (script trust — see `docs/agentic-pipeline-learnings.md` §2.12) falls back to hard-coded defaults matching this file when it's missing from that checkout (e.g. a PR that has not yet merged its own edit to this file); `scripts/test-agent-model-tier.sh` fails the build if a fallback copy drifts from this file.
 - `.github/actions/review-codex-resume/` — Composite that resumes the original `resolve-issue` Codex author session as the v2 fixer; bind-mounts the persisted session into `/home/ci/.codex` and runs `codex exec resume --last`
-- `.github/actions/review-claude-resume/` — Composite that resumes the original `resolve-issue` Claude Code author session as the v2 fixer; bind-mounts the persisted session into `/home/ci/.claude` and runs `claude --continue`
-- `.github/scripts/review/prompts/fixer-claude-smoke.md` — Prompt for the Claude fixer auth/IO smoke test
-- `.github/scripts/review/prompts/fixer-resume.md` — Prompt loaded by both resume actions; the resumed author already has full authoring context, so the prompt only hands over reviewer artifacts and reasserts the `.git/`-don't-touch + output-contract constraints
-- `.github/workflows/review-fixer-claude-smoke.yml` — Pre-merge smoke test exercising the Claude fixer container path on PRs touching that path
+- `.github/scripts/review/prompts/fixer-codex-smoke.md` — Prompt for the Codex fresh-fallback fixer auth/IO smoke test
+- `.github/scripts/review/prompts/fixer-resume.md` — Prompt loaded by the resume action; the resumed author already has full authoring context, so the prompt only hands over reviewer artifacts and reasserts the `.git/`-don't-touch + output-contract constraints
+- `.github/workflows/review-fixer-codex-smoke.yml` — Pre-merge smoke test exercising the Codex fresh-fallback fixer container path on PRs touching that path
 - `.github/workflows/review-fixer-resume-smoke.yml` — Pre-merge smoke test exercising the resume-fixer dispatch logic (`scripts/test-ci-session-store.sh`); full cross-container resume validated by the first multi-cycle review on a `resolve-issue` PR
-- `.github/ci/prompts/codex-resolve-issue.md` — Codex author prompt invoked by the `codex` agent path in `resolve-issue`; carries the `Author-Session: codex/${RUN_ID}` PR-body trailer contract
-- `.github/ci/prompts/claude-resolve-issue.md` — Claude Code author prompt invoked by the `claude` agent path in `resolve-issue`; carries the `Author-Session: claude/${RUN_ID}` PR-body trailer contract
+- `.github/ci/prompts/codex-resolve-issue.md` — Codex author prompt invoked by `resolve-issue`; carries the `Author-Session: codex/${RUN_ID}` PR-body trailer contract
 - `.github/scripts/review/render-finalize-comment.sh` — Renders and posts the operator-facing "Agent Review Summary" merge-decision comment for `review-finalize.yml`; branches on verdict category (`go`, `reviewer_blockers`, `pipeline_error`, `cycle_capped`, `inherited`)
-- `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run`, `review-claude-run`, `review-codex-resume`, and `review-claude-resume`
+- `.github/ci/caveman-rules.md` — Canonical CI-only caveman prompt contract prepended by `review-codex-run` and `review-codex-resume`
 - `docs/agentic-pipeline-learnings.md` — Prescriptive review/CI pipeline contract + guardrail doc
 - `scripts/create-deduped-workflow-failure-issue.sh` — Creates/reuses canonical deduplicated GH Actions failure issue for diagnosis workflow
 - `scripts/check-doc-links.sh` — Internal doc link validator for local hooks + CI doc checks
 - `scripts/ci-session-store.sh` — Path-naming, pack/unpack, and trailer-parse helper for the per-(agent, issue, run-id) author-session store (job-local under `${RUNNER_TEMP}/ci-sessions/<agent>/<issue>/<run-id>/`); used by both `resolve-issue` (pack + upload) and v2 review-fixer (download + unpack)
 - `scripts/test-ci-session-store.sh` — Self-contained unit tests for `ci-session-store.sh`; invoked by `review-fixer-resume-smoke.yml`
+- `scripts/test-agent-model-tier.sh` — Asserts every workflow step's bootstrap-fallback copy of the frontier/luna model tier values matches `.github/ci/agent-models.env`; runs in `run-required-checks.sh ci-scripts`
 - `scripts/issue-pr-claims.sh` — Determines whether an issue already has work in flight, so the Issue Resolution Agent does not author a PR alongside a human or local agent already fixing the same thing. `is-claimed` (pre-flight dispatch suppression), `duplicates` (post-run overlap detection), `issue-state`. Matches PR bodies with an explicit closing-keyword regex rather than `gh pr list --search`, which treats a bare `#N` citation as a claim.
 - `scripts/test-issue-pr-claims.sh` — Unit tests for `issue-pr-claims.sh`; runs in `run-required-checks.sh ci-scripts` (no network, no docker, no LLM)
 - `scripts/run-required-checks.sh` — Canonical local/CI runner for required script, doc, and workflow validations (no OpenClaw config mode)
@@ -195,11 +194,11 @@ Consequences for a local agent (Claude Code, Codex, or a human) working in a clo
 - **Before starting local work on a known problem, check whether it is already claimed**: `gh issue list --search "<keywords>"` and `gh pr list --state open --search "<keywords>"`. An issue carrying `codex-started` or `claude-started` has an agent on it already.
 - **Filed an issue and then decided to fix it locally anyway?** The agent is already running; you cannot call it off. Let its PR land, and close whichever of the two is redundant once both exist.
 
-Re-dispatch is available on demand: comment `/autoresolve` (optionally `/autoresolve codex` or `/autoresolve claude`) on an open issue, or remove the `codex-started` / `claude-started` label. The agent choice also persists via an `agent:codex` / `agent:claude` label on the issue.
+Re-dispatch is available on demand: comment `/autoresolve` on an open issue, or remove the `codex-started` label. Every issue-resolution run authors on Codex. `/autoresolve codex`, `/autoresolve claude`, `agent:codex`, and `agent:claude` are all still accepted (back-compat for old comments/labels/scripts), but `claude` always redirects to `codex` — the workflow posts a one-time explanatory comment on the issue when that happens. The `claude-started` label is still recognized as a re-dispatch trigger for issues labeled before this redirect existed.
 
 ## Review Pipeline
 
-PRs reviewed by multi-agent review pipeline (Codex reviewers + fixer in v2). Roles same in both versions; orchestration differs.
+PRs reviewed by multi-agent review pipeline (Codex reviewers + fixer in v2). Roles same in both versions; orchestration differs. Every role runs on Codex, tiered by judgment weight: design and both security lenses (breadth + narrow) and psych use the frontier model; docs, prompt, and test — mechanical pattern-matching against a fixed contract rather than open-ended judgment — use the cheaper Luna tier. `review-reviewer.yml`'s role → tier case statement is the single place that mapping lives; `.github/ci/agent-models.env` is the single place the tier → model id / reasoning-effort mapping lives.
 
 Reviewers handle Markdown spec changes and Python source changes (`app/`, `migrations/`, `tests/`). The classifier (`review-classify` action) detects which file classes are present and routes accordingly. Python source files (`app/**/*.py`, `migrations/*.sql`, `tests/**/*.py`) always trigger security review; `app/prompts/*.md.j2` triggers prompt + psych review.
 
@@ -216,16 +215,17 @@ Lives in `.github/workflows/review-entry.yml`, dispatches `review-pipeline.yml` 
 
 ### Author-resume in the fixer stage
 
-`resolve-issue` accepts both **Codex** and **Claude Code** as first-class authors (selected per run via `/autoresolve <agent>` comment, `agent:codex` / `agent:claude` issue label, or repo default). The author's session state is bind-mounted from a job-local directory during the author run, then packed (`scripts/ci-session-store.sh pack`) and uploaded as the `author-session-<agent>-<run-id>` workflow artifact so it can travel between ephemeral runners. The author writes an `Author-Session: <agent>/<run-id>` trailer into the PR body.
+`resolve-issue` authors every issue-resolution PR with **Codex**. The author's session state is bind-mounted from a job-local directory during the author run, then packed (`scripts/ci-session-store.sh pack`) and uploaded as the `author-session-codex-<run-id>` workflow artifact so it can travel between ephemeral runners. The author writes an `Author-Session: codex/<run-id>` trailer into the PR body.
 
-When `review-fixer.yml` runs, `Parse Author-Session trailer` extracts `<agent>/<run-id>`, `Download author session artifact` (`actions/download-artifact@v4` with `run-id` cross-run lookup; requires `actions: read`) fetches the tarball from the original `resolve-issue` run, and `Detect author session for resume` unpacks + validates it. Three-way dispatch:
+When `review-fixer.yml` runs, `Parse Author-Session trailer` extracts `<agent>/<run-id>`, `Download author session artifact` (`actions/download-artifact@v4` with `run-id` cross-run lookup; requires `actions: read`) fetches the tarball from the original `resolve-issue` run, and `Detect author session for resume` unpacks + validates it. Two-way dispatch:
 - **`codex-resume`** → `review-codex-resume` action runs `codex exec resume --last` against the unpacked session
-- **`claude-resume`** → `review-claude-resume` action runs `claude --continue`
-- **`fallback`** → existing `review-claude-run` (fresh Claude session) — used for human-authored PRs and any case where the trailer is absent, the artifact is missing/expired, or unpack fails validation
+- **`fallback`** → `review-codex-run` (fresh Codex session) — used for human-authored PRs and any case where the trailer is absent, the artifact is missing/expired, or unpack fails validation
 
 The resumed author re-enters the same conversation it had while authoring, this time with `${REVIEWER_ARTIFACTS_DIR}` available in scope. Because it has full context for the choices it originally made, it can revisit those choices instead of patching surface-level symptoms. Reviewers + judge always run regardless of dispatch mode — backstop catches anything the resumed author misses.
 
-Symmetric two-agent support means the fixer must understand both `codex exec resume` and `claude --continue` semantics; `fixer-resume.md` is the shared prompt loaded by both resume actions.
+Both the resumed-author and fresh-fallback fixer paths run on the frontier model tier (`.github/ci/agent-models.env`) — the fixer revisits reviewer-flagged design decisions, which is judgment-heavy. `fixer-resume.md` is the prompt loaded by the resume action; `fixer.md` is loaded by the fresh-fallback path.
+
+`ci-session-store.sh` and `ci_session_container_home_path` accept only `codex` as an agent name; an `Author-Session: claude/<run-id>` trailer from a PR opened before this move is treated as unrecognized (parses to empty), so the fixer falls back to a fresh Codex session rather than attempting a resume.
 
 ### Review prompt file architecture
 
