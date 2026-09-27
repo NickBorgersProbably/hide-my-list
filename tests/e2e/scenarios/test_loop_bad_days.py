@@ -63,7 +63,13 @@ async def test_rejections_a_nothing_day_a_declined_question_and_an_unlisted_win(
     # -- Day 1 -------------------------------------------------------------
     offer = await conversation.say(
         "i have maybe 20 min. what should i do",
-        expect=Expect(intent="GET_TASK", sent_count=1),
+        expect=Expect(
+            intent="GET_TASK",
+            sent_count=1,
+            # A null or unknown selection fails here, inside the turn check, so
+            # the debug dump shows which path selection took.
+            regex_forbid=[r"(?i)nothing quite fits", r"(?i)couldn't land on one"],
+        ),
     )
     first = (offer.state.get("active_task") or {}).get("page_id")
     assert first in seeded, f"selection offered no seeded task: {first!r}"
@@ -80,35 +86,38 @@ async def test_rejections_a_nothing_day_a_declined_question_and_an_unlisted_win(
     ledger = {e["page_id"]: e["event"] for e in declined.state.get("recent_tasks") or []}
     assert ledger.get(first) == "rejected" and ledger.get(second) == "suggested"
 
+    # The "no" declines the alternative offered a moment ago: its rejection
+    # count is bumped, the other pages are untouched.
     again = await conversation.say(
         "no",
-        expect=Expect(intent="REJECT", notion_untouched=sorted(seeded), sent_count=1),
+        expect=Expect(intent="REJECT", notion_untouched=sorted(seeded - {second}), sent_count=1),
     )
     drafts = again.state.get("pending_outbound") or []
     third = drafts[0].get("notion_page_id") if drafts else None
     assert third in seeded - {first, second}, "second decline must offer the remaining seeded task"
     ledger = {e["page_id"]: e["event"] for e in again.state.get("recent_tasks") or []}
-    assert ledger.get(third) == "suggested"
+    assert ledger.get(second) == "rejected" and ledger.get(third) == "suggested"
 
     third_no = await conversation.say(
         "nope none of those either",
         expect=Expect(
             intent="REJECT",
-            notion_untouched=sorted(seeded),
+            notion_untouched=sorted(seeded - {third}),
             sent_count=1,
             regex_require=[
                 r"(?i)(not a failure|task mode|break|rest|later|no pressure|here when|whenever)"
             ],
         ),
     )
-    # The third no must not re-offer any task (the updated template normalizes
-    # and offers a mood-or-break choice instead). The rejection node only
-    # records the active_task as rejected; with active_task None after prior
-    # rejections, third stays as "suggested" in the ledger.
+    # Every open task has now been turned down. The third no declines the last
+    # alternative (recorded `rejected`; streak 3) and must not re-offer any task:
+    # the template normalizes and offers a mood-or-break choice instead.
     drafts = third_no.state.get("pending_outbound") or []
     assert not (drafts and drafts[0].get("notion_page_id")), (
         "the third no was answered by re-offering a task the user already declined"
     )
+    ledger = {e["page_id"]: e["event"] for e in third_no.state.get("recent_tasks") or []}
+    assert ledger.get(third) == "rejected"
 
     nothing = await conversation.say(
         "i did nothing today lol",
