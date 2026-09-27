@@ -40,7 +40,7 @@ async def test_completed_task_stops_nudging(conversation: Conversation) -> None:
     )
     assert conversation.notion.status_of(page) == "Pending"
 
-    await conversation.say(
+    result = await conversation.say(
         "done",
         expect=Expect(
             intent="COMPLETE",
@@ -50,6 +50,16 @@ async def test_completed_task_stops_nudging(conversation: Conversation) -> None:
             regex_forbid=[r"(?i)which task"],
         ),
     )
+    assert result.state.get("active_task") is None
+    assert result.state.get("conversation_state") == "idle"
+    completed_event = next(
+        (
+            e for e in (result.state.get("recent_tasks") or [])
+            if e.get("page_id") == page and e.get("event") == "completed"
+        ),
+        None,
+    )
+    assert completed_event is not None, "completed event missing from recent_tasks ledger"
 
     # Every still-queued nudge of the series is cancelled by the completion
     # itself, not left for the worker's pre-send check. `deliver_reminder`

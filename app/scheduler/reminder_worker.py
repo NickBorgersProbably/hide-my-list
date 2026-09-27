@@ -179,27 +179,51 @@ async def dispatch_due_reminders(
         completed = await _page_already_completed(notion_page_id, rid)
 
         if completed is None and kind == "deadline":
-            # Status unknown for a deadline nudge: fail closed. Release the row
-            # for a later retry rather than sending an unverifiable prompt.
-            next_due = _next_due_at(attempt)
-            await conn.execute(
-                """
-                UPDATE reminder_outbox
-                   SET state = 'scheduled',
-                       last_error = 'presend_check_failed: deferred',
-                       due_at = %s,
-                       attempt = %s,
-                       locked_until = NULL,
-                       worker_id = NULL
-                 WHERE id = %s
-                """,
-                (next_due, attempt, str(rid)),
-            )
-            await conn.commit()
-            log.info(
-                "reminder_worker.deadline_deferred_on_check_failure",
-                reminder_id=str(rid),
-            )
+            # Status unknown for a deadline nudge: fail closed.
+            if attempt >= _MAX_ATTEMPTS:
+                await conn.execute(
+                    """
+                    UPDATE reminder_outbox
+                       SET state = 'dead',
+                           last_error = 'presend_check_failed: exhausted',
+                           locked_until = NULL,
+                           worker_id = NULL,
+                           attempt = %s
+                     WHERE id = %s
+                    """,
+                    (attempt, str(rid)),
+                )
+                await conn.commit()
+                await _throttled_ops_alert(
+                    conn,
+                    "reminder_dead",
+                    f"Reminder {rid} exhausted {_MAX_ATTEMPTS} attempts (presend check failed)",
+                )
+                await conn.commit()
+                log.info(
+                    "reminder_worker.deadline_dead_on_check_failure",
+                    reminder_id=str(rid),
+                )
+            else:
+                next_due = _next_due_at(attempt)
+                await conn.execute(
+                    """
+                    UPDATE reminder_outbox
+                       SET state = 'scheduled',
+                           last_error = 'presend_check_failed: deferred',
+                           due_at = %s,
+                           attempt = %s,
+                           locked_until = NULL,
+                           worker_id = NULL
+                     WHERE id = %s
+                    """,
+                    (next_due, attempt, str(rid)),
+                )
+                await conn.commit()
+                log.info(
+                    "reminder_worker.deadline_deferred_on_check_failure",
+                    reminder_id=str(rid),
+                )
             continue
 
         if completed:
@@ -214,6 +238,7 @@ async def dispatch_due_reminders(
                         conn, notion_page_id=notion_page_id, peer=peer
                     )
                 except Exception as exc:
+                    await conn.rollback()
                     log.warning(
                         "reminder_worker.sibling_cancel_failed",
                         reminder_id=str(rid),

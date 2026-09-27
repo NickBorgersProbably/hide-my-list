@@ -23,12 +23,14 @@ async def test_never_mind_with_nothing_active(conversation: Conversation) -> Non
     result = await conversation.say(
         "never mind, I'll check later",
         expect=Expect(
+            intent="REJECT",
             sent_count=1,
             notion_untouched=[page],
             regex_forbid=[r"\{task\}", r"\[task\]"],
         ),
     )
 
-    assert result.intent in {"REJECT", "CHAT"}, f"unexpected intent {result.intent!r}"
     assert conversation.notion.writes[writes_before:] == []
     assert conversation.notion.status_of(page) == "Pending"
+    assert result.state.get("active_task") is None
+    assert result.state.get("conversation_state") in {"idle", None}

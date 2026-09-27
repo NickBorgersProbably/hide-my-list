@@ -553,7 +553,7 @@ flowchart TD
 ### Nothing to Reject
 
 A REJECT-shaped message when nothing is on the hook — no active task and no
-fresh suggestion in the recent-task ledger, as in "never mind, I'll check
+fresh titled suggestion in the recent-task ledger, as in "never mind, I'll check
 later" before anything was suggested — gets one fixed reply that names
 nothing: "No problem — nothing's on the hook right now. Want a suggestion when
 you're ready?" Nothing is written to Notion. See
@@ -996,7 +996,7 @@ User timezone is read from the `USER_TZ` environment variable (default `America/
 
 Different concepts:
 - **Reminder**: "Ping me at 6pm to call Sarah" → proactive notification fired by the APScheduler `reminder_dispatcher` at `remind_at`; at-least-once delivery via the Postgres outbox, which is why intake confirmations say "around 6pm"
-- **Deadline**: "Review proposal by Friday" → urgency-scored task, no proactive ping
+- **Deadline**: "Review proposal by Friday" → urgency-scored task; not a user-requested wall-clock notification, but deadline-bearing tasks receive scheduled milestone nudges (see above)
 
 Key signal = notification intent: user wants to be *told* to do something at a specific time, not just prioritized.
 
