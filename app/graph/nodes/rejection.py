@@ -30,6 +30,7 @@ log = structlog.get_logger(__name__)
 async def rejection_node(state: State) -> dict[str, Any]:
     """REJECT handler: classify rejection and suggest alternative."""
     peer = state.get("peer", "")
+    incoming = state.get("incoming", "")
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -37,8 +38,6 @@ async def rejection_node(state: State) -> dict[str, Any]:
         from app.models import llm
         from app.prompts.loader import render_with_defaults
         from app.tools import notion
-
-        incoming = state.get("incoming", "")
         active_task = state.get("active_task")
         available_minutes = state.get("available_minutes") or 30
         mood = state.get("mood") or "neutral"
@@ -101,7 +100,7 @@ async def rejection_node(state: State) -> dict[str, Any]:
         response = await model.ainvoke(messages)
         response_text = str(response.content).strip()
 
-        user_message, alternative_id = _parse_rejection_response(response_text)
+        user_message, alternative_id = _parse_rejection_response(response_text, incoming)
         alternative_title = _alternative_task_title(alternative_id, remaining)
         user_message = render_task_token(user_message, title=alternative_title)
 
@@ -181,15 +180,25 @@ async def rejection_node(state: State) -> dict[str, Any]:
 
     except Exception:
         log.exception("rejection_node.error", peer=peer)
+        body = (
+            "Nothing's wrong with you. Want to step away for a bit?"
+            if _is_distress(incoming)
+            else "No problem. I'm here whenever you're ready."
+        )
         fallback: OutboundDraft = {
             "recipient": peer,
-            "body": "No problem. I'm here whenever you're ready.",
+            "body": body,
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
 
 
 _REJECTION_STREAK_FRESHNESS = timedelta(hours=24)
+
+_DISTRESS_PATTERN = re.compile(
+    r"\b(useless|wrong with me|hate myself|i'?m? ?(a )?failure|can'?t do anything)\b",
+    re.IGNORECASE,
+)
 
 
 def _consecutive_rejection_count(
@@ -240,7 +249,12 @@ def _parse_entry_at(value: object) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
+def _is_distress(text: str) -> bool:
+    """True when the message contains self-blame or distress signals."""
+    return bool(_DISTRESS_PATTERN.search(text))
+
+
+def _parse_rejection_response(response_text: str, incoming: str = "") -> tuple[str, str | None]:
     """Parse LLM JSON response. Returns (user_message, alternative_task_id)."""
     json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
     if json_match:
@@ -257,6 +271,8 @@ def _parse_rejection_response(response_text: str) -> tuple[str, str | None]:
             )
         except json.JSONDecodeError:
             pass
+    if _is_distress(incoming):
+        return "Nothing's wrong with you. Want to step away for a bit?", None
     return response_text[:300] if response_text else "No problem. I'm here whenever you're ready.", None
 
 

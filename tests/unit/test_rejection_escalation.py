@@ -234,11 +234,72 @@ def test_parse_rejection_response_empty_is_shame_safe() -> None:
     assert alt_id is None
 
 
+def test_parse_rejection_response_empty_with_self_blame_gives_reframe() -> None:
+    """Empty/invalid model response + self-blame input → nonjudgmental reframe, no task."""
+    from app.graph.nodes.rejection import _parse_rejection_response
+
+    msg, alt_id = _parse_rejection_response("", incoming="whats wrong with me")
+    assert "nothing" in msg.lower()
+    assert alt_id is None
+
+
+def test_parse_rejection_response_invalid_json_with_self_blame_gives_reframe() -> None:
+    """Unparseable model response + self-blame input → nonjudgmental reframe, no task."""
+    from app.graph.nodes.rejection import _parse_rejection_response
+
+    msg, alt_id = _parse_rejection_response("not json at all", incoming="I'm useless")
+    assert "nothing" in msg.lower()
+    assert alt_id is None
+
+
 @pytest.mark.asyncio
-async def test_rejection_node_exception_fallback_is_shame_safe(
+async def test_rejection_node_exception_fallback_ordinary_rejection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Exception fallback must not offer another task (safe for any rejection count or distress)."""
+    """Exception fallback for a plain rejection returns generic no-pressure response."""
+    from app.graph.nodes.rejection import rejection_node
+    from app.tools import notion
+
+    async def always_raise() -> dict[str, Any]:
+        raise RuntimeError("simulated failure")
+
+    monkeypatch.setattr(notion, "query_pending", always_raise)
+
+    result = await rejection_node(
+        {
+            "peer": "<recipient>",
+            "incoming": "just not feeling it",
+            "intent": "REJECT",
+            "messages": [],
+            "active_task": {
+                "page_id": "<page-id>",
+                "title": "Placeholder task",
+                "status": "In Progress",
+                "rejection_count": 0,
+            },
+            "recent_tasks": [],
+            "streak": 0,
+            "tasks_completed_today": 0,
+            "user_prefs": {},
+            "mood": None,
+            "available_minutes": 30,
+            "conversation_state": "active",
+            "pending_outbound": [],
+        }
+    )
+
+    outbound = result.get("pending_outbound", [])
+    assert outbound, "exception fallback must produce a reply"
+    body = outbound[0].get("body", "")
+    assert "find something" not in body.lower()
+    assert "something different" not in body.lower()
+
+
+@pytest.mark.asyncio
+async def test_rejection_node_exception_fallback_self_blame_gives_reframe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exception fallback detects self-blame and returns a nonjudgmental reframe."""
     from app.graph.nodes.rejection import rejection_node
     from app.tools import notion
 
@@ -273,5 +334,6 @@ async def test_rejection_node_exception_fallback_is_shame_safe(
     outbound = result.get("pending_outbound", [])
     assert outbound, "exception fallback must produce a reply"
     body = outbound[0].get("body", "")
+    assert "nothing" in body.lower(), "self-blame must receive nonjudgmental reframe"
     assert "find something" not in body.lower()
     assert "something different" not in body.lower()
