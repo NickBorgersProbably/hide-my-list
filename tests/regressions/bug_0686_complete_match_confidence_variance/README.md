@@ -1,6 +1,6 @@
-# Bug NNNN: A Named Completion Asks "Which Task?" When the Match Call Misfires
+# Bug 0686: A Named Completion Asks "Which Task?" When the Match Call Misfires
 
-**PR:** #NNNN
+**PR:** #686
 
 ## Bug Story
 

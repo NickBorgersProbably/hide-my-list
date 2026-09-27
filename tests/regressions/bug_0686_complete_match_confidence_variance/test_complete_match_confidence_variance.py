@@ -1,4 +1,4 @@
-"""Regression: a named task asked "which task?" when the match call misfired (bug #NNNN).
+"""Regression: a named task asked "which task?" when the match call misfired (bug #686).
 
 With reasoning off, the cheap-tier confirmation of an unambiguous standalone
 report sometimes came back unusable, and the node asked which task the user

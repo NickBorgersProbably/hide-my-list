@@ -1,4 +1,4 @@
-"""Regression: an action name in the review's `verdict` field (bug #NNNN).
+"""Regression: an action name in the review's `verdict` field (bug #686).
 
 The model answered the one shape the review exists for with
 `{"verdict": "complete_task", "action": "complete_task", ...}`, and the parser

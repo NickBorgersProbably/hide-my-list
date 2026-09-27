@@ -1,6 +1,6 @@
-# Bug NNNN: The Interaction Review Writes an Action Name Into `verdict`
+# Bug 0686: The Interaction Review Writes an Action Name Into `verdict`
 
-**PR:** #NNNN
+**PR:** #686
 
 ## Bug Story
 
