@@ -1,4 +1,4 @@
-"""Bug NNNN: "actually make it 6pm" must move the reminder, not add a second one.
+"""Bug 0685: "actually make it 6pm" must move the reminder, not add a second one.
 
 See README.md. Two intake turns with a mocked model: turn 1 sets a 5pm
 reminder, turn 2 moves it. Turn 2 receives turn 1's recent-task ledger, as
@@ -20,7 +20,7 @@ pytestmark = pytest.mark.skipif(
     not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set"
 )
 
-PEER = "<test-bug-NNNN-peer>"
+PEER = "<test-bug-0685-peer>"
 
 
 def _model(payload: dict[str, Any]) -> Any:

@@ -1,4 +1,4 @@
-"""Bug NNNN: CANNOT_FINISH right after a deadline nudge must be about the nudged task.
+"""Bug 0685: CANNOT_FINISH right after a deadline nudge must be about the nudged task.
 
 See README.md. No active task; the only anchor is the `nudged` ledger entry
 `hydrate_context` merges from the delivery.
@@ -25,7 +25,7 @@ def _model(payload: dict[str, Any]) -> Any:
 
 def _state(page_id: str, incoming: str) -> Any:
     return {
-        "peer": "<test-bug-NNNN-peer>",
+        "peer": "<test-bug-0685-peer>",
         "incoming": incoming,
         "intent": "CANNOT_FINISH",
         "messages": [],

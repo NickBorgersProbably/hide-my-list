@@ -1,6 +1,6 @@
-# Bug NNNN: Changing A Reminder's Time Creates A Second Reminder
+# Bug 0685: Changing A Reminder's Time Creates A Second Reminder
 
-**PR:** #NNNN
+**PR:** #685
 
 ## Bug Story
 

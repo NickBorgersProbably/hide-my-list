@@ -1,6 +1,6 @@
-# Bug NNNN: "I Can't Finish That" After A Deadline Nudge Has No Task
+# Bug 0685: "I Can't Finish That" After A Deadline Nudge Has No Task
 
-**PR:** #NNNN
+**PR:** #685
 
 ## Bug Story
 
