@@ -51,11 +51,13 @@ async def test_completed_task_stops_nudging(conversation: Conversation) -> None:
         ),
     )
 
-    # Every queued nudge of the series is cancelled by the completion itself,
-    # not left for the worker's pre-send check.
+    # Every still-queued nudge of the series is cancelled by the completion
+    # itself, not left for the worker's pre-send check. `deliver_reminder`
+    # fired one of the series' own rows, so the rest of the series is dead.
     states = await conversation.outbox_state(page)
+    assert len(states) == len(series)
     assert states.count("delivered") == 1
-    assert [s for s in states if s != "delivered"] == ["dead"] * len(series)
+    assert [s for s in states if s != "delivered"] == ["dead"] * (len(series) - 1)
 
     sent = await conversation.run_reminder_worker(make_due=page)
     assert sent == [], "a completed task was nudged"

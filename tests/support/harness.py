@@ -553,18 +553,44 @@ class Conversation:
         from app.tools import reminders
 
         before = self.signal.mark()
+        effective_due = due_at or (datetime.now(UTC) - timedelta(minutes=1))
         async with await psycopg.AsyncConnection.connect(
             self._database_url, autocommit=False
         ) as conn:
-            reminder_id = await reminders.enqueue(
-                conn,
-                notion_page_id=page_id,
-                peer=self.peer,
-                body=body,
-                due_at=due_at or (datetime.now(UTC) - timedelta(minutes=1)),
-                idempotency_key=f"e2e-{uuid.uuid4()}",
-                kind=kind,
+            # Intake already queued this page's row when the reminder was
+            # added in-conversation. Deliver that row — made due now, carrying
+            # the requested body — instead of queueing a second one: two due
+            # rows for one page would deliver intake's first, complete the
+            # page, and have the pre-send check retire the second, and which
+            # of the two came first depended on the clock (a "6pm" reminder is
+            # already due when the suite runs after 6pm local time).
+            cursor = await conn.execute(
+                """
+                SELECT id FROM reminder_outbox
+                 WHERE peer = %s AND notion_page_id = %s AND kind = %s
+                   AND state IN ('pending', 'scheduled')
+                 ORDER BY due_at
+                 LIMIT 1
+                """,
+                (self.peer, page_id, kind),
             )
+            existing = await cursor.fetchone()
+            if existing is not None:
+                reminder_id = existing[0]
+                await conn.execute(
+                    "UPDATE reminder_outbox SET due_at = %s, body = %s WHERE id = %s",
+                    (effective_due, body, reminder_id),
+                )
+            else:
+                reminder_id = await reminders.enqueue(
+                    conn,
+                    notion_page_id=page_id,
+                    peer=self.peer,
+                    body=body,
+                    due_at=effective_due,
+                    idempotency_key=f"e2e-{uuid.uuid4()}",
+                    kind=kind,
+                )
             await conn.commit()
             await dispatch_due_reminders(conn, signal_send_fn=self.signal.send_message)
 
