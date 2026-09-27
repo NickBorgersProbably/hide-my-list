@@ -80,7 +80,8 @@ directly (set `E2E_DEBUG_TURNS=1` to enable it), and on in CI and under
 `scripts/ci-local.sh e2e`, which both default it to `true`. Only event names,
 booleans, counts, and string values under an explicit key allowlist
 (`intent`, `tier`, `node`, `page_id`, …; see `_SAFE_STRING_KEYS` in
-`tests/support/harness.py`) are printed — a string under any other key is
+`tests/support/harness.py`), and model scores under an explicit float
+allowlist (`match_confidence`; see `_SAFE_FLOAT_KEYS`) are printed — a string under any other key is
 dropped however short it is, so message text, titles, and peers never
 appear, and the printout is safe to paste into a PR comment or issue.
 This is what tells you which intent the classifier chose and which node ran
