@@ -10,7 +10,8 @@ Day 1  three adds: a task with a deadline, an open-ended task, a reminder.
 Day 2  the reminder fires; "done!" resolves it and names it; "whats left?"
        names the two open tasks from the ledger.
 Day 3  the deadline nudge fires; "ugh, that got complicated" is a
-       cannot-finish, which writes nothing and leaves the nudge answerable.
+       cannot-finish about the nudged task. It may add hidden sub-tasks under
+       it, never changes the task itself, and leaves the nudge answerable.
 Day 4  "finally cleaned out the fridge" completes it by title match — the
        nudge and every ledger anchor are a day old by now.
 Day 5  "what should I do?" offers the one task left; "done" completes it.

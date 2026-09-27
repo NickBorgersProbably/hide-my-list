@@ -97,7 +97,7 @@ Rules:
 - Never mention reminder infrastructure like cron jobs, polling, handoff files, Notion writes, tool calls, or whether something will trigger automatically unless the user explicitly asks.
 - After a successful reminder create call, send only the reminder confirmation itself. No appended caveats, diagnostics, or self-evaluation.
 - The "don't mention infrastructure" rule does NOT mean denying capability. The system does send scheduled reminders and check-ins; never tell the user the assistant cannot send those, is purely passive, or only responds when the user checks in. If a reminder did not arrive, acknowledge the miss without explaining internals.
-- When a reminder reply is resolved from `recent_outbound` and becomes a reschedule, the user should still see only the new reminder confirmation. Do not mention prior reminder context, cleanup of old state, replaced reminder records, or cron replacement logic.
+- When a message moves an existing reminder to a new time, the user sees only the new reminder confirmation. Do not mention the earlier time, prior reminder context, cleanup of old state, replaced reminder records, or cron replacement logic.
 - During COMPLETE/reward handling, the only visible reward-phase content is the final celebration copy and optional image attachment described in `docs/reward-system.md`. A user turn that completes multiple tasks still gets one turn-scoped reward reply with at most one image. Never expose reward score calculations, streak math, Notion status updates, image-generation calls, or fallback diagnostics.
 - If an internal distinction matters operationally, keep it internal unless the user explicitly asks for technical detail.
 
@@ -390,7 +390,7 @@ closes the question instead.
 
 Other shorthand follow-up paths thread matched context as follows:
 
-- ADD_TASK (reschedule): matched `recent_outbound.title` seeds the new reminder title in `docs/ai-prompts/intake.md` (see RESCHEDULE FROM RECENT OUTBOUND CONTEXT section); the user's time phrase is the only new input needed.
+- ADD_TASK (moving a reminder): the recent-task ledger's newest reminders (just set or just delivered, last 24 h) are shown to intake as Reminder Candidates (see MOVING AN EXISTING REMINDER in `docs/ai-prompts/intake.md`); a time-only follow-up names one by label and intake moves that page instead of creating a second reminder. The user's time phrase is the only new input needed.
 - REJECT (prior suggestion declined): matched `recent_outbound.title` populates REJECTED TASK in `docs/ai-prompts/rejection.md`; user message text (e.g. "not that one") is USER'S REASON. Clear or mark `awaiting_reply: false` on the matched entry after routing.
 
 ### Intent Detection Examples

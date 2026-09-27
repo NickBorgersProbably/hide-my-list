@@ -183,6 +183,12 @@ The app container runs four concurrent async tasks:
    missed reminder costs the user more than a redundant one — while a
    deadline row is deferred (`scheduled`, retried later) rather than nudging
    toward a deadline the task may already have met.
+   When the user moves a reminder to a new time ("make it
+   6pm"), `intake_node` updates the same page's `Remind At` and reopens it
+   (`Status` Pending, `Reminder Status` pending), then
+   `reminders.reschedule_for_page` marks its waiting `kind='reminder'` rows
+   `dead` with `last_error='rescheduled by user'` and enqueues one pending row
+   for the new time in the same transaction.
 
 ## Reminder Delivery
 

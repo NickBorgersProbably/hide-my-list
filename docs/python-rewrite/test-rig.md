@@ -297,6 +297,7 @@ Contract kinds:
 - `json_schema` — pydantic validation of structured outputs (intake node)
 - `judge` — qualitative rubric scored by a stronger judge LLM (defaults to `claude-sonnet-5`; override via `EVAL_JUDGE_MODEL`)
 - `shame_safe` — judge with fixed ADHD-safety rubric from `design/adhd-priorities.md`
+- `turn_action` — deterministic; scores what the node did rather than what it said. Matches the node update's `turn_actions` list on `action` and, when given, `page_id`; `present: false` forbids the match. Use it when the behavior under test is a write (moving an existing reminder instead of creating one) that the reply text cannot show — writes are discarded in evals, but the node still records the action it took
 
 Scoring surfaces: nodes write the literal `{task}` token in draft bodies and
 `send_node` substitutes the exact stored title before delivery. The runner

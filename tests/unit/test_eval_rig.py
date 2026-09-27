@@ -201,3 +201,53 @@ def test_invoke_node_marks_an_invalid_review_verdict(monkeypatch) -> None:
     assert body.startswith("INVALID_VERDICT:")
     (result,) = evaluate_contracts([Contract(kind="json_schema", spec={})], body)
     assert result.passed is False
+
+
+def test_turn_action_contract_scores_what_the_node_did() -> None:
+    """`turn_action` matches on action (and page when given); `present: false` forbids."""
+    from tests.evals.runner import Contract, evaluate_contracts
+
+    actions = [{"action": "notion.update_property", "page_id": "<page_a>", "status": ""}]
+    contracts = [
+        Contract(
+            kind="turn_action",
+            spec={"action": "notion.update_property", "page_id": "<page_a>"},
+        ),
+        Contract(
+            kind="turn_action",
+            spec={"action": "notion.update_property", "page_id": "<page_b>"},
+        ),
+        Contract(kind="turn_action", spec={"action": "notion.create_reminder", "present": False}),
+        Contract(kind="turn_action", spec={"action": "notion.update_property", "present": False}),
+        Contract(kind="turn_action", spec={}),
+    ]
+    results = evaluate_contracts(contracts, "body", "body", turn_actions=actions)
+    assert [r.passed for r in results] == [True, False, True, False, False]
+    # No turn_actions at all: a required action fails, a forbidden one passes.
+    missing = evaluate_contracts(contracts[:3], "body")
+    assert [r.passed for r in missing] == [False, False, True]
+
+
+@pytest.mark.asyncio
+async def test_reschedule_fixture_shows_its_reminder_as_a_candidate() -> None:
+    """The intake reschedule fixture must put its reminder in front of the model.
+
+    If the fixture's ledger entry or Notion page drifted from what
+    `load_reschedule_candidates` accepts, the model would see "None." and the
+    fixture would score the plain create path instead of the move.
+    """
+    from datetime import UTC, datetime
+
+    from app.graph.nodes._reminder_reschedule import load_reschedule_candidates
+
+    fixture = _fixture("intake-reschedule-existing-reminder-001")
+    undo = _install_notion_stub(fixture)
+    try:
+        candidates = await load_reschedule_candidates(
+            fixture.prior_state["recent_tasks"], now=datetime.now(UTC)
+        )
+    finally:
+        undo()
+    assert [(c.label, c.page_id) for c in candidates] == [
+        ("R1", "<placeholder-page-id-reminder>")
+    ]

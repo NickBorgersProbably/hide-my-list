@@ -5,7 +5,12 @@ Ports docs/ai-prompts/intake.md behavior:
 - Sub-task generation for every task
 - Reminder detection (wall-clock time → outbox row)
 - Clarification flow (max 3 questions)
-- Reschedule from recent_outbound context
+- Reschedule: a time-only follow-up ("make it 6pm") moves the reminder the
+  recent-task ledger holds (just set, or just delivered) instead of creating a
+  second one. The model names the reminder by the label the prompt showed it
+  (`reschedule_of`); the code validates the label
+  (`app/graph/nodes/_reminder_reschedule.py`), updates that page's time, and
+  swaps its outbox row (`app/tools/reminders.reschedule_for_page`)
 - Already-done handoff: a message that reports the task as finished is not
   saved; the node hands the turn to complete_node instead
 - Logging a finished item: a save marked `already_finished` (the user answered
@@ -33,6 +38,12 @@ import structlog
 
 from app.graph.context import record_task_event, record_turn_action, render_history
 from app.graph.nodes._log_finished import log_finished
+from app.graph.nodes._reminder_reschedule import (
+    RescheduleCandidate,
+    load_reschedule_candidates,
+    render_reschedule_candidates,
+    resolve_reschedule_target,
+)
 from app.graph.nodes._task_match import (
     DedupCandidate,
     open_non_reminder_tasks,
@@ -88,6 +99,12 @@ async def intake_node(state: State) -> dict[str, Any]:
         # Clarification count tracking (use messages history length as proxy)
         clarification_count = 0
 
+        # Reminders a time-only follow-up could be moving. No ledger reminder
+        # means no Notion read and an empty block in the prompt.
+        reschedule_candidates = await load_reschedule_candidates(
+            state.get("recent_tasks"), now=datetime.now(UTC)
+        )
+
         from app.prompts.loader import render_with_defaults
         prompt_context = {
             "user_message": incoming,
@@ -96,6 +113,9 @@ async def intake_node(state: State) -> dict[str, Any]:
             "clarification_count": clarification_count,
             "current_time": current_time,
             "user_timezone": user_timezone,
+            "reschedule_candidates": render_reschedule_candidates(
+                reschedule_candidates, user_timezone=user_timezone
+            ),
         }
         prompt_text = render_with_defaults("intake.md.j2", prompt_context)
 
@@ -138,6 +158,25 @@ async def intake_node(state: State) -> dict[str, Any]:
             }
 
         # Action is "save"
+        reschedule_target = resolve_reschedule_target(
+            parsed.get("reschedule_of"), reschedule_candidates
+        )
+        if parsed.get("reschedule_of") not in (None, "") or reschedule_candidates:
+            log.info(
+                "intake_node.reschedule_resolved",
+                candidate_count=len(reschedule_candidates),
+                named=parsed.get("reschedule_of") not in (None, ""),
+                matched=reschedule_target is not None,
+            )
+        if reschedule_target is not None:
+            return await _reschedule_reminder(
+                state=state,
+                peer=peer,
+                target=reschedule_target,
+                remind_at_str=parsed.get("remind_at"),
+                confirmation=parsed.get("confirmation_message"),
+            )
+
         # A blank title is as unusable as a missing one: it propagates into the
         # Notion page, active_task, and the reward manifest, leaving the user
         # with a nameless task. Fall back to their own words, and treat a save
@@ -383,6 +422,120 @@ async def intake_node(state: State) -> dict[str, Any]:
             "notion_page_id": None,
         }
         return {"pending_outbound": [fallback]}
+
+
+async def _reschedule_reminder(
+    *,
+    state: State,
+    peer: str,
+    target: RescheduleCandidate,
+    remind_at_str: object,
+    confirmation: object,
+) -> dict[str, Any]:
+    """Move an existing reminder page to a new time instead of creating one.
+
+    The page keeps its id and title. Notion gets the new `Remind At` and is
+    reopened (`Status` Pending, `Reminder Status` pending), because the worker
+    marks a reminder page Completed when it delivers it, and a Completed page's
+    row is skipped at delivery. The outbox then swaps rows in one transaction:
+    the page's waiting row goes dead, a new one waits for the new time.
+
+    With no usable new time the node asks for one and writes nothing. A
+    Notion failure raises to the caller's error path, which tells the user
+    nothing was saved. An outbox failure after the Notion write is logged and
+    alerted like a failed enqueue on a new reminder.
+    """
+    from app.tools import notion
+    from app.tools.db import get_db_conn
+    from app.tools.reminders import reschedule_for_page
+
+    remind_at: datetime | None = None
+    if isinstance(remind_at_str, str) and remind_at_str.strip():
+        try:
+            remind_at = _parse_remind_at(remind_at_str)
+        except ValueError:
+            remind_at = None
+    if remind_at is None:
+        log.info("intake_node.reschedule_without_time", page_id=target.page_id)
+        ask: OutboundDraft = {
+            "recipient": peer,
+            "body": "What time should I move {task} to?",
+            "notion_page_id": target.page_id,
+            "notion_page_title": target.title,
+        }
+        return {
+            "pending_outbound": [ask],
+            "turn_actions": record_turn_action(state.get("turn_actions"), action="clarify"),
+        }
+
+    properties: dict[str, Any] = {
+        "Remind At": {"date": {"start": remind_at.isoformat()}},
+        "Status": {"select": {"name": "Pending"}},
+        "Reminder Status": {"select": {"name": "pending"}},
+    }
+    if target.status == "Completed":
+        properties["Completed At"] = {"date": None}
+    await notion.update_property(page_id=target.page_id, prop_json={"properties": properties})
+
+    try:
+        async with get_db_conn() as conn:
+            cancelled, _ = await reschedule_for_page(
+                conn,
+                notion_page_id=target.page_id,
+                peer=peer,
+                body=f"Hey — {target.title}",
+                due_at=remind_at,
+            )
+            await conn.commit()
+        log.info(
+            "intake_node.rescheduled",
+            page_id=target.page_id,
+            cancelled_count=cancelled,
+            was_completed=target.status == "Completed",
+        )
+    except Exception:
+        log.exception("intake_node.reschedule_enqueue_failed", page_id=target.page_id)
+        try:
+            from app.tools import ops_alerts
+            await ops_alerts.enqueue(
+                kind="reminder_enqueue_failed",
+                body=(
+                    f"Reminder reschedule outbox write failed for page {target.page_id!r}. "
+                    "Notion holds the new time; the outbox still holds the old one."
+                ),
+                severity="warning",
+            )
+        except Exception:
+            log.exception("intake_node.ops_alert_failed", page_id=target.page_id)
+
+    body = (
+        confirmation.strip()
+        if isinstance(confirmation, str) and confirmation.strip()
+        else "Got it — I'll remind you then to {task}."
+    )
+    draft: OutboundDraft = {
+        "recipient": peer,
+        "body": body,
+        "notion_page_id": target.page_id,
+        "notion_page_title": target.title,
+    }
+    recent_tasks = record_task_event(
+        state.get("recent_tasks"),
+        page_id=target.page_id,
+        title=target.title,
+        kind="reminder",
+        event="added",
+        now=datetime.now(UTC),
+    )
+    turn_actions = record_turn_action(
+        state.get("turn_actions"), action="notion.update_property", page_id=target.page_id
+    )
+    return {
+        "pending_outbound": [draft],
+        "conversation_state": "idle",
+        "recent_tasks": recent_tasks,
+        "turn_actions": turn_actions,
+    }
 
 
 async def _find_existing_task_match(proposed_title: str) -> DedupMatch | None:

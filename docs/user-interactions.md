@@ -988,7 +988,7 @@ AI detects reminder-style language and sets:
 "Around" is intentional. The reminder_dispatcher polls every 30 seconds; delivery is at-least-once. "Around 6pm" avoids overpromising exact wall-clock delivery.
 
 Reminder confirmations stay user-facing and brief. They should not include internal scheduling notes, delivery-path explanations, or self-assessment about what the model did behind the scenes.
-The same rule applies when a reminder is rescheduled from a prior reminder reply: one short confirmation sentence, no narration of internal cleanup or replacement steps.
+The same rule applies when a message moves an existing reminder to a new time ("actually make it 6pm", "push that to 8"): intake moves the reminder it just set or just delivered rather than adding a second one, and replies with one short confirmation sentence, no narration of internal cleanup or replacement steps.
 
 User timezone is read from the `USER_TZ` environment variable (default `America/Chicago`). AI converts timezone references (PT, CT, ET) to UTC offsets at intake. Use `scripts/user-time-context.sh` when a UTC timestamp needs conversion to the user-local calendar before deciding what "tomorrow" or "tonight" means.
 

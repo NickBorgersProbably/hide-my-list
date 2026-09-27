@@ -74,6 +74,29 @@ shame-safe reply lives in that field. No field ever repeats the user's
 message back; legacy non-user-facing echo fields are ignored rather than sent.
 ```
 
+### Task Resolution and Notion Writes
+
+The node resolves CURRENT TASK before the model runs:
+
+1. The checkpointed `active_task`, when there is one.
+2. Otherwise the newest recent-task ledger entry whose latest event is
+   `nudged`, `reminded`, or `suggested`, carries a title, and is at most
+   24 hours old. A deadline nudge or reminder the worker just delivered is in
+   the ledger (`hydrate_context` merges every delivery), so "I can't finish
+   that today" right after a nudge is about the nudged task. The node reads
+   that page's time estimate, work type, and energy from Notion; a failed
+   read keeps the defaults and never costs the reply.
+3. Otherwise there is no task: CURRENT TASK is "your task" and the node
+   writes nothing to Notion.
+
+With a resolved task, the reply draft carries the page id and its stored
+title, so `send_node` names the task. When the model returns
+`phase: analyze_remaining`, each entry in `remaining_sub_tasks` (at most
+six, each with a non-empty title) is created in Notion as a hidden sub-task
+of that page (`Parent Task` = the page, `Sequence` from the model, work type
+and energy from the task). A `phase: ask_progress` reply writes nothing. A
+failed sub-task write is logged and skipped; the reply still goes out.
+
 ### Progress Question Templates (Shame-Safe)
 
 > **Shame Prevention:** "Cannot finish" = second highest shame-risk moment. User says they couldn't do something — lead with progress acknowledgment, never with what's left undone. Reframe as learning task's real size.
