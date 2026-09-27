@@ -535,3 +535,17 @@ def test_declined_suggestion_skips_untitled_and_stale_entries() -> None:
         ],
         now=now,
     ) == ("p", "T")
+    # Missing or unparseable `at` is treated as expired — unknown freshness
+    # must not let an entry slip through the 24-hour guard.
+    assert _declined_suggestion(
+        [{"page_id": "p", "title": "T", "event": "suggested"}],
+        now=now,
+    ) is None
+    assert _declined_suggestion(
+        [{"page_id": "p", "title": "T", "event": "suggested", "at": None}],
+        now=now,
+    ) is None
+    assert _declined_suggestion(
+        [{"page_id": "p", "title": "T", "event": "suggested", "at": "not-a-date"}],
+        now=now,
+    ) is None

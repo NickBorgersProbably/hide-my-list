@@ -942,7 +942,7 @@ A deadline nudge is different: it names the task ("Deadline nudge: <task>. Want 
 
 A reminder can also be finished before it fires. "Done!" right after "remind me to…" resolves to the new reminder through the recent-task ledger, writes its page Completed, and cancels its pending outbox row, so the reminder never goes out.
 
-A completed task is never nudged. Every completion — a "done" through COMPLETE, a finished-item report that completes an open task, and the interaction review's `complete_task` correction — also cancels the page's undelivered deadline nudges (`last_error='task completed'`) and retires the series in the scheduling ledger. Before sending any outbox row, reminder or deadline nudge, the worker reads the page and marks the row `dead` instead when the page is already Completed; a failed read sends the row.
+Every completion — a "done" through COMPLETE, a finished-item report that completes an open task, and the interaction review's `complete_task` correction — cancels the page's undelivered deadline nudges (`last_error='task completed'`) and retires the series in the scheduling ledger. Before sending any outbox row the worker reads the Notion page: if the page is Completed the row is marked `dead` and not sent. On a Notion read failure the policy differs by kind: a `reminder` row is sent anyway (a missed reminder costs more than a duplicate); a `deadline` row is released back to the queue for a later retry.
 
 `recent_outbound` rows expire. Once one has, a shorthand reply carries nothing
 to match and the agent falls back to the resolution order in Flow 3: a task

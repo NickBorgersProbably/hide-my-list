@@ -299,7 +299,7 @@ def _declined_suggestion(
         if not isinstance(title, str) or not title.strip():
             continue
         at = _parse_entry_at(raw.get("at"))
-        if at is not None and now - at > _DECLINED_SUGGESTION_FRESHNESS:
+        if at is None or now - at > _DECLINED_SUGGESTION_FRESHNESS:
             return None
         return page_id, title.strip()
     return None

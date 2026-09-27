@@ -12,6 +12,7 @@ This send node is for conversation replies only.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 import structlog
@@ -22,9 +23,6 @@ from app.graph.state import State
 
 log = structlog.get_logger(__name__)
 
-# What an orphaned `{task}` token becomes: a reference that names nothing
-# rather than a template placeholder the user was never meant to see.
-ORPHAN_TOKEN_REPLACEMENT = "that one"
 
 async def send_node(state: State) -> dict[str, Any]:
     """Terminal node: drain pending_outbound and send via Signal.
@@ -83,14 +81,18 @@ async def send_node(state: State) -> dict[str, Any]:
 
         # The inverse: a `{task}` token with no title behind it. Rendering
         # above fills every token when a title is set, so a token left here has
-        # nothing to name. A literal token never reaches the user.
+        # nothing to name. Drop every sentence carrying the token; if nothing
+        # remains, use a neutral fallback. A literal token never reaches the user.
         if TASK_TOKEN in body:
             log.warning(
                 "send_node.orphan_task_token",
                 notion_page_id=notion_page_id,
                 has_title=bool(draft.get("notion_page_title")),
             )
-            body = body.replace(TASK_TOKEN, ORPHAN_TOKEN_REPLACEMENT)
+            sentences = re.split(r"(?<=[.!?])\s+", body.strip())
+            body = " ".join(s for s in sentences if TASK_TOKEN not in s).strip()
+            if not body:
+                body = "No problem — I've left your list as it is."
 
         # Generate idempotency key from content hash for deduplication
         key_source = f"{recipient}:{body}"
