@@ -1,11 +1,13 @@
-"""Loop — "never mind" with nothing suggested sends no literal `{task}`.
+"""Loop — a "no" with nothing suggested sends no literal `{task}`.
 
 Nothing has been suggested: no active task, an empty recent-task ledger. A
-"never mind, I'll check later" may classify REJECT (the reported route) or
-CHAT; either way exactly one reply goes out, it carries no template token,
-and nothing is written to Notion. On the REJECT route the node runs no prompt
-and replies with its fixed acknowledgement, so a model cannot write a `{task}`
-with no title behind it; `send_node` replaces any token that still reaches it.
+"nah, not doing that one" classifies REJECT (the reported route; the wording
+is one the classifier labels REJECT reliably, unlike "never mind, I'll check
+later", which reads as CHAT). Exactly one reply goes out, it carries no
+template token, and nothing is written to Notion: the node runs no prompt and
+replies with its fixed acknowledgement, so a model cannot write a `{task}` with
+no title behind it; `send_node` drops any token-bearing sentence that still
+reaches it.
 """
 from __future__ import annotations
 
@@ -21,7 +23,7 @@ async def test_never_mind_with_nothing_active(conversation: Conversation) -> Non
     writes_before = conversation.notion.mark()
 
     result = await conversation.say(
-        "never mind, I'll check later",
+        "nah, not doing that one",
         expect=Expect(
             intent="REJECT",
             sent_count=1,

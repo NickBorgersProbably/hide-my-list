@@ -4,7 +4,7 @@
 
 ## Bug Story
 
-A user with no suggestion on the table said "never mind, I'll check later".
+A user with no suggestion on the table said "nah, not doing that one".
 The classifier routed it to REJECT. `rejection_node` ran the rejection prompt
 with no active task, the model wrote one of the prompt's alternative
 templates ("How about {task}?") without a listed alternative behind it, and
