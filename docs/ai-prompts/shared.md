@@ -206,9 +206,7 @@ target in this order:
    The model sees each candidate under a short alias (`t1`, `t2`, …) rather
    than its page id and answers with the alias, which the node maps back: a
    36-character id copied back by the model can come back with characters
-   dropped, and a mangled id is no match. A message that is exactly one open
-   task's title plus report filler resolves to that task without the model
-   call (see the standalone-message shortcut below).
+   dropped, and a mangled id is no match.
    When nothing clears the ranking threshold, the whole open list goes to the
    model instead (capped at 40, ranked), so a message that paraphrases a task
    rather than quoting its title still reaches the model. A match at or above

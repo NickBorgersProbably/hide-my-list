@@ -39,3 +39,5 @@ contracts:
     pattern: "\"action\":\\s*\"complete_task\""
   - kind: regex_require
     pattern: "\"page_id\":\\s*\"<placeholder-page-id-1>\""
+  - kind: regex_forbid
+    pattern: "\"verdict\":\\s*\"(none|complete_task|send_only)\""
