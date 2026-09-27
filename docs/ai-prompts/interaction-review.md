@@ -124,6 +124,28 @@ The model returns exactly one JSON object and nothing else:
 }
 ```
 
+`verdict` and `action` are two different fields with two different sets of
+allowed values. `verdict` says whether the turn was right; `action` says what
+to do about it. An action name is never a verdict.
+
+- `verdict`: exactly `ok` or `correct` — nothing else. `ok` means the turn
+  needs nothing; `correct` means it needs the one repair named in `action`.
+- `action`: exactly `none`, `complete_task`, or `send_only`. `ok` always goes
+  with `none`; `correct` always goes with `complete_task` or `send_only`.
+
+The prompt shows one example of each verdict. A turn that needs nothing:
+
+```json
+{"verdict": "ok", "reason": "<one sentence>", "action": "none", "page_id": null}
+```
+
+A turn that needs a repair — `verdict` is `correct`, and the repair goes in
+`action`:
+
+```json
+{"verdict": "correct", "reason": "<one sentence>", "action": "complete_task", "page_id": "<id from Open tasks>"}
+```
+
 The model writes no user-facing text. `reason` is stored on the row for the
 operator; it is never sent and never logged.
 
@@ -133,6 +155,14 @@ code, stored with verdict `error`):
 
 - Only the four keys above; `verdict` and `action` from their enums. Any
   other action is rejected.
+- One mix-up of the two enums is normalized rather than rejected: a `verdict`
+  that is itself an action name, when it equals `action`, reads as `correct`
+  (or `ok` when both are `none`) and is logged as
+  `interaction_review.verdict_normalized` with the action and the normalized
+  verdict. The two fields are redundant for every valid shape, so that mix-up
+  has only one reading. A `verdict` naming a different action than `action`
+  is a contradiction and is rejected; every rule below applies to the
+  normalized verdict.
 - `ok` goes with action `none` and `page_id` null. `correct` goes with
   `complete_task` or `send_only`.
 - `complete_task`: `page_id` is one of the open task ids.

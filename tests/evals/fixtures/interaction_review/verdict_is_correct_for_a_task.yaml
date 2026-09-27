@@ -1,0 +1,43 @@
+---
+# Interaction review: the verdict enum and the action enum are two fields,
+# for a plain task rather than a reminder. A task was added, the user said
+# "finished it!" and the turn asked which task. Exactly one open task
+# matches, so the review corrects. `verdict` must be exactly "correct" — the
+# action name belongs in `action`. The eval runner fails a verdict that
+# production had to normalize, so this scores the prompt, not the parser.
+id: interaction-review-verdict-enum-002
+node: interaction_review
+tier: medium
+peer: "<test-peer-37>"
+inbound: "finished it!"
+prior_state:
+  intent: COMPLETE
+  messages:
+    - role: user
+      content: "add water the tomato plants"
+    - role: assistant
+      content: "Added Water the tomato plants to your list."
+    - role: user
+      content: "finished it!"
+    - role: assistant
+      content: "I can mark that done. Which task did you mean?"
+  recent_tasks: []
+  turn_actions:
+    - action: clarify
+      page_id: ""
+      status: ""
+notion_tasks:
+  - id: "<placeholder-page-id-1>"
+    title: "Water the tomato plants"
+    status: "Pending"
+contracts:
+  - kind: json_schema
+    schema_ref: interaction_review_verdict
+  - kind: regex_require
+    pattern: "\"verdict\":\\s*\"correct\""
+  - kind: regex_require
+    pattern: "\"action\":\\s*\"complete_task\""
+  - kind: regex_require
+    pattern: "\"page_id\":\\s*\"<placeholder-page-id-1>\""
+  - kind: regex_forbid
+    pattern: "\"verdict\":\\s*\"(none|complete_task|send_only)\""

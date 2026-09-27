@@ -179,9 +179,9 @@ async def test_without_the_flag_a_widened_null_match_still_lets_context_resolve(
 async def test_a_confident_match_ignores_a_contradictory_flag() -> None:
     """A named candidate is a match; the flag only speaks when nothing matched."""
     result, update_status, _ = await _run(
-        "finished booking the dentist appointment",
+        "finished booking the dentist appointment today",
         pages=_DECOYS,
-        verdict={"matched_page_id": "<page_B>", "confidence": 0.95, "names_unlisted_task": True},
+        verdict={"matched_page_id": "t1", "confidence": 0.95, "names_unlisted_task": True},
     )
 
     update_status.assert_awaited_once()

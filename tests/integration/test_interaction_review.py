@@ -337,6 +337,54 @@ async def test_review_completes_the_reminder_the_turn_could_not_place(
         assert peer not in flat and "library" not in flat.lower()
 
 
+@pytest.mark.asyncio
+async def test_an_action_name_in_verdict_still_completes_the_reminder(
+    peer: str, world: Any
+) -> None:
+    """The model's enum mix-up ({"verdict": "complete_task"}) is normalized, not lost.
+
+    The two fields agree, so the verdict has one reading: correct. The review
+    completes the reminder and sends the fixed follow-up exactly as for a
+    well-formed verdict; the row stores the normalized verdict.
+    """
+    page_id = world.notion.seed_task(title=_TITLE, status="Pending", is_reminder=True)
+    await _seed_outbox(peer, page_id)
+    graph = _StubGraph([_clarified_state(peer, page_id)])
+    mixed_up = json.dumps({
+        "verdict": "complete_task",
+        "reason": "The user finished the only open reminder.",
+        "action": "complete_task",
+        "page_id": page_id,
+    })
+    model = _Model(mixed_up)
+    tiers: list[tuple[str, str | None]] = []
+    reward = AsyncMock(return_value={"text": "🎉", "attachment_path": None})
+    listener = _listener(graph, peer)
+    inbound: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+    inbound.put_nowait(_envelope(peer, "Done!", 1))
+    inbound.put_nowait(None)
+    with (
+        patch("app.models.llm", _llm_factory(model, tiers)),
+        patch("app.tools.rewards.maybe_reward", reward),
+        capture_logs() as logs,
+    ):
+        await _listen(listener, inbound)
+        await listener.wait_for_review(peer)
+
+    assert world.notion.status_of(page_id) == "Completed"
+    assert await _outbox_states(peer, page_id) == ["dead"]
+    assert [m.body for m in world.signal.sent] == [f"{_TITLE} — marked that one done. 🎉"]
+    rows = await _rows(peer)
+    assert [(r["verdict"], r["action"], r["action_page_id"], r["executed"]) for r in rows] == [
+        ("correct", "complete_task", page_id, True),
+    ]
+    normalized = [e for e in logs if e["event"] == "interaction_review.verdict_normalized"]
+    assert [(e["action"], e["normalized_verdict"]) for e in normalized] == [
+        ("complete_task", "correct"),
+    ]
+    assert not [e for e in logs if e["event"] == "interaction_review.verdict_rejected"]
+
+
 # ---------------------------------------------------------------------------
 # Yielding to the conversation
 # ---------------------------------------------------------------------------

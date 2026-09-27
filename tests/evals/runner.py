@@ -534,13 +534,19 @@ def _invoke_node(
         )
         inputs = inputs_from_state(state, open_list, now=datetime.now(UTC))
         raw = asyncio.run(judge_turn(inputs))
-        verdict = parse_verdict(
-            raw,
-            open_page_ids={task["id"] for task in inputs.open_tasks},
-            completed_this_turn={task["id"] for task in inputs.completed_this_turn},
-        )
+        with capture_logs() as parse_logs:
+            verdict = parse_verdict(
+                raw,
+                open_page_ids={task["id"] for task in inputs.open_tasks},
+                completed_this_turn={task["id"] for task in inputs.completed_this_turn},
+            )
         if verdict is None:
             return f"INVALID_VERDICT: {raw}", None
+        # Production normalizes an action name written into `verdict`; the
+        # eval scores the prompt, so a verdict that needed normalizing is a
+        # prompt miss and fails every json_schema contract like an invalid one.
+        if any(e.get("event") == "interaction_review.verdict_normalized" for e in parse_logs):
+            return f"NORMALIZED_VERDICT: {raw}", None
         return json.dumps(dataclasses.asdict(verdict), ensure_ascii=False), None
 
     module_path = f"app.graph.nodes.{node}"

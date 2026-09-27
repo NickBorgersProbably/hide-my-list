@@ -124,7 +124,7 @@ async def test_a_paraphrase_sharing_no_words_still_reaches_the_model() -> None:
         _notion_page("<page_A>", "Deal with the spare fridge in the basement"),
         _notion_page("<page_B>", "Book the dentist appointment"),
     ]})
-    model = _model(json.dumps({"matched_page_id": "<page_A>", "confidence": 0.95}))
+    model = _model(json.dumps({"matched_page_id": "t1", "confidence": 0.95}))
 
     with (
         patch("app.tools.notion.update_status", update_status),
@@ -172,7 +172,7 @@ async def test_widening_does_not_lower_the_write_bar() -> None:
             complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
         ),
         patch("app.models.llm", return_value=_model(
-            json.dumps({"matched_page_id": "<page_A>", "confidence": 0.85})
+            json.dumps({"matched_page_id": "t1", "confidence": 0.85})
         )),
     ):
         result = await complete_module.complete_node(
@@ -341,7 +341,7 @@ async def test_a_reminder_lookup_failure_does_not_veto_the_named_task() -> None:
             AsyncMock(side_effect=RuntimeError("postgres down")),
         ),
         patch("app.models.llm", return_value=_model(
-            json.dumps({"matched_page_id": "<page_A>", "confidence": 0.95})
+            json.dumps({"matched_page_id": "t1", "confidence": 0.95})
         )),
     ):
         result = await complete_module.complete_node(_state("done with the dishes"))
@@ -539,7 +539,7 @@ async def test_an_answer_is_judged_as_an_answer_not_as_a_claim() -> None:
     to identify which task it was about.
     """
     query_all = AsyncMock(return_value={"results": [_notion_page("<page_A>", "Water the garden")]})
-    model = _model(json.dumps({"matched_page_id": "<page_A>", "confidence": 0.95}))
+    model = _model(json.dumps({"matched_page_id": "t1", "confidence": 0.95}))
 
     with (
         patch("app.tools.notion.update_status", new_callable=AsyncMock),
@@ -578,7 +578,7 @@ async def test_an_ordinal_answer_resolves_against_the_options_that_were_named() 
         _notion_page("<page_A>", "Deal with the spare fridge"),
     ]})
     update_status = AsyncMock()
-    model = _model(json.dumps({"matched_page_id": "<page_B>", "confidence": 0.95}))
+    model = _model(json.dumps({"matched_page_id": "t2", "confidence": 0.95}))
 
     with (
         patch("app.tools.notion.update_status", update_status),
@@ -618,7 +618,7 @@ async def test_an_option_that_is_no_longer_open_cannot_come_back() -> None:
     query_all = AsyncMock(return_value={"results": [
         _notion_page("<page_B>", "Book the dentist appointment (rescheduled)"),
     ]})
-    model = _model(json.dumps({"matched_page_id": "<page_B>", "confidence": 0.95}))
+    model = _model(json.dumps({"matched_page_id": "t1", "confidence": 0.95}))
 
     with (
         patch("app.tools.notion.update_status", new_callable=AsyncMock),

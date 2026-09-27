@@ -346,6 +346,27 @@ def parse_verdict(
 
     verdict = loaded.get("verdict")
     action = loaded.get("action")
+    # The model sometimes copies the action name into `verdict`
+    # (`{"verdict": "complete_task", "action": "complete_task", ...}`). The
+    # two fields are redundant for every valid shape — `ok` goes with `none`,
+    # `correct` with anything else — so an action name in `verdict` that
+    # equals `action` has only one reading. Normalized only when both fields
+    # agree; a contradictory pair (e.g. action-name verdict with `action: none`)
+    # stays rejected. Every rule below still applies.
+    if (
+        isinstance(verdict, str)
+        and isinstance(action, str)
+        and verdict in ACTIONS
+        and action in ACTIONS
+        and verdict == action
+    ):
+        normalized = "ok" if action == "none" else "correct"
+        log.info(
+            "interaction_review.verdict_normalized",
+            action=action,
+            normalized_verdict=normalized,
+        )
+        verdict = normalized
     if verdict not in _VERDICTS:
         _reject("unknown_verdict")
         return None

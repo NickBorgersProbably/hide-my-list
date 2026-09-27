@@ -203,6 +203,35 @@ def test_invoke_node_marks_an_invalid_review_verdict(monkeypatch) -> None:
     assert result.passed is False
 
 
+def test_invoke_node_marks_a_normalized_review_verdict(monkeypatch) -> None:
+    """A verdict the parser normalized must fail the fixture's json_schema.
+
+    The eval scores the prompt, not the parser: if the model writes an action
+    name into `verdict`, the fixture should fail so the eval catches the
+    enum-confusion as a prompt miss. The page_id must be valid so normalization
+    is the only rejection path — otherwise the body starts with INVALID_VERDICT:.
+    """
+    from app.graph import interaction_review
+    from tests.evals.runner import Contract, evaluate_contracts
+
+    fixture = _fixture("interaction-review-recovers-completion-001")
+
+    async def fake_judge_turn(_inputs):
+        # The observed enum confusion: action name copied into verdict.
+        # page_id is the fixture's open task so the page rule passes.
+        return (
+            '{"verdict": "complete_task", "reason": "x", "action": "complete_task", '
+            '"page_id": "<placeholder-page-id-1>"}'
+        )
+
+    monkeypatch.setattr(interaction_review, "judge_turn", fake_judge_turn)
+    body, _title = _invoke_node("interaction_review", fixture)
+
+    assert body.startswith("NORMALIZED_VERDICT:")
+    (result,) = evaluate_contracts([Contract(kind="json_schema", spec={})], body)
+    assert result.passed is False
+
+
 def test_turn_action_contract_scores_what_the_node_did() -> None:
     """`turn_action` matches on action (and page when given); `present: false` forbids."""
     from tests.evals.runner import Contract, evaluate_contracts

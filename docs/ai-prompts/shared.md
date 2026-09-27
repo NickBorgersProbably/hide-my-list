@@ -203,6 +203,10 @@ target in this order:
    reminder pages included, since an open reminder is one that has not fired
    yet — and a model call confirms which task the message reports as
    finished. Word overlap ranks that list; it does not decide who is on it.
+   The model sees each candidate under a short alias (`t1`, `t2`, …) rather
+   than its page id and answers with the alias, which the node maps back: a
+   36-character id copied back by the model can come back with characters
+   dropped, and a mangled id is no match.
    When nothing clears the ranking threshold, the whole open list goes to the
    model instead (capped at 40, ranked), so a message that paraphrases a task
    rather than quoting its title still reaches the model. A match at or above
@@ -376,9 +380,9 @@ has to identify one, because the assertion was made on the previous turn.
 
 An answer that types a title back nearly verbatim resolves without a model
 call: when its task-naming words overlap exactly one open task's at a Dice
-score of 0.85 or more, that task is the answer. This shortcut applies only to
-answers. A standalone message always goes to the model, because containing a
-title's words is not the same as saying it is finished.
+score of 0.85 or more, that task is the answer. This shortcut reads only the
+answer's task-naming words, because an answer carries no completion claim of
+its own.
 
 Steering an answer back to the node that asked relaxes the framing but not the
 threshold: when the answer names a task and the shortcut does not apply, the

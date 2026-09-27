@@ -81,9 +81,7 @@ _TITLE_MATCH_CONFIDENCE_THRESHOLD = 0.90
 # Word-overlap bar for accepting an answer to "which task did you mean?"
 # without a model call. Only ever applied to an answer: the completion claim
 # was made on the previous turn, so the answer only has to name one task, and
-# typing a title back nearly verbatim does exactly that. A standalone message
-# never takes this path — "done, now I need to call mom" contains every word
-# of "Call mom" while saying it is not done.
+# typing a title back nearly verbatim does exactly that.
 _DETERMINISTIC_ANSWER_THRESHOLD = 0.85
 
 # Below the shortlist default (0.4) because a message names a task in fewer
@@ -448,6 +446,43 @@ def _task_reference_tokens(incoming: str) -> set[str]:
     return normalize_title_tokens(incoming) - _COMPLETION_WORDS
 
 
+def _candidate_alias(index: int) -> str:
+    """The id a candidate carries in the match prompt: `t1`, `t2`, … by position.
+
+    The model never sees a Notion page id. Copying a 36-character UUID back is
+    where the cheap tier fails with reasoning off: it drops or changes a few
+    characters rarely (observed: 2 of 182 paraphrase calls), the id then
+    matches no candidate, and a report that named its task outright gets
+    "which task did you mean?". A two-character alias leaves nothing to
+    mistype, and `_parse_aliased_match` maps it back to the page.
+    """
+    return f"t{index}"
+
+
+def _parse_aliased_match(
+    response_text: str, candidates: Sequence[DedupCandidate]
+) -> tuple[DedupCandidate, float] | None:
+    """Read a match response written against `_candidate_alias` ids.
+
+    Returns the candidate the alias points at and the model's confidence, or
+    None for anything `parse_match_response` rejects — unparseable output, a
+    null match, or an alias that names no candidate.
+    """
+    by_alias = {
+        _candidate_alias(index): candidate
+        for index, candidate in enumerate(candidates, start=1)
+    }
+    aliased = [
+        DedupCandidate(page_id=alias, title=candidate.title, score=candidate.score)
+        for alias, candidate in by_alias.items()
+    ]
+    parsed = parse_match_response(response_text, aliased)
+    if parsed is None:
+        return None
+    alias, confidence = parsed
+    return by_alias[alias], confidence
+
+
 def _build_completion_match_prompt(
     incoming: str,
     candidates: list[DedupCandidate],
@@ -472,8 +507,8 @@ def _build_completion_match_prompt(
     an ordinal a referent.
     """
     candidate_payload = [
-        {"id": candidate.page_id, "title": candidate.title}
-        for candidate in candidates
+        {"id": _candidate_alias(index), "title": candidate.title}
+        for index, candidate in enumerate(candidates, start=1)
     ]
     if answering_clarification:
         instructions = (
@@ -703,13 +738,10 @@ async def _resolve_title_match(
                     candidates=tuple(reoffered),
                     deterministic=True,
                 )
-
-        # Every candidate goes to the model, even one that quotes a title
+        # Every other message goes to the model, even one that quotes a title
         # verbatim. Containing a task's words is not the same as saying it is
         # finished: "done, now I need to call mom" contains all of "Call mom"
-        # while asserting the opposite. Only the whole sentence separates them,
-        # so there is no lexical shortcut past this call for a standalone
-        # message.
+        # while asserting the opposite. Only the whole sentence separates them.
         candidates = shortlist_duplicate_candidates(
             incoming,
             open_list,
@@ -812,8 +844,8 @@ async def _resolve_title_match(
             )),
             HumanMessage(content="Return only the JSON object."),
         ])
-        parsed = parse_match_response(str(response.content), candidates)
-        # Only the standalone framing asks for this field; an answer to a
+        parsed = _parse_aliased_match(str(response.content), candidates)
+        # Only a first-turn completion asks for this field; an answer to a
         # clarification is never read as naming something new.
         names_unlisted = not answering_clarification and _parse_names_unlisted(
             str(response.content)
@@ -825,15 +857,16 @@ async def _resolve_title_match(
         if parsed is None:
             return outcome(None, None)
 
-        page_id, confidence = parsed
+        matched, confidence = parsed
         if confidence < _TITLE_MATCH_CONFIDENCE_THRESHOLD:
             return outcome(None, confidence)
 
-        matches = [candidate for candidate in candidates if candidate.page_id == page_id]
-        if len(matches) != 1:
+        # The same page listed twice would make the alias ambiguous about
+        # which entry the model read; refuse rather than pick.
+        if sum(1 for candidate in candidates if candidate.page_id == matched.page_id) != 1:
             return outcome(None, confidence)
 
-        return outcome(target_for(matches[0].page_id, matches[0].title), confidence)
+        return outcome(target_for(matched.page_id, matched.title), confidence)
     except Exception:
         # Counts only — the message and titles are the user's private words.
         log.warning(
@@ -1470,6 +1503,15 @@ async def complete_node(state: State) -> dict[str, Any]:
             and title_match.candidate_count > 0
             and title_match.target is None
         ):
+            # The score is a number the model returned, not user text: it is
+            # what tells a near miss (0.85) from a refusal (null) in a CI dump.
+            log.info(
+                "complete_node.title_match_rejected",
+                candidate_count=title_match.candidate_count,
+                match_confidence=title_match.confidence,
+                residue_token_count=len(residue),
+                answering_clarification=answering,
+            )
             return asked(_clarify_completion_target(
                 peer,
                 attempts=attempts,

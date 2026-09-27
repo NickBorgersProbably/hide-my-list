@@ -121,7 +121,7 @@ async def test_named_task_resolves_when_context_is_empty() -> None:
             complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
         ),
         patch("app.models.llm", return_value=_model(
-            json.dumps({"matched_page_id": "<page_A>", "confidence": 0.95})
+            json.dumps({"matched_page_id": "t1", "confidence": 0.95})
         )),
     ):
         result = await complete_module.complete_node(
@@ -159,7 +159,7 @@ async def test_named_task_outranks_a_live_active_task_on_another_page() -> None:
             complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
         ),
         patch("app.models.llm", return_value=_model(
-            json.dumps({"matched_page_id": "<page_B>", "confidence": 0.95})
+            json.dumps({"matched_page_id": "t1", "confidence": 0.95})
         )),
     ):
         await complete_module.complete_node(_state("done with the dishes", live_active))
@@ -213,7 +213,7 @@ async def test_sub_threshold_confidence_does_not_write() -> None:
             complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)
         ),
         patch("app.models.llm", return_value=_model(
-            json.dumps({"matched_page_id": "<page_A>", "confidence": 0.85})
+            json.dumps({"matched_page_id": "t1", "confidence": 0.85})
         )),
     ):
         result = await complete_module.complete_node(_state("done with the dishes"))

@@ -1,0 +1,43 @@
+---
+# Complete scenario: a paraphrase that shares no word with its title, over
+# page ids shaped like real Notion ids. The paraphrase needs the model, and
+# the model has to name the page it means. Copying a 36-character id back is
+# where the cheap tier misfires with reasoning off — a dropped character
+# matches no candidate and the node asks "which task?" about a task the user
+# just reported. Candidates reach the model as short aliases (t1, t2, …), so
+# there is no id to mistype. The ids below are random, not real pages.
+id: complete-paraphrase-uuid-ids-001
+node: complete
+tier: cheap
+peer: "<test-peer-13>"
+inbound: "got rid of that old fridge finally"
+prior_state:
+  streak: 1
+  tasks_completed_today: 0
+  conversation_state: idle
+notion_tasks:
+  - id: "4c1e9a07-2b6d-4f38-9e51-7d0a3c8b6f24"
+    title: "Deal with the spare refrigerator"
+    status: "Pending"
+    work_type: "Physical"
+    energy_required: "Medium"
+    time_estimate: 60
+  - id: "a93f5d12-0e7c-4b84-b1a6-2f8e6d49c071"
+    title: "Book the dentist"
+    status: "Pending"
+    work_type: "Independent"
+    energy_required: "Low"
+    time_estimate: 10
+contracts:
+  - kind: shame_safe
+    threshold: 0.85
+  - kind: regex_forbid
+    pattern: "(?i)which\\s+task"
+  - kind: judge
+    rubric: |
+      The user reported getting rid of an old fridge, and the open task list
+      holds "Deal with the spare refrigerator". The response acknowledges that
+      task as completed and celebrates it. It does NOT ask which task was
+      meant and does NOT say it cannot find the task. Score 1.0 for a
+      completion acknowledgment of the refrigerator task, 0.0 otherwise.
+    threshold: 0.7

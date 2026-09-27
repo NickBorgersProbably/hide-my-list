@@ -492,7 +492,7 @@ async def test_complete_node_resolves_task_named_in_the_message() -> None:
         patch(
             "app.models.llm",
             return_value=_mock_llm_response(
-                json.dumps({"matched_page_id": "<page_A>", "confidence": 0.95})
+                json.dumps({"matched_page_id": "t1", "confidence": 0.95})
             ),
         ),
     ):
@@ -526,7 +526,7 @@ async def test_complete_node_named_task_outranks_a_different_active_task() -> No
         patch(
             "app.models.llm",
             return_value=_mock_llm_response(
-                json.dumps({"matched_page_id": "<page_B>", "confidence": 0.95})
+                json.dumps({"matched_page_id": "t1", "confidence": 0.95})
             ),
         ),
     ):
@@ -566,7 +566,7 @@ async def test_complete_node_below_threshold_clarifies_rather_than_writing() -> 
         patch(
             "app.models.llm",
             return_value=_mock_llm_response(
-                json.dumps({"matched_page_id": "<page_B>", "confidence": 0.85})
+                json.dumps({"matched_page_id": "t1", "confidence": 0.85})
             ),
         ),
     ):
@@ -616,6 +616,118 @@ async def test_complete_node_ignores_a_task_the_user_still_has_to_do() -> None:
     update_status.assert_not_awaited()
     reward_mock.assert_not_awaited()
     assert result["pending_outbound"][0]["notion_page_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_complete_node_resolves_a_title_plus_filler_report_via_alias() -> None:
+    """"finished washing the dishes" names one task via the alias-backed model path.
+
+    Title-shaped reports go to the model with candidates as short aliases
+    (`t1`, `t2`, …) instead of page ids, so the model cannot mistype a UUID.
+    """
+    from app.graph.nodes import complete as complete_module
+
+    update_status = AsyncMock()
+    reward_mock = AsyncMock(return_value={"text": "Nice work!", "attachment_path": None})
+    query_all = AsyncMock(return_value={"results": [
+        _notion_task_page("<page_A>", "Wash the dishes"),
+        _notion_task_page("<page_B>", "Book the dentist"),
+    ]})
+    model = _mock_llm_response(json.dumps({"matched_page_id": "t1", "confidence": 1.0}))
+    llm_factory = MagicMock(return_value=model)
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.rewards.maybe_reward", reward_mock),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", llm_factory),
+    ):
+        result = await complete_module.complete_node(
+            _complete_state(incoming="finished washing the dishes")
+        )
+
+    update_status.assert_awaited_once_with(page_id="<page_A>", new_status="Completed")
+    assert reward_mock.await_args.kwargs["task_title"] == "Wash the dishes"
+    assert result["pending_outbound"][0]["notion_page_id"] == "<page_A>"
+    # Prompt must not contain any page id — aliases only.
+    prompt = str(model.ainvoke.await_args.args[0][0].content)
+    assert "<page_A>" not in prompt and "<page_B>" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_complete_node_still_asks_the_model_when_the_report_names_a_next_task() -> None:
+    """"done, now I need to call mom" names another task — model is asked, nothing completes.
+
+    Its task words are exactly "Call mom", but the sentence says what comes next,
+    not what is done. The model reads the whole message and returns no match.
+    """
+    from app.graph.nodes import complete as complete_module
+
+    update_status = AsyncMock()
+    query_all = AsyncMock(return_value={"results": [
+        _notion_task_page("<page_A>", "Call mom"),
+    ]})
+    model = _mock_llm_response(json.dumps({"matched_page_id": None, "confidence": 0.0}))
+    llm_factory = MagicMock(return_value=model)
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", llm_factory),
+    ):
+        await complete_module.complete_node(
+            _complete_state(incoming="done, now I need to call mom")
+        )
+
+    model.ainvoke.assert_awaited_once()
+    assert llm_factory.call_args.kwargs.get("caller") == "complete_title_match"
+    update_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_complete_node_logs_a_rejected_match_confidence_as_a_number() -> None:
+    """A sub-threshold match logs its score, so a CI dump shows a near miss.
+
+    The shortlisted candidate is rejected at 0.85 and the node asks; the score
+    is a number the model returned, not user text, and is logged as one.
+    """
+    from app.graph.nodes import complete as complete_module
+
+    query_all = AsyncMock(return_value={"results": [
+        _notion_task_page("<page_B>", "Wash the dishes"),
+    ]})
+
+    with (
+        patch("app.tools.notion.update_status", AsyncMock()),
+        patch("app.tools.notion.query_all", query_all),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch(
+            "app.models.llm",
+            return_value=_mock_llm_response(
+                json.dumps({"matched_page_id": "t1", "confidence": 0.85})
+            ),
+        ),
+        capture_logs() as logs,
+    ):
+        await complete_module.complete_node(
+            _complete_state(
+                incoming="done with the dishes",
+                active_task=_active_task("Fold the laundry", page_id="<page_A>"),
+            )
+        )
+
+    rejected = [e for e in logs if e["event"] == "complete_node.title_match_rejected"]
+    assert len(rejected) == 1
+    assert rejected[0]["match_confidence"] == 0.85
+    assert isinstance(rejected[0]["match_confidence"], float)
+    assert set(rejected[0]) == {
+        "event", "log_level", "candidate_count", "match_confidence",
+        "residue_token_count", "answering_clarification",
+    }
 
 
 @pytest.mark.asyncio
@@ -697,7 +809,7 @@ async def test_complete_node_keeps_active_task_metadata_when_the_name_matches_it
         patch("app.tools.rewards.maybe_reward", reward_mock),
         patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
         patch("app.models.llm", return_value=_mock_llm_response(
-            json.dumps({"matched_page_id": "<page_A>", "confidence": 0.95})
+            json.dumps({"matched_page_id": "t1", "confidence": 0.95})
         )),
     ):
         await complete_module.complete_node(

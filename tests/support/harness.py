@@ -29,6 +29,7 @@ through SQL.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sys
 import uuid
@@ -112,6 +113,13 @@ _SAFE_STRING_KEYS = frozenset(
     }
 )
 
+# The only keys whose *float* values are printed. A float cannot carry text,
+# but not every float means something out of context, so these are named:
+# each is a model score the app logs as a number, so a failing turn's dump
+# shows how far off the model was — a 0.85 near miss reads differently from a
+# null match.
+_SAFE_FLOAT_KEYS = frozenset({"match_confidence"})
+
 # Longest string an allowlisted key may print. Enum members and ids fit;
 # anything longer is not the value the key is expected to carry.
 _SAFE_STRING_MAX_LEN = 64
@@ -147,10 +155,11 @@ def _safe_event_fields(entry: dict[str, Any]) -> dict[str, Any]:
 
     Never message text, titles, or peers. `event` and `timestamp` (the
     structlog-added ones) are handled by the caller, not here. Booleans and
-    ints are kept under any key outside `_ALWAYS_PRIVATE_KEYS`. A string is
+    ints are kept under any key outside `_ALWAYS_PRIVATE_KEYS`; a finite float
+    only under a key in `_SAFE_FLOAT_KEYS`. A string is
     kept only when its key is in `_SAFE_STRING_KEYS` and the value has no
     whitespace and is at most `_SAFE_STRING_MAX_LEN` chars. Everything else
-    (strings under other keys, floats, dicts, lists) is dropped rather than
+    (strings and floats under other keys, dicts, lists) is dropped rather than
     guessed at.
     """
     safe: dict[str, Any] = {}
@@ -161,6 +170,9 @@ def _safe_event_fields(entry: dict[str, Any]) -> dict[str, Any]:
             continue
         if isinstance(value, bool | int):
             safe[key] = value
+        elif isinstance(value, float) and key in _SAFE_FLOAT_KEYS:
+            if math.isfinite(value):
+                safe[key] = value
         elif isinstance(value, str) and key in _SAFE_STRING_KEYS:
             if value and not any(ch.isspace() for ch in value) and len(value) <= _SAFE_STRING_MAX_LEN:
                 safe[key] = value

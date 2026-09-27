@@ -1,0 +1,250 @@
+"""Regression: a named task asked "which task?" when the match call misfired (bug #686).
+
+With reasoning off, the cheap-tier confirmation of an unambiguous standalone
+report sometimes came back unusable, and the node asked which task the user
+meant about the task they had just named. Measured: the model's confidence on
+these shapes is 1.0 on nearly every call (364 of 366 matches at ≥0.90; 2 of
+182 paraphrase calls produced a truncated page id that matched no candidate).
+
+The fix: candidates carry `t1`, `t2`, … aliases instead of page ids, so the
+model cannot mistype a UUID. `_parse_aliased_match` maps the alias back; a
+mangled or unknown alias is still no match.
+
+The guard the model path exists for is held here too: a report that also
+names what comes next still goes to the model and does not complete. And a
+punctuationless question ("Did the form submit?") must not complete the task —
+it goes to the model, which reads the whole sentence.
+"""
+from __future__ import annotations
+
+import inspect
+import json
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.graph.nodes import complete as complete_module
+from app.graph.state import State
+from app.tools import notion
+
+
+def _page(page_id: str, title: str) -> dict[str, Any]:
+    return {
+        "id": page_id,
+        "properties": {
+            "Title": {"title": [{"plain_text": title}]},
+            "Status": {"select": {"name": "Pending"}},
+            "Is Reminder": {"checkbox": False},
+        },
+    }
+
+
+def _state(incoming: str) -> State:
+    return {  # type: ignore[return-value]
+        "peer": "<test-peer>",
+        "incoming": incoming,
+        "intent": "COMPLETE",
+        "messages": [],
+        "active_task": None,
+        "streak": 0,
+        "tasks_completed_today": 0,
+        "user_prefs": {},
+        "conversation_state": "idle",
+        "recent_tasks": [],
+    }
+
+
+def _model(verdict: dict[str, Any]) -> AsyncMock:
+    response = MagicMock()
+    response.content = json.dumps(verdict)
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=response)
+    return model
+
+
+def _alias_model_for_title(title: str) -> MagicMock:
+    """A model that answers with whichever alias the prompt gave `title`.
+
+    Aliases number the shortlist the node actually offers (`t1`, `t2`, …),
+    not the caller's page list: a task the shortlist drops gets no alias, so
+    the mock reads the alias off the rendered `Candidates:` JSON like the
+    real model would.
+    """
+    response = MagicMock()
+    model = AsyncMock()
+
+    async def ainvoke(messages: list[Any]) -> MagicMock:
+        prompt = str(messages[0].content)
+        line = prompt.split("Candidates: ", 1)[1].split("\n", 1)[0]
+        alias = next(c["id"] for c in json.loads(line) if c["title"] == title)
+        response.content = json.dumps({"matched_page_id": alias, "confidence": 1.0})
+        return response
+
+    model.ainvoke = AsyncMock(side_effect=ainvoke)
+    return MagicMock(return_value=model)
+
+
+def _refused_model() -> MagicMock:
+    """An answer the node refuses: the observed truncated page id."""
+    return MagicMock(return_value=_model(
+        {"matched_page_id": "9e8b0eaf-b35a-5d85-a9c1-013055c5", "confidence": 1.0}
+    ))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "titles", "target"),
+    [
+        ("finished washing the dishes", ("Wash the dishes", "Book the dentist"), 0),
+        ("ok, cleaned out the garage", ("Clean out the garage", "Reply to the school email"), 0),
+        ("ok, replied to the school email", ("Clean out the garage", "Reply to the school email"), 1),
+    ],
+)
+async def test_a_named_report_completes_via_alias_match(
+    message: str, titles: tuple[str, ...], target: int
+) -> None:
+    """Title-shaped reports resolve through the alias-backed model path.
+
+    Candidates are shown as `t1`, `t2`, … — not as page ids — so the model
+    cannot produce a truncated UUID. `_parse_aliased_match` maps the alias back.
+    The alias numbers the shortlist the node offers, so the mock reads the
+    target's alias off the prompt rather than assuming the caller's order.
+    """
+    pages = [_page(f"<page_{index}>", title) for index, title in enumerate(titles)]
+    target_id = f"<page_{target}>"
+    update_status = AsyncMock()
+    llm_factory = _alias_model_for_title(titles[target])
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", AsyncMock(return_value={"results": pages})),
+        patch(
+            "app.tools.rewards.maybe_reward",
+            AsyncMock(return_value={"text": "Nice work!", "attachment_path": None}),
+        ),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", llm_factory),
+    ):
+        result = await complete_module.complete_node(_state(message))
+
+    update_status.assert_awaited_once()
+    kwargs = update_status.await_args.kwargs
+    assert set(kwargs) <= set(inspect.signature(notion.update_status).parameters)
+    assert kwargs == {"page_id": target_id, "new_status": "Completed"}
+    assert result["pending_outbound"][0]["notion_page_id"] == target_id
+    assert result.get("pending_clarification") is None
+    # Prompt must carry aliases, never raw page ids.
+    model_instance = llm_factory.return_value
+    prompt = str(model_instance.ainvoke.await_args.args[0][0].content)
+    assert "<page_0>" not in prompt and "<page_1>" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_a_paraphrase_resolves_through_an_alias_the_model_cannot_mistype() -> None:
+    """The paraphrase still needs the model; the model never sees a page id."""
+    fridge = "9e8b0eaf-b35a-5d85-a9c1-013055c5c21f"
+    dentist = "0d4f5a1e-6c2b-4b8e-9a77-1f3c2e5d6b70"
+    pages = [_page(fridge, "Deal with the spare refrigerator"), _page(dentist, "Book the dentist")]
+    update_status = AsyncMock()
+    model = _model({"matched_page_id": "t1", "confidence": 1.0})
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch("app.tools.notion.query_all", AsyncMock(return_value={"results": pages})),
+        patch(
+            "app.tools.rewards.maybe_reward",
+            AsyncMock(return_value={"text": "Nice work!", "attachment_path": None}),
+        ),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", MagicMock(return_value=model)),
+    ):
+        result = await complete_module.complete_node(
+            _state("got rid of that old fridge finally")
+        )
+
+    prompt = str(model.ainvoke.await_args.args[0][0].content)
+    assert fridge not in prompt and dentist not in prompt
+    assert update_status.await_args.kwargs == {"page_id": fridge, "new_status": "Completed"}
+    assert result["pending_outbound"][0]["notion_page_id"] == fridge
+
+
+@pytest.mark.asyncio
+async def test_a_mistyped_page_id_is_still_refused() -> None:
+    """The node never guesses from a partial id: the observed answer is no match."""
+    fridge = "9e8b0eaf-b35a-5d85-a9c1-013055c5c21f"
+    update_status = AsyncMock()
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch(
+            "app.tools.notion.query_all",
+            AsyncMock(return_value={"results": [_page(fridge, "Deal with the spare refrigerator")]}),
+        ),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", _refused_model()),
+    ):
+        result = await complete_module.complete_node(
+            _state("got rid of that old fridge finally")
+        )
+
+    update_status.assert_not_awaited()
+    assert result["pending_outbound"][0]["notion_page_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_report_that_names_the_next_task_still_asks_the_model() -> None:
+    update_status = AsyncMock()
+    response = MagicMock()
+    response.content = json.dumps({"matched_page_id": None, "confidence": 0.0})
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=response)
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch(
+            "app.tools.notion.query_all",
+            AsyncMock(return_value={"results": [_page("<page_0>", "Call mom")]}),
+        ),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", MagicMock(return_value=model)),
+    ):
+        result = await complete_module.complete_node(_state("done, now I need to call mom"))
+
+    model.ainvoke.assert_awaited_once()
+    update_status.assert_not_awaited()
+    assert result["pending_outbound"][0]["notion_page_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_punctuationless_question_goes_to_the_model_without_a_write() -> None:
+    """A question without a question mark must not complete the task.
+
+    "Did the form submit" has the same task words as "Submit form" and no
+    punctuation to guard against. With the standalone shortcut removed, all
+    standalone reports go to the model, which reads the whole sentence and
+    must refuse a question shape.
+    """
+    update_status = AsyncMock()
+    response = MagicMock()
+    response.content = json.dumps({"matched_page_id": None, "confidence": 0.0})
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=response)
+
+    with (
+        patch("app.tools.notion.update_status", update_status),
+        patch(
+            "app.tools.notion.query_all",
+            AsyncMock(return_value={"results": [_page("<page_0>", "Submit form")]}),
+        ),
+        patch("app.tools.rewards.maybe_reward", AsyncMock()),
+        patch.object(complete_module, "_load_recent_outbound_target", AsyncMock(return_value=None)),
+        patch("app.models.llm", MagicMock(return_value=model)),
+    ):
+        result = await complete_module.complete_node(_state("Did the form submit"))
+
+    model.ainvoke.assert_awaited_once()
+    update_status.assert_not_awaited()
+    assert result["pending_outbound"][0]["notion_page_id"] is None
