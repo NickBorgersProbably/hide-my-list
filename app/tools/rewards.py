@@ -211,9 +211,9 @@ _EMOJI_TEMPLATES: dict[str, list[str]] = {
     "epic": [
         "LEGENDARY! 🏆👑🔥🎉✨💪🚀⭐",
         "MAJOR WIN! 🏆👑🎉✨🔥",
-        "INBOX ZERO! 🏆👑✨🎉🔥💪🚀",
+        "HUGE! 🏆👑✨🎉🔥💪🚀",
         "LEGENDARY DAY! 👑⭐🏆🎊",
-        "PROJECT COMPLETE! 🚀⭐💪🎊",
+        "WHAT A WIN! 🚀⭐💪🎊",
     ],
 }
 

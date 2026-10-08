@@ -8,7 +8,8 @@ name: Review Coverage Evaluator
 # - Runs post-merge on main as a background task; never slows PR reviews
 # - Strong bias toward NO ACTION - adding review steps is expensive
 # - Analyzes both code changes AND agent review comments to find gaps
-# - Uses Opus for strong reasoning to avoid false positives
+# - Uses Codex on the frontier model tier for strong reasoning to avoid
+#   false positives (see .github/ci/agent-models.env)
 # - Creates issues with "review-pipeline" label for trackability
 
 on:
@@ -72,9 +73,36 @@ jobs:
       - name: Ensure CI image
         run: scripts/ensure-ci-image.sh "${CI_IMAGE}"
 
+      # Judgment-heavy (decides whether to open a new-reviewer issue), so
+      # this uses the frontier tier. See .github/ci/agent-models.env.
+      - name: Select Codex model tier
+        id: model-tier
+        run: |
+          set -euo pipefail
+          # Defensive fallback in case this checkout predates
+          # .github/ci/agent-models.env (e.g. it was deleted, or this
+          # step is copy-pasted into a workflow whose checkout doesn't
+          # guarantee the file). Values below must exactly match
+          # .github/ci/agent-models.env; scripts/test-agent-model-tier.sh
+          # fails the build if they drift.
+          if [ -f .github/ci/agent-models.env ]; then
+            # shellcheck disable=SC1091
+            source .github/ci/agent-models.env
+          else
+            echo "::notice::agent-models.env missing on this checkout; using built-in defaults"
+            CODEX_MODEL_FRONTIER=gpt-5.6-sol
+            CODEX_REASONING_FRONTIER=high
+            CODEX_MODEL_LUNA=gpt-5.6-luna
+            CODEX_REASONING_LUNA=low
+          fi
+          echo "model=$CODEX_MODEL_FRONTIER" >> "$GITHUB_OUTPUT"
+          echo "reasoning_effort=$CODEX_REASONING_FRONTIER" >> "$GITHUB_OUTPUT"
+
       - name: Evaluate review coverage with Codex
         env:
           OPENAI_API_KEY: ${{ vars.AI_API_KEY }}
+          CODEX_MODEL: ${{ steps.model-tier.outputs.model }}
+          CODEX_MODEL_REASONING_EFFORT: ${{ steps.model-tier.outputs.reasoning_effort }}
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           PR_NUMBER: ${{ needs.get-pr-context.outputs.pr_number }}
           REPO: ${{ github.repository }}
@@ -92,6 +120,8 @@ jobs:
             -v "${{ github.workspace }}:/workspace" \
             -v "$OUTPUT_STAGING:/output" \
             -e OPENAI_API_KEY \
+            -e CODEX_MODEL \
+            -e CODEX_MODEL_REASONING_EFFORT \
             -e GH_TOKEN \
             -e PR_NUMBER \
             -e REPO \

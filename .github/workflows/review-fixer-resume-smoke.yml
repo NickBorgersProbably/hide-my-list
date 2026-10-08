@@ -9,10 +9,10 @@ name: Review pipeline v2 — author-resume smoke test
 # Auto-runs on any PR that touches the resume code paths so a broken
 # helper / action / prompt / dispatch regression surfaces here instead
 # of in the next real review cycle (rule 2.9). The full cross-container
-# round-trip (codex exec resume / claude --continue) is empirically
-# validated by the first resolve-issue PR that exercises a multi-cycle
-# review loop in production — that requires a real LiteLLM call, which
-# is too expensive for every PR.
+# round-trip (`codex exec resume --last`) is empirically validated by
+# the first resolve-issue PR that exercises a multi-cycle review loop
+# in production — that requires a real LiteLLM call, which is too
+# expensive for every PR.
 
 on:
   pull_request:
@@ -22,13 +22,11 @@ on:
       - '**'
     paths:
       - '.github/actions/review-codex-resume/**'
-      - '.github/actions/review-claude-resume/**'
       - '.github/scripts/review/prompts/fixer-resume.md'
       - '.github/workflows/review-fixer.yml'
       - '.github/workflows/review-fixer-resume-smoke.yml'
       - '.github/workflows/codex.yml'
       - '.github/ci/prompts/codex-resolve-issue.md'
-      - '.github/ci/prompts/claude-resolve-issue.md'
       - 'scripts/ci-session-store.sh'
       - 'scripts/test-ci-session-store.sh'
   workflow_dispatch:

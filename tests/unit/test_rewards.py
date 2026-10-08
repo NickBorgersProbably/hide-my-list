@@ -184,6 +184,25 @@ class TestSensitiveTaskSuppression:
         # None of the results should be the sensitive-only muted message
         assert "Done. That mattered." not in results
 
+    def test_no_template_asserts_list_or_project_state(self) -> None:
+        """The reward layer scores a completion; it does not know the list is empty.
+
+        "INBOX ZERO!" went out with tasks still open. Copy celebrates the
+        effort and never claims a state the user can see is false.
+        """
+        import re
+
+        from app.tools.rewards import _EMOJI_TEMPLATES
+
+        state_claim = re.compile(r"(?i)inbox zero|project complete|all (tasks )?(done|cleared)")
+        offenders = [
+            text
+            for templates in _EMOJI_TEMPLATES.values()
+            for text in templates
+            if state_claim.search(text)
+        ]
+        assert offenders == []
+
     @pytest.mark.asyncio
     async def test_maybe_reward_sensitive_skips_image(self) -> None:
         """maybe_reward with a sensitive task title must not attempt image generation."""

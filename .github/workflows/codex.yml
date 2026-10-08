@@ -91,6 +91,7 @@ jobs:
       autoresolve_requested: ${{ steps.detect.outputs.autoresolve_requested }}
       issue_title_b64: ${{ steps.detect.outputs.issue_title_b64 }}
       agent: ${{ steps.detect.outputs.agent }}
+      claude_redirected: ${{ steps.detect.outputs.claude_redirected }}
     steps:
       - name: Detect /autoresolve command and select agent
         id: detect
@@ -108,6 +109,11 @@ jobs:
             printf '%s\n' "$1" | grep -Eq '^[[:space:]]*/autoresolve([[:space:]]|$)'
           }
 
+          # `claude` is still a recognized token in both forms below (back-
+          # compat for old comments/labels) but always resolves to codex —
+          # every CI-authoring role runs on Codex now. See "claude_redirected"
+          # output, which drives a one-time explanatory issue comment.
+          #
           # Optional `/autoresolve <agent>` form picks the author per invocation.
           extract_agent_from_comment() {
             printf '%s\n' "$1" \
@@ -134,21 +140,33 @@ jobs:
             echo "autoresolve_requested=false" >> "$GITHUB_OUTPUT"
           fi
 
-          # Agent priority: comment override > issue label > repo default.
-          AGENT=""
+          # Requested-agent priority: comment override > issue label > repo
+          # default. This is the token the user actually asked for, before
+          # the claude->codex redirect below.
+          REQUESTED=""
           if [ "$EVENT_NAME" = "issue_comment" ]; then
-            AGENT="$(extract_agent_from_comment "${COMMENT_BODY:-}")"
+            REQUESTED="$(extract_agent_from_comment "${COMMENT_BODY:-}")"
           fi
-          if [ -z "$AGENT" ]; then
-            AGENT="$(extract_agent_from_labels "${ISSUE_LABELS_JSON:-[]}")"
+          if [ -z "$REQUESTED" ]; then
+            REQUESTED="$(extract_agent_from_labels "${ISSUE_LABELS_JSON:-[]}")"
           fi
-          if [ -z "$AGENT" ]; then
-            AGENT="$DEFAULT_AGENT"
+          if [ -z "$REQUESTED" ]; then
+            REQUESTED="$DEFAULT_AGENT"
           fi
-          case "$AGENT" in
+          case "$REQUESTED" in
             codex|claude) ;;
-            *) AGENT="$DEFAULT_AGENT" ;;
+            *) REQUESTED="$DEFAULT_AGENT" ;;
           esac
+
+          # Every issue-resolution run authors on Codex. `claude` remains a
+          # valid token to type (back-compat) but always redirects.
+          if [ "$REQUESTED" = "claude" ]; then
+            AGENT="codex"
+            echo "claude_redirected=true" >> "$GITHUB_OUTPUT"
+          else
+            AGENT="$REQUESTED"
+            echo "claude_redirected=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "agent=${AGENT}" >> "$GITHUB_OUTPUT"
 
           printf 'issue_title_b64=%s\n' "$(printf '%s' "${ISSUE_TITLE:-}" | base64 -w0)" >> "$GITHUB_OUTPUT"
@@ -263,13 +281,42 @@ jobs:
             echo "container_home=${HOME_PATH}"
           } >> "$GITHUB_OUTPUT"
 
+      # Issue authoring is judgment-heavy (implements a fix, opens a PR),
+      # so it uses the frontier tier. See .github/ci/agent-models.env and
+      # docs/agentic-pipeline-learnings.md §2.12.
+      - name: Select Codex model tier for issue author
+        if: steps.check-existing.outputs.skip != 'true'
+        id: model-tier
+        run: |
+          set -euo pipefail
+          # Defensive fallback in case this checkout predates
+          # .github/ci/agent-models.env (e.g. it was deleted, or this
+          # step is copy-pasted into a workflow whose checkout doesn't
+          # guarantee the file). Values below must exactly match
+          # .github/ci/agent-models.env; scripts/test-agent-model-tier.sh
+          # fails the build if they drift.
+          if [ -f .github/ci/agent-models.env ]; then
+            # shellcheck disable=SC1091
+            source .github/ci/agent-models.env
+          else
+            echo "::notice::agent-models.env missing on this checkout; using built-in defaults"
+            CODEX_MODEL_FRONTIER=gpt-5.6-sol
+            CODEX_REASONING_FRONTIER=high
+            CODEX_MODEL_LUNA=gpt-5.6-luna
+            CODEX_REASONING_LUNA=low
+          fi
+          echo "model=$CODEX_MODEL_FRONTIER" >> "$GITHUB_OUTPUT"
+          echo "reasoning_effort=$CODEX_REASONING_FRONTIER" >> "$GITHUB_OUTPUT"
+
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows.
       # The host session dir is bind-mounted into the agent's home so the session
       # persists after the container exits and the fixer can resume it.
       - name: Resolve issue with Codex
-        if: steps.check-existing.outputs.skip != 'true' && needs.detect_autoresolve.outputs.agent == 'codex'
+        if: steps.check-existing.outputs.skip != 'true'
         env:
           OPENAI_API_KEY: ${{ vars.AI_API_KEY }}
+          CODEX_MODEL: ${{ steps.model-tier.outputs.model }}
+          CODEX_MODEL_REASONING_EFFORT: ${{ steps.model-tier.outputs.reasoning_effort }}
           GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE_B64: ${{ needs.detect_autoresolve.outputs.issue_title_b64 }}
@@ -292,6 +339,8 @@ jobs:
             -v "$OUTPUT_STAGING:/output" \
             -v "$SESSION_HOST_DIR:$SESSION_CONTAINER_HOME" \
             -e OPENAI_API_KEY \
+            -e CODEX_MODEL \
+            -e CODEX_MODEL_REASONING_EFFORT \
             -e GH_TOKEN \
             -e ISSUE_NUMBER \
             -e ISSUE_TITLE_B64 \
@@ -334,75 +383,30 @@ jobs:
           cp "$OUTPUT_STAGING/resolve-issue-conversation.jsonl" "${RUNNER_TEMP}/resolve-issue-conversation.jsonl" 2>/dev/null || true
           rm -rf "$OUTPUT_STAGING"
 
-      - name: Resolve issue with Claude Code
-        if: steps.check-existing.outputs.skip != 'true' && needs.detect_autoresolve.outputs.agent == 'claude'
+      # `/autoresolve claude` and the `agent:claude` label are still
+      # accepted (back-compat) but always redirect to Codex — see the
+      # "Detect /autoresolve command and select agent" step. Post an
+      # explanatory, deduplicated comment so a Claude request doesn't
+      # silently run as something the requester didn't ask for.
+      - name: Note Claude agent request redirected to Codex
+        if: steps.check-existing.outputs.skip != 'true' && needs.detect_autoresolve.outputs.claude_redirected == 'true'
+        continue-on-error: true
         env:
-          CLAUDE_ENV_PREFIX: ANTHROPIC
-          LLM_PROXY_API_KEY: fake-key
-          LLM_PROXY_BASE_URL: https://llm.featherback-mermaid.ts.net/anthropic/
-          GH_TOKEN: ${{ secrets.WORKFLOW_PAT }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE_B64: ${{ needs.detect_autoresolve.outputs.issue_title_b64 }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          SESSION_HOST_DIR: ${{ steps.session.outputs.host_dir }}
-          SESSION_CONTAINER_HOME: ${{ steps.session.outputs.container_home }}
         run: |
           set -euo pipefail
-
-          STAGING_ROOT="${RUNNER_TEMP:-/tmp}/ci-agent"
-          mkdir -p "$STAGING_ROOT"
-          OUTPUT_STAGING=$(mktemp -d "${STAGING_ROOT}/resolve.XXXXXX")
-          chmod 777 "$OUTPUT_STAGING"
-
-          docker run --rm \
-            --network host \
-            --workdir /workspace \
-            -v "${{ github.workspace }}:/workspace" \
-            -v "$OUTPUT_STAGING:/output" \
-            -v "$SESSION_HOST_DIR:$SESSION_CONTAINER_HOME" \
-            -e CLAUDE_ENV_PREFIX \
-            -e LLM_PROXY_API_KEY \
-            -e LLM_PROXY_BASE_URL \
-            -e GH_TOKEN \
-            -e ISSUE_NUMBER \
-            -e ISSUE_TITLE_B64 \
-            -e REPO \
-            -e RUN_ID \
-            -e GIT_CONFIG_COUNT=2 \
-            -e GIT_CONFIG_KEY_0=safe.directory \
-            -e GIT_CONFIG_VALUE_0=/workspace \
-            -e GIT_CONFIG_KEY_1=core.hooksPath \
-            -e GIT_CONFIG_VALUE_1=/workspace/.githooks \
-            "${CI_IMAGE}" \
-            -lc '
-              set -euo pipefail
-              export "${CLAUDE_ENV_PREFIX}_API_KEY=$LLM_PROXY_API_KEY"
-              export "${CLAUDE_ENV_PREFIX}_BASE_URL=$LLM_PROXY_BASE_URL"
-
-              if [ ! -d .githooks ]; then
-                echo "::warning::resolve-issue (claude): .githooks/ not found; commits will skip pre-commit/pre-push validation"
-              fi
-
-              ISSUE_TITLE=$(printf "%s" "$ISSUE_TITLE_B64" | base64 -d 2>/dev/null || echo "")
-              export ISSUE_TITLE
-
-              PROMPT=$(envsubst < .github/ci/prompts/claude-resolve-issue.md)
-
-              timeout 60m claude -p \
-                --dangerously-skip-permissions \
-                --permission-mode=bypassPermissions \
-                --model claude-sonnet-4-6 \
-                --verbose \
-                --output-format=stream-json \
-                "$PROMPT" \
-                < /dev/null 2>&1 \
-                | tee /output/resolve-issue-conversation.jsonl
-            '
-
-          mkdir -p "${RUNNER_TEMP}"
-          cp "$OUTPUT_STAGING/resolve-issue-conversation.jsonl" "${RUNNER_TEMP}/resolve-issue-conversation.jsonl" 2>/dev/null || true
-          rm -rf "$OUTPUT_STAGING"
+          MARKER="<!-- claude-agent-redirect-notice -->"
+          if gh issue view "${ISSUE_NUM}" --repo "${REPO}" --json comments \
+               --jq '.comments[].body' | grep -qF "${MARKER}"; then
+            echo "Redirect notice already posted on issue #${ISSUE_NUM}."
+            exit 0
+          fi
+          BODY=$(printf '%s\n%s' \
+            "${MARKER}" \
+            'This issue requested the `claude` agent (via `/autoresolve claude` or the `agent:claude` label). Every CI issue-authoring run now uses Codex, so this run authored with Codex instead. `agent:codex` / `agent:claude` and `/autoresolve codex` / `/autoresolve claude` remain valid — `claude` just always maps to `codex`. See `DEV-AGENTS.md` "Filing an Issue Starts an Agent".')
+          gh issue comment "${ISSUE_NUM}" --repo "${REPO}" --body "${BODY}"
 
       # The pre-flight check runs before the agent starts, so it cannot see a
       # competing PR opened while the agent was working. Re-check afterwards and
@@ -479,7 +483,7 @@ jobs:
             echo "Author session persisted at $(./scripts/ci-session-store.sh host-dir "${AGENT}" "${ISSUE_NUMBER}" "${RUN_ID}")"
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Author session not persisted; review-pipeline fixer will fall back to fresh Claude."
+            echo "::warning::Author session not persisted; review-pipeline fixer will fall back to fresh Codex."
             echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
 

@@ -1,0 +1,41 @@
+---
+# Chat offering to show the list. The spec's CONSTRAINTS say the user never
+# sees their full task list, so "Want to see your other tasks?" is an offer no
+# module can honor — accepting it yields one suggestion, not a list. After a
+# completion the forward step the chat prompt offers is one suggestion or
+# adding something new (chat.md.j2 Response Guidelines, grounded in the Recent
+# Task Ledger section of docs/ai-prompts/shared.md).
+id: chat-never-offers-the-list-001
+node: chat
+tier: medium
+peer: "<test-peer-chat-no-list>"
+inbound: "cool, what else is there?"
+prior_state:
+  active_task: null
+  conversation_state: idle
+  messages:
+    - role: user
+      content: "finished the dishes"
+    - role: assistant
+      content: "Wash the dishes — done. Nice work! ✨"
+  recent_tasks:
+    - page_id: "<placeholder-page-id-1>"
+      title: "Wash the dishes"
+      kind: task
+      event: completed
+contracts:
+  - kind: regex_forbid
+    pattern: "(?i)see (your|the) (other|remaining)? ?tasks|show (you )?(your|the) list|list (of )?(your )?tasks|here('s| is) your list"
+  - kind: judge
+    rubric: |
+      The user just finished a task and asked what else there is. The
+      assistant never shows or offers to show the task list. The response
+      must NOT list several tasks, and must NOT offer to show, list, or
+      enumerate the user's tasks ("want to see your other tasks?", "here's
+      your list"). It SHOULD offer one forward step: a single task suggestion
+      ("want a suggestion?") or adding something new. Score 1.0 when it
+      offers a suggestion or adding a task without offering the list, 0.0
+      when it lists tasks or offers to show them.
+    threshold: 0.7
+  - kind: shame_safe
+    threshold: 0.8

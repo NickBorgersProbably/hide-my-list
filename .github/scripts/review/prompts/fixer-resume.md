@@ -96,7 +96,7 @@ resolve them all.
      `Closes #N` on its own line — `review-fixer.yml` parses this to
      recover the issue number for session-dir lookup; dropping it
      disables author-resume on the next cycle and falls back to fresh
-     Claude.
+     Codex.
    - The `Author-Session: <agent>/<run-id>` trailer — the next cycle
      reads it to resume you again.
 6. Leave file changes unstaged. Host step commits.
