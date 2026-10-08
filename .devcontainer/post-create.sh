@@ -30,6 +30,18 @@ fi
 # token (CLAUDE_CODE_OAUTH_TOKEN, exported from .claude-oauth-token), never
 # ~/.claude/.credentials.json. That file carries a refresh token, which rotates
 # on use and would log the host out if the container refreshed it.
+stale_claude_credentials="$HOME/.claude"/.credentials.json
+host_claude_credentials="${CLAUDE_HOST_CONFIG_DIR:-}"/.credentials.json
+if [ -e "$stale_claude_credentials" ]; then
+  if [ -n "${CLAUDE_HOST_CONFIG_DIR:-}" ] \
+     && [ -e "$host_claude_credentials" ] \
+     && [ "$stale_claude_credentials" -ef "$host_claude_credentials" ]; then
+    echo "Preserving mounted host Claude credentials file."
+  else
+    rm -f "$stale_claude_credentials"
+    echo "Removed stale container-local Claude credentials copy."
+  fi
+fi
 bash "$SCRIPT_DIR/wire-claude-token.sh" "$REPO_ROOT/.devcontainer/.claude-oauth-token"
 
 # Create $HOME/.claude/tmp so Claude Code's hook runner (which sets TMPDIR to
