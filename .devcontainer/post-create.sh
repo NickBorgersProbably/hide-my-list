@@ -26,23 +26,11 @@ else
   echo "Warning: No gh token found; gh CLI credentials not available."
 fi
 
-# Set up Claude Code credentials from host keychain (written by initializeCommand)
-# Claude Code reads ~/.claude/.credentials.json on Linux (no keychain available)
-CLAUDE_CRED_FILE="$REPO_ROOT/.devcontainer/.claude-credentials"
-if [ -s "$CLAUDE_CRED_FILE" ]; then
-  echo "Setting up Claude Code credentials..."
-  mkdir -p "$HOME/.claude"
-  if [ ! -f "$HOME/.claude/.credentials.json" ]; then
-    cp "$CLAUDE_CRED_FILE" "$HOME/.claude/.credentials.json"
-    chmod 600 "$HOME/.claude/.credentials.json"
-    echo "Claude Code credentials configured."
-  else
-    echo "Claude Code credentials already present; leaving existing file in place."
-  fi
-  rm -f "$CLAUDE_CRED_FILE"
-else
-  echo "Warning: No Claude credentials found; Claude Code credentials not available."
-fi
+# Claude Code login: the container gets only the host's short-lived access
+# token (CLAUDE_CODE_OAUTH_TOKEN, exported from .claude-oauth-token), never
+# ~/.claude/.credentials.json. That file carries a refresh token, which rotates
+# on use and would log the host out if the container refreshed it.
+bash "$SCRIPT_DIR/wire-claude-token.sh" "$REPO_ROOT/.devcontainer/.claude-oauth-token"
 
 # Create $HOME/.claude/tmp so Claude Code's hook runner (which sets TMPDIR to
 # that path) can call mktemp without failing.
