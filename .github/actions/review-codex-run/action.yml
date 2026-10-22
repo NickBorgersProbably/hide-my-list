@@ -231,16 +231,19 @@ runs:
       # `pr-head`), and the whole pipeline aborts before any reviewer
       # finishes. Reset under `if: always()` so failed `docker run`
       # invocations still clean up their mess.
+      # Same-job host steps (validate, ruff, git commit, upload) also need
+      # the files back. The chown runs in a container rather than through
+      # sudo, because the isolated homelab runners have no sudo; see
+      # scripts/reclaim-ownership.sh.
       if: always()
       shell: bash
       env:
         WORKSPACE_FOLDER: ${{ inputs.workspace_folder }}
+        CI_AGENT_IMAGE: ${{ inputs.image }}
       run: |
         set -euo pipefail
         WORKSPACE_HOST="${GITHUB_WORKSPACE}/${WORKSPACE_FOLDER}"
-        if [ -d "$WORKSPACE_HOST" ]; then
-          sudo chown -R "$(id -u):$(id -g)" "$WORKSPACE_HOST"
-        fi
+        "${GITHUB_WORKSPACE}/scripts/reclaim-ownership.sh" "$CI_AGENT_IMAGE" "$WORKSPACE_HOST"
 
     - name: Clean up staged env file
       if: always()

@@ -73,6 +73,12 @@ home-automation refactor:
   caller-requested path on the runner side. (Review pipeline v2
   sidesteps this because it writes its structured JSON output directly
   to `.review-output/` inside the bind-mounted workspace.)
+- **No `sudo` on the runner.** The isolated homelab runners (one
+  rootless Docker daemon per repo, a fresh container per job) have no
+  sudo and no pip. To get back files the container wrote, call
+  `scripts/reclaim-ownership.sh <image> <dir>`, which runs the chown in a
+  throwaway container. For host-side Python tools, use
+  `actions/setup-python` first. Both work on the legacy runners too.
 - **Always `--network host`** so the nested container inherits the
   runner's Tailscale connection to LiteLLM at
   `https://llm.featherback-mermaid.ts.net/v1`.

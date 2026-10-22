@@ -389,6 +389,17 @@ jobs:
             rm -f "$TEMP_SCHEMA"
           fi
 
+      # A Python with pip for the install step below. The isolated
+      # homelab runners (official actions-runner image, Ubuntu 24.04) ship
+      # python3 without pip, and their system Python is PEP 668
+      # externally-managed, so `python3 -m pip install --user` fails there.
+      # setup-python gives the same interpreter on both runner kinds, with
+      # no sudo, and matches python-validation.yml's 3.12.
+      - name: Set up Python 3.12 for hook tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       # Install the tools that .githooks/pre-commit invokes via
       # scripts/run-required-checks.sh. The host commit step below sets
       # core.hooksPath=.githooks, which activates the same hook a

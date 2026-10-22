@@ -57,13 +57,20 @@ jobs:
 
       - name: Check if diagnosis is needed
         id: check
+        # Event values arrive via env, never interpolated into the script.
+        # head_branch is the triggering run's branch name, which a fork PR
+        # chooses freely; git allows $(...), backticks and ; in ref names,
+        # so interpolating it into the script would run it as shell.
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          CONCLUSION="${{ github.event.workflow_run.conclusion }}"
-          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
-          RUN_ID="${{ github.event.workflow_run.id }}"
-
           echo "Workflow: $WORKFLOW_NAME"
           echo "Conclusion: $CONCLUSION"
           echo "Run ID: $RUN_ID"
@@ -86,12 +93,12 @@ jobs:
           # Skip duplicate diagnoses for the same workflow/branch/commit failure signature.
           EXISTING_ISSUE=$(scripts/create-deduped-workflow-failure-issue.sh \
             --check-only \
-            "${{ github.repository }}" \
+            "$REPO" \
             "$WORKFLOW_NAME" \
             "$RUN_ID" \
-            "${{ github.event.workflow_run.html_url }}" \
-            "${{ github.event.workflow_run.head_branch }}" \
-            "${{ github.event.workflow_run.head_sha }}")
+            "$RUN_URL" \
+            "$HEAD_BRANCH" \
+            "$HEAD_SHA")
 
           if [ -n "$EXISTING_ISSUE" ]; then
             echo "Issue #$EXISTING_ISSUE already exists for this failure signature - skipping"
@@ -197,7 +204,11 @@ jobs:
 
               # envsubst expands ${WORKFLOW_NAME}, ${RUN_ID}, etc. at
               # prompt-construction time so codex receives resolved values.
-              PROMPT=$(envsubst < .github/ci/prompts/diagnose-workflow-failure.md)
+              # HEAD_BRANCH is deliberately left out: a fork PR picks the
+              # branch name, and the prompt has the agent run a shell
+              # command with it. Unexpanded, the agent passes the env var
+              # ("${HEAD_BRANCH}"), whose value bash never re-parses.
+              PROMPT=$(envsubst "\$WORKFLOW_NAME \$RUN_ID \$RUN_URL \$HEAD_SHA \$REPO" < .github/ci/prompts/diagnose-workflow-failure.md)
 
               timeout 30m codex exec \
                 --json \
