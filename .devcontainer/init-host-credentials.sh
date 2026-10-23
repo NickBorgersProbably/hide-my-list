@@ -64,6 +64,23 @@ claude_json="$(claude_creds_json || true)"
 claude_token="$(printf '%s' "$claude_json" | claude_json_field accessToken)"
 claude_expires_ms="$(printf '%s' "$claude_json" | claude_json_field expiresAt)"
 unset claude_json
+claude_kind="access token"
+
+# A long-lived token from `claude setup-token` (about a year, no refresh token,
+# nothing rotates) beats the host login's ~8 hour access token. Save it in
+# ~/.config/claude-devcontainer/oauth-token (mode 600) or export it as
+# CLAUDE_DEVCONTAINER_OAUTH_TOKEN. Neither path involves the refresh token.
+long_lived="${CLAUDE_DEVCONTAINER_OAUTH_TOKEN:-}"
+long_lived_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-devcontainer/oauth-token"
+if [ -z "$long_lived" ] && [ -s "$long_lived_file" ]; then
+    long_lived="$(tr -d '[:space:]' < "$long_lived_file")"
+fi
+if [ -n "$long_lived" ]; then
+    claude_token="$long_lived"
+    claude_expires_ms=4102444800000   # setup-token tokens carry no expiry we can read
+    claude_kind="long-lived token"
+fi
+unset long_lived
 
 : > "$CLAUDE_TOKEN_FILE"    # truncate in place; stale tokens never survive
 chmod 600 "$CLAUDE_TOKEN_FILE"
@@ -74,6 +91,6 @@ elif [ -n "$claude_expires_ms" ] && [ "$claude_expires_ms" -le "$now_ms" ] 2>/de
     echo "[init-host-credentials] The host Claude token has expired; run claude on the host, then restart the devcontainer." >&2
 else
     printf '%s\n' "$claude_token" > "$CLAUDE_TOKEN_FILE"
-    echo "[init-host-credentials] Claude access token captured (no refresh token)." >&2
+    echo "[init-host-credentials] Claude $claude_kind captured (no refresh token)." >&2
 fi
 unset claude_token
