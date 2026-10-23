@@ -82,6 +82,20 @@ def test_init_removes_a_credentials_copy_left_by_older_revisions(tmp_path: Path)
     assert not (work / ".claude-credentials").exists()
 
 
+def test_init_prefers_a_long_lived_setup_token_even_when_the_login_expired(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _write_creds(home, expires_in_s=-60)
+    long_lived = home / ".config" / "claude-devcontainer" / "oauth-token"
+    long_lived.parent.mkdir(parents=True)
+    long_lived.write_text("fake-long-lived-LLLL\n", encoding="utf-8")
+    _, work = _run_init(tmp_path, home)
+
+    assert (work / ".claude-oauth-token").read_text(encoding="utf-8").strip() == "fake-long-lived-LLLL"
+    for path in work.iterdir():
+        if path.is_file():
+            assert _FAKE_REFRESH not in path.read_text(encoding="utf-8", errors="ignore")
+
+
 def test_init_warns_and_writes_nothing_when_expired(tmp_path: Path) -> None:
     home = tmp_path / "home"
     _write_creds(home, expires_in_s=-60)
