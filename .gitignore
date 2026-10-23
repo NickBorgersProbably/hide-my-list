@@ -38,6 +38,7 @@ home-automation/
 # Devcontainer secrets
 .devcontainer/.gh-token
 .devcontainer/.claude-credentials
+.devcontainer/.claude-oauth-token
 .devcontainer/.claude-config
 .devcontainer/known_hosts
 .devcontainer/ssh_config
